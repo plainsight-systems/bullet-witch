@@ -1,4 +1,7 @@
 // E1: task lifecycle and ordered update passes (0x40b4f0/570/4c0).
+// Runs callbacks on the thread calling tick; no worker threads or locks.
+// All API calls require one owning thread; concurrent access is unsafe.
+// ticking_ only detects recursion and provides no synchronization.
 // Owns callbacks, single-threaded; callbacks may request transitions/add tasks,
 // but may not recursively tick. IDs remain stable; new tasks join next tick.
 // Callback exceptions mark a task faulted and propagate; it never updates
@@ -10,6 +13,11 @@
 // COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md):
 // unique runtime owners cannot be copied; moves preserve stable heap identity.
+
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
 
 #pragma once
 #include <cstdint>
@@ -30,7 +38,7 @@ enum class State : std::uint8_t {
 struct Hooks {
   std::function<void()> initialize, activate, deactivate, destroy, update, late;
 };
-class Scheduler {
+class TaskLifecycleScheduler {
  public:
   TaskId add(int priority, Hooks hooks);
   void request(TaskId id, State target);

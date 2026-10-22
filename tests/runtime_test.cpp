@@ -5,13 +5,18 @@
 // design and implementation: I.30 (#ri-encapsulate), SL.con.3 (#rsl-bounds),
 // COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
 // guide owned context lifetime, bounded fixtures and callback boundaries.
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include <iostream>
 #include <stdexcept>
 #include <string>
 
 #include "bw/script/chunk.hpp"
 #include "bw/script/context.hpp"
-#include "bw/tasks/scheduler.hpp"
+#include "bw/tasks/task_lifecycle_scheduler.hpp"
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -119,7 +124,7 @@ void result_stack_and_wait_error() {
 void scheduling() {
   using bw::tasks::Hooks;
   using bw::tasks::State;
-  bw::tasks::Scheduler scheduler;
+  bw::tasks::TaskLifecycleScheduler scheduler;
   std::string trace;
   auto id =
       scheduler.add(30, Hooks{[&] { trace += 'i'; }, [&] { trace += 'a'; },

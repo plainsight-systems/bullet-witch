@@ -8,6 +8,37 @@ Source boundaries follow runtime responsibilities and reasons for change. They
 are not reconstruction stages. A library/module can serve startup, play and
 shutdown; no milestone has its own parallel engine implementation.
 
+## Naming and provenance
+
+Name reconstructed engine types, functions and files for their responsibility.
+Readers should not need the original engine's vocabulary to understand an API.
+Use descriptive words; preserve established public terminology such as Lua.
+Do not invent expansions for unexplained original abbreviations.
+
+Original extensions, signatures, record tags and Lua-visible binding names remain
+at compatibility boundaries because the purchased data/scripts require those exact
+values. Document their relationship to the engine's concepts here and in decoder
+contracts. Original-engine research retains the identifiers needed to trace evidence.
+
+| Engine concept / type | Responsibility | Original identifier |
+|---|---|---|
+| `ResourceArchive` / `ResourceArchiveRecord` | Own an archive's bytes and expose bounded resource records/payloads | `.cpr`, `CPR1` |
+| `ResourceCatalogData` | Decode catalog names, file references and dependencies | `.rat`, `RAT ` |
+| `ResourceCatalog` | Own decoded catalog data and index it for lookup | RAT-backed catalog |
+| `NamedFilePackage` / `PackageMember` | Access individual named files inside a package | `.dpk`, `dpk\0` |
+| `TaskLifecycleScheduler` | Advance lifecycle, active-update and late-update passes on one thread | Recovered task-dispatch functions |
+
+The matching files are `formats/resource_archive`, `formats/resource_catalog`,
+`formats/named_file_package` and `tasks/task_lifecycle_scheduler`. Content entry
+points are `open_archive` and `open_catalog`. The source API uses these names
+throughout; there are no aliases retaining the old opaque type names.
+The inspector's existing `cpr`/`rat` commands, JSON format labels and diagnostic
+signatures remain file-format identifiers, preserving existing research tooling.
+
+`TaskLifecycleScheduler` creates no threads and has no locking. All calls require
+one owning thread; even a query must not race with mutation. Its recursion flag
+is not synchronization. A future worker/job executor has a separate responsibility.
+
 ## Source families
 
 The tree is the target organization; the implemented subset is listed below. Public portable contracts
@@ -211,14 +242,14 @@ and subsequent reconstruction sequence live in IMPLEMENTATION, not this architec
 
 The former combined `src/resources.cpp` is split into `src/formats/`
 (CPR/RAT/common errors), `src/resources/catalog.cpp`, `src/content/access.cpp`
-and `src/platform/files/host.cpp`, with corresponding public headers. RatData
-owns decoded metadata; RatCatalog owns that value and an index. Public type
+and `src/platform/files/host.cpp`, with corresponding public headers. ResourceCatalogData
+owns decoded metadata; ResourceCatalog owns that value and an index. Public type
 names retain the `bw::resources` namespace for compatibility. The file
 capability is injected at the content boundary. This is implemented; other
 proposed files in the mapping remain proposals until documented otherwise.
 
-The implemented startup subset adds `formats/dpk`, `resources/service`,
-`script/chunk`, `script/context`, `tasks/scheduler` and `src/game/root_driver`
+The implemented startup subset adds `formats/named_file_package`, `resources/service`,
+`script/chunk`, `script/context`, `tasks/task_lifecycle_scheduler` and `src/game/root_driver`
 (with its private header alongside it). CMake targets preserve dependency order:
 `bw_game` → `bw_runtime` → `bw_resources`; the script adapter privately links
 `bw_lua502`. A1 owns DPK layout, A3/A4 resource lifecycle/USER construction, E1

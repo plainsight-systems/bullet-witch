@@ -8,11 +8,16 @@
 // Provisioned integration scenario: real read-only catalog/archive/package,
 // original Lua, and scheduler/root composition. Screen/global services below
 // are deterministic test fixtures, NOT reconstructed game behavior/rendering.
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include <iostream>
 #include <stdexcept>
 #include <vector>
 
-#include "bw/tasks/scheduler.hpp"
+#include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/root_driver.hpp"
 namespace {
 using bw::game::Screen;
@@ -52,12 +57,12 @@ int main(int argc, char** argv) {
     const auto path = game / "data/data/stable/stable.rat";
     bw::platform::HostFiles files;
     bw::resources::CatalogSet catalogs;
-    catalogs.mount(30, path, bw::content::open_rat(files, path));
+    catalogs.mount(30, path, bw::content::open_catalog(files, path));
     bw::resources::ResourceService resources(std::move(catalogs), files);
     Screens screens;
     {
       bw::game::RootDriver root(resources, screens, 1);
-      bw::tasks::Scheduler scheduler;
+      bw::tasks::TaskLifecycleScheduler scheduler;
       bw::script::RunResult result{bw::script::RunState::idle, {}};
       (void)scheduler.add(
           30, bw::tasks::Hooks{.update = [&] { result = root.advance(); }});

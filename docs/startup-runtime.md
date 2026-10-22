@@ -1,7 +1,7 @@
 # Startup runtime contracts
 
 The shared resource path is implemented in `resources/service`, with bounded
-script-package access in `formats/dpk`. This extends the production resource
+script-package access in `formats/named_file_package`. This extends the production resource
 foundation; the inspector and future game use these modules.
 
 Resource requests resolve the entire dependency closure through the mounted
@@ -61,11 +61,12 @@ and its private declaration under `src/game/`. The inspector remains a resource
 consumer. There is one engine implementation, shared by verification and future
 application composition.
 
-The task scheduler preserves the recovered current/requested state values and
+The `TaskLifecycleScheduler` preserves the recovered current/requested state values and
 settles lifecycle transitions before separate active and late passes. Both passes
 require enabled/current-active; a finish requested during update takes effect
 on the next lifecycle pass. The late pass is explicitly gated by its caller.
-Priority then insertion ID defines order. Insertions during a tick join the next
+All calls require one owning thread; the scheduler creates no threads and is
+not thread-safe. Priority then insertion ID defines order. Insertions during a tick join the next
 snapshot; this is a declared host policy pending closure of dynamic insertion
 and all-mode order. Callback failures quarantine that task and propagate.
 
@@ -110,7 +111,7 @@ remain explicit future work.
 
 ```mermaid
 sequenceDiagram
-    participant Host as Task scheduler
+    participant Host as TaskLifecycleScheduler
     participant Root as Root driver
     participant Resource as Resource service
     participant Lua as Lua context / original root.lub

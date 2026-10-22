@@ -15,12 +15,17 @@
 // owners rule-of-zero. Implementation: SL.con.3 (#rsl-bounds) bounds every
 // decoded slice; COPY.4 avoids accidental owning-container copies.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include "bw/resources/service.hpp"
 
 #include <algorithm>
 #include <limits>
 namespace bw::resources {
-ResourceLease::ResourceLease(std::shared_ptr<const CprArchive> archive,
+ResourceLease::ResourceLease(std::shared_ptr<const ResourceArchive> archive,
                              std::size_t record)
     : archive_(std::move(archive)), record_(record) {
   if (!archive_) {
@@ -119,7 +124,7 @@ LoadReport ResourceService::pump(ResourceTag tag) {
     try {
       if (phase == LoadState::requested) {
         const auto& mount = catalogs_.catalogs().at(key.first);
-        file.archive = std::make_shared<CprArchive>(content::open_cpr(
+        file.archive = std::make_shared<ResourceArchive>(content::open_archive(
             files_.get(),
             content::archive_path(files_.get(), mount, key.second)));
         file.state = LoadState::opened;

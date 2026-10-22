@@ -18,6 +18,12 @@ and implemented behavior.
    querying separately for every function.
 4. Check correctness and cost, then update memory and the queue.
 
+Use responsibility-based names for engine types, functions and files. Do not
+carry opaque original-engine terms into the source architecture. Keep exact disk
+signatures, extensions, record tags and script binding strings at compatibility
+boundaries, and document the original-to-engine mapping in
+`docs/architecture/file-mapping.md`. Do not guess acronym expansions.
+
 File headers carry implementation design; there are no separate implementation
 packets. Formatting-only passes preserve existing contracts and citations.
 

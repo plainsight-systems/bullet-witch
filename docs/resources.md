@@ -1,6 +1,6 @@
 # Resource foundation (SRC-01)
 
-The first reconstructed native module reads RAT catalogs and CPR archives,
+The resource foundation reads resource catalogs (`.rat`) and archives (`.cpr`),
 resolves logical names across explicitly mounted catalogs, and exposes bounded
 record/payload views. It builds on macOS ARM64 with C++20. This is static-derived,
 corpus-checked source; it does not yet execute original loading callbacks or run
@@ -67,18 +67,18 @@ without claiming an unverified legacy encoding; the library retains string bytes
 
 ## Interfaces and ownership
 
-[Public header](../include/bw/resources.hpp) · [CPR decoder](../src/formats/cpr.cpp) · [RAT decoder](../src/formats/rat.cpp)
+[Public header](../include/bw/resources.hpp) · [Resource archive decoder](../src/formats/resource_archive.cpp) · [Resource catalog decoder](../src/formats/resource_catalog.cpp)
 · [Catalog](../src/resources/catalog.cpp)
 · [Inspector](../tools/resource_inspector.cpp).
 
-- `CprArchive::parse(Bytes)` and `RatCatalog::parse(Bytes)` own their input bytes.
-  `content::open_cpr/open_rat(files, path)` reads and delegates to `parse`.
+- `ResourceArchive::parse(Bytes)` and `ResourceCatalog::parse(Bytes)` own their input bytes.
+  `content::open_archive/open_catalog(files, path)` reads and delegates to `parse`.
   Typed metadata owns its strings;
   the byte buffers remain unchanged. Copies own independent data.
-- `CprArchive::payload(index)` borrows a checked span. Keep the owning archive
+- `ResourceArchive::payload(index)` borrows a checked span. Keep the owning archive
   alive and unchanged while using it. Metadata stores file ranges, never host
   pointers or pointers copied from the original 32-bit engine.
-- `RatCatalog::find(name)` performs ASCII lowercase query normalization and exact
+- `ResourceCatalog::find(name)` performs ASCII lowercase query normalization and exact
   lookup of stored dotted names. The current corpus's full-name lookups all pass.
 - `CatalogSet` owns mounted catalogs and explicit integer priorities. Lower key
   wins. Multiple matches at the lowest matching key raise `ambiguous`; original
@@ -193,12 +193,12 @@ comparisons have not run. See the [work log](../research/logs/2026-10-22-source-
 
 ## Implemented source boundaries
 
-`formats/cpr` and `formats/rat` perform pure owned-byte decoding. `RatData`
+`formats/resource_archive` and `formats/resource_catalog` perform pure owned-byte decoding. `ResourceCatalogData`
 constructs and validates full names once; `resources/catalog` retains it and
 adds lookup/priority selection. `content/access` composes the readers with
 `platform::Files`; `platform/files/host` performs read-only host I/O.
 `bw/resources.hpp` remains a type compatibility include. File-opening callers
-use `content::open_cpr/open_rat(files, path)` and content location receives the
+use `content::open_archive/open_catalog(files, path)` and content location receives the
 same capability. No format parser opens files. CLI output is unchanged.
 
 ```mermaid
@@ -206,7 +206,11 @@ flowchart LR
   Caller[Inspector / resource service] --> Content[Content access]
   Content --> Files[Files capability]
   Files --> Host[Host adapter]
-  Content --> CPR[CPR decoder]
+  Content --> CPR[Resource archive decoder]
   Content --> Catalog[Catalog index / priority]
   Catalog --> RAT[RAT data decoder]
 ```
+
+Engine names describe responsibilities; the original format identifiers are
+recorded in the [naming map](architecture/file-mapping.md#naming-and-provenance).
+`NamedFilePackage` provides named-file access to the original `.dpk` format.

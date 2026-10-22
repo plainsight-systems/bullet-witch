@@ -1,16 +1,22 @@
-// A1: pure RAT metadata owner. parse owns bytes and validates bounds, namespace
-// membership and unique full names. Throws Error; borrowed metadata lasts until
-// owner mutation/move/destruction. Full names are constructed only here.
-// Algorithm: validate sections, walk namespaces, resolve dependency names.
-// Cost: O(bytes + metadata), tree checks O(N log N). Optimization: one decode.
-// Design: cpp-guidelines I.1 (#ri-explicit), C.122 (#rh-separation):
-// explicit ownership and injected file capability. cpp-performance COPY.2
+// A1: decoded resource catalog owner (RAT). parse owns bytes and validates
+// bounds, namespace membership and unique full names. Throws Error; borrowed
+// metadata lasts until owner mutation/move/destruction. Full names are
+// constructed only here. Algorithm: validate sections, walk namespaces, resolve
+// dependency names. Cost: O(bytes + metadata), tree checks O(N log N).
+// Optimization: one decode. Design: cpp-guidelines I.1 (#ri-explicit), C.122
+// (#rh-separation): explicit ownership and injected file capability.
+// cpp-performance COPY.2
 // (guidelines/copy-move/COPY.2-mark-move-constructors-noexcept.md): container
 // owners retain implicit moves. Implementation: SL.con.3 (#rsl-bounds) checks
 // slices before access; COPY.4 (guidelines/copy-move/
 // COPY.4-rule-of-five-rule-of-zero.md) keeps owning values rule-of-zero.
 
-#include "bw/formats/rat.hpp"
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
+#include "bw/formats/resource_catalog.hpp"
 
 #include <filesystem>
 #include <map>
@@ -25,12 +31,12 @@ using detail::malformed;
 using detail::Reader;
 using detail::unsupported;
 namespace {
-constexpr std::uint64_t kRatHeaderBytes = 64;
-constexpr std::uint64_t kRatSectionsOffset = 16;
-constexpr std::uint64_t kRatSectionBytes = 8;
-constexpr std::uint64_t kRatResourceBytes = 20;
-constexpr std::uint64_t kRatFileBytes = 8;
-constexpr std::uint64_t kRatNodeHeaderBytes = 16;
+constexpr std::uint64_t kCatalogHeaderBytes = 64;
+constexpr std::uint64_t kCatalogSectionsOffset = 16;
+constexpr std::uint64_t kCatalogSectionBytes = 8;
+constexpr std::uint64_t kCatalogResourceBytes = 20;
+constexpr std::uint64_t kCatalogFileBytes = 8;
+constexpr std::uint64_t kCatalogNodeHeaderBytes = 16;
 constexpr std::uint32_t kNoDependencies = 0x80000000U;
 std::string relative_file(std::string directory, std::string filename) {
   for (auto* part : {&directory, &filename}) {
@@ -61,11 +67,11 @@ void component(const std::string& name) {
   }
 }
 }  // namespace
-RatData RatData::parse(Bytes bytes) {
-  RatData out;
+ResourceCatalogData ResourceCatalogData::parse(Bytes bytes) {
+  ResourceCatalogData out;
   out.bytes_ = std::move(bytes);
   Reader r{out.bytes_};
-  r.range(0, kRatHeaderBytes);
+  r.range(0, kCatalogHeaderBytes);
   if (r.tag(0) != "RAT ") {
     malformed("Not a RAT catalog");
   }
@@ -78,12 +84,12 @@ RatData RatData::parse(Bytes bytes) {
   std::set<std::string> names;
   std::vector<Range> occupied;
   for (std::size_t i = 0; i < out.sections_.size(); ++i) {
-    auto section =
-        Range{r.u32(kRatSectionsOffset + i * kRatSectionBytes),
-              r.u32(kRatSectionsOffset + kWordBytes + i * kRatSectionBytes)};
+    auto section = Range{
+        r.u32(kCatalogSectionsOffset + i * kCatalogSectionBytes),
+        r.u32(kCatalogSectionsOffset + kWordBytes + i * kCatalogSectionBytes)};
     r.range(section.offset, section.size);
     if (section.size) {
-      if (section.offset < kRatHeaderBytes) {
+      if (section.offset < kCatalogHeaderBytes) {
         malformed("RAT section overlaps header");
       }
       occupied.push_back(section);
@@ -101,12 +107,12 @@ RatData RatData::parse(Bytes bytes) {
   if (reserved.size) {
     unsupported("Nonempty RAT reserved section");
   }
-  if (resources.size % kRatResourceBytes || files.size % kRatFileBytes ||
-      tree.size % 4 || deps.size % 4) {
+  if (resources.size % kCatalogResourceBytes ||
+      files.size % kCatalogFileBytes || tree.size % 4 || deps.size % 4) {
     malformed("RAT table stride mismatch");
   }
   for (auto p = files.offset; p < files.offset + files.size;
-       p += kRatFileBytes) {
+       p += kCatalogFileBytes) {
     CatalogFile f{r.optional_text(strings, r.u32(p)).value_or(""),
                   r.text(strings, r.u32(p + 4)),
                   {}};
@@ -114,7 +120,7 @@ RatData RatData::parse(Bytes bytes) {
     out.files_.push_back(std::move(f));
   }
   for (auto p = resources.offset; p < resources.offset + resources.size;
-       p += kRatResourceBytes) {
+       p += kCatalogResourceBytes) {
     CatalogResource resource;
     for (std::size_t i = 0; i < resource.raw.size(); ++i) {
       resource.raw.at(i) = r.u32(p + i * 4);
@@ -146,11 +152,11 @@ RatData RatData::parse(Bytes bytes) {
     if (item.offset % 4) {
       malformed("Unaligned RAT namespace");
     }
-    r.within(tree, item.offset, kRatNodeHeaderBytes);
+    r.within(tree, item.offset, kCatalogNodeHeaderBytes);
     auto p = tree.offset + item.offset;
     auto nc = r.u32(p + 2 * kWordBytes), nr = r.u32(p + 3 * kWordBytes);
     auto length =
-        kRatNodeHeaderBytes + (static_cast<std::uint64_t>(nc) + nr) * 4;
+        kCatalogNodeHeaderBytes + (static_cast<std::uint64_t>(nc) + nr) * 4;
     r.within(tree, item.offset, length);
     auto next = node_ranges.lower_bound(item.offset);
     if ((next != node_ranges.end() && item.offset + length > next->first) ||
@@ -175,8 +181,8 @@ RatData RatData::parse(Bytes bytes) {
     std::set<std::uint32_t> children;
     std::set<std::string> child_names;
     for (std::uint64_t i = 0; i < nc; ++i) {
-      auto child = r.u32(p + kRatNodeHeaderBytes + i * 4);
-      r.within(tree, child, kRatNodeHeaderBytes);
+      auto child = r.u32(p + kCatalogNodeHeaderBytes + i * 4);
+      r.within(tree, child, kCatalogNodeHeaderBytes);
       auto child_name = r.text(strings, r.u32(tree.offset + child));
       if (!children.insert(child).second ||
           !child_names.insert(child_name).second) {
@@ -186,7 +192,7 @@ RatData RatData::parse(Bytes bytes) {
       pending.push_back({child, item.offset, item.prefix});
     }
     for (std::uint64_t i = 0; i < nr; ++i) {
-      auto index = r.u32(p + kRatNodeHeaderBytes +
+      auto index = r.u32(p + kCatalogNodeHeaderBytes +
                          (static_cast<std::uint64_t>(nc) + i) * 4);
       if (index >= membership.size() || membership[index]) {
         malformed("Invalid or duplicate RAT resource membership");

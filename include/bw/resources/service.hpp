@@ -15,6 +15,11 @@
 // owners rule-of-zero. Implementation: SL.con.3 (#rsl-bounds) bounds every
 // decoded slice; COPY.4 avoids accidental owning-container copies.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #pragma once
 #include <functional>
 #include <memory>
@@ -33,11 +38,12 @@ enum class LoadState : std::uint8_t {
 };
 class ResourceLease {
  public:
-  ResourceLease(std::shared_ptr<const CprArchive> archive, std::size_t record);
+  ResourceLease(std::shared_ptr<const ResourceArchive> archive,
+                std::size_t record);
   std::span<const std::uint8_t> bytes() const;
 
  private:
-  std::shared_ptr<const CprArchive> archive_;
+  std::shared_ptr<const ResourceArchive> archive_;
   std::size_t record_;
 };
 struct LoadReport {
@@ -59,7 +65,7 @@ class ResourceService {
   struct File {
     std::set<ResourceTag> tags;
     LoadState state{LoadState::requested};
-    std::shared_ptr<const CprArchive> archive;
+    std::shared_ptr<const ResourceArchive> archive;
     std::string diagnostic;
   };
   struct Publication {

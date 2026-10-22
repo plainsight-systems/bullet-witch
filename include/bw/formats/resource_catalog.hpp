@@ -1,14 +1,20 @@
-// A1: pure RAT metadata owner. parse owns bytes and validates bounds, namespace
-// membership and unique full names. Throws Error; borrowed metadata lasts until
-// owner mutation/move/destruction. Full names are constructed only here.
-// Algorithm: validate sections, walk namespaces, resolve dependency names.
-// Cost: O(bytes + metadata), tree checks O(N log N). Optimization: one decode.
-// Design: cpp-guidelines I.1 (#ri-explicit), C.122 (#rh-separation):
-// explicit ownership and injected file capability. cpp-performance COPY.2
+// A1: decoded resource catalog owner (RAT). parse owns bytes and validates
+// bounds, namespace membership and unique full names. Throws Error; borrowed
+// metadata lasts until owner mutation/move/destruction. Full names are
+// constructed only here. Algorithm: validate sections, walk namespaces, resolve
+// dependency names. Cost: O(bytes + metadata), tree checks O(N log N).
+// Optimization: one decode. Design: cpp-guidelines I.1 (#ri-explicit), C.122
+// (#rh-separation): explicit ownership and injected file capability.
+// cpp-performance COPY.2
 // (guidelines/copy-move/COPY.2-mark-move-constructors-noexcept.md): container
 // owners retain implicit moves. Implementation: SL.con.3 (#rsl-bounds) checks
 // slices before access; COPY.4 (guidelines/copy-move/
 // COPY.4-rule-of-five-rule-of-zero.md) keeps owning values rule-of-zero.
+
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
 
 #pragma once
 #include "bw/formats/common.hpp"
@@ -22,7 +28,7 @@ struct Dependency {
                      // global name lookup.
 };
 struct CatalogResource {
-  std::array<std::uint32_t, kRatResourceWordCount> raw{};
+  std::array<std::uint32_t, kCatalogResourceWordCount> raw{};
   std::string name, full_name;
   std::optional<std::string> extra;
   std::vector<Dependency> dependencies;
@@ -32,9 +38,9 @@ struct NamespaceNode {
   std::string name;
   std::vector<std::uint32_t> children, resources;
 };
-class RatData {
+class ResourceCatalogData {
  public:
-  static RatData parse(Bytes bytes);
+  static ResourceCatalogData parse(Bytes bytes);
   const auto& sections() const { return sections_; }
   const auto& files() const { return files_; }
   const auto& resources() const { return resources_; }

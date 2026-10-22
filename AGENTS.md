@@ -6,6 +6,9 @@ source. `CLAUDE.md` points to the same instructions.
 
 - Follow the self-contained workflow. Do not import governance repositories,
   submodules or symlinks from DoLittle.
+- Name engine types, functions and files by responsibility. Keep opaque original
+  identifiers at compatibility/provenance boundaries, with the naming map in
+  `docs/architecture/file-mapping.md`; do not invent acronym expansions.
 - Design architecture and file contracts before implementation. The architecture
   set is the working structural baseline. Detailed file/behavior contracts
   still need refinement; documented modules are not automatically implemented.

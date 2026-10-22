@@ -13,10 +13,11 @@
   read-only JSON inspector. The resource service now publishes supported USER
   payloads, retains leases and releases tag interests; DPK v1 access is implemented.
   No rendering or other record-handler execution is claimed.
-- Format readers now own pure decoding in `formats/`; `RatCatalog` owns its
-  decoded `RatData` and lookup index. `content/access` composes reads/location
+- Format readers now own pure decoding in `formats/`; `ResourceCatalog` owns its
+  decoded `ResourceCatalogData` and lookup index. `content/access` composes reads/location
   through the injected `platform::Files` capability and `HostFiles` adapter.
-  The umbrella header retains type names; file opens use content functions.
+  The umbrella header gathers descriptive resource types; file opens use
+  `open_archive` / `open_catalog`.
 - Startup runtime now has task lifecycle/active/late passes, an owned Lua 5.0.2
   context, bounded 32-bit chunk conversion, wait/immediate bridges and a root
   driver. Engine mechanisms live in `bw_runtime`; game composition in `bw_game`.
@@ -34,3 +35,9 @@
 - Existing integration coverage exceeds the imported five-scenario target;
   the explicit adoption exception now enumerates eleven scenarios, including
   the provisioned original-root integration required for the startup slice.
+
+- Engine API and file names describe responsibilities. Original opaque terms
+  remain only where compatibility/provenance needs them. The naming map in
+  `docs/architecture/file-mapping.md` connects resource archives, catalogs and
+  named-file packages to their original formats. `TaskLifecycleScheduler` is
+  explicitly single-threaded and not thread-safe; it is not a worker executor.

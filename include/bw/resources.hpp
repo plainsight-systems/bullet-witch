@@ -9,6 +9,11 @@
 // slices before access; COPY.4 (guidelines/copy-move/
 // COPY.4-rule-of-five-rule-of-zero.md) keeps owning values rule-of-zero.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #pragma once
-#include "bw/formats/cpr.hpp"
+#include "bw/formats/resource_archive.hpp"
 #include "bw/resources/catalog.hpp"

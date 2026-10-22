@@ -11,20 +11,25 @@
 // slices before access; COPY.4 (guidelines/copy-move/
 // COPY.4-rule-of-five-rule-of-zero.md) keeps owning values rule-of-zero.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include "bw/content/access.hpp"
 namespace bw::content {
-using resources::CprArchive;
 using resources::Error;
 using resources::ErrorCode;
 using resources::MountedCatalog;
-using resources::RatCatalog;
-CprArchive open_cpr(const platform::Files& files,
-                    const std::filesystem::path& path) {
-  return CprArchive::parse(files.read(path));
+using resources::ResourceArchive;
+using resources::ResourceCatalog;
+ResourceArchive open_archive(const platform::Files& files,
+                             const std::filesystem::path& path) {
+  return ResourceArchive::parse(files.read(path));
 }
-RatCatalog open_rat(const platform::Files& files,
-                    const std::filesystem::path& path) {
-  return RatCatalog::parse(files.read(path));
+ResourceCatalog open_catalog(const platform::Files& files,
+                             const std::filesystem::path& path) {
+  return ResourceCatalog::parse(files.read(path));
 }
 std::filesystem::path archive_path(const platform::Files& files,
                                    const MountedCatalog& mount,

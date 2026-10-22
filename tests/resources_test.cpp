@@ -30,21 +30,26 @@
 // CDSA.32-transform-static-data-into-the-consumer-layout.md) informs comparison
 // of decoded/indexed results with independently specified raw fixtures.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include "bw/resources.hpp"
 
 #include <algorithm>
 #include <functional>
 #include <iostream>
 
-#include "bw/formats/dpk.hpp"
+#include "bw/formats/named_file_package.hpp"
 #include "bw/resources/service.hpp"
 
 using bw::resources::Bytes;
 using bw::resources::CatalogSet;
-using bw::resources::CprArchive;
 using bw::resources::Error;
 using bw::resources::ErrorCode;
-using bw::resources::RatCatalog;
+using bw::resources::ResourceArchive;
+using bw::resources::ResourceCatalog;
 namespace {
 class Checks {
  public:
@@ -83,7 +88,7 @@ void text(Bytes& b, std::size_t at, std::string_view value) {
     b.at(at + i) = static_cast<std::uint8_t>(value[i]);
   }
 }
-Bytes cpr_fixture() {
+Bytes archive_fixture() {
   // Two records, one in each section; argument string and publication differ
   // from record name.
   Bytes b(272);
@@ -119,7 +124,7 @@ Bytes cpr_fixture() {
   text(b, 265, "XY");
   return b;
 }
-Bytes rat_fixture() {
+Bytes catalog_fixture() {
   // Root -> script; two resources and one archive; dependency on sibling plus
   // external name.
   Bytes b(228);
@@ -162,9 +167,9 @@ Bytes rat_fixture() {
   text(b, 203, "data.cpr");
   return b;
 }
-void cpr_tests(Checks& checks) {
-  auto b = cpr_fixture();
-  auto c = CprArchive::parse(b);
+void archive_tests(Checks& checks) {
+  auto b = archive_fixture();
+  auto c = ResourceArchive::parse(b);
   checks.check(c.records().size() == 2, "CPR count");
   checks.check(c.records()[0].name == "member" &&
                    c.records()[0].publication_name == "script.root",
@@ -182,19 +187,19 @@ void cpr_tests(Checks& checks) {
   std::copy_backward(padded.begin() + 204, padded.begin() + 252,
                      padded.begin() + 256);
   checks.check(
-      CprArchive::parse(padded).records()[0].arguments[0].string_value ==
+      ResourceArchive::parse(padded).records()[0].arguments[0].string_value ==
           "value",
       "Argument area padding");
   auto moved = std::move(c);
   checks.check(moved.payload(0).size() == 3, "Owned bytes survive move");
   word(b, 108, 225);  // 0x28 + 225 == 265, preserving the first record's
                       // three-byte size.
-  auto alias = CprArchive::parse(b);
+  auto alias = ResourceArchive::parse(b);
   checks.check(alias.payload(0)[0] == 'X', "Inline reference override");
   for (std::size_t length = 0; length < 272; ++length) {
-    auto short_b = cpr_fixture();
+    auto short_b = archive_fixture();
     short_b.resize(length);
-    checks.rejects([&] { CprArchive::parse(short_b); });
+    checks.rejects([&] { ResourceArchive::parse(short_b); });
   }
   for (auto [at, value] :
        std::vector<std::pair<std::size_t, std::uint32_t>>{{16, 95},
@@ -208,26 +213,27 @@ void cpr_tests(Checks& checks) {
                                                           {184, 8},
                                                           {108, 0xfffffffe},
                                                           {200, 48}}) {
-    auto bad = cpr_fixture();
+    auto bad = archive_fixture();
     word(bad, at, value);
-    checks.rejects([&] { CprArchive::parse(bad); });
+    checks.rejects([&] { ResourceArchive::parse(bad); });
   }
-  auto unreferenced = cpr_fixture();
+  auto unreferenced = archive_fixture();
   word(unreferenced, 112, 0);
   word(unreferenced, 192, 48);
-  checks.rejects([&] { CprArchive::parse(unreferenced); });
-  auto unterminated = cpr_fixture();
+  checks.rejects([&] { ResourceArchive::parse(unreferenced); });
+  auto unterminated = archive_fixture();
   std::fill(unterminated.begin() + 205, unterminated.begin() + 252, 'a');
-  checks.rejects([&] { CprArchive::parse(unterminated); });
+  checks.rejects([&] { ResourceArchive::parse(unterminated); });
   for (auto at : {4, 8, 40, 48}) {
-    auto bad = cpr_fixture();
+    auto bad = archive_fixture();
     word(bad, static_cast<std::size_t>(at), 9);
-    checks.rejects([&] { CprArchive::parse(bad); }, ErrorCode::unsupported);
+    checks.rejects([&] { ResourceArchive::parse(bad); },
+                   ErrorCode::unsupported);
   }
 }
-void rat_tests(Checks& checks) {
-  auto b = rat_fixture();
-  auto c = RatCatalog::parse(b);
+void catalog_tests(Checks& checks) {
+  auto b = catalog_fixture();
+  auto c = ResourceCatalog::parse(b);
   checks.check(c.find("SCRIPT.ROOT") == 0 && c.find("script.peer") == 1 &&
                    !c.find("absent"),
                "Dotted ASCII case lookup");
@@ -241,7 +247,7 @@ void rat_tests(Checks& checks) {
     auto short_b = b;
     short_b.resize(length);
     if (length >= 8) word(short_b, 4, static_cast<std::uint32_t>(length));
-    checks.rejects([&] { RatCatalog::parse(short_b); });
+    checks.rejects([&] { ResourceCatalog::parse(short_b); });
   }
   for (auto [at, value] :
        std::vector<std::pair<std::size_t, std::uint32_t>>{{16, 0},
@@ -265,17 +271,17 @@ void rat_tests(Checks& checks) {
                                                           {168, 56}}) {
     auto bad = b;
     word(bad, at, value);
-    checks.rejects([&] { RatCatalog::parse(bad); });
+    checks.rejects([&] { ResourceCatalog::parse(bad); });
   }
   for (auto path : {"../", "/xx", "C:x"}) {
     auto bad = b;
     text(bad, 199, path);
-    checks.rejects([&] { RatCatalog::parse(bad); });
+    checks.rejects([&] { ResourceCatalog::parse(bad); });
   }
   auto slash = b;
   text(slash, 199, "s\\b");
   checks.check(
-      RatCatalog::parse(slash).files()[0].relative_path == "s/b/data.cpr",
+      ResourceCatalog::parse(slash).files()[0].relative_path == "s/b/data.cpr",
       "Windows separators");
   CatalogSet set;
   set.mount(55, "high.rat", c);
@@ -306,17 +312,17 @@ class MemoryFiles final : public bw::platform::Files {
 };
 void lifecycle_tests(Checks& checks) {
   using bw::resources::LoadState;
-  auto rat = rat_fixture();
+  auto rat = catalog_fixture();
   // Both dependency entries point to root: traversal must terminate.
   word(rat, 152, 0);
   word(rat, 156, 0);
-  auto archive = cpr_fixture();
+  auto archive = archive_fixture();
   // Second record is an unpublished USER; keep its bounded payload.
   text(archive, 144, "USER");
   MemoryFiles files;
   files.contents = archive;
   CatalogSet catalogs;
-  catalogs.mount(30, "/fixture/data.rat", RatCatalog::parse(rat));
+  catalogs.mount(30, "/fixture/data.rat", ResourceCatalog::parse(rat));
   bw::resources::ResourceService service(std::move(catalogs), files);
   checks.check(!service.acquire("script.root"), "Unpublished lookup");
   service.request("SCRIPT.ROOT", 1);
@@ -354,14 +360,14 @@ void lifecycle_tests(Checks& checks) {
   checks.check(service.pump(1).state == LoadState::opened,
                "Release permits retry");
   service.release(1);
-  files.contents = cpr_fixture();
+  files.contents = archive_fixture();
   service.request("script.root", 1);
   (void)service.pump(1);
   checks.check(service.pump(1).state == LoadState::failed &&
                    !service.acquire("script.root"),
                "Unsupported record prevents partial publication");
 }
-void dpk_tests(Checks& checks) {
+void package_tests(Checks& checks) {
   Bytes b(99);
   text(b, 0, "dpk");
   word(b, 4, 32);
@@ -374,24 +380,24 @@ void dpk_tests(Checks& checks) {
   word(b, 60, 64);
   text(b, 64, "root.lub");
   text(b, 96, "abc");
-  auto package = bw::resources::DpkPackage::parse(b);
+  auto package = bw::resources::NamedFilePackage::parse(b);
   checks.check(package.member("root.lub")[2] == 'c', "DPK member view");
   checks.rejects([&] { (void)package.member("ROOT.LUB"); },
                  ErrorCode::not_found);
   auto bad = b;
   word(bad, 56, 98);
-  checks.rejects([&] { bw::resources::DpkPackage::parse(bad); });
+  checks.rejects([&] { bw::resources::NamedFilePackage::parse(bad); });
   bad = b;
   word(bad, 60, 20);
-  checks.rejects([&] { bw::resources::DpkPackage::parse(bad); });
+  checks.rejects([&] { bw::resources::NamedFilePackage::parse(bad); });
   bad = b;
   word(bad, 52, 4);
-  auto compressed = bw::resources::DpkPackage::parse(bad);
+  auto compressed = bw::resources::NamedFilePackage::parse(bad);
   checks.rejects([&] { (void)compressed.member("root.lub"); },
                  ErrorCode::unsupported);
   bad = b;
   word(bad, 16, 0xffffffff);
-  checks.rejects([&] { bw::resources::DpkPackage::parse(bad); });
+  checks.rejects([&] { bw::resources::NamedFilePackage::parse(bad); });
   auto moved = std::move(package);
   checks.check(moved.member("root.lub").size() == 3,
                "Moved package owns payload");
@@ -400,10 +406,10 @@ void dpk_tests(Checks& checks) {
 int main() {
   Checks checks;
   try {
-    cpr_tests(checks);
-    rat_tests(checks);
+    archive_tests(checks);
+    catalog_tests(checks);
     lifecycle_tests(checks);
-    dpk_tests(checks);
+    package_tests(checks);
     std::cout << checks.count() << " checks passed\n";
   } catch (const std::exception& e) {
     std::cerr << "Failure after " << checks.count() << " checks: " << e.what()

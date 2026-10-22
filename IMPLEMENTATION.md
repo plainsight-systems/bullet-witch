@@ -149,16 +149,16 @@ by callers; do not maintain two parser implementations.
 
 | Current responsibility | Proposed destination | Preserve / clarify |
 |---|---|---|
-| `CprArchive` decoding and record/argument/range types | `formats/cpr.hpp/.cpp` | Original bytes, padded argument area, selected extraction ranges and explicit unsupported variants |
-| `RatCatalog` disk decoding | `formats/rat.hpp/.cpp` | Namespace/resource/file/dependency views and bounds/membership validation |
-| `RatCatalog::find`, `CatalogSet` and priority selection | `resources/catalog.hpp/.cpp` | ASCII query folding, selected identity, low-key precedence and ambiguity behavior |
+| `ResourceArchive` decoding and record/argument/range types | `formats/resource_archive.hpp/.cpp` | Original bytes, padded argument area, selected extraction ranges and explicit unsupported variants |
+| `ResourceCatalog` disk decoding | `formats/resource_catalog.hpp/.cpp` | Namespace/resource/file/dependency views and bounds/membership validation |
+| `ResourceCatalog::find`, `CatalogSet` and priority selection | `resources/catalog.hpp/.cpp` | ASCII query folding, selected identity, low-key precedence and ambiguity behavior |
 | `archive_path`, path separator/location policy | `content/access.hpp/.cpp` | Catalog-relative containment; evolve to declared virtual roots without broadening paths silently |
 | `read_file`, parser `open` convenience calls | File capability and selected `platform/files/` adapter; content-level open composition | Byte readers remain callable without I/O; all read failures remain explicit |
 | Common checked byte access / errors | Small internal format helpers or public error types only where shared contract requires | Do not expose implementation helpers or invent an omnibus core library |
 | Inspector command-line parsing and JSON formatting | Existing `tools/resource_inspector.cpp` | Uses shared production views; does not acquire runtime loading semantics by accident |
 | Existing C++ and CLI tests | Same contracts, reorganized with source ownership if needed | Preserve behavior assertions; update includes/call sites, not expected asset results |
 
-The split gives `RatCatalog` ownership of decoded `RatData` plus a lookup index.
+The split gives `ResourceCatalog` ownership of decoded `ResourceCatalogData` plus a lookup index.
 Full-name construction has a single owner in the decoder. Mounted catalogs
 retain decoded views for every request using their identity.
 

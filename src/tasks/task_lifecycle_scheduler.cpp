@@ -1,4 +1,7 @@
 // E1: task lifecycle and ordered update passes (0x40b4f0/570/4c0).
+// Runs callbacks on the thread calling tick; no worker threads or locks.
+// All API calls require one owning thread; concurrent access is unsafe.
+// ticking_ only detects recursion and provides no synchronization.
 // Owns callbacks, single-threaded; callbacks may request transitions/add tasks,
 // but may not recursively tick. IDs remain stable; new tasks join next tick.
 // Callback exceptions mark a task faulted and propagate; it never updates
@@ -11,7 +14,12 @@
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md):
 // unique runtime owners cannot be copied; moves preserve stable heap identity.
 
-#include "bw/tasks/scheduler.hpp"
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
+#include "bw/tasks/task_lifecycle_scheduler.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -25,7 +33,7 @@ void invoke_hook(const std::function<void()>& fn) {
   }
 }
 }  // namespace
-TaskId Scheduler::add(int priority, Hooks hooks) {
+TaskId TaskLifecycleScheduler::add(int priority, Hooks hooks) {
   if (next_ == std::numeric_limits<TaskId>::max()) {
     throw std::overflow_error("Task IDs exhausted");
   }
@@ -33,7 +41,7 @@ TaskId Scheduler::add(int priority, Hooks hooks) {
   tasks_.emplace(std::pair{priority, id}, Task{std::move(hooks)});
   return id;
 }
-Scheduler::Task& Scheduler::task(TaskId id) {
+TaskLifecycleScheduler::Task& TaskLifecycleScheduler::task(TaskId id) {
   auto found = std::find_if(
       tasks_.begin(), tasks_.end(),
       [id](const auto& entry) { return entry.first.second == id; });
@@ -42,20 +50,22 @@ Scheduler::Task& Scheduler::task(TaskId id) {
   }
   return found->second;
 }
-void Scheduler::request(TaskId id, State target) {
+void TaskLifecycleScheduler::request(TaskId id, State target) {
   if (target != State::created && target != State::idle &&
       target != State::active) {
     throw std::invalid_argument("Transient task request");
   }
   task(id).requested = target;
 }
-void Scheduler::enable(TaskId id, bool enabled) { task(id).enabled = enabled; }
-bool Scheduler::contains(TaskId id) const {
+void TaskLifecycleScheduler::enable(TaskId id, bool enabled) {
+  task(id).enabled = enabled;
+}
+bool TaskLifecycleScheduler::contains(TaskId id) const {
   return std::any_of(tasks_.begin(), tasks_.end(), [id](const auto& entry) {
     return entry.first.second == id;
   });
 }
-State Scheduler::state(TaskId id) const {
+State TaskLifecycleScheduler::state(TaskId id) const {
   auto found = std::find_if(
       tasks_.begin(), tasks_.end(),
       [id](const auto& entry) { return entry.first.second == id; });
@@ -64,7 +74,7 @@ State Scheduler::state(TaskId id) const {
   }
   return found->second.current;
 }
-void Scheduler::tick(bool late_pass) {
+void TaskLifecycleScheduler::tick(bool late_pass) {
   if (ticking_) {
     throw std::logic_error("Recursive task tick");
   }

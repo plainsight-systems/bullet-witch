@@ -13,12 +13,17 @@
 // COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
 // motivates unique context ownership; this callback owner has fixed identity.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include "root_driver.hpp"
 
 #include <cmath>
 #include <limits>
 
-#include "bw/formats/dpk.hpp"
+#include "bw/formats/named_file_package.hpp"
 namespace bw::game {
 namespace {
 using resources::Error;
@@ -126,7 +131,7 @@ script::RunResult RootDriver::advance() {
       }
       const auto payload = lease->bytes();
       auto package =
-          resources::DpkPackage::parse({payload.begin(), payload.end()});
+          resources::NamedFilePackage::parse({payload.begin(), payload.end()});
       context_.load_binary(package.member("root.lub"));
       context_.start("init");
       loaded_ = true;

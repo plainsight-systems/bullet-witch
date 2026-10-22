@@ -28,31 +28,36 @@
 // phases, applies through reuse of the reader's built catalog indices; this
 // driver performs no speculative payload-layout conversion.
 
+// Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
+// selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
+// moves; renaming adds no wrapper, allocation or payload copy.
+
 #include <algorithm>
 #include <charconv>
 #include <iostream>
 #include <sstream>
 
 #include "bw/content/access.hpp"
-#include "bw/formats/dpk.hpp"
+#include "bw/formats/named_file_package.hpp"
 #include "bw/resources.hpp"
 
 using bw::resources::CatalogResource;
 using bw::resources::CatalogSet;
-using bw::resources::CprArchive;
 using bw::resources::Error;
 using bw::resources::error_name;
 using bw::resources::ErrorCode;
 using bw::resources::normalize_name;
 using bw::resources::Range;
-using bw::resources::RatCatalog;
+using bw::resources::ResourceArchive;
+using bw::resources::ResourceCatalog;
 namespace {
 constexpr unsigned kFirstPrintable = 32;
 constexpr unsigned kDelete = 127;
 constexpr unsigned kNibbleBits = 4;
 constexpr unsigned kNibbleMask = 15;
-constexpr std::size_t kCprHeaderBytes = 96;
-constexpr std::size_t kCprRecordBytes = 48;
+constexpr std::size_t kArchiveHeaderBytes = 96;
+constexpr std::size_t kArchiveRecordBytes = 48;
 constexpr std::size_t kPayloadPreviewBytes = 32;
 constexpr int kMinimumResolveArgs = 6;
 std::string quote(std::string_view text) {
@@ -125,7 +130,7 @@ void dependencies(std::ostream& out, const CatalogResource& resource) {
   }
   out << ']';
 }
-void cpr(std::ostream& out, const CprArchive& archive) {
+void write_archive(std::ostream& out, const ResourceArchive& archive) {
   out << "{\"bytes\":" << archive.bytes().size()
       << ",\"header_u32_from_0x04\":";
   numbers(out, archive.header());
@@ -136,7 +141,7 @@ void cpr(std::ostream& out, const CprArchive& archive) {
     const auto& record = archive.records()[i];
     if (i) out << ',';
     out << "{\"index\":" << i
-        << ",\"table_offset\":" << kCprHeaderBytes + i * kCprRecordBytes
+        << ",\"table_offset\":" << kArchiveHeaderBytes + i * kArchiveRecordBytes
         << ",\"type\":" << quote(record.type)
         << ",\"name\":" << quote(record.name)
         << ",\"known_type\":" << (record.known_type ? "true" : "false")
@@ -160,8 +165,8 @@ void cpr(std::ostream& out, const CprArchive& archive) {
     out << "\",\"dpk_members\":[";
     if (payload.size() >= 4 && payload[0] == 'd' && payload[1] == 'p' &&
         payload[2] == 'k' && payload[3] == 0) {
-      auto package =
-          bw::resources::DpkPackage::parse({payload.begin(), payload.end()});
+      auto package = bw::resources::NamedFilePackage::parse(
+          {payload.begin(), payload.end()});
       bool comma = false;
       for (const auto& member : package.members()) {
         if (comma) {
@@ -190,7 +195,7 @@ void cpr(std::ostream& out, const CprArchive& archive) {
   }
   out << "]}";
 }
-void rat(std::ostream& out, const RatCatalog& catalog) {
+void write_catalog(std::ostream& out, const ResourceCatalog& catalog) {
   out << "{\"bytes\":" << catalog.bytes().size() << ",\"sections\":";
   sections(out, catalog.sections());
   out << ",\"files\":[";
@@ -235,9 +240,11 @@ std::string inspect(const std::filesystem::path& path, std::string_view kind,
   out << "{\"kind\":" << quote(kind) << ",\"path\":" << quote(label)
       << ",\"data\":";
   if (kind == "cpr") {
-    cpr(out, bw::content::open_cpr(bw::platform::HostFiles{}, path));
+    write_archive(out,
+                  bw::content::open_archive(bw::platform::HostFiles{}, path));
   } else {
-    rat(out, bw::content::open_rat(bw::platform::HostFiles{}, path));
+    write_catalog(out,
+                  bw::content::open_catalog(bw::platform::HostFiles{}, path));
   }
   return out.str() + '}';
 }
@@ -307,16 +314,16 @@ int main(int argc, char** argv) {
         const auto* number_end = number_begin + number.size();
         auto [end, ec] = std::from_chars(number_begin, number_end, priority);
         if (ec != std::errc{} || end != number_end) return usage();
-        set.mount(
-            priority, arguments[i + 2],
-            bw::content::open_rat(bw::platform::HostFiles{}, arguments[i + 2]));
+        set.mount(priority, arguments[i + 2],
+                  bw::content::open_catalog(bw::platform::HostFiles{},
+                                            arguments[i + 2]));
       }
       auto hit = set.resolve(arguments[2]);
       const auto& mount = set.catalogs()[hit.catalog_index];
       const auto& r = mount.catalog.resources()[hit.resource_index];
       auto path =
           bw::content::archive_path(bw::platform::HostFiles{}, mount, r.raw[3]);
-      auto archive = bw::content::open_cpr(bw::platform::HostFiles{}, path);
+      auto archive = bw::content::open_archive(bw::platform::HostFiles{}, path);
       std::ostringstream out;
       out << "{\"name\":" << quote(r.full_name)
           << ",\"catalog\":" << quote(mount.path.string())
@@ -336,7 +343,7 @@ int main(int argc, char** argv) {
         }
       }
       out << "],\"archive\":";
-      cpr(out, archive);
+      write_archive(out, archive);
       out << "}\n";
       std::cout << out.str();
     } else {
