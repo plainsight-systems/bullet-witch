@@ -4,12 +4,13 @@ Reads originals only. Bounds and cross-table indices are checked; unknown fields
 are retained without assigning semantics. This does not simulate an effect.
 """
 from pathlib import Path
+from local_inputs import game_directory
 from collections import Counter
 import hashlib,json,struct
 from cpr_layout import inspect
 research=Path(__file__).resolve().parents[1]
 out=research/'evidence/engine/pass-03'
-game=Path('/Users/andyhunter/Games/BulletWitch-Steam')
+game=game_directory()
 rows=json.loads((out/'effect-assets.json').read_text())['records']
 def u(d,o):return struct.unpack_from('<I',d,o)[0]
 def signed(d,o):return struct.unpack_from('<i',d,o)[0]

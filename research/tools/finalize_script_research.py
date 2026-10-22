@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Assemble validated sources, per-script maps, AI node links and unresolved ledger."""
 from pathlib import Path
+from local_inputs import game_directory
 from collections import Counter,defaultdict
 import json,re,struct,hashlib,csv
 from lua50_read import Reader
-R=Path(__file__).resolve().parents[1];O=R/'evidence/script-corpus';G=Path('/Users/andyhunter/Games/BulletWitch-Steam')
+R=Path(__file__).resolve().parents[1];O=R/'evidence/script-corpus';G=game_directory()
 D=R/'extracted/scripts-recovered';D.mkdir(exist_ok=True);N=O/'scripts';N.mkdir(exist_ok=True);A=O/'ai-nodes';A.mkdir(exist_ok=True)
 inv=json.loads((O/'inventory.json').read_text());status={r['id']:r for r in json.loads((O/'no-locals/decompilation-status.json').read_text())};repairs={r['id']:r for r in json.loads((O/'local-repairs.json').read_text())};maps=json.loads((O/'script-native-map.json').read_text());api_pairs=json.loads((O/'native-api-pairs.json').read_text());byname=defaultdict(list)
 origins=defaultdict(list)

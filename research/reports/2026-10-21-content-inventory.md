@@ -33,7 +33,7 @@ bytes match the indexed CPR members. This confirms what the previews depict; the
 
 Preview sources are `extend/cosspr.cpr`, containing `costume_change01.png` through
 `costume_change05.png`. The text is in `extend/costxt.cpr`. Local preview copies
-are in `/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/costume-previews`.
+are in `research/extracted/costume-previews`.
 
 ## Named challenge missions
 
@@ -96,5 +96,5 @@ historical DLC completeness comparison remain later work.
 Reproduce the package inventory from the project root:
 
 ```sh
-python3 research/tools/content_inventory.py /Users/andyhunter/Games/BulletWitch-Steam research/evidence/content
+python3 research/tools/content_inventory.py /path/to/BulletWitch-Steam research/evidence/content
 ```

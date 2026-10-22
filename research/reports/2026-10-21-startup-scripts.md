@@ -20,7 +20,7 @@ been confirmed at runtime. The implementation plan remains unapproved.
 
 ## Sources and validation
 
-Source installation: `/Users/andyhunter/Games/BulletWitch-Steam`, used read-only.
+Source installation: `/path/to/BulletWitch-Steam`, used read-only.
 All generated scripts, extracted copies, and evidence are under this research
 folder. Source executable SHA-256:
 `f39bf4affcc534bf973c20752f9e6424684096acfa1d4607b67d5241a4c7f6cc`.

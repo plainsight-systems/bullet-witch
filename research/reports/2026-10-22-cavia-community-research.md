@@ -18,7 +18,7 @@ firsthand detail about Cavia's custom graphics production pipeline.
 ## PC comparison
 
 Input, opened read-only:
-`/Users/andyhunter/Games/BulletWitch-Steam/data/data/stable/graphics/chara/PW0/model/mesh.cpr`
+`/path/to/BulletWitch-Steam/data/data/stable/graphics/chara/PW0/model/mesh.cpr`
 
 SHA-256: `a6d963e51df0fa59d919b2bfa4ba65e1b581cdb111e59f2b3bb1f6eb6c280655`.
 
@@ -58,7 +58,7 @@ From the project root:
 
 ```sh
 python3 research/tools/compare_noesis_layout.py \
-  /Users/andyhunter/Games/BulletWitch-Steam/data/data/stable/graphics/chara/PW0/model/mesh.cpr \
+  /path/to/BulletWitch-Steam/data/data/stable/graphics/chara/PW0/model/mesh.cpr \
   research/evidence/community-research/pw0-noesis-comparison.json
 ```
 

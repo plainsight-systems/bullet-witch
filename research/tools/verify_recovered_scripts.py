@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Independently recompile every canonical recovered Lua file; never execute it."""
 from pathlib import Path
+from local_inputs import game_directory
 from collections import Counter
 import json,hashlib,subprocess,time
 from lua50_read import parse,Reader
@@ -20,7 +21,7 @@ for s in {s['id']:s for s in manifest}.values():
  except Exception as e:row.update(status='unresolved',error=str(e))
  rows.append(row);tmp=O/'final-verification.tmp';tmp.write_text(json.dumps(rows,indent=2)+'\n');tmp.replace(O/'final-verification.json')
 # Check preserved source hashes against the earlier whole-archive inventory.
-archive_errors=[];archives=json.loads((R/'evidence/layout/cpr-inventory.json').read_text());game=Path('/Users/andyhunter/Games/BulletWitch-Steam')
+archive_errors=[];archives=json.loads((R/'evidence/layout/cpr-inventory.json').read_text());game=game_directory()
 for a in archives:
  if hashlib.sha256((game/a['path']).read_bytes()).hexdigest()!=a['sha256']:archive_errors.append(a['path'])
 exe_hash=hashlib.sha256((game/'witch.exe').read_bytes()).hexdigest();unpacked_hash=hashlib.sha256((R/'experiments/steamstub/witch.original.exe.unpacked.exe').read_bytes()).hexdigest()

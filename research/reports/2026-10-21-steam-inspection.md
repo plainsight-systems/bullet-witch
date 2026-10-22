@@ -131,8 +131,8 @@ password and verification entry interactively. Its download arguments are:
 The executable header and section reports were produced with:
 
 ```sh
-xcrun llvm-objdump --private-headers /Users/andyhunter/Games/BulletWitch-Steam/witch.exe
-xcrun llvm-objdump --section-headers /Users/andyhunter/Games/BulletWitch-Steam/witch.exe
+xcrun llvm-objdump --private-headers /path/to/BulletWitch-Steam/witch.exe
+xcrun llvm-objdump --section-headers /path/to/BulletWitch-Steam/witch.exe
 ```
 
 The inventory recursively records relative paths and byte sizes, excluding

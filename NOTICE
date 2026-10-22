@@ -1,0 +1,46 @@
+Bullet Witch reconstruction
+Copyright 2026 Plainsight Systems LLC
+
+Project-authored code and configuration: Apache License 2.0 (LICENSE-CODE).
+Project-authored writing, diagrams, and original visuals: CC BY 4.0
+(LICENSE-CONTENT). Suggested attribution for the writing:
+"Bullet Witch reconstruction — Plainsight Systems, CC BY 4.0."
+
+This is an independent, unofficial reconstruction project. Bullet Witch and
+its original code, scripts, audiovisual assets, and other game content remain
+the property of their respective rights holders. Those materials are not
+included or licensed by this project. Users supply their own purchased game.
+The project is not affiliated with or endorsed by the game's rights holders.
+
+The Plainsight Systems name, wordmark, and logomark are trademarks of
+Plainsight Systems LLC. Project licenses do not grant trademark rights.
+
+Lua runtime
+===========
+
+Lua 5.0.2 — Copyright (C) 2003-2004 Tecgraf, PUC-Rio.
+MIT license; full upstream notice: docs/licenses/Lua-5.0.2-COPYRIGHT.
+Source: https://www.lua.org/ftp/lua-5.0.2.tar.gz
+
+The build fetches the SHA256-pinned source archive through cmake/Lua502.cmake.
+cmake/PatchLua502.cmake applies three host-compatibility changes: two nullable
+union-member address expressions become direct pointer casts, and pointer
+hashing narrows explicitly through uintptr_t. The upstream copyright and
+license remain unchanged. Include its notice when distributing linked binaries.
+
+Research tools and references
+============================
+
+Steamless by atom0s: https://github.com/atom0s/Steamless
+Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International.
+The local offline research host invokes the unmodified upstream variant 3.1
+x86 plugin. Steamless source, assembled research binaries, and unpacked game
+executables are not bundled. Steamless retains its own license; the project
+code license does not relicense it.
+
+Ghidra, unluac, Lua 5.0.3, and other locally obtained research tools retain
+their upstream licenses and are not bundled. Rich Whitehouse's Noesis format
+reader and other community references are credited in
+research/sources/community-reverse-engineering.md. Downloaded reference copies
+remain excluded; cited sources and quoted material are not relicensed as
+project-authored content.

@@ -14,6 +14,6 @@ for cmd in commands:
  r=subprocess.run(cmd,text=True,capture_output=True)
  runs.append(dict(command=cmd,returncode=r.returncode,stdout=r.stdout,stderr=r.stderr))
  if r.returncode: raise RuntimeError(r.stderr)
-manifest=dict(source=str(source.relative_to(root)),download_origin='/Users/andyhunter/Downloads/r35.pdf',catalog_url='https://cedil.cesa.or.jp/cedil_sessions/view/105?event=23',review_date='2026-10-22',sha256=hashlib.sha256(source.read_bytes()).hexdigest(),bytes=source.stat().st_size,runs=runs,review='All six rendered pages visually inspected; text matched relevant visible headings and engine bullet. PDF preserved without modification.')
+manifest=dict(source=str(source.relative_to(root)),download_origin='user-supplied r35.pdf',catalog_url='https://cedil.cesa.or.jp/cedil_sessions/view/105?event=23',review_date='2026-10-22',sha256=hashlib.sha256(source.read_bytes()).hexdigest(),bytes=source.stat().st_size,runs=runs,review='All six rendered pages visually inspected; text matched relevant visible headings and engine bullet. PDF preserved without modification.')
 (out/'inspection.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
 print(json.dumps({'sha256':manifest['sha256'],'bytes':manifest['bytes'],'rendered_pages':len(list(out.glob('page-*.png')))}))

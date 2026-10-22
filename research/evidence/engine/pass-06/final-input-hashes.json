@@ -1,11 +1,11 @@
 {
   "original": {
-    "path": "/Users/andyhunter/Games/BulletWitch-Steam/witch.exe",
+    "path": "/path/to/BulletWitch-Steam/witch.exe",
     "sha256": "f39bf4affcc534bf973c20752f9e6424684096acfa1d4607b67d5241a4c7f6cc",
     "matches_baseline": true
   },
   "unpacked": {
-    "path": "/Users/andyhunter/repositories/tech-demos/bullet-witch/research/experiments/steamstub/witch.original.exe.unpacked.exe",
+    "path": "research/experiments/steamstub/witch.original.exe.unpacked.exe",
     "sha256": "bdaff1746d3092215699b09eab11315c6adf8fb71eaa8f46c280b11b3cd448fd",
     "matches_baseline": true
   }

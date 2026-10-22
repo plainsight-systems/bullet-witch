@@ -2,7 +2,7 @@
   "inspection_date": "2026-10-21",
   "timezone": "America/Phoenix",
   "steam_app_id": 696180,
-  "game_directory": "/Users/andyhunter/Games/BulletWitch-Steam",
+  "game_directory": "/path/to/BulletWitch-Steam",
   "download_status": "complete",
   "downloader_version": "3.4.0",
   "file_count": 6922,

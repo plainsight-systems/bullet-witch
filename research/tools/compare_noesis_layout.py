@@ -4,6 +4,7 @@ Independent bounded probe, not a model importer. Outputs metadata only.
 """
 import argparse, collections, hashlib, json, struct
 from pathlib import Path
+from local_inputs import game_directory
 from cpr_layout import inspect
 
 
@@ -90,7 +91,7 @@ def compare(path):
 
 if __name__=='__main__':
     ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('input',type=Path);ap.add_argument('output',type=Path);a=ap.parse_args()
-    game=Path('/Users/andyhunter/Games/BulletWitch-Steam').resolve()
+    game=game_directory().resolve()
     if a.output.resolve()==game or game in a.output.resolve().parents:ap.error('Output must stay outside game directory')
     result=compare(a.input);a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:result[k] for k in ('header_bytes','parsed_header_end','header_unparsed_bytes','chunk_tags')},indent=2))

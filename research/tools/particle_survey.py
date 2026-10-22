@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only effect asset metadata and MSVC x86 RTTI survey. All output stays in research."""
 from pathlib import Path
+from local_inputs import game_directory
 from collections import Counter
 import json,re,struct,hashlib
 r=Path(__file__).resolve().parents[1];out=r/'evidence/engine/pass-03';out.mkdir(parents=True,exist_ok=True)
@@ -39,7 +40,7 @@ for m in re.finditer(rb'\.\?AV[^\0\r\n]{3,200}\0',b):
   except (StopIteration,struct.error):pass
  classes.append({'name':name,'type_descriptor':hex(td),'vtable_candidates':vt})
 (out/'particle-rtti.json').write_text(json.dumps({'sha256':meta['sha256'],'classes':classes,'scope':'Candidate tables from x86 MSVC RTTI structure and executable pointer bounds; class names are original. Method roles require code review.'},indent=2)+'\n')
-game=Path('/Users/andyhunter/Games/BulletWitch-Steam');inventory=json.loads((r/'evidence/layout/cpr-inventory.json').read_text());found=[];errors=[];kinds=Counter();callnames=Counter()
+game=game_directory();inventory=json.loads((r/'evidence/layout/cpr-inventory.json').read_text());found=[];errors=[];kinds=Counter();callnames=Counter()
 for row in inventory:
  p=game/row['path']
  try:

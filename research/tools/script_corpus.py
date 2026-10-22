@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Read-only whole-installation Lua/DPK discovery and per-chunk static mapping."""
 from pathlib import Path
+from local_inputs import game_directory
 from collections import Counter
 import hashlib,json,re,time,traceback,struct
 from cpr_layout import inspect
 from layout_probe import dpk
 from lua50_read import parse,listing,Reader
-R=Path(__file__).resolve().parents[1]; G=Path('/Users/andyhunter/Games/BulletWitch-Steam')
+R=Path(__file__).resolve().parents[1]; G=game_directory()
 O=R/'evidence/script-corpus'; X=R/'extracted/scripts'
 for p in (O,X,O/'decoded',O/'listings',O/'maps'):p.mkdir(parents=True,exist_ok=True)
 rows=[];errors=[];containers=[];payload_ext=Counter();record_types=Counter();header_hits=[];ai_wrappers=[]

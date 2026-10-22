@@ -8,7 +8,7 @@ yet establish a way to run the game on another platform.
 Research date: October 21, 2026, America/Phoenix. This extends the
 [initial inspection](2026-10-21-steam-inspection.md) of the same `witch.exe` hash.
 The scripts read the downloaded files without modifying them. One texture was
-copied into `/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted` for visual verification.
+copied into `research/extracted` for visual verification.
 
 ## Directory map
 
@@ -98,7 +98,7 @@ alone are misleading: `PW0_face_m1_game_psd.dds` contains a PNG image.
 
 The PW0 texture container contains 14 named images. I copied its face texture
 without conversion, decoded it, and visually verified the 512 × 512 image. The
-output is `/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/PW0_face_m1_game_psd.png`.
+output is `research/extracted/PW0_face_m1_game_psd.png`.
 The PW0 body texture header reports 1024 × 1024. The remaining images have not all
 been decoded or checked for PNG integrity.
 
@@ -206,8 +206,8 @@ Run from the project root. Python uses only its standard library; the supplement
 probe also calls the installed FFprobe.
 
 ```sh
-python3 research/tools/cpr_layout.py /Users/andyhunter/Games/BulletWitch-Steam research/evidence/layout
-python3 research/tools/layout_probe.py /Users/andyhunter/Games/BulletWitch-Steam research/evidence/layout
+python3 research/tools/cpr_layout.py /path/to/BulletWitch-Steam research/evidence/layout
+python3 research/tools/layout_probe.py /path/to/BulletWitch-Steam research/evidence/layout
 ```
 
 The parsers describe this downloaded PC build. They are research tools with partial

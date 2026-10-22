@@ -4,7 +4,7 @@
     "label": "Special Costume 1",
     "description": "Silver or white fitted suit and tall boots",
     "basis": "Visual inspection of bundled costume preview, not a rendered mesh",
-    "preview_path": "/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/costume-previews/PW1.png",
+    "preview_path": "research/extracted/costume-previews/PW1.png",
     "sha256": "af82b001b4df073f89e1e69109271969452898d8395a8d1be3a5483b1e8c5ed7"
   },
   {
@@ -12,7 +12,7 @@
     "label": "Special Costume 2",
     "description": "School uniform with plaid skirt and blue hair",
     "basis": "Visual inspection of bundled costume preview, not a rendered mesh",
-    "preview_path": "/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/costume-previews/PW2.png",
+    "preview_path": "research/extracted/costume-previews/PW2.png",
     "sha256": "c2b773fc9e94a7601516da058bc2f4b10e58d86e6bf69d7a56664b4a9870efe9"
   },
   {
@@ -20,7 +20,7 @@
     "label": "Special Costume 3",
     "description": "Cropped blouse, short dark skirt, glasses, and green hair",
     "basis": "Visual inspection of bundled costume preview, not a rendered mesh",
-    "preview_path": "/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/costume-previews/PW3.png",
+    "preview_path": "research/extracted/costume-previews/PW3.png",
     "sha256": "aa752277c3218ef5a6c0ca9f7b66ee5e72620370adc4ea57423ba18c8ec4c71f"
   },
   {
@@ -28,7 +28,7 @@
     "label": "Special Costume 4",
     "description": "Bandaged outfit with orange top and dark hair",
     "basis": "Visual inspection of bundled costume preview, not a rendered mesh",
-    "preview_path": "/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/costume-previews/PW4.png",
+    "preview_path": "research/extracted/costume-previews/PW4.png",
     "sha256": "dcb68f52324447828272517b9ab4a038761a914055207c9262045cdbed737fb6"
   },
   {
@@ -36,7 +36,7 @@
     "label": "Special Costume 5",
     "description": "Blue and gold fairy-like outfit with pink hair",
     "basis": "Visual inspection of bundled costume preview, not a rendered mesh",
-    "preview_path": "/Users/andyhunter/repositories/tech-demos/bullet-witch/research/extracted/costume-previews/PW5.png",
+    "preview_path": "research/extracted/costume-previews/PW5.png",
     "sha256": "c7211ca6950bf0237cdc1b2bdbe3ffdb9d4dfb30a55b255404b3b38fb27061eb"
   }
 ]

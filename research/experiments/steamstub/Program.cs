@@ -12,7 +12,10 @@ var root = Path.GetFullPath(AppContext.BaseDirectory + "../../../../../");
 if (Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)) != "research")
     throw new InvalidOperationException("Expected build output under research/experiments/steamstub/bin/Debug/net10.0");
 var work = Path.Combine(root, "experiments", "steamstub");
-var source = "/Users/andyhunter/Games/BulletWitch-Steam/witch.exe";
+var gameDirectory = Environment.GetEnvironmentVariable("BULLET_WITCH_GAME_DIR");
+if (string.IsNullOrEmpty(gameDirectory))
+    gameDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Games", "BulletWitch-Steam");
+var source = Path.Combine(gameDirectory, "witch.exe");
 var input = Path.Combine(work, "witch.original.exe");
 var output = input + ".unpacked.exe";
 const string expected = "f39bf4affcc534bf973c20752f9e6424684096acfa1d4607b67d5241a4c7f6cc";

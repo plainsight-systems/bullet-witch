@@ -4,8 +4,10 @@ No source game writes. Semantic names come from the native functions documented
 in particle-runtime-contracts.md; raw records remain in earlier inventories.
 """
 from pathlib import Path
+from local_inputs import game_directory
 from collections import Counter,defaultdict
 import json,struct,re,hashlib
+game=game_directory()
 r=Path(__file__).resolve().parents[1];o=r/'evidence/engine/pass-04';o.mkdir(exist_ok=True)
 m=json.loads((r/'experiments/steamstub/validation.json').read_text())['unpacked'];exe=Path(m['path']).read_bytes();assert hashlib.sha256(exe).hexdigest()==m['sha256']
 def off(a):
@@ -16,7 +18,7 @@ constants={hex(a):{'u32':u(exe,off(a)),'f32':struct.unpack_from('<f',exe,off(a))
 rows=json.loads((r/'evidence/engine/pass-03/effect-assets.json').read_text())['records'];packs={};stages=[]
 for row in rows:
  if row['name'] not in ('effect_pack.bin','effect.emt'):continue
- with (Path('/Users/andyhunter/Games/BulletWitch-Steam')/row['archive']).open('rb') as f:f.seek(row['payload_offset']);d=f.read(row['bytes'])
+ with (game/row['archive']).open('rb') as f:f.seek(row['payload_offset']);d=f.read(row['bytes'])
  if row['name']=='effect.emt':
   block=16+u(d,16);n=u(d,block);t=block+4+u(d,block+4);indices=t+u(d,t);strings=t+4+u(d,t+4);names=[z(d,strings+struct.unpack_from('<H',d,indices+2*i)[0]) for i in range(n)]
   meta=block+12+u(d,block+12);entry_meta=[list(struct.unpack_from('<3I',d,meta+i*12)) for i in range(n)]

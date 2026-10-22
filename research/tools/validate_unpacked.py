@@ -10,11 +10,12 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from local_inputs import game_directory
 import struct
 
 research = Path(__file__).resolve().parents[1]
 work = research/'experiments/steamstub'
-source = Path('/Users/andyhunter/Games/BulletWitch-Steam/witch.exe')
+source = (game_directory() / 'witch.exe')
 output = work/'witch.original.exe.unpacked.exe'
 
 def sha(data): return hashlib.sha256(data).hexdigest()

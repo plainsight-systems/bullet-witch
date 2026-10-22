@@ -9,10 +9,11 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from local_inputs import game_directory
 import struct
 
 research = Path(__file__).resolve().parents[1]
-exe = Path('/Users/andyhunter/Games/BulletWitch-Steam/witch.exe')
+exe = (game_directory() / 'witch.exe')
 b = exe.read_bytes()
 u16 = lambda off: struct.unpack_from('<H', b, off)[0]
 u32 = lambda off: struct.unpack_from('<I', b, off)[0]

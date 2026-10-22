@@ -8,12 +8,13 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+from local_inputs import game_directory
 from cpr_layout import inspect
 from layout_probe import dpk
 from lua50_read import parse
 
 research = Path(__file__).resolve().parents[1]
-game = Path('/Users/andyhunter/Games/BulletWitch-Steam')
+game = game_directory()
 results = []
 opcodes = Counter()
 

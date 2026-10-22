@@ -1,5 +1,7 @@
 # Bullet Witch
 
+An independent reconstruction project by [Plainsight Systems](https://plainsight-systems.com/).
+
 Source reconstruction of the Steam PC engine into readable, buildable native
 code. Preserve the original behavior, make a direct port to Xbox Series X
 Developer Mode, then improve the game and its graphics.
@@ -52,6 +54,17 @@ not contain the analysis inputs or a ready-to-run game. Follow the recorded
 research procedures with local inputs and toolchains when reproducing analysis.
 Research links into ignored evidence work on the research machine and may be
 unavailable in a clone; they are retained as provenance, not promised downloads.
+
+## License and attribution
+
+Project-authored code and configuration are [Apache 2.0](LICENSE-CODE).
+Project-authored writing, diagrams, and original visuals are [CC BY 4.0](LICENSE-CONTENT).
+See [LICENSE](LICENSE) for scope and [NOTICE](NOTICE) for Plainsight Systems
+attribution and third-party notices, including the Lua runtime.
+
+This project is unofficial and unaffiliated with the game's rights holders.
+The project licenses do not cover the original game or its trademarks.
+Users supply their own purchased copy; proprietary game content remains outside Git.
 
 ## Before committing or pushing
 

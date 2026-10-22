@@ -1,0 +1,15 @@
+Bullet Witch reconstruction is distributed under a split license.
+
+Project-authored source code and configuration, including C++, research tools,
+build scripts, tests, and configuration files, are licensed under the Apache
+License, Version 2.0. See LICENSE-CODE.
+
+Project-authored documentation, research prose, diagrams, and original visual
+assets are licensed under the Creative Commons Attribution 4.0 International
+license. See LICENSE-CONTENT.
+
+Each work is governed by the applicable scope above; the two licenses are not
+cumulative requirements on every file. These licenses cover the project's own
+contributions, not the original game's code, scripts, assets, or trademarks.
+Third-party components and quoted material retain their own terms. Attribution
+and dependency notices are recorded in NOTICE.

@@ -35,11 +35,11 @@ Read the purchased local installation:
 
 ```sh
 build/native/bw-resource resolve SCRIPT.ROOT.DPK \
-  --catalog 30 /Users/andyhunter/Games/BulletWitch-Steam/data/data/stable/stable.rat \
-  --catalog 55 /Users/andyhunter/Games/BulletWitch-Steam/data/shader/shader.rat
+  --catalog 30 /path/to/BulletWitch-Steam/data/data/stable/stable.rat \
+  --catalog 55 /path/to/BulletWitch-Steam/data/shader/shader.rat
 
-build/native/bw-resource cpr /Users/andyhunter/Games/BulletWitch-Steam/data/data/stable/script/root.cpr
-build/native/bw-resource rat /Users/andyhunter/Games/BulletWitch-Steam/data/data/stable/stable.rat
+build/native/bw-resource cpr /path/to/BulletWitch-Steam/data/data/stable/script/root.cpr
+build/native/bw-resource rat /path/to/BulletWitch-Steam/data/data/stable/stable.rat
 ```
 
 `resolve` returns the winning catalog, resource index, archive path, ordered
@@ -55,7 +55,7 @@ All inspector commands are read-only. Save outputs under the ignored research
 output tree, for example:
 
 ```sh
-build/native/bw-resource inventory /Users/andyhunter/Games/BulletWitch-Steam \
+build/native/bw-resource inventory /path/to/BulletWitch-Steam \
   > research/evidence/reconstruction/src-01/native-inventory.jsonl
 ```
 
@@ -169,7 +169,7 @@ hash and selection by ranges; the inspector prints only the first 32 payload byt
 
 ```sh
 python3 research/tools/verify_resource_foundation.py \
-  build/native/bw-resource /Users/andyhunter/Games/BulletWitch-Steam
+  build/native/bw-resource /path/to/BulletWitch-Steam
 ```
 
 Corpus: 6,625 CPRs, 29,996 records, 25 RATs, 15,262 catalog resources,

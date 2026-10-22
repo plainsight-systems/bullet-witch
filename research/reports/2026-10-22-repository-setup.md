@@ -2,8 +2,8 @@
 
 October 22, 2026.
 
-The project moved from `/Users/andyhunter/repositories/tech-demos/bullet-witch`
-to `/Users/andyhunter/repositories/bullet-witch`. Neither the previous project
+The project moved from `tech-demos/bullet-witch`
+to `bullet-witch`. Neither the previous project
 nor its parent had Git history. The new checkout uses branch `main`.
 
 The old project path is now a local symlink to the new location. This preserves

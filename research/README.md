@@ -110,8 +110,36 @@ items as work proceeds. Distinguish verified artifacts, statically established
 relationships and inferred behavior. A decompiler's proposed types are not
 original source declarations; imports alone do not establish initialization order.
 
-The downloaded game at `/Users/andyhunter/Games/BulletWitch-Steam` is read-only.
+The downloaded game at `/path/to/BulletWitch-Steam` is read-only.
 All research, tooling, copied resources and derived output belong under this
 `research/` tree. Credentials and Steam session metadata do not belong here.
-Acquisition tools remain at `/Users/andyhunter/.local/share/bullet-witch-tools/`.
+Acquisition tools remain at `~/.local/share/bullet-witch-tools/`.
 The reorganization does not move the game or downloader.
+
+## Local input configuration and portable records
+
+Research tools that previously embedded a local game path now use
+[`local_inputs.game_directory()`](tools/local_inputs.py). It reads
+`BULLET_WITCH_GAME_DIR`, falling back to `~/Games/BulletWitch-Steam` when the
+variable is unset or empty. The C# research host uses the same environment
+variable and home-directory default. Set an absolute override before invoking
+one of those tools:
+
+```sh
+export BULLET_WITCH_GAME_DIR="/path/to/BulletWitch-Steam"
+```
+
+Tools with explicit game/input CLI arguments retain those interfaces. The
+Noesis comparison tool also uses this setting for its output-location guard.
+Choosing a directory does not authorize writes to it; research outputs remain
+in this tree. Individual tools still require their documented local evidence
+and dependencies.
+
+Publication cleanup on October 22, 2026 normalized machine-specific location
+labels in tracked reports and reviewed summaries. Internal paths are relative
+to the repository root; `/path/to/BulletWitch-Steam` labels an external game
+installation, and `r35.pdf` identifies the user-supplied download. Historical
+repository locations use the relative labels `tech-demos/bullet-witch` and
+`bullet-witch`. These are location-label changes only: recorded digests,
+measurements and findings were preserved, and evidence was not regenerated.
+Earlier commits retain the original labels; Git history was not rewritten.

@@ -2,6 +2,11 @@
 
 - Source reconstruction is the implementation direction: preserve behavior,
   establish a direct port, then improve the engine and graphics.
+- The GitHub repository is `plainsight-systems/bullet-witch`. It uses the
+  DoLittle split: Apache 2.0 for project-authored code/configuration and CC BY 4.0
+  for project-authored writing/diagrams/original visuals. NOTICE credits
+  Plainsight Systems LLC and records third-party terms. Original game content
+  remains excluded; research tooling stays tracked under the existing policy.
 - Original-engine mapping lives in `research/engine/ARCHITECTURE.md`.
   Reconstruction design lives in `docs/architecture/` and is the working structural baseline.
   It describes the finished engine: application/engine/session/mission/world

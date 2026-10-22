@@ -67,7 +67,7 @@ and uncertainty labels; no graphical rendering is claimed in this checkpoint.
 
 ## CEDEC download follow-up
 
-The user supplied `/Users/andyhunter/Downloads/r35.pdf`. Preserved a byte-identical
+The user supplied `r35.pdf (user-supplied download)`. Preserved a byte-identical
 copy in `sources/cedec-2007/r35.pdf`. All six slides were extracted and visually
 reviewed. The reproducible Poppler inspection, hash and diagnostics are recorded
 in `evidence/cedec-2007/inspection.json`; the tool is
@@ -119,7 +119,7 @@ implementation has not begun in this decision-recording turn. No game files chan
 
 ## Dedicated repository setup
 
-Moved the project to `/Users/andyhunter/repositories/bullet-witch`, retaining an
+Moved the project to `bullet-witch`, retaining an
 old-path symlink for historical analysis references. Promoted the reconstruction
 plan to root IMPLEMENTATION.md, configured explicit Git exclusions and checked
 staged content. Added and tested local commit/push content guards. Details:
