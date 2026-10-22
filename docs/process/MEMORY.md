@@ -11,8 +11,10 @@
   ignored root `game/` remains reserved for local data.
 - SRC-01 implements an owned C++20 RAT/CPR reader, catalog resolution and a
   read-only JSON inspector. It does not execute handlers or render anything.
-- The current resource source combines format, location, catalog and filesystem
-  concerns. The next slice separates those responsibilities under the baseline.
+- Format readers now own pure decoding in `formats/`; `RatCatalog` owns its
+  decoded `RatData` and lookup index. `content/access` composes reads/location
+  through the injected `platform::Files` capability and `HostFiles` adapter.
+  The umbrella header retains type names; file opens use content functions.
 - The engineering workflow requires both C++ MCP corpora in design and
   implementation, opening file contracts, pinned Google formatting, fatal
   clang-tidy and strict builds. The check entry point is `scripts/check.py`.

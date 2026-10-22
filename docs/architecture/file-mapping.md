@@ -206,3 +206,13 @@ engineering tooling. The current combined resource source spans format, catalog,
 content and filesystem responsibilities. The [module contract](../resources.md)
 describes its behavior. Its [migration plan](../../IMPLEMENTATION.md#migrating-src-01)
 and subsequent reconstruction sequence live in IMPLEMENTATION, not this architecture.
+
+## Implemented boundary migration
+
+The former combined `src/resources.cpp` is split into `src/formats/`
+(CPR/RAT/common errors), `src/resources/catalog.cpp`, `src/content/access.cpp`
+and `src/platform/files/host.cpp`, with corresponding public headers. RatData
+owns decoded metadata; RatCatalog owns that value and an index. Public type
+names retain the `bw::resources` namespace for compatibility. The file
+capability is injected at the content boundary. This is implemented; other
+proposed files in the mapping remain proposals until documented otherwise.

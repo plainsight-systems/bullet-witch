@@ -141,8 +141,8 @@ original-engine reference and document new module designs separately.
 
 ## Migrating SRC-01
 
-No production files are moved or rewritten by the architecture revision.
-Perform the following as a behavior-preserving organization step before
+The SRC-01 boundary migration below is implemented and preserves the existing
+CLI and corpus contracts. It separates responsibilities before
 adding resource state. Keep a compatibility header/target temporarily if needed
 by callers; do not maintain two parser implementations.
 

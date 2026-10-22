@@ -1,0 +1,44 @@
+// A2: compose file acquisition/decoding and catalog-relative content location.
+// Files capability is borrowed for each call; outputs own data. Errors
+// propagate. Algorithm: canonicalize base/candidate, reject escapes; read then
+// parse. Costs: O(path components) location, reader costs for open.
+// Optimization: move acquired bytes into decoder. Symlink checks do not prevent
+// concurrent races. Design: cpp-guidelines I.1 (#ri-explicit), C.122
+// (#rh-separation): explicit ownership and injected file capability.
+// cpp-performance COPY.2
+// (guidelines/copy-move/COPY.2-mark-move-constructors-noexcept.md): container
+// owners retain implicit moves. Implementation: SL.con.3 (#rsl-bounds) checks
+// slices before access; COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) keeps owning values rule-of-zero.
+
+#include "bw/content/access.hpp"
+namespace bw::content {
+using resources::CprArchive;
+using resources::Error;
+using resources::ErrorCode;
+using resources::MountedCatalog;
+using resources::RatCatalog;
+CprArchive open_cpr(const platform::Files& files,
+                    const std::filesystem::path& path) {
+  return CprArchive::parse(files.read(path));
+}
+RatCatalog open_rat(const platform::Files& files,
+                    const std::filesystem::path& path) {
+  return RatCatalog::parse(files.read(path));
+}
+std::filesystem::path archive_path(const platform::Files& files,
+                                   const MountedCatalog& mount,
+                                   std::size_t index) {
+  auto base = files.canonical(mount.path).parent_path();
+  auto candidate =
+      files.canonical(base / mount.catalog.files().at(index).relative_path);
+  auto b = base.begin(), c = candidate.begin();
+  for (; b != base.end(); ++b, ++c) {
+    if (c == candidate.end() || *b != *c) {
+      throw Error(ErrorCode::malformed,
+                  "Catalog archive escapes catalog directory");
+    }
+  }
+  return candidate;
+}
+}  // namespace bw::content

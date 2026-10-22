@@ -186,3 +186,23 @@ Saved process samples document that limitation. Native tests and the full corpus
 comparison pass under Clang 21 UBSan with `UBSAN_OPTIONS=halt_on_error=1`.
 ASan coverage is **not** claimed. Windows/Xbox builds and original-engine runtime
 comparisons have not run. See the [work log](../research/logs/2026-10-22-source-reconstruction-01.md).
+
+## Implemented source boundaries
+
+`formats/cpr` and `formats/rat` perform pure owned-byte decoding. `RatData`
+constructs and validates full names once; `resources/catalog` retains it and
+adds lookup/priority selection. `content/access` composes the readers with
+`platform::Files`; `platform/files/host` performs read-only host I/O.
+`bw/resources.hpp` remains a type compatibility include. File-opening callers
+use `content::open_cpr/open_rat(files, path)` and content location receives the
+same capability. No format parser opens files. CLI output is unchanged.
+
+```mermaid
+flowchart LR
+  Caller[Inspector / resource service] --> Content[Content access]
+  Content --> Files[Files capability]
+  Files --> Host[Host adapter]
+  Content --> CPR[CPR decoder]
+  Content --> Catalog[Catalog index / priority]
+  Catalog --> RAT[RAT data decoder]
+```

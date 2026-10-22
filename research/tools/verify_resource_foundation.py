@@ -159,9 +159,9 @@ def main():
                                            for name in ('cpr-inventory.json', 'rat-layout.json')},
                'native_binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
                'source_sha256': {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-                                 for name in ('CMakeLists.txt', 'include/bw/resources.hpp', 'src/resources.cpp',
-                                              'tools/resource_inspector.cpp', 'tests/resources_test.cpp',
-                                              'tests/resource_cli_test.py', 'research/tools/verify_resource_foundation.py')},
+                                 for name in (['CMakeLists.txt', 'research/tools/verify_resource_foundation.py', 'tests/resource_cli_test.py'] +
+                                              sorted(str(p.relative_to(ROOT)) for folder in ('include', 'src', 'tools', 'tests')
+                                                     for p in (ROOT / folder).rglob('*') if p.suffix in ('.hpp', '.cpp')))},
                'method': 'Full corpus: historical input hashes/counts, independent CPR reader, RAT parent-chain names, raw fields, payload ranges/prefixes, arguments, dependencies and lookup self-checks.',
                'assurance': 'Static-derived and corpus-checked. No original-engine execution equivalence claim.'}
     (out / 'verification-summary.json').write_text(json.dumps(summary, indent=2) + '\n')

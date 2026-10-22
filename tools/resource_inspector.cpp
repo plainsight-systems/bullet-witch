@@ -28,9 +28,9 @@
 #include <iostream>
 #include <sstream>
 
+#include "bw/content/access.hpp"
 #include "bw/resources.hpp"
 
-using bw::resources::archive_path;
 using bw::resources::CatalogResource;
 using bw::resources::CatalogSet;
 using bw::resources::CprArchive;
@@ -212,9 +212,9 @@ std::string inspect(const std::filesystem::path& path, std::string_view kind,
   out << "{\"kind\":" << quote(kind) << ",\"path\":" << quote(label)
       << ",\"data\":";
   if (kind == "cpr") {
-    cpr(out, CprArchive::open(path));
+    cpr(out, bw::content::open_cpr(bw::platform::HostFiles{}, path));
   } else {
-    rat(out, RatCatalog::open(path));
+    rat(out, bw::content::open_rat(bw::platform::HostFiles{}, path));
   }
   return out.str() + '}';
 }
@@ -284,14 +284,16 @@ int main(int argc, char** argv) {
         const auto* number_end = number_begin + number.size();
         auto [end, ec] = std::from_chars(number_begin, number_end, priority);
         if (ec != std::errc{} || end != number_end) return usage();
-        set.mount(priority, arguments[i + 2],
-                  RatCatalog::open(arguments[i + 2]));
+        set.mount(
+            priority, arguments[i + 2],
+            bw::content::open_rat(bw::platform::HostFiles{}, arguments[i + 2]));
       }
       auto hit = set.resolve(arguments[2]);
       const auto& mount = set.catalogs()[hit.catalog_index];
       const auto& r = mount.catalog.resources()[hit.resource_index];
-      auto path = archive_path(mount, r.raw[3]);
-      auto archive = CprArchive::open(path);
+      auto path =
+          bw::content::archive_path(bw::platform::HostFiles{}, mount, r.raw[3]);
+      auto archive = bw::content::open_cpr(bw::platform::HostFiles{}, path);
       std::ostringstream out;
       out << "{\"name\":" << quote(r.full_name)
           << ",\"catalog\":" << quote(mount.path.string())
