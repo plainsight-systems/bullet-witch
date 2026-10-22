@@ -27,10 +27,10 @@ Use this connected baseline to design the next implementation contracts. It dist
 the recovered original, existing SRC-01 code, proposed organization and unresolved
 contracts. The inspector and eventual game use the same production modules.
 
-The proposed next organization step separates SRC-01's format readers, catalog
-lookup, content location and host file access while retaining its verified behavior.
-Then shared DPK access and resource lifecycle support the script/task integration.
-No rendering experiment or backend selection is introduced by this design work.
+SRC-01 now separates format readers, catalog lookup, content location and host
+file access while retaining its verified behavior. Shared DPK access and resource
+lifecycle now support task/Lua/root integration. Concrete startup services and
+screens are next; no renderer/backend has been selected by this infrastructure slice.
 
 ## What we are building
 
@@ -158,34 +158,40 @@ by callers; do not maintain two parser implementations.
 | Inspector command-line parsing and JSON formatting | Existing `tools/resource_inspector.cpp` | Uses shared production views; does not acquire runtime loading semantics by accident |
 | Existing C++ and CLI tests | Same contracts, reorganized with source ownership if needed | Preserve behavior assertions; update includes/call sites, not expected asset results |
 
-The format and catalog split may separate the current combined `RatCatalog` into
-an immutable format view and a catalog lookup owner. Full-name construction has
-a single owner; avoid maintaining separate versions in both layers. Decide the
-exact owning/borrowed relationship in header design. A mounted catalog must retain
-its decoded view for every request using its identity.
+The split gives `RatCatalog` ownership of decoded `RatData` plus a lookup index.
+Full-name construction has a single owner in the decoder. Mounted catalogs
+retain decoded views for every request using their identity.
 
 The current CPR inline-reference inspection formula remains provisional as a
 runtime reference model. Migration preserves inspection behavior without making
 that formula the resource service's unchecked runtime pointer semantics.
 
-### Next integration sequence
+### Integration sequence and status
 
-1. Separate SRC-01 along the table above; keep the same corpus checks and CLI
-   behavior. Add file-header contracts tied to the engine architecture and the evidence.
-2. Add DPK member access and its structural validation to the shared formats family.
-   Keep interpretation of supported script bytecode at the script boundary.
-3. Add the request/publication/retention lifecycle and the minimal supported USER
-   handler needed for script packages. Verify phases and ownership using explicit
-   synthetic handlers without claiming unsupported game handlers execute.
-4. Add task/work progression and the compatible script context/bridge, then connect
-   the root driver and individual native bindings. Exercise pending/resume and
-   release behavior through the same modules the eventual executable will use.
-5. Extend the composition with startup screens and required services as their
-   contracts are closed. Renderer/media/backend work follows its own declared
-   requirements; the current next slice remains resource and script execution.
-6. Add world/entity/AI/animation/physics/effect behavior for a complete mission,
-   preserving the shared mechanisms used by later missions and eventual host ports.
+1. **Implemented:** SRC-01 format/catalog/content/file boundaries; existing CLI
+   and corpus behavior preserved.
+2. **Implemented:** bounded DPK v1 access; script bytecode stays at the script boundary.
+3. **Implemented:** request/publication/retention/release and supported USER
+   construction. Other record handlers fail explicitly.
+4. **Implemented startup subset:** task lifecycle, Lua context/bridge, root driver
+   and 17 native startup bindings delegated to explicit game-service capabilities.
+   Original root routing is verified with fixture services. Background worker
+   execution and the rest of the native API are not implied to exist.
+5. **Next:** concrete startup screens/game services and required renderer/media/input
+   contracts. Complete interactive title/menu as SRC-02 requires.
+6. **Later:** world/entity/AI/animation/physics/effect behavior for a complete mission,
+   preserving the same mechanisms for later missions and host ports.
 
 Steps are dependency guidance, not a new requirement to ask at each transition.
 The architecture is the working structural baseline. This sequence does not determine its
 runtime structure; the same complete engine architecture governs every slice.
+
+## Startup source slice implemented
+
+The three authorized implementation steps are delivered: boundary migration;
+DPK/USER resource lifetime; task scheduling, compatible Lua bridge and original
+root driver. See [startup runtime](docs/startup-runtime.md) for exact contracts,
+verification commands and limitations. This completes the infrastructure slice
+of SRC-02. It does not complete the interactive title/menu milestone: concrete
+screen, input, sprite/media and game-state services remain. The provisioned
+original-root test uses explicit deterministic service fixtures.

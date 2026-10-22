@@ -6,8 +6,8 @@
 
 These contracts specify how the proposed runtime owners exchange state, work
 and memory. They complement the structural architecture; they do not prescribe
-reconstruction order. Recovered rules retain their local scope. None of the
-runtime systems below is implied to exist in the current archive reader.
+reconstruction order. Recovered rules retain their local scope. The implemented resource/task/Lua/root subset is identified in
+[startup runtime](../startup-runtime.md); other systems below remain proposed.
 
 ## Control, simulation and presentation domains
 

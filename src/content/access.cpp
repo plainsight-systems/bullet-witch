@@ -29,7 +29,9 @@ RatCatalog open_rat(const platform::Files& files,
 std::filesystem::path archive_path(const platform::Files& files,
                                    const MountedCatalog& mount,
                                    std::size_t index) {
-  auto base = files.canonical(mount.path).parent_path();
+  const auto parent = mount.path.parent_path();
+  auto base =
+      files.canonical(parent.empty() ? std::filesystem::path(".") : parent);
   auto candidate =
       files.canonical(base / mount.catalog.files().at(index).relative_path);
   auto b = base.begin(), c = candidate.begin();

@@ -14,7 +14,12 @@ Developer Mode, then improve the game and its graphics.
 Architectural mapping and script recovery are established. **SRC-01 is implemented:**
 a C++20 resource library and read-only CLI decode RAT/CPR metadata and resolve
 named resources. The full installed corpus matches the earlier research evidence.
-Runtime resource handlers and gameplay are subsequent milestones.
+The startup slice adds DPK access, USER publication/retention/release, task
+lifecycle, a Lua 5.0.2 bridge and the root driver. Original root bytecode reaches
+title/menu routing with deterministic test services. Actual screen behavior,
+rendering and gameplay remain subsequent work.
+
+[Startup runtime contracts, limitations and verification](docs/startup-runtime.md).
 
 [Resource module, usage and verification](docs/resources.md).
 

@@ -78,3 +78,8 @@ Engineering practice follows the adapted [workflow](../process/workflow.md).
 Implementation refines this baseline through explicit file contracts and evidence.
 The next source slice is recorded in the implementation plan; this baseline
 performs no code migration, renderer construction or backend selection.
+
+The implemented resource/task/Lua/root subset, its target dependencies and current
+limits are recorded in [startup runtime](../startup-runtime.md). Architecture
+views remain the full target; an original-root test with fixture services does
+not establish an interactive title screen or completed gameplay systems.

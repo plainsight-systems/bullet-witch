@@ -69,3 +69,10 @@ assets, binary data, links, oversized files and ignored evidence. The full
 `policy` action also checks the proposed working-tree snapshot using a temporary
 index and object directory; it leaves the real index untouched. Run `all`
 before a commit, and keep its validated working tree consistent with the commit.
+
+The runtime build now fetches Lua 5.0.2 from lua.org with a pinned SHA256 into
+`build/.../_deps`. Initial configuration needs network access or CMake's
+`FETCHCONTENT_SOURCE_DIR_LUA502` pointing to that exact source release. The
+tracked compatibility patch validates expected source fragments. No tools or
+assets are installed. CMake 3.24+ and C99/C++20 compilers are required. See
+[the startup verification commands](../docs/startup-runtime.md).

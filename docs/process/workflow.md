@@ -71,7 +71,8 @@ own correctness; C++ corpus requirements do not apply to Python-only changes.
 Use [the tooling entry point](../../scripts/README.md). Google formatting is
 pinned to clang-format 21.1.8. clang-tidy 21.1.8 enables Google, Core Guidelines,
 bug-prone, performance and analyzer families; every finding fails. Compiler
-warnings are errors on all three current C++ targets. A necessary low-level
+warnings are errors on all authored C++ targets. Pinned third-party Lua C is
+built separately and sanitizer-instrumented; it is not claimed as project lint coverage. A necessary low-level
 exception must name only the specific check and explain the bounded operation
 beside it. Do not suppress whole families to make checks pass. Test fixture
 literals are the sole directory-level exception.
@@ -90,8 +91,11 @@ values are appropriate when part of a format or numerical contract.
 
 Integration tests exercise real filesystem/process/component boundaries. Target
 at most five distinct essential scenarios across the repository. **Adoption
-exception:** ten existing scenarios are retained (four CLI, five Git content
-policy, one real archive corpus). This exceeds DoLittle's cap and is tracked
+exception, revised for the authorized startup implementation:** eleven scenarios
+are retained (four CLI, five Git content policy, one real archive corpus, one
+original-root startup integration). The added scenario covers the new
+resource/task/Lua composition with the actual local chunk and fixture services;
+it is explicitly integration coverage, not another unit test. This exceeds DoLittle's cap and is tracked
 as debt, not represented as compliance. Add none until the inventory is reduced
 or the budget is explicitly revised. Do not bundle unrelated workflows, rename
 them, or delete valuable rejection coverage merely to change the count. See

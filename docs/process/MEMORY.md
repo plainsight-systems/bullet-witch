@@ -17,6 +17,12 @@
   decoded `RatData` and lookup index. `content/access` composes reads/location
   through the injected `platform::Files` capability and `HostFiles` adapter.
   The umbrella header retains type names; file opens use content functions.
+- Startup runtime now has task lifecycle/active/late passes, an owned Lua 5.0.2
+  context, bounded 32-bit chunk conversion, wait/immediate bridges and a root
+  driver. Engine mechanisms live in `bw_runtime`; game composition in `bw_game`.
+  Original root routing reaches title/menu with deterministic test services.
+  Concrete screens/global side effects, graphics and native runtime equivalence
+  remain unimplemented/unverified; see `docs/startup-runtime.md`.
 - The engineering workflow requires both C++ MCP corpora in design and
   implementation, opening file contracts, pinned Google formatting, fatal
   clang-tidy and strict builds. The check entry point is `scripts/check.py`.
@@ -26,4 +32,5 @@
   main on the current host; no passing ASan claim is made. Other target builds
   and rendering/gameplay execution remain unverified.
 - Existing integration coverage exceeds the imported five-scenario target;
-  retain it under the explicit workflow adoption exception until reconciled.
+  the explicit adoption exception now enumerates eleven scenarios, including
+  the provisioned original-root integration required for the startup slice.

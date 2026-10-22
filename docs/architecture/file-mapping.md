@@ -10,7 +10,7 @@ shutdown; no milestone has its own parallel engine implementation.
 
 ## Source families
 
-These are proposed locations, not files already created. Public portable contracts
+The tree is the target organization; the implemented subset is listed below. Public portable contracts
 live under `include/bw/`, their implementations under matching `src/` families.
 Game-private declarations stay next to the concrete game implementation. A
 logical owner can be an aggregate; the map does not mandate a class per row.
@@ -216,3 +216,12 @@ owns decoded metadata; RatCatalog owns that value and an index. Public type
 names retain the `bw::resources` namespace for compatibility. The file
 capability is injected at the content boundary. This is implemented; other
 proposed files in the mapping remain proposals until documented otherwise.
+
+The implemented startup subset adds `formats/dpk`, `resources/service`,
+`script/chunk`, `script/context`, `tasks/scheduler` and `src/game/root_driver`
+(with its private header alongside it). CMake targets preserve dependency order:
+`bw_game` → `bw_runtime` → `bw_resources`; the script adapter privately links
+`bw_lua502`. A1 owns DPK layout, A3/A4 resource lifecycle/USER construction, E1
+task progression, E2 Lua mechanics, and G1/G2 root policy/native bindings.
+Actual startup services remain abstract capabilities; fixture implementations
+exist only in the provisioned integration test. See `docs/startup-runtime.md`.

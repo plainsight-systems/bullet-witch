@@ -8,10 +8,10 @@ the game. Original behavior remains documented in the
 [resource map](../research/engine/subsystems/resource-dispatch.md).
 
 The [reconstruction design set](architecture/README.md) now places this module
-within the proposed whole engine. Its [migration table](../IMPLEMENTATION.md#migrating-src-01)
-separates the current combined reader/catalog/filesystem responsibilities as
-the next organization step. The paths and commands below describe the code that exists today; no
-source move or behavior change has been made by drafting the architecture.
+within the whole engine. The [migration table](../IMPLEMENTATION.md#migrating-src-01)
+is implemented: pure formats, indexed catalogs, content access and an injected
+file capability have separate source owners. The startup USER lifecycle and
+DPK package access are described in [startup runtime](startup-runtime.md).
 
 ## Build and use
 
@@ -23,8 +23,9 @@ cmake --build build/native -j 4
 ctest --test-dir build/native --output-on-failure
 ```
 
-The library has no third-party dependencies. CMake 3.20+ and a C++20 compiler are
-required. Python 3 is required when `BUILD_TESTING=ON` so CLI coverage cannot
+The format/resource library has no third-party dependencies. The runtime target
+fetches SHA256-pinned Lua 5.0.2 into the ignored build directory. CMake 3.24+ and
+C99/C++20 compilers are required. Python 3 is required when `BUILD_TESTING=ON` so CLI coverage cannot
 be silently omitted. A library/tool-only build can use `-DBUILD_TESTING=OFF`.
 No game files are needed for either test suite. For the complete engineering
 check (format, strict build, tests, analysis and repository policy), run
@@ -66,11 +67,13 @@ without claiming an unverified legacy encoding; the library retains string bytes
 
 ## Interfaces and ownership
 
-[Public header](../include/bw/resources.hpp) · [Implementation](../src/resources.cpp)
+[Public header](../include/bw/resources.hpp) · [CPR decoder](../src/formats/cpr.cpp) · [RAT decoder](../src/formats/rat.cpp)
+· [Catalog](../src/resources/catalog.cpp)
 · [Inspector](../tools/resource_inspector.cpp).
 
 - `CprArchive::parse(Bytes)` and `RatCatalog::parse(Bytes)` own their input bytes.
-  `open(path)` reads and delegates to `parse`. Typed metadata owns its strings;
+  `content::open_cpr/open_rat(files, path)` reads and delegates to `parse`.
+  Typed metadata owns its strings;
   the byte buffers remain unchanged. Copies own independent data.
 - `CprArchive::payload(index)` borrows a checked span. Keep the owning archive
   alive and unchanged while using it. Metadata stores file ranges, never host
@@ -84,7 +87,8 @@ without claiming an unverified legacy encoding; the library retains string bytes
 - Dependencies preserve disk order: local indices first, then named entries.
   A local index supplies a full name for subsequent **global** lookup; it is not
   a promise to bind to the same catalog. This module reports direct dependencies;
-  it does not recurse, schedule requests, or set runtime readiness flags.
+  the separate resource service resolves the transitive closure and manages
+  runtime readiness.
 - `archive_path` normalizes catalog-relative separators and rejects traversal
   outside the catalog directory, including existing symlinks. This is a local
   filesystem boundary, not an emulation of the original virtual path service.

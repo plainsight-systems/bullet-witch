@@ -47,8 +47,11 @@ Bytes HostFiles::read(const std::filesystem::path& path) const {
 std::filesystem::path HostFiles::canonical(
     const std::filesystem::path& path) const {
   std::error_code error;
-  auto result = std::filesystem::weakly_canonical(
-      std::filesystem::absolute(path, error), error);
+  const auto absolute = std::filesystem::absolute(path, error);
+  if (error) {
+    throw Error(ErrorCode::io, error.message());
+  }
+  auto result = std::filesystem::weakly_canonical(absolute, error);
   if (error) {
     throw Error(ErrorCode::io, error.message());
   }
