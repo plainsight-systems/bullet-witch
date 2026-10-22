@@ -1,83 +1,139 @@
 # Bullet Witch
 
-An independent reconstruction project by [Plainsight Systems](https://plainsight-systems.com/).
+I want to get Bullet Witch running on Xbox Series X, then be able to work on
+it: preserve how the game plays, improve the graphics, and change the engine
+where there is a reason to. Having readable source makes that possible.
 
-Source reconstruction of the Steam PC engine into readable, buildable native
-code. Preserve the original behavior, make a direct port to Xbox Series X
-Developer Mode, then improve the game and its graphics.
+This project reconstructs the engine from the Steam PC release in C++20.
+The original executable, Lua scripts and game data provide the evidence for
+how it works. The destination is a faithful port to Series X in Developer
+Mode, with improvements built on top of that baseline. Development currently
+runs on an Apple silicon Mac.
 
-- [Project brief](BRIEF.md)
-- [Reconstruction architecture — working baseline](docs/architecture/README.md)
-- [Implementation plan](IMPLEMENTATION.md)
-- [Engineering workflow](docs/process/workflow.md) and [tooling commands](scripts/README.md)
-- [Original engine architecture](research/engine/ARCHITECTURE.md)
-- [Research index](research/README.md)
+## Why this approach
 
-Architectural mapping and script recovery are established. **SRC-01 is implemented:**
-a C++20 resource library and read-only CLI decode RAT/CPR metadata and resolve
-named resources. The full installed corpus matches the earlier research evidence.
-The startup slice adds DPK access, USER publication/retention/release, task
-lifecycle, a Lua 5.0.2 bridge and the root driver. Original root bytecode reaches
-title/menu routing with deterministic test services. Actual screen behavior,
-rendering and gameplay are being reconstructed incrementally. Company-logo and
-startup-check update policies now have in-process verification; live media,
-presentation and their integration with the root driver remain outstanding.
+The project started with static recompilation in mind. That could carry the
+existing engine onto another machine, but I want to understand and work on
+what comes across. Source reconstruction gives the systems names, ownership
+and interfaces that can be read and changed, while keeping their behavior
+traceable to the original.
 
-[Startup runtime contracts, limitations and verification](docs/startup-runtime.md).
+The Steam release gives the work a concrete starting point. Its scripts
+describe startup, missions and parts of the AI, but they call into native
+engine code to do much of the work. Following those calls connects a script
+to the resources it needs, the tasks that advance it, and eventually the
+animation, physics, sound and rendering that make it visible.
 
-[Resource module, usage and verification](docs/resources.md).
+That is how the engine is being built, one connected part at a time. The
+archive reader used by the inspection tool is also the reader used by the
+runtime. The task and Lua systems that drive startup will support later game
+behavior. Platform-specific graphics, input and media belong behind their
+own interfaces, so a port can change those implementations while preserving
+the game logic.
 
-The [architecture design set](docs/architecture/README.md) now defines the proposed
-target runtime structure, session/world ownership, simulation, rendering,
-execution/memory contracts, change axes and source dependencies.
-It is the working baseline; its planned modules are not implemented by the documentation.
+The order matters to me. A working version of the original gives later
+changes something to be compared against. Otherwise a graphics improvement
+and a reconstruction mistake can arrive in the same frame, and it becomes
+harder to tell which one changed the game.
+
+This is R&D under [Plainsight Systems](https://plainsight-systems.com/) LLC.
+
+## Where it stands
+
+The resource readers handle the installed game's archives and catalogs, and
+the original startup Lua runs through the reconstructed task and script
+runtime. Tests take that script through its title/menu routing using
+controlled stand-ins for the screens. Company-logo and startup-check update
+logic are implemented separately, including their completion and cleanup
+behavior.
+
+There is no playable build yet. The next work connects those flows to real
+media, input and presentation, then continues through title and menu behavior.
+The graphics and media backends are still to be selected. The
+[startup notes](docs/startup-runtime.md) describe what runs today and the
+remaining dependencies; the [implementation plan](IMPLEMENTATION.md) follows
+that work through a playable mission, the complete game and the Xbox port.
+
+## Build locally
+
+The current native build is verified on macOS with Apple silicon. You need
+Git, Python 3.9+, CMake 3.24+ and C/C++ compilers with C99 and C++20 support.
+The first configuration downloads a checksum-pinned Lua 5.0.2 source archive.
+
+```sh
+git clone https://github.com/plainsight-systems/bullet-witch.git
+cd bullet-witch
+python3 scripts/check.py host
+```
+
+This builds the libraries, resource inspector and tests, then runs the tests.
+It does not need game data. The inspector is written to
+`build/host-debug/bw-resource`; [resource inspection](docs/resources.md)
+explains how to use it with your own purchased Steam installation.
+
+For the full development checks, provide clang-format and clang-tidy
+**21.1.8** and run:
 
 ```sh
 python3 scripts/check.py all
 ```
 
-Production code lives in `src/`, `include/`, `tools/` and `tests/`. Research and
-local corpus outputs remain organized under `research/`.
+That adds formatting, static analysis and repository-content checks. See
+[tooling setup](scripts/README.md) for tool discovery, sanitizers and checks
+against the installed game.
 
-## Repository contents
+## Find your way around
 
-Git contains authored source/tools, documentation and a small reviewed set of
-verification summaries. Game assets, extracted scripts, raw decompiler output,
-disassembly, Ghidra workspaces, downloaded toolchains and third-party reference
-copies remain local and ignored. The `.gitignore` uses explicit exceptions for
-reviewed research metadata and authored experiment tools; new generated evidence
-is excluded by default. Put any new local game content in `game-data/` or the
-appropriate ignored research directory.
+| Path | What it holds |
+| --- | --- |
+| `include/bw/`, `src/` | Shared engine contracts and their C++ implementations |
+| `src/game/` | Bullet Witch's script bindings and game-specific behavior |
+| `tools/` | The resource inspector and repository-content guard |
+| `tests/` | Contract tests and integration checks |
+| `scripts/`, `cmake/` | Build, formatting, analysis and dependency setup |
+| `docs/architecture/` | The engine design, ownership and source boundaries |
+| `docs/process/` | Current decisions, work queue and development workflow |
+| `research/` | Original-engine maps, dated investigations and research tools |
 
-The original game installation is external to the repository. A fresh clone will
-not contain the analysis inputs or a ready-to-run game. Follow the recorded
-research procedures with local inputs and toolchains when reproducing analysis.
-Research links into ignored evidence work on the research machine and may be
-unavailable in a clone; they are retained as provenance, not promised downloads.
+There are two useful ways into the design. The
+[original-engine map](research/engine/ARCHITECTURE.md) explains what the
+research has established about the game. The
+[reconstruction architecture](docs/architecture/README.md) explains how that
+behavior fits into the engine being built here. The
+[research index](research/README.md) connects the subsystem notes and their
+evidence.
 
-## License and attribution
+Game assets, extracted scripts and raw decompiler output stay outside Git.
+The public repository contains the implementation, research tools and written
+findings. Some research links point into local evidence that a clone will not
+contain.
 
-Project-authored code and configuration are [Apache 2.0](LICENSE-CODE).
-Project-authored writing, diagrams, and original visuals are [CC BY 4.0](LICENSE-CONTENT).
-See [LICENSE](LICENSE) for scope and [NOTICE](NOTICE) for Plainsight Systems
-attribution and third-party notices, including the Lua runtime.
+## Working on the project
 
-This project is unofficial and unaffiliated with the game's rights holders.
-The project licenses do not cover the original game or its trademarks.
-Users supply their own purchased copy; proprietary game content remains outside Git.
+Start with the [current decisions](docs/process/MEMORY.md),
+[work queue](docs/process/QUEUE.md) and [workflow](docs/process/workflow.md).
+Each C++ file begins with its responsibility, ownership and algorithm. New
+behavior needs a connection back to the evidence; unresolved behavior stays
+identified until it can be established.
 
-## Before committing or pushing
-
-Enable the versioned hooks in each checkout:
+Enable the repository's commit and push checks in a new checkout:
 
 ```sh
 git config core.hooksPath .githooks
-python3 tools/check_repository.py --staged
 ```
 
-The commit hook checks the staged snapshot. The push hook checks all commits
-reachable from the local refs being pushed, so a removed asset still in history
-is also rejected. These local hooks can be bypassed; they complement review and
-the ignore rules, and are not server-side enforcement. The checker rejects paths
-excluded by the current ignore rules, oversized files, binary content and links.
-Intentional policy changes require updating/reviewing the rules first.
+## Credits and license
+
+The original game is Cavia's work. Community investigations, including Rich
+Whitehouse's Noesis reader, provide useful references alongside the local
+analysis. The [source notes](research/sources/community-reverse-engineering.md)
+record those contributions, and [NOTICE](NOTICE) credits the runtime and
+research tools used here.
+
+Project code and configuration use Apache 2.0; writing, diagrams and original
+artwork use CC BY 4.0. See [LICENSE](LICENSE) for the split. Third-party
+components retain their own licenses.
+
+This is an unofficial project, unaffiliated with the game's rights holders.
+Users supply their own purchased game; its code and assets are not included
+or licensed by this repository.
