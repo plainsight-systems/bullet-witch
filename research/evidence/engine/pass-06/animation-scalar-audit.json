@@ -1,0 +1,39 @@
+{
+  "image_sha256": "bdaff1746d3092215699b09eab11315c6adf8fb71eaa8f46c280b11b3cd448fd",
+  "helper": "0x41df30",
+  "finite_patterns": 63488,
+  "finite_mismatches": [],
+  "special_patterns_not_ieee_semantics": 2048,
+  "examples": {
+    "0x0": {
+      "native_bits": "0x0",
+      "native_float": 0.0
+    },
+    "0x8000": {
+      "native_bits": "0x80000000",
+      "native_float": -0.0
+    },
+    "0x1": {
+      "native_bits": "0x33800000",
+      "native_float": 5.960464477539063e-08
+    },
+    "0x3c00": {
+      "native_bits": "0x3f800000",
+      "native_float": 1.0
+    },
+    "0x7bff": {
+      "native_bits": "0x477fe000",
+      "native_float": 65504.0
+    },
+    "0x7c00": {
+      "native_bits": "0x47800000",
+      "native_float": 65536.0
+    },
+    "0x7fff": {
+      "native_bits": "0x47ffe000",
+      "native_float": 131008.0
+    }
+  },
+  "slerp_near_parallel_threshold": 0.9999899864196777,
+  "limitation": "Algorithm transcription check against binary16, not execution of native x86 or validation of every animation channel."
+}

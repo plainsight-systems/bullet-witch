@@ -1,0 +1,14 @@
+{
+  "python_version": "3.14.5 (main, May 10 2026, 10:21:34) [Clang 21.0.0 (clang-2100.0.123.102)]",
+  "analysis_image_sha256": "bdaff1746d3092215699b09eab11315c6adf8fb71eaa8f46c280b11b3cd448fd",
+  "AI_structural_errors": 0,
+  "AI_methods_exported": 112,
+  "shader_registry_cache_ids_checked": 490,
+  "finite_binary16_patterns_checked": 63488,
+  "native_edges_checked": 36,
+  "vtable_slots_checked": 93,
+  "broken_navigation_links": 0,
+  "markdown_fences_balanced": true,
+  "accepted_unique_exports_this_pass": 1170,
+  "scope": "Static audits; no original native execution or visual/runtime equivalence test."
+}

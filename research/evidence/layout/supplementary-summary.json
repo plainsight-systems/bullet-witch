@@ -1,0 +1,33 @@
+{
+  "rat_files_parsed": 25,
+  "rat_errors": [],
+  "rat_archive_references": 6625,
+  "rat_unique_archive_references": 6625,
+  "rat_references_match_all_cprs": true,
+  "rat_missing_references": [],
+  "rat_resource_count": 15262,
+  "script_dpk_count": 56,
+  "script_dpk_errors": [],
+  "script_member_extensions": {
+    ".bgb": 47,
+    ".hide": 22,
+    ".settbl": 190,
+    ".bin": 4,
+    ".lub": 57,
+    ".arc": 24
+  },
+  "compressed_script_members": 0,
+  "lua_header_versions": {
+    "80": 57
+  },
+  "shader_cpr_records": 3830,
+  "shader_cpr_nonempty_payloads": 0,
+  "shader_variant_ids": 766,
+  "shader_ids_present_in_exe": 766,
+  "shader_candidates": 541,
+  "shader_profiles": {
+    "vs_3_0": 68,
+    "ps_3_0": 473
+  },
+  "media_probe_errors": 0
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "url": "https://raw.githubusercontent.com/sigmaco/physx-v2.8.1/main/SDKs/Physics/include/NxScene.h",
+    "sha256": "a762714cfbbd7fd443a1eebf372cf05b73bb1b88991815170d4caeff66c45486",
+    "file": "NxScene.h",
+    "scope": "Historical NVIDIA/AGEIA header redistributed by third party; version 2.8.1 is not the game requested 2.6.4 ABI."
+  },
+  {
+    "url": "https://raw.githubusercontent.com/sigmaco/physx-v2.8.1/main/SDKs/Physics/include/NxPhysicsSDK.h",
+    "sha256": "c5f49329eaa1a610fc99f49c447093ea152bd852d78c6e1e21f40e111430ef15",
+    "file": "NxPhysicsSDK.h",
+    "scope": "Historical NVIDIA/AGEIA header redistributed by third party; version 2.8.1 is not the game requested 2.6.4 ABI."
+  },
+  {
+    "url": "https://raw.githubusercontent.com/sigmaco/physx-v2.8.1/main/SDKs/Physics/include/NxSceneDesc.h",
+    "sha256": "752bcff3ce07dda16d5cc8ac9b8c01313e2465caf31939293446ce0501d85d88",
+    "file": "NxSceneDesc.h",
+    "scope": "Historical NVIDIA/AGEIA header redistributed by third party; version 2.8.1 is not the game requested 2.6.4 ABI."
+  }
+]

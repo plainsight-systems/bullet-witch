@@ -1,0 +1,7 @@
+* text=auto
+*.md text eol=lf
+*.py text eol=lf
+*.java text eol=lf
+*.cs text eol=lf
+*.json text eol=lf
+.githooks/* text eol=lf

@@ -1,0 +1,13 @@
+{
+  "unique_sources_checked": 231,
+  "status": {
+    "pass": 231
+  },
+  "original_cpr_hashes_checked": 6625,
+  "changed_cpr_archives": [],
+  "original_exe_sha256": "f39bf4affcc534bf973c20752f9e6424684096acfa1d4607b67d5241a4c7f6cc",
+  "original_exe_unchanged": true,
+  "unpacked_exe_sha256": "bdaff1746d3092215699b09eab11315c6adf8fb71eaa8f46c280b11b3cd448fd",
+  "unpacked_exe_unchanged": true,
+  "game_scripts_executed": false
+}

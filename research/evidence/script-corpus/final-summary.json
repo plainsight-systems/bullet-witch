@@ -1,0 +1,27 @@
+{
+  "occurrences": 232,
+  "unique_scripts": 231,
+  "accepted_occurrences": 232,
+  "family_occurrences": {
+    "bonus mission": 19,
+    "AI": 155,
+    "root/stage": 19,
+    "test/sample": 38,
+    "embedded executable": 1
+  },
+  "prototypes": 30575,
+  "unique_prototypes": 30567,
+  "instructions": 333118,
+  "unique_instructions": 332840,
+  "native_apis_called": 214,
+  "unresolved_call_sites": 0,
+  "callback_links": 4405,
+  "resource_literal_arguments": 1459,
+  "signature_audit": {
+    "accounted-for": 232,
+    "rejected-signature": 4
+  },
+  "ai_tree_nodes": 27079,
+  "ai_wrappers": 155,
+  "ai_call_offsets_all_valid": true
+}

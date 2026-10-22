@@ -1,0 +1,75 @@
+{
+  "inspection_date": "2026-10-21",
+  "timezone": "America/Phoenix",
+  "steam_app_id": 696180,
+  "game_directory": "/Users/andyhunter/Games/BulletWitch-Steam",
+  "download_status": "complete",
+  "downloader_version": "3.4.0",
+  "file_count": 6922,
+  "total_bytes": 4381764192,
+  "excluded": ".DepotDownloader downloader metadata",
+  "extensions": [
+    {
+      "extension": "(none)",
+      "count": 6,
+      "bytes": 484224
+    },
+    {
+      "extension": ".bin",
+      "count": 55,
+      "bytes": 1734810
+    },
+    {
+      "extension": ".cab",
+      "count": 154,
+      "bytes": 100751363
+    },
+    {
+      "extension": ".cpr",
+      "count": 6625,
+      "bytes": 2130068868
+    },
+    {
+      "extension": ".dll",
+      "count": 5,
+      "bytes": 2795800
+    },
+    {
+      "extension": ".exe",
+      "count": 4,
+      "bytes": 21590240
+    },
+    {
+      "extension": ".msi",
+      "count": 1,
+      "bytes": 20154368
+    },
+    {
+      "extension": ".rat",
+      "count": 25,
+      "bytes": 989248
+    },
+    {
+      "extension": ".ssu",
+      "count": 18,
+      "bytes": 1881827792
+    },
+    {
+      "extension": ".vdf",
+      "count": 3,
+      "bytes": 2145
+    },
+    {
+      "extension": ".xwb",
+      "count": 2,
+      "bytes": 167766016
+    },
+    {
+      "extension": ".xwv",
+      "count": 24,
+      "bytes": 53599318
+    }
+  ],
+  "witch_exe_sha256": "f39bf4affcc534bf973c20752f9e6424684096acfa1d4607b67d5241a4c7f6cc",
+  "original_brief_sha256": "f7d231053f1f8fa499229ad6019e7e8b47f32ba5edb059dde19204e8d9a55bab"
+}

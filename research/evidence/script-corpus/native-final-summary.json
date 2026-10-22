@@ -1,0 +1,26 @@
+{
+  "registration_tables": [
+    {
+      "va": "0x959748",
+      "entries": 165
+    },
+    {
+      "va": "0x959c78",
+      "entries": 65
+    },
+    {
+      "va": "0x96b508",
+      "entries": 60
+    }
+  ],
+  "registration_entries": 290,
+  "distinct_names": 273,
+  "distinct_adapters": 272,
+  "distinct_callbacks": 272,
+  "called_native_names": 214,
+  "all_registered_callbacks_decompiled": true,
+  "native_export_functions": 2398,
+  "native_export_failures": 0,
+  "indirect_call_sites": 461,
+  "native_seed_labels": 556
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "url": "https://raw.githubusercontent.com/metarutaiga/DXSDK/master/xact3.h",
+    "file": "xact3.h",
+    "sha256": "b177ac0d0bb13ae7cd1a62880d1ffe9121c7788fb14e735719e715f9a0649bbb",
+    "scope": "Microsoft SDK header redistributed by third party; check interface version before slot assignment."
+  },
+  {
+    "url": "https://raw.githubusercontent.com/metarutaiga/DXSDK/master/xaudio2.h",
+    "file": "xaudio2.h",
+    "sha256": "e6b57672648196a9330b095d7404e19bb290241b57936ab3d9681a3a4cf87081",
+    "scope": "Microsoft SDK header redistributed by third party; check interface version before slot assignment."
+  },
+  {
+    "url": "https://raw.githubusercontent.com/metarutaiga/DXSDK/master/d3d9.h",
+    "file": "d3d9.h",
+    "sha256": "3dafbbcf1ee58af519306699b57127228ec5667319aff11aa5e9c8436b9b6dca",
+    "scope": "Microsoft SDK header redistributed by third party; check interface version before slot assignment."
+  }
+]
