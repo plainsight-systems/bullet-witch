@@ -22,8 +22,11 @@
   context, bounded 32-bit chunk conversion, wait/immediate bridges and a root
   driver. Engine mechanisms live in `bw_runtime`; game composition in `bw_game`.
   Original root routing reaches title/menu with deterministic test services.
-  Concrete screens/global side effects, graphics and native runtime equivalence
-  remain unimplemented/unverified; see `docs/startup-runtime.md`.
+  `CompanyLogoFlow` and `StartupCheckFlow` now implement bounded game update
+  policies with in-process verification. Native task integration, activation
+  side effects, media/fade/input adapters and graphics remain outstanding;
+  original-root screen fixtures have not been replaced. Logo open-failure
+  continuation is an explicit unresolved failure; see `docs/startup-runtime.md`.
 - The engineering workflow requires both C++ MCP corpora in design and
   implementation, opening file contracts, pinned Google formatting, fatal
   clang-tidy and strict builds. The check entry point is `scripts/check.py`.

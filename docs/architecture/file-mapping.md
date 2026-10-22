@@ -27,6 +27,8 @@ contracts. Original-engine research retains the identifiers needed to trace evid
 | `ResourceCatalog` | Own decoded catalog data and index it for lookup | RAT-backed catalog |
 | `NamedFilePackage` / `PackageMember` | Access individual named files inside a package | `.dpk`, `dpk\0` |
 | `TaskLifecycleScheduler` | Advance lifecycle, active-update and late-update passes on one thread | Recovered task-dispatch functions |
+| `CompanyLogoFlow` | Advance the ordered logo movie/fade/input update policy | CompanyLogo task update |
+| `StartupCheckFlow` | Advance the PC startup UI check phases and result | MemoryCardCheck task update; no storage I/O in this update |
 
 The matching files are `formats/resource_archive`, `formats/resource_catalog`,
 `formats/named_file_package` and `tasks/task_lifecycle_scheduler`. Content entry
@@ -232,11 +234,11 @@ Target granularity can be refined during implementation without changing these
 boundaries. Keep CPU format tests and the inspector buildable without initializing
 a device or world. Do not create a new test-only loader, renderer or simulation.
 
-**Implemented today:** `bw_resources`, `bw-resource`, their C++/CLI tests and the
-engineering tooling. The current combined resource source spans format, catalog,
-content and filesystem responsibilities. The [module contract](../resources.md)
-describes its behavior. Its [migration plan](../../IMPLEMENTATION.md#migrating-src-01)
-and subsequent reconstruction sequence live in IMPLEMENTATION, not this architecture.
+**Implemented today:** `bw_resources`, `bw_runtime`, `bw_game`, `bw-resource`,
+their tests and the engineering tooling. The [resource contract](../resources.md)
+and [startup contract](../startup-runtime.md) describe the implemented subsets.
+The completed [migration](../../IMPLEMENTATION.md#migrating-src-01) and subsequent
+reconstruction sequence live in IMPLEMENTATION, not this architecture.
 
 ## Implemented boundary migration
 
@@ -256,3 +258,9 @@ The implemented startup subset adds `formats/named_file_package`, `resources/ser
 task progression, E2 Lua mechanics, and G1/G2 root policy/native bindings.
 Actual startup services remain abstract capabilities; fixture implementations
 exist only in the provisioned integration test. See `docs/startup-runtime.md`.
+
+`src/game/startup_flows` adds `CompanyLogoFlow` and `StartupCheckFlow` to `bw_game`.
+They own recovered game update policy and borrow explicit observations from a
+media/fade capability. They do not choose a backend, draw, mutate session globals
+or remove scheduler tasks. Those composition dependencies remain outstanding;
+the original-root integration still uses its explicit screen fixtures.

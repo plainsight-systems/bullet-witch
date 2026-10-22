@@ -66,7 +66,10 @@ conditions; that remains a progression-policy question.
   opens its movie path, fades in, waits for completion or pressed masks
   0x1010/0x2020, fades out, and advances the table index. The final path hides
   the screen, stops an active movie, sets result +0xec to 1 and removes the task.
-  Failed movie initialization also takes the cleanup path.
+  Failed movie initialization clears visibility but increments the current
+  primary state from 500 to 501, rather than entering final cleanup state 8001.
+  Its subsequent continuation remains unresolved; see the corrected
+  [source contract](../../../docs/startup-runtime.md#reconstructed-startup-update-policies).
 - **Advertise:** 0x49e610 opens `data\movie\advertise.ssu`; 0x49e900 separately
   handles fade-in, movie completion or input skip, fade-out, visibility clear,
   result +0x90 = 1, movie stop and task removal.

@@ -158,3 +158,75 @@ research evidence. The existing full archive corpus still passes, including
 74 DPK packages / 655 members. In-process runtime cases cover nested waiting,
 retained arguments, move ownership, immediate completion, native/missing-call
 errors, instruction guards, task activation/deactivation/removal and pass order.
+
+## Reconstructed startup update policies
+
+`src/game/startup_flows` now contains game-owned `CompanyLogoFlow` and
+`StartupCheckFlow`. They are compiled into `bw_game`, alongside the root driver,
+not separate applications. These implement the recovered update policies; they
+are not yet complete native task adapters or replacements for the original-root
+integration's screen fixtures. Scheduling, activation side effects, draw submission
+and task removal remain explicit composition work.
+
+`CompanyLogoFlow` consumes an explicitly supplied ordered movie playlist and an
+exclusively borrowed `LogoMedia` capability. Each update executes one native
+branch. Successful open requests a reveal fade of **0.25**, then waits for fade
+completion before observing movie completion or pressed masks **0x1010 / 0x2020**.
+The next branch starts conceal at **0.25**; completion advances the playlist.
+The previous movie is released before opening the next. After the final conceal,
+hiding and final movie release/result **1** occur on separate updates. Phase
+clocks reset on transitions and receive the caller's delta at the end of that
+update. The caller supplies the game timestep; the flow invents no frame rate.
+
+The capability contract distinguishes missing/unsupported media (exception →
+terminal failed status with diagnostic) from an attempted open that returns
+false. The latter is **also unresolved**, rather than treated as successful
+skipping: raw `0x49e320` instructions branch from state 500 to visibility clear,
+then `0x4745b0` increments the current state to 501. They do not jump to the
+normal final state 8001. The present source stops partial media ownership and
+reports that unsupported continuation. This is a documented host failure policy,
+not a claim of native error-path equivalence. The earlier summary that failed
+initialization simply takes final cleanup must not be used to implement success.
+The timer-only alternative inside native state 600 is not independently supported;
+the implemented successful-open path sets the movie flag, as native code does.
+
+`StartupCheckFlow` maps the external `MemoryCardCheck` task name without asserting
+physical card or save operations. Its mapped PC update has no storage operation or
+completion wait. The primary states are **0 → 1 → 500 → 8000 → 8001 → 8002 →
+8003 → 9000**, one transition per update, including when delta is zero. Visibility
+becomes true on the first update, false on the sixth, and result **1** is published
+on the seventh. Native `0x474610` sets a secondary UI phase and resets its counters;
+its arguments **500 / 1000 / 1300** are phase identifiers, not delay durations.
+The source uses descriptive `reveal / hold / close` markers and retains separate
+primary and UI clocks. It does not call save services.
+
+```mermaid
+flowchart LR
+    Open["Open logo movie"] --> Reveal["Reveal / wait for fade"]
+    Reveal --> Play["Wait for movie end or pressed actions"]
+    Play --> Conceal["Conceal / wait for fade"]
+    Conceal --> More{"More entries?"}
+    More -->|yes| Open
+    More -->|no| Hide["Hide"]
+    Hide --> Finish["Next update: stop movie, result 1"]
+    Open -->|unsupported or unresolved failure| Failed["Failed / diagnostic / cleanup"]
+```
+
+Evidence is the existing pass-06w pseudocode **and instructions** for
+`0x49e320`, `0x4a0f20`, `0x49e070`, `0x4a0e20`, `0x4745b0`, `0x474610`,
+`0x474630`, `0x485930`, `0x485960`, `0x4859c0`, plus pass-06r draw
+`0x4a0e80`, under ignored `research/evidence/engine/`. The source-level contracts
+cite the C++ MCP rules consulted during design and implementation.
+
+Remaining integration dependencies: recover/provision the exact logo table;
+resolve activation's session flag mutation at `0xa0b6d8`; implement selected
+media/fade/input adapters and draw presentation; pump media events independently
+of polling or preserve the native draw/event dependency; connect completion to
+task removal and Wait observation. Logo open-failure continuation needs further
+native evidence. No graphics API or media backend is selected here.
+
+Three in-process cases in the existing runtime test executable cover PC check
+visibility/UI clocks/result ordering, two-logo progression with independent
+fade/movie/input gates, and unavailable/open-failure/destructor cleanup. These
+use explicit test media observations and establish update-policy behavior only.
+No integration scenario or fake production completion service was added.

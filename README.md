@@ -17,7 +17,9 @@ named resources. The full installed corpus matches the earlier research evidence
 The startup slice adds DPK access, USER publication/retention/release, task
 lifecycle, a Lua 5.0.2 bridge and the root driver. Original root bytecode reaches
 title/menu routing with deterministic test services. Actual screen behavior,
-rendering and gameplay remain subsequent work.
+rendering and gameplay are being reconstructed incrementally. Company-logo and
+startup-check update policies now have in-process verification; live media,
+presentation and their integration with the root driver remain outstanding.
 
 [Startup runtime contracts, limitations and verification](docs/startup-runtime.md).
 

@@ -1,9 +1,13 @@
 # Remaining work
 
-- Next: reconstruct concrete startup services/screens and their task completion,
-  global/save side effects and status contracts. Replace deterministic verification
-  fixtures with production implementations incrementally; start with company-logo
-  and memory-card flow, then advertise/title/menu and required sprite/media/input.
+- Next: integrate the implemented company-logo/startup-check update policies with
+  task completion and activation side effects; provision the exact logo playlist
+  and media/fade/input capabilities. Keep unresolved movie-open failure explicit.
+  Continue advertise, title initialization, character-load save/dialog behavior
+  and title-menu status contracts, following
+  `research/engine/subsystems/startup-next-contracts.md`. Replace root fixtures
+  only as real capabilities become available. Graphics/media backend selection
+  remains open for discussion with the user.
 - Extend root/mission native bindings as their owning game systems are implemented;
   missing bindings and unsupported resource/CALL handlers remain explicit failures.
 - Close camera/view, scene/visibility, lighting/pass, all-mode schedule and

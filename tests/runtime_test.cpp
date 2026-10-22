@@ -17,6 +17,7 @@
 #include "bw/script/chunk.hpp"
 #include "bw/script/context.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
+void startup_flow_contracts();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -158,6 +159,7 @@ void scheduling() {
 }  // namespace
 int main() {
   try {
+    startup_flow_contracts();
     bridge_contract();
     failures();
     scheduling();
