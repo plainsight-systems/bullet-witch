@@ -124,8 +124,9 @@ resources. Native C++ and CLI tests pass; full comparison passes under UBSan.
 ASan is locally blocked before program startup and is not counted as passed.
 
 This milestone supplies container views, namespace/dependency decoding, priority
-lookup and a read-only inspector. It does not supply runtime record handlers,
-DPK decoding, GPU objects, request scheduling or publication/release state.
+lookup and a read-only inspector. The subsequent startup-resource slice supplies DPK decoding and supported USER
+request/publication/lease/release state (see `docs/startup-runtime.md`). GPU
+objects and other record handlers remain unimplemented.
 After the SRC-01 separation, the next implementation
 slice is SRC-02's script package access and startup resource lifecycle, followed
 by the Lua bridge/task contract and title/menu path.

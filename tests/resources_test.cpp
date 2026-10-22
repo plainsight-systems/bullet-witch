@@ -1,10 +1,17 @@
-// In-process resource contract verification (V1 in the draft file mapping).
-// See docs/resources.md and tests/README.md. Synthetic bytes are owned locally;
-// no file, subprocess, game installation or rendering context is required.
-// Contract: successful inputs produce specified metadata/payloads; malformed
-// and unsupported inputs produce the required error category. Failed checks
-// throw and cause a nonzero process exit. Printed count is assertions, not
-// tests.
+// Extended contracts: A1 DPK bounds; A3 publication/release using an in-memory
+// file capability. No processes/files. Ordered checks cover phases, cycle
+// termination, error/retry and lease lifetime, with fixture-sized allocations.
+// Optimization: retain one archive lease across release rather than copying.
+// Design: R.20 (#rr-owner) and COPY.4 (guidelines/copy-move/
+// COPY.4-rule-of-five-rule-of-zero.md) define shared lifetime. Implementation:
+// SL.con.3 (#rsl-bounds) checks fixture writes; COPY.4 preserves value
+// ownership. In-process resource contract verification (V1 in the draft file
+// mapping). See docs/resources.md and tests/README.md. Synthetic bytes are
+// owned locally; no file, subprocess, game installation or rendering context is
+// required. Contract: successful inputs produce specified metadata/payloads;
+// malformed and unsupported inputs produce the required error category. Failed
+// checks throw and cause a nonzero process exit. Printed count is assertions,
+// not tests.
 //
 // Algorithm: (1) construct small independent on-disk fixtures; (2) decode and
 // check public results, ownership/moves and resolution; (3) mutate bounded
@@ -28,6 +35,9 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+
+#include "bw/formats/dpk.hpp"
+#include "bw/resources/service.hpp"
 
 using bw::resources::Bytes;
 using bw::resources::CatalogSet;
@@ -280,12 +290,120 @@ void rat_tests(Checks& checks) {
   checks.check(set.resolve("script.root").catalog_index == 4,
                "Lower key resolves preceding ambiguity");
 }
+// Synthetic file capability; this exercises the service contract in process.
+class MemoryFiles final : public bw::platform::Files {
+ public:
+  Bytes contents;
+  bool fail{};
+  Bytes read(const std::filesystem::path&) const override {
+    if (fail) throw Error(ErrorCode::io, "fixture read failure");
+    return contents;
+  }
+  std::filesystem::path canonical(
+      const std::filesystem::path& path) const override {
+    return path.lexically_normal();
+  }
+};
+void lifecycle_tests(Checks& checks) {
+  using bw::resources::LoadState;
+  auto rat = rat_fixture();
+  // Both dependency entries point to root: traversal must terminate.
+  word(rat, 152, 0);
+  word(rat, 156, 0);
+  auto archive = cpr_fixture();
+  // Second record is an unpublished USER; keep its bounded payload.
+  text(archive, 144, "USER");
+  MemoryFiles files;
+  files.contents = archive;
+  CatalogSet catalogs;
+  catalogs.mount(30, "/fixture/data.rat", RatCatalog::parse(rat));
+  bw::resources::ResourceService service(std::move(catalogs), files);
+  checks.check(!service.acquire("script.root"), "Unpublished lookup");
+  service.request("SCRIPT.ROOT", 1);
+  service.request("script.root", 2);
+  checks.check(service.pump(1).state == LoadState::opened,
+               "Open precedes publication");
+  checks.check(!service.acquire("script.root"),
+               "Open alone is not publication");
+  checks.check(service.pump(1).state == LoadState::published,
+               "USER publication");
+  auto lease = service.acquire("script.root");
+  checks.check(lease && lease->bytes().size() == 3,
+               "Published bounded payload");
+  checks.check(service.pump(2).state == LoadState::ready,
+               "Shared phase completion");
+  service.release(1);
+  checks.check(service.acquire("script.root").has_value(),
+               "Other tag retains publication");
+  service.release(2);
+  if (!lease) {
+    throw std::runtime_error("Missing retained lease");
+  }
+  checks.check(
+      !service.acquire("script.root") && lease.value().bytes()[0] == 'A',
+      "Lease survives unpublication");
+  service.request("script.root", 1);
+  files.fail = true;
+  checks.check(service.pump(1).state == LoadState::failed,
+               "Open failure is terminal");
+  files.fail = false;
+  checks.check(service.pump(1).state == LoadState::failed,
+               "Failure does not busy retry");
+  service.release(1);
+  service.request("script.root", 1);
+  checks.check(service.pump(1).state == LoadState::opened,
+               "Release permits retry");
+  service.release(1);
+  files.contents = cpr_fixture();
+  service.request("script.root", 1);
+  (void)service.pump(1);
+  checks.check(service.pump(1).state == LoadState::failed &&
+                   !service.acquire("script.root"),
+               "Unsupported record prevents partial publication");
+}
+void dpk_tests(Checks& checks) {
+  Bytes b(99);
+  text(b, 0, "dpk");
+  word(b, 4, 32);
+  word(b, 8, 1);
+  word(b, 12, 96);
+  word(b, 16, 1);
+  word(b, 48, 3);
+  word(b, 52, 3);
+  word(b, 56, 96);
+  word(b, 60, 64);
+  text(b, 64, "root.lub");
+  text(b, 96, "abc");
+  auto package = bw::resources::DpkPackage::parse(b);
+  checks.check(package.member("root.lub")[2] == 'c', "DPK member view");
+  checks.rejects([&] { (void)package.member("ROOT.LUB"); },
+                 ErrorCode::not_found);
+  auto bad = b;
+  word(bad, 56, 98);
+  checks.rejects([&] { bw::resources::DpkPackage::parse(bad); });
+  bad = b;
+  word(bad, 60, 20);
+  checks.rejects([&] { bw::resources::DpkPackage::parse(bad); });
+  bad = b;
+  word(bad, 52, 4);
+  auto compressed = bw::resources::DpkPackage::parse(bad);
+  checks.rejects([&] { (void)compressed.member("root.lub"); },
+                 ErrorCode::unsupported);
+  bad = b;
+  word(bad, 16, 0xffffffff);
+  checks.rejects([&] { bw::resources::DpkPackage::parse(bad); });
+  auto moved = std::move(package);
+  checks.check(moved.member("root.lub").size() == 3,
+               "Moved package owns payload");
+}
 }  // namespace
 int main() {
   Checks checks;
   try {
     cpr_tests(checks);
     rat_tests(checks);
+    lifecycle_tests(checks);
+    dpk_tests(checks);
     std::cout << checks.count() << " checks passed\n";
   } catch (const std::exception& e) {
     std::cerr << "Failure after " << checks.count() << " checks: " << e.what()

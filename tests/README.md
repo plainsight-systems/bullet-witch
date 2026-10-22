@@ -23,3 +23,8 @@ rebudgeted. New parser boundary cases belong in the in-process suite.
 five policy methods along with format/build/analysis checks. `corpus --game PATH`
 runs the separately provisioned real-file comparison. No fixture copies of
 commercial game assets are committed.
+
+The resource contract executable also checks bounded DPK members and startup
+USER lifecycle with an in-memory file capability. The existing real-archive
+corpus scenario now compares recognized DPK metadata with the independent
+Python reader; this extends the same container-validation flow.

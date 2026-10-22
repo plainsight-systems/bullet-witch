@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 from cpr_layout import inspect
+from layout_probe import dpk
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -45,6 +46,11 @@ def verify_cpr(path, native, saved, counts):
             require(a[key] == b[key], f'Record {b["index"]}: {key}')
         expected_range = None if b['payload_offset'] is None else {'offset': b['payload_offset'], 'size': b['payload_bytes']}
         require(a['selected_payload'] == expected_range, 'Selected payload range')
+        payload = b'' if expected_range is None else data[b['payload_offset']:b['payload_offset'] + b['payload_bytes']]
+        members = dpk(payload)['entries'] if payload.startswith(b'dpk\0') else []
+        require(a['dpk_members'] == [{k: e[k] for k in ('name', 'offset', 'stored_bytes', 'declared_bytes')} for e in members], 'DPK members')
+        counts['dpk_packages'] += bool(members)
+        counts['dpk_members'] += len(members)
         f = b['fields_after_type']
         require(a['publication_name'] == (cstring(data, names, f[1]) if f[1] else None), 'Publication name')
         expected_args = []

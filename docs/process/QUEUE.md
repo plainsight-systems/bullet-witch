@@ -1,8 +1,7 @@
 # Remaining work
 
-- Next: add bounded DPK member access and the startup resource lifecycle: requests,
-  publication, retention/release and the required USER handler. Follow with the
-  compatible Lua bridge, task progression and root startup driver toward SRC-02.
+- Next: compatible Lua bridge, task progression and root startup driver toward
+  SRC-02, using the implemented resource lifecycle and DPK access.
 - Close camera/view, scene/visibility, lighting/pass, all-mode schedule and
   auxiliary-worker contracts at their owning boundaries as source reconstruction
   reaches them. Structural ownership is established; behavior remains explicit.

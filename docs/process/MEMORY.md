@@ -10,7 +10,9 @@
   `IMPLEMENTATION.md`. Proposed authored game code belongs in `src/game/`; the
   ignored root `game/` remains reserved for local data.
 - SRC-01 implements an owned C++20 RAT/CPR reader, catalog resolution and a
-  read-only JSON inspector. It does not execute handlers or render anything.
+  read-only JSON inspector. The resource service now publishes supported USER
+  payloads, retains leases and releases tag interests; DPK v1 access is implemented.
+  No rendering or other record-handler execution is claimed.
 - Format readers now own pure decoding in `formats/`; `RatCatalog` owns its
   decoded `RatData` and lookup index. `content/access` composes reads/location
   through the injected `platform::Files` capability and `HostFiles` adapter.

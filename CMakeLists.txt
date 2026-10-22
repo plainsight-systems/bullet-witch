@@ -4,7 +4,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BW_WARNINGS_AS_ERRORS "Treat project compiler warnings as errors" ON)
 option(BW_SANITIZE "Enable compiler sanitizers" OFF)
 set(BW_SANITIZERS "address,undefined" CACHE STRING "Sanitizers to enable with BW_SANITIZE")
-add_library(bw_resources src/formats/common.cpp src/formats/cpr.cpp src/formats/rat.cpp
+add_library(bw_resources src/formats/dpk.cpp src/resources/service.cpp src/formats/common.cpp src/formats/cpr.cpp src/formats/rat.cpp
   src/resources/catalog.cpp src/content/access.cpp src/platform/files/host.cpp)
 target_include_directories(bw_resources PUBLIC include)
 target_compile_features(bw_resources PUBLIC cxx_std_20)

@@ -1,10 +1,15 @@
-// Read-only resource inspection driver (V1/C1 in the draft file mapping).
-// See docs/resources.md for the implemented commands and JSON contract.
-// Contract: argv selects cpr, rat, inventory or resolve. Files are read only;
-// JSON results go to stdout and command errors to stderr. Inventory emits
-// per-file errors and continues, then fails overall if any file failed.
-// Nonzero exit distinguishes usage, malformed/host errors, missing resources
-// and ambiguity. No record handlers, GPU initialization or rendering occurs.
+// DPK inspection extension (A1): copy each recognized package once for its
+// owned decoder, serialize bounded metadata; no handlers execute. Cost O(DPK
+// bytes + members). Optimization: no per-member payload copy.
+// Design/implementation consultation: R.20 (#rr-owner), SL.con.3 (#rsl-bounds),
+// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md). Read-only
+// resource inspection driver (V1/C1 in the draft file mapping). See
+// docs/resources.md for the implemented commands and JSON contract. Contract:
+// argv selects cpr, rat, inventory or resolve. Files are read only; JSON
+// results go to stdout and command errors to stderr. Inventory emits per-file
+// errors and continues, then fails overall if any file failed. Nonzero exit
+// distinguishes usage, malformed/host errors, missing resources and ambiguity.
+// No record handlers, GPU initialization or rendering occurs.
 //
 // Algorithm: (1) validate arguments; (2) load one file, enumerate/sort input
 // paths, or mount catalogs; (3) invoke the owned reader/resolver; (4) serialize
@@ -29,6 +34,7 @@
 #include <sstream>
 
 #include "bw/content/access.hpp"
+#include "bw/formats/dpk.hpp"
 #include "bw/resources.hpp"
 
 using bw::resources::CatalogResource;
@@ -151,7 +157,24 @@ void cpr(std::ostream& out, const CprArchive& archive) {
          j < std::min<std::size_t>(kPayloadPreviewBytes, payload.size()); ++j) {
       out << hex[payload[j] >> kNibbleBits] << hex[payload[j] & kNibbleMask];
     }
-    out << "\",\"arguments\":[";
+    out << "\",\"dpk_members\":[";
+    if (payload.size() >= 4 && payload[0] == 'd' && payload[1] == 'p' &&
+        payload[2] == 'k' && payload[3] == 0) {
+      auto package =
+          bw::resources::DpkPackage::parse({payload.begin(), payload.end()});
+      bool comma = false;
+      for (const auto& member : package.members()) {
+        if (comma) {
+          out << ',';
+        }
+        comma = true;
+        out << "{\"name\":" << quote(member.name)
+            << ",\"offset\":" << member.stored.offset
+            << ",\"stored_bytes\":" << member.stored.size
+            << ",\"declared_bytes\":" << member.declared_size << '}';
+      }
+    }
+    out << "],\"arguments\":[";
     for (std::size_t j = 0; j < record.arguments.size(); ++j) {
       if (j) out << ',';
       const auto& a = record.arguments[j];
