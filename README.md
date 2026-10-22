@@ -5,14 +5,30 @@ code. Preserve the original behavior, make a direct port to Xbox Series X
 Developer Mode, then improve the game and its graphics.
 
 - [Project brief](BRIEF.md)
+- [Reconstruction architecture — working baseline](docs/architecture/README.md)
 - [Implementation plan](IMPLEMENTATION.md)
+- [Engineering workflow](docs/process/workflow.md) and [tooling commands](scripts/README.md)
 - [Original engine architecture](research/engine/ARCHITECTURE.md)
 - [Research index](research/README.md)
 
-Architectural mapping and script recovery are established. Production engine
-implementation has not begun. The first milestone is the resource/data foundation.
-Future engine source, headers, platform adapters and tests will live alongside
-`research/`, in `src/`, `include/`, `platform/` and `tests/`.
+Architectural mapping and script recovery are established. **SRC-01 is implemented:**
+a C++20 resource library and read-only CLI decode RAT/CPR metadata and resolve
+named resources. The full installed corpus matches the earlier research evidence.
+Runtime resource handlers and gameplay are subsequent milestones.
+
+[Resource module, usage and verification](docs/resources.md).
+
+The [architecture design set](docs/architecture/README.md) now defines the proposed
+target runtime structure, session/world ownership, simulation, rendering,
+execution/memory contracts, change axes and source dependencies.
+It is the working baseline; its planned modules are not implemented by the documentation.
+
+```sh
+python3 scripts/check.py all
+```
+
+Production code lives in `src/`, `include/`, `tools/` and `tests/`. Research and
+local corpus outputs remain organized under `research/`.
 
 ## Repository contents
 

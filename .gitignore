@@ -25,6 +25,9 @@
 !/research/evidence/engine/pass-06/final-verification-summary.json
 !/research/evidence/engine/pass-06/final-input-hashes.json
 !/research/evidence/engine/pass-06/animation-scalar-audit.json
+!/research/evidence/reconstruction/
+!/research/evidence/reconstruction/src-01/
+!/research/evidence/reconstruction/src-01/verification-summary.json
 
 /research/sources/**
 !/research/sources/cavia-engine-history.md
@@ -98,3 +101,6 @@ __pycache__/
 !.env.example
 *.user
 *.suo
+
+/.venv-tools/
+/CLAUDE.local.md

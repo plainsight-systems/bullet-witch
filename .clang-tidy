@@ -1,0 +1,11 @@
+# LLVM 21.1.8; use python3 scripts/check.py tidy.
+Checks: >
+  -*,
+  google-*,
+  cppcoreguidelines-*,
+  bugprone-*,
+  performance-*,
+  clang-analyzer-*
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(include|src|tools|tests|game|app|platform)/.*'
+ExcludeHeaderFilterRegex: '.*/(build|_deps|research)/.*'

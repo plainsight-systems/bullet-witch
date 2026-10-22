@@ -1,6 +1,6 @@
 # Bullet Witch engine architecture
 
-**Architectural coverage complete · October 22, 2026 · revision 8**
+**Architectural coverage complete · October 22, 2026 · revision 10**
 
 The main technical entry point for the confirmed [project approach](../../BRIEF.md).
 Script recovery is complete. The static architecture now covers every major
@@ -10,6 +10,16 @@ This document describes the recovered engine and tracks its mapping. Proposed
 reconstructed components are planned separately in the
 [source reconstruction plan](../../IMPLEMENTATION.md). The user selected readable,
 buildable source as the foundation for a faithful direct port and later upgrades.
+
+The [resource foundation](../../docs/resources.md) is the first implemented
+module: RAT/CPR container views and catalog lookup are corpus-checked. Runtime
+handlers and scheduling remain subsequent work; this map retains the original
+engine's complete lifecycle as the reconstruction reference.
+
+The proposed [reconstruction architecture](../../docs/architecture/README.md)
+describes target runtime ownership, world/simulation structure, rendering,
+execution/memory contracts and source dependencies. It is the working design baseline, separate from this recovered-engine map.
+No new original-engine behavior is established by that design documentation.
 
 ## Navigate
 

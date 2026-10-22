@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "host-debug",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/host-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
+        "BW_WARNINGS_AS_ERRORS": "ON",
+        "BW_SANITIZE": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "host-ubsan",
+      "inherits": "host-debug",
+      "binaryDir": "${sourceDir}/build/host-ubsan",
+      "cacheVariables": {
+        "BW_SANITIZE": "ON",
+        "BW_SANITIZERS": "undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "host-debug",
+      "configurePreset": "host-debug"
+    },
+    {
+      "name": "host-ubsan",
+      "configurePreset": "host-ubsan"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "host-debug",
+      "configurePreset": "host-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "host-ubsan",
+      "configurePreset": "host-ubsan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+      }
+    }
+  ]
+}

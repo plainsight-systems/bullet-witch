@@ -8,7 +8,11 @@ runtime behavior is reconstructed. The items below distinguish established
 architectural paths from remaining contract work. Unknowns stay local and do not
 reopen the confirmed project direction. Source reconstruction is now selected.
 The [implementation plan](../../IMPLEMENTATION.md) consumes this contract backlog;
-its first milestone is a buildable resource/data foundation (SRC-01).
+its resource/data foundation (SRC-01) is now implemented and corpus-checked.
+The [reconstruction design set](../../docs/architecture/README.md) is a review
+draft defining how these contracts enter one engine; review precedes the next
+source slice. See [module documentation](../../docs/resources.md). Runtime lifecycle/handlers
+remain implementation work for SRC-02.
 
 ## Execution and resources
 

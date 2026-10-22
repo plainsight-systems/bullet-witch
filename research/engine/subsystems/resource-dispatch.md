@@ -168,3 +168,18 @@ cancellation races and exceptional partial initialization remain unresolved.
 [Tag release](../../evidence/engine/pass-06p/functions/00415550.c) ·
 [Archive unlink](../../evidence/engine/pass-06o/functions/0041b080.c) ·
 [Record teardown](../../evidence/engine/pass-06o/functions/0041b270.c).
+
+## Reconstruction handoff: SRC-01
+
+The [native resource module](../../../docs/resources.md) now implements checked
+RAT/CPR container views, namespace/dependency decoding and explicit-priority name
+lookup. Full corpus comparison covers 6,625 CPRs / 29,996 records and 25 RATs /
+15,262 resources. It does not execute the lifecycle/handlers described above.
+
+Implementation corrected a format assumption: the CPR auxiliary area includes
+padding and need not be divisible by 12. Native 0x41b4a0 processes its size / 12
+complete triples, using integer division. Record argument references remain
+bounded within that area. `script.root.dpk` (not `script.root`) is the startup
+package's catalog/publication name; local record name is `root.dpk`.
+
+[Implementation and verification log](../../logs/2026-10-22-source-reconstruction-01.md).

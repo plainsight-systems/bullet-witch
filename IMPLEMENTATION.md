@@ -2,6 +2,8 @@
 
 **Chosen direction · October 22, 2026.** Parent: [brief](BRIEF.md).
 Original engine: [architecture](research/engine/ARCHITECTURE.md).
+Reconstructed engine: [architecture design set](docs/architecture/README.md)
+(**working structural baseline**, October 22, 2026).
 
 The user selected source reconstruction: a readable, buildable implementation
 of the recovered Steam PC engine, preserving original behavior. That codebase
@@ -11,6 +13,24 @@ Binary translation is no longer the proposed production foundation.
 This is reconstruction from evidence, not recovery of Cavia's original source
 text, class names or build system. Automatic decompiler output is reference
 material. Existing scripts, assets, native exports and maps remain the foundation.
+
+## Architecture before the next source slice
+
+The [engine architecture](docs/architecture/logical-overview.md),
+[runtime ownership](docs/architecture/runtime-model.md),
+[world and simulation](docs/architecture/world-and-simulation.md),
+[rendering](docs/architecture/rendering-and-presentation.md),
+[execution/lifetime contracts](docs/architecture/execution-contracts.md),
+[change axes](docs/architecture/change-axes.md), and
+[file mapping](docs/architecture/file-mapping.md) describe the complete target engine independently of delivery order.
+Use this connected baseline to design the next implementation contracts. It distinguishes
+the recovered original, existing SRC-01 code, proposed organization and unresolved
+contracts. The inspector and eventual game use the same production modules.
+
+The proposed next organization step separates SRC-01's format readers, catalog
+lookup, content location and host file access while retaining its verified behavior.
+Then shared DPK access and resource lifecycle support the script/task integration.
+No rendering experiment or backend selection is introduced by this design work.
 
 ## What we are building
 
@@ -96,12 +116,75 @@ The [contract worklist](research/engine/WORKLIST.md) supplies local unknowns to 
 reaches them. Continue independent modules when one is blocked. Revisit user
 direction only when a choice changes behavior, scope or the agreed architecture.
 
+## SRC-01 delivered
+
+October 22, 2026: [resource foundation](docs/resources.md) is implemented and
+corpus-checked: 6,625 CPR archives / 29,996 records, 25 RAT catalogs / 15,262
+resources. Native C++ and CLI tests pass; full comparison passes under UBSan.
+ASan is locally blocked before program startup and is not counted as passed.
+
+This milestone supplies container views, namespace/dependency decoding, priority
+lookup and a read-only inspector. It does not supply runtime record handlers,
+DPK decoding, GPU objects, request scheduling or publication/release state.
+After the SRC-01 separation, the next implementation
+slice is SRC-02's script package access and startup resource lifecycle, followed
+by the Lua bridge/task contract and title/menu path.
+
 ## File organization and current state
 
-Current work is this plan and the existing research; no reconstructed runtime has
-been implemented by recording the decision. When implementation starts, production
-source, headers, platform adapters and tests belong in clearly named project
-folders, separate from `research/`. Research tools, experimental translations,
+Production resource source, headers, CLI and tests now live in `src/`, `include/`,
+`tools/` and `tests/`. Module design and use are documented in `docs/`, separately
+from the original-engine reference. Research tools, experimental translations,
 copied game resources, generated evidence and work logs remain under `research/`.
 The game installation stays read-only. Preserve the architectural map as the
 original-engine reference and document new module designs separately.
+
+## Migrating SRC-01
+
+No production files are moved or rewritten by the architecture revision.
+Perform the following as a behavior-preserving organization step before
+adding resource state. Keep a compatibility header/target temporarily if needed
+by callers; do not maintain two parser implementations.
+
+| Current responsibility | Proposed destination | Preserve / clarify |
+|---|---|---|
+| `CprArchive` decoding and record/argument/range types | `formats/cpr.hpp/.cpp` | Original bytes, padded argument area, selected extraction ranges and explicit unsupported variants |
+| `RatCatalog` disk decoding | `formats/rat.hpp/.cpp` | Namespace/resource/file/dependency views and bounds/membership validation |
+| `RatCatalog::find`, `CatalogSet` and priority selection | `resources/catalog.hpp/.cpp` | ASCII query folding, selected identity, low-key precedence and ambiguity behavior |
+| `archive_path`, path separator/location policy | `content/access.hpp/.cpp` | Catalog-relative containment; evolve to declared virtual roots without broadening paths silently |
+| `read_file`, parser `open` convenience calls | File capability and selected `platform/files/` adapter; content-level open composition | Byte readers remain callable without I/O; all read failures remain explicit |
+| Common checked byte access / errors | Small internal format helpers or public error types only where shared contract requires | Do not expose implementation helpers or invent an omnibus core library |
+| Inspector command-line parsing and JSON formatting | Existing `tools/resource_inspector.cpp` | Uses shared production views; does not acquire runtime loading semantics by accident |
+| Existing C++ and CLI tests | Same contracts, reorganized with source ownership if needed | Preserve behavior assertions; update includes/call sites, not expected asset results |
+
+The format and catalog split may separate the current combined `RatCatalog` into
+an immutable format view and a catalog lookup owner. Full-name construction has
+a single owner; avoid maintaining separate versions in both layers. Decide the
+exact owning/borrowed relationship in header design. A mounted catalog must retain
+its decoded view for every request using its identity.
+
+The current CPR inline-reference inspection formula remains provisional as a
+runtime reference model. Migration preserves inspection behavior without making
+that formula the resource service's unchecked runtime pointer semantics.
+
+### Next integration sequence
+
+1. Separate SRC-01 along the table above; keep the same corpus checks and CLI
+   behavior. Add file-header contracts tied to the engine architecture and the evidence.
+2. Add DPK member access and its structural validation to the shared formats family.
+   Keep interpretation of supported script bytecode at the script boundary.
+3. Add the request/publication/retention lifecycle and the minimal supported USER
+   handler needed for script packages. Verify phases and ownership using explicit
+   synthetic handlers without claiming unsupported game handlers execute.
+4. Add task/work progression and the compatible script context/bridge, then connect
+   the root driver and individual native bindings. Exercise pending/resume and
+   release behavior through the same modules the eventual executable will use.
+5. Extend the composition with startup screens and required services as their
+   contracts are closed. Renderer/media/backend work follows its own declared
+   requirements; the current next slice remains resource and script execution.
+6. Add world/entity/AI/animation/physics/effect behavior for a complete mission,
+   preserving the shared mechanisms used by later missions and eventual host ports.
+
+Steps are dependency guidance, not a new requirement to ask at each transition.
+The architecture is the working structural baseline. This sequence does not determine its
+runtime structure; the same complete engine architecture governs every slice.

@@ -5,6 +5,15 @@ entry point for the confirmed [project brief](../BRIEF.md). Script recovery is
 complete; the major engine architecture is mapped, with bounded contract work
 and runtime validation tracked explicitly. **Source reconstruction is selected**;
 follow the [implementation plan](../IMPLEMENTATION.md) for the next phase.
+SRC-01 now has a [buildable resource module](../docs/resources.md) and
+[verification work log](logs/2026-10-22-source-reconstruction-01.md).
+The [reconstruction architecture](../docs/architecture/README.md) is the working
+structural baseline, organized around the finished engine. It lives in production documentation; this research index and
+the original-engine map continue to own evidence and recovered behavior.
+Engineering checks are documented in the [tooling guide](../scripts/README.md).
+Their local diagnostics and adoption records live under `evidence/workflow/`;
+corpus comparisons remain under `evidence/reconstruction/`. Both output trees
+are ignored except for explicitly reviewed summary files.
 Updated October 22, 2026.
 
 ## Organization

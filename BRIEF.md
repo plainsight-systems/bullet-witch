@@ -1,6 +1,6 @@
 # Bullet Witch project brief
 
-**Status: Source reconstruction selected; major architectural coverage complete.** Updated October 22, 2026.
+**Status: Source reconstruction underway; resource/data foundation (SRC-01) implemented and corpus-checked.** Updated October 22, 2026.
 
 ## Confirmed direction
 
@@ -17,11 +17,17 @@ engineering decisions within the source-reconstruction route. The
 [source reconstruction plan](IMPLEMENTATION.md) defines
 incremental implementation milestones and fidelity checks.
 
-The main technical entry point is
-[Engine architecture](research/engine/ARCHITECTURE.md). It links subsystem maps,
-visualizations, evidence, recovered code and outstanding work. All research,
+The reconstruction design entry point is
+[Engine architecture](docs/architecture/README.md), the working baseline covering the
+finished runtime structure, session/world ownership, simulation, rendering,
+execution/memory contracts, change axes and source dependencies. Reconstruction
+order and existing-code migration belong in [IMPLEMENTATION](IMPLEMENTATION.md).
+The [original-engine architecture](research/engine/ARCHITECTURE.md) remains the
+evidence reference linking subsystem maps, recovered behavior and outstanding
+contracts. The proposed design builds one engine incrementally from shared modules;
+use this baseline to design subsequent implementation contracts. All research,
 research tooling, extracted resources and evidence stay under `research/`.
-Production source and tests will live separately in the project.
+Production source and tests live separately in `src/`, `include/`, `tools/` and `tests/`.
 The downloaded game installation remains read-only.
 
 The [research index](research/README.md) defines the folder layout: living maps
@@ -48,6 +54,11 @@ Evidence and validation details are in the
 [script-recovery report](research/reports/2026-10-21-script-mapping-and-decompilation.md).
 These are established static results. Runtime/gameplay validation and a working
 port are later milestones.
+
+The first reconstructed module is now buildable: [resource/data foundation](docs/resources.md).
+It reads the full RAT/CPR corpus, decodes names/dependencies/record ranges and
+provides a CLI inspector. Runtime resource handlers and startup scheduling remain
+in SRC-02; container inspection does not imply a running game.
 
 ## Systematic engine mapping: architectural coverage complete
 

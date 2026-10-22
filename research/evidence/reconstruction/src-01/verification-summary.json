@@ -1,0 +1,32 @@
+{
+  "status": "passed",
+  "counts": {
+    "dependencies": 13562,
+    "rat_catalogs": 25,
+    "catalog_resources": 15262,
+    "catalog_files": 6625,
+    "namespace_nodes": 8235,
+    "records": 29996,
+    "arguments": 26364,
+    "inline_references": 45,
+    "publication_names": 15254,
+    "cpr_archives": 6625
+  },
+  "errors": [],
+  "corpus_reference_sha256": {
+    "cpr-inventory.json": "0d13c9a7977dea3ab18d242d86abd59f638ca41dc1ed5bdf3cc599ca011debc8",
+    "rat-layout.json": "30589b54e7de497bc7adb4bcd9ad946670dabea97b199956f7f6d6310ecf37d4"
+  },
+  "native_binary_sha256": "46152382ad2fcc5de34aa4535f0ed2e3eed462d0052bab7d622ca0e458b9d668",
+  "source_sha256": {
+    "CMakeLists.txt": "a5572442871c66d9ec7fec9fed8e8b5202ff661a53a223b08fdc836a7722b477",
+    "include/bw/resources.hpp": "e05c859d035671afb57ab4e29978619062bf8830200b3bb696bd6eeddf008852",
+    "src/resources.cpp": "e2aaf9d874ccdf6eac25eeca28d19b7ab33771aff1602e7a29d58a80c463aa31",
+    "tools/resource_inspector.cpp": "df0032e090b9e0659e26f41ad77113f2a85b6caad9ab560698915354b97ea723",
+    "tests/resources_test.cpp": "5196b0a103db4fa265516849c3d7e1d131c206c26ad4ac775b170511df09c6d3",
+    "tests/resource_cli_test.py": "ad64ba3ecc38fa61ebdd607e54241e3eecba4d2e7bd13f2b1eb00789c0d74624",
+    "research/tools/verify_resource_foundation.py": "b099c078bec1e33dd56335b2fe90a3373c3c3bc2b1dbf78fe7a9969434c1e58b"
+  },
+  "method": "Full corpus: historical input hashes/counts, independent CPR reader, RAT parent-chain names, raw fields, payload ranges/prefixes, arguments, dependencies and lookup self-checks.",
+  "assurance": "Static-derived and corpus-checked. No original-engine execution equivalence claim."
+}
