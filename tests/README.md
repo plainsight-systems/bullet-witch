@@ -16,15 +16,18 @@ exception; the target is five repository-wide):
 - One `tests/startup_corpus.cpp` / `research/tools/verify_startup_runtime.py`
   provisioned scenario runs the hash-bound original root through resource/task/Lua
   composition with deterministic screen services and the concrete startup session
-  using controlled media observations and real decoded title assets with a
-  synthetic renderer. Its native acceptance run uses `bw-startup
-  --verify-startup` with the actual playlist, GPU and audio device. Native-device
-  success is recorded separately from the fixture route; it does not establish
-  menu implementation or original-game timing equivalence.
+  using controlled media observations, original title/menu/costume assets and a
+  synthetic renderer. The production route now performs real profile I/O in an
+  isolated temporary directory, selects costume 5, validates the original Lua
+  new-game handoff and reloads the persisted profile. `bw-startup
+  --verify-startup` still exercises only the four-movie natural title route.
+  Native manual costume 1 preview/selection and gameplay handoff are recorded
+  separately; neither route establishes original-game timing equivalence or
+  world execution.
 
 The corpus workflow remains an integration scenario even though it lives under
-research and is excluded from the default local check. Do not count CTest's four
-registered commands as four individual behavioral cases or the reader's assertions as separate tests.
+research and is excluded from the default local check. Do not count CTest's five
+registered commands as individual behavioral cases or the reader's assertions as separate tests.
 Add no integration scenarios until this inventory is reduced or explicitly
 rebudgeted. New parser boundary cases belong in the in-process suite.
 
@@ -44,7 +47,8 @@ provisioned with the purchased game. It is not registered as a unit test. The
 new integration scenario is an explicit budget exception for the authorized
 startup slice; the five-scenario target and reconciliation debt remain.
 
-`startup_services_test.cpp` adds two in-process session contract cases.
+`startup_services_test.cpp` exercises in-process session lifecycle, presentation
+and gameplay-request contracts.
 `startup_playback_test.cpp` exercises generic player timing, final presentation,
 continuous PCM/backpressure, late audio failure, long video tails and the thin
 game fade adapter. `pcm_buffer_test.cpp` adds three in-process cases for
@@ -61,3 +65,25 @@ fallback timers, animation and input outcomes. The session suite additionally
 checks title readiness and lifetime, and the fade adapter checks zero-duration
 snap on its next update. These extend in-process coverage; the integration
 scenario inventory remains eleven.
+
+`profile-tests` is the fifth CTest entry. Its in-process tests use synthetic save
+buffers and a controlled storage capability to verify exact-size rejection,
+unknown-byte preservation, defaults, dirty-file error handling, checkpoint bounds,
+and the recovered Steam costume/extra availability refresh. `ProfileLoadFlow`
+checks readiness/fades and retry versus explicit continuation without saving.
+
+`menu_flow_test.cpp` adds four in-process behavioral cases to the existing
+runtime suite: wrapping/skipping and new-game selection; absent Continue data
+and return-to-title; options/costume/campaign-stage navigation; and the exact
+Steam availability refresh with retained compatibility IDs. The profile tests
+cover persistence errors; the production front-end/session test covers request
+validation and ownership after profile changes.
+These are behavioral cases, not a count of assertions or separate integration
+scenarios. The actual profile-file round trip belongs to the existing provisioned
+original-root scenario, not these unit tests.
+
+Current acceptance does not include audible menu music/cues, output gain from
+volume settings, a Steam achievement provider, extra-mission launch routing,
+world rendering or gameplay. Native costume preview evidence concerns authored
+2D sprite textures, not model rendering. Generated logs and snapshots remain in
+ignored organized research evidence.

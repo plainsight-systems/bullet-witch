@@ -21,12 +21,14 @@
 // MEM.9-embedded-allocate-at-init.md) bounds the frame loop and keeps media
 // observation state inline. Real archive setup allocates before those updates.
 
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
 
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/root_driver.hpp"
+#include "game/startup_menu_surface.hpp"
 #include "game/startup_services.hpp"
 #include "game/startup_title_surface.hpp"
 namespace {
@@ -90,27 +92,97 @@ class SpriteOutput final : public bw::render::SpriteOutput {
   std::uint64_t identity{};
   bool presented{};
 };
+struct ObservedMenu final : public bw::game::MenuSurface {
+ public:
+  ObservedMenu(bw::resources::ResourceService& resources, SpriteOutput& output)
+      : surface_(resources, output) {}
+  void begin() override {
+    shown = false;
+    surface_.begin();
+  }
+  bool ready() override { return surface_.ready(); }
+  void show(const bw::game::MenuPresentation& view) override {
+    surface_.show(view);
+    current = view;
+    shown = true;
+  }
+  void end() noexcept override {
+    surface_.end();
+    shown = false;
+  }
+  bw::game::MenuPresentation current;
+  bool shown{};
+
+  bw::game::StartupMenuSurface surface_;
+};
 void reconstructed_session(bw::resources::ResourceService& resources) {
   Media media;
   SpriteOutput output;
   bw::game::StartupTitleSurface surface(resources, output, [] { return 0U; });
+  const auto directory =
+      std::filesystem::current_path() /
+      "research/evidence/reconstruction/frontend" /
+      ("corpus-profile-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  if (!std::filesystem::create_directories(directory)) {
+    throw std::runtime_error("Corpus profile directory already exists");
+  }
+  auto storage = bw::platform::make_save_storage(directory);
+  bw::game::Profile profile;
+  ObservedMenu menu(resources, output);
+  bw::game::FrontEnd frontend(profile, *storage, media, menu, {});
   {
-    bw::game::StartupSession session(media, &surface);
+    bw::game::StartupSession session(media, &surface, &frontend);
     session.start_root(resources, 2);
     bw::script::RunResult result{bw::script::RunState::idle, {}};
-    for (unsigned frame = 0; frame < 500; ++frame) {
-      result = session.advance({0.1F, 0x1010});
-      if (result.state == bw::script::RunState::failed) {
+    for (unsigned frame = 0; frame < 2000; ++frame) {
+      std::uint32_t pressed = 0x1010;
+      std::uint32_t repeated = 0;
+      if (menu.shown) {
+        pressed = 0;
+        const auto& view = menu.current;
+        const bool chosen = profile.costume() == 5;
+        if (view.page == bw::game::MenuPage::main) {
+          const std::size_t desired = chosen ? 0 : 3;
+          if (view.selected == desired) {
+            pressed = 0x1010;
+          } else {
+            repeated = 0x02000000;
+          }
+        } else if (view.page == bw::game::MenuPage::options) {
+          if (chosen) {
+            pressed = 0x2020;
+          } else if (view.selected == 2) {
+            pressed = 0x1010;
+          } else {
+            repeated = 0x02000000;
+          }
+        } else if (view.page == bw::game::MenuPage::costume) {
+          if (view.rows.at(view.selected).compatibility_id == 5) {
+            pressed = 0x1010;
+          } else {
+            repeated = 0x02000000;
+          }
+        } else if (view.page == bw::game::MenuPage::difficulty) {
+          pressed = 0x1010;
+        }
+      }
+      result = session.advance({0.1F, pressed}, repeated);
+      if (result.state == bw::script::RunState::failed ||
+          session.gameplay_request()) {
         break;
       }
     }
     const std::vector<std::string> expected{
         "data/movie/marvelousLogo.ssu", "data/movie/xeedLogo.ssu",
         "data/movie/advertise.ssu", "data/movie/witchLOGO.ssu"};
-    if (result.state != bw::script::RunState::failed ||
-        result.diagnostic.find("Character load screen is not implemented") ==
-            std::string::npos ||
-        media.opened != expected || media.stops != 4 ||
+    if (result.state == bw::script::RunState::failed ||
+        !session.gameplay_request() ||
+        session.gameplay_request()->mission != "st01_00" ||
+        session.gameplay_request()->selection.costume != 5 ||
+        !session.mission_pending() || media.opened != expected ||
+        media.stops != 4 ||
         session.progress(Screen::company_logo).status !=
             bw::game::FlowStatus::complete ||
         session.progress(Screen::memory_card).status !=
@@ -120,6 +192,13 @@ void reconstructed_session(bw::resources::ResourceService& resources) {
       throw std::runtime_error(
           "Original root reconstructed startup route mismatch: " +
           result.diagnostic);
+    }
+    bw::game::Profile reloaded;
+    if (reloaded.load(*storage).status != bw::platform::SaveStatus::ok ||
+        reloaded.costume() != 5 ||
+        std::filesystem::exists(directory / "BulletWitchSaveData")) {
+      throw std::runtime_error(
+          "Native profile round trip lost costume or invented checkpoint");
     }
   }
   if (resources.acquire("script.root.dpk")) {
@@ -140,6 +219,12 @@ int main(int argc, char** argv) {
     bw::platform::HostFiles files;
     bw::resources::CatalogSet catalogs;
     catalogs.mount(30, path, bw::content::open_catalog(files, path));
+    for (unsigned index = 1; index <= 5; ++index) {
+      const auto name = std::string("PW") + std::to_string(index);
+      const auto costume_path = game / "data/concept" / name / (name + ".rat");
+      catalogs.mount(static_cast<int>(index), costume_path,
+                     bw::content::open_catalog(files, costume_path));
+    }
     bw::resources::ResourceService resources(std::move(catalogs), files);
     Screens screens;
     {
@@ -184,9 +269,11 @@ int main(int argc, char** argv) {
            "\"title\"],\"services\":\"deterministic test fixture; no "
            "rendering or native equivalence claim\",\"reconstructed_session\":"
            "{\"route\":[\"company_logo\",\"memory_card\",\"advertise\","
-           "\"title\"],"
-           "\"boundary\":\"unsupported character_load\",\"media\":"
-           "\"controlled test observations; original title assets decoded with "
+           "\"title\",\"character_load\",\"title_menu\"],"
+           "\"boundary\":\"owned st01_00 gameplay request, "
+           "costume5\",\"profile\":\"native storage round trip\",\"media\":"
+           "\"controlled observations; original title/menu/costume assets "
+           "decoded with "
            "synthetic renderer\"}}\n";
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

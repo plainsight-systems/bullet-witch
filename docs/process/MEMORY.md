@@ -2,11 +2,13 @@
 
 - Source reconstruction is the implementation direction: preserve behavior,
   establish a direct port, then improve the engine and graphics.
-- The approved next front-end sequence is profile persistence, interactive
-  menus, and a typed gameplay handoff, committed per completed slice. The user
-  reports Steam costumes are available by default while extra levels remain
-  gated; trace the PC consumers and defaults against that expected behavior.
-  The memory subsystem follows this front-end milestone before world loading.
+- The front-end now loads/persists profiles, presents interactive menus and
+  original costume preview sprites, and captures an owned campaign gameplay
+  request through original Lua. Steam operation 2300 makes all five supplied
+  costumes available; achievement 13 gates stage/extra menus, and 9/10 gate
+  Chaos/Hell. The app currently supplies fresh achievement state. Extra launch
+  status 5 versus root status 6 remains unresolved. The memory subsystem follows
+  this front-end slice before world loading.
 - Platform design follows the agreed DoLittle split: single portable subsystem
   headers, shared behavior/algorithms where target-specific optimization adds no
   value, and native implementations for device/platform work. Startup
@@ -48,8 +50,8 @@
   separately from monotonic device time. The game adapter owns recovered fade
   arithmetic. Mac native code
   owns Metal/AudioQueue/window/input. The two company movies are marvelousLogo
-  and xeedLogo. Advertise and title now reuse that transport; character-load/menu
-  remain explicitly unsupported. Logo open-failure
+  and xeedLogo. Advertise and title reuse that transport; FrontEnd now supplies
+  character-load and menu policies through the same task lifecycle. Logo open-failure
   continuation is an explicit unresolved failure; see `docs/startup-runtime.md`.
 - The engineering workflow requires both C++ MCP corpora in design and
   implementation, opening file contracts, pinned Google formatting, fatal
@@ -127,7 +129,8 @@
   The original START/copyright overlays and corrected Version1.0.5 glyphs were
   visually inspected. Late video-frame drops remain observable; original-game
   audiovisual parity is not claimed. Strict checks, UBSan and real-root/asset
-  integration pass; character-load/menu and confirmation sound remain gaps.
+  integration pass. Profile/menu integration is now implemented; confirmation
+  sound remains a gap.
 
 - Profile persistence now owns original System/Record bytes and a validated opaque
   checkpoint. Missing files use recovered defaults; failed loads retain prior
@@ -136,3 +139,12 @@
   support directory selection. This is per-file replacement, not a multi-file
   transaction or checkpoint writer. Steam content-refresh flags are separate
   from achievement-based menu gates; see profile-persistence.md.
+
+- Menu policy and rendering remain separate: MenuFlow publishes bounded rows;
+  StartupMenuSurface uses existing SpriteOutput and original PNG/FONT data.
+  Costume previews are authored 2D images, not a world-rendering dependency.
+  FrontEnd gates readiness, fades and persistence; StartupSession captures
+  StartMission as owned launch data and leaves WaitMission pending. The host
+  exits at that boundary until a world-loading consumer exists. Current options
+  cover persisted volumes and costume; audio gain, BGM/cues, other options and
+  full submenu animation/localization parity remain outstanding.

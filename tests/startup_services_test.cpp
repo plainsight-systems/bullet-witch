@@ -77,6 +77,69 @@ class Surface final : public bw::game::TitleSurface {
   bw::game::TitlePresentation current;
   bool resources_ready{}, active{}, visible{}, begun{};
 };
+class Saves final : public bw::platform::SaveStorage {
+ public:
+  bw::platform::SaveRead read(std::string_view, std::size_t) override {
+    return {bw::platform::SaveStatus::missing, {}};
+  }
+  bw::platform::SaveStatus write(std::string_view,
+                                 std::span<const std::byte>) override {
+    return bw::platform::SaveStatus::ok;
+  }
+};
+class MenuSurface final : public bw::game::MenuSurface {
+ public:
+  void begin() override { active = true; }
+  bool ready() override { return active; }
+  void show(const bw::game::MenuPresentation& view) override { current = view; }
+  void end() noexcept override { active = false; }
+  bw::game::MenuPresentation current;
+  bool active{};
+};
+void frontend_handoff() {
+  Media media;
+  Saves saves;
+  MenuSurface surface;
+  bw::game::Profile profile;
+  bw::game::FrontEnd frontend(profile, saves, media, surface, {});
+  bw::game::StartupSession session(media, nullptr, &frontend);
+  rejects([&] { session.start_mission("st01_00"); },
+          "Mission cannot precede confirmed selection");
+  session.execute(Screen::character_load);
+  for (unsigned i = 0; i < 12; ++i) (void)session.advance({});
+  require(!session.pending(Screen::character_load),
+          "Profile load passes original lifecycle wait");
+  (void)session.advance({});
+  session.execute(Screen::title_menu);
+  for (unsigned i = 0; i < 5; ++i) (void)session.advance({});
+  require(surface.current.page == bw::game::MenuPage::main && surface.active,
+          "Profile completion leads to real menu policy");
+  (void)session.advance({0, 0x1010});
+  require(surface.current.page == bw::game::MenuPage::difficulty,
+          "New game opens difficulty");
+  (void)session.advance({0, 0x1010});
+  for (unsigned i = 0; i < 7; ++i) (void)session.advance({});
+  require(!session.pending(Screen::title_menu) &&
+              session.status(Screen::title_menu) == 1 && !surface.active,
+          "Menu completes and retires presentation before mission handoff");
+  session.set_global(0, 1);
+  rejects([&] { session.start_mission("st02_00"); },
+          "Mismatched Lua mission rejected");
+  session.start_mission("st01_00");
+  require(session.gameplay_request() &&
+              session.gameplay_request()->mission == "st01_00" &&
+              session.gameplay_request()->selection.difficulty == 1 &&
+              session.gameplay_request()->checkpoint.empty() &&
+              session.mission_pending(),
+          "Owned new-game request preserves choice without inventing "
+          "checkpoint or mission success");
+  profile.set_current_difficulty(2);
+  require(session.gameplay_request() &&
+              session.gameplay_request()->selection.difficulty == 1,
+          "Captured request is independent of later profile changes");
+  rejects([&] { session.start_mission("st01_00"); },
+          "Duplicate handoff rejected");
+}
 void title_readiness_and_lifecycle() {
   Media media;
   Surface surface;
@@ -223,6 +286,7 @@ void session_failures_and_globals() {
 }
 }  // namespace
 void startup_session_contracts() {
+  frontend_handoff();
   session_lifecycle();
   session_failures_and_globals();
   title_readiness_and_lifecycle();

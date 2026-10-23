@@ -31,8 +31,10 @@ SRC-01 now separates format readers, catalog lookup, content location and host
 file access while retaining its verified behavior. Shared DPK access and resource
 lifecycle now support task/Lua/root integration. Concrete startup services and
 logo/check tasks and native movie output are implemented. The Mac backend uses
-Metal and AudioQueue. Advertise and title presentation are implemented;
-character-load/profile and menu behavior remain next.
+Metal and AudioQueue. Advertise, title, profile loading, interactive menus and
+validated campaign gameplay requests are implemented. The current front end
+supports persisted costume selection and volume settings, with original authored
+menu/costume sprite assets. World loading and gameplay remain next-stage work.
 
 The required [engine memory subsystem](docs/architecture/memory-and-residency.md)
 follows the launch-screen milestone, including its launch cinematics. Reach that
@@ -136,11 +138,11 @@ ASan is locally blocked before program startup and is not counted as passed.
 
 This milestone supplies container views, namespace/dependency decoding, priority
 lookup and a read-only inspector. The subsequent startup-resource slice supplies DPK decoding and supported USER
-request/publication/lease/release state (see `docs/startup-runtime.md`). GPU
-objects and other record handlers remain unimplemented.
-After the SRC-01 separation, the next implementation
-slice is SRC-02's script package access and startup resource lifecycle, followed
-by the Lua bridge/task contract and title/menu path.
+request/publication/lease/release state (see `docs/startup-runtime.md`). Generic executable graphics handlers remain unimplemented; the later startup
+slice explicitly decodes supported images/fonts and constructs renderer textures
+through its own presentation adapter. SRC-02 now builds on the script package,
+resource lifecycle, Lua bridge and task contracts to reach a profile-backed menu
+and a validated gameplay request.
 
 ## File organization and current state
 
@@ -185,16 +187,22 @@ that formula the resource service's unchecked runtime pointer semantics.
 3. **Implemented:** request/publication/retention/release and supported USER
    construction. Other record handlers fail explicitly.
 4. **Implemented startup subset:** task lifecycle, Lua context/bridge, root driver
-   and 17 native startup bindings delegated to explicit game-service capabilities.
-   Original root routing is verified with fixture services. Background worker
+   and 19 root bindings, including mission start/wait, delegated to explicit
+   game-service capabilities. Original root routing is verified with fixture
+   services and the concrete profile/menu composition. Background worker
    execution and the rest of the native API are not implied to exist.
 5. **Implemented startup subset:** concrete logo/check session tasks, shared
    decoding/playback/fades and native Mac presentation/audio/input. Both company
    movies now complete with full PCM consumption and zero underruns in the
    recorded native run. Advertise and title now reuse that transport and add
    decoded original sprite/font assets and native Metal quad presentation.
-   Next: character-load/profile and interactive menu as SRC-02 requires.
-6. **Later:** world/entity/AI/animation/physics/effect behavior for a complete mission,
+6. **Implemented front-end subset:** profile compatibility and writable POSIX
+   storage, character-load/error lifecycle, interactive selection menus, original
+   costume previews and validated original-root gameplay handoff. The corpus
+   selects costume 5 and verifies actual save/reload; native manual acceptance
+   observed costume 1 selection and handoff. Remaining gaps are listed below.
+7. **Next foundation, before world expansion:** the agreed memory subsystem,
+   then world/entity/AI/animation/physics/effect behavior for a complete mission,
    preserving the same mechanisms for later missions and host ports.
 
 Steps are dependency guidance, not a new requirement to ask at each transition.
@@ -203,13 +211,33 @@ runtime structure; the same complete engine architecture governs every slice.
 
 ## Startup source slice implemented
 
-The three authorized implementation steps are delivered: boundary migration;
-DPK/USER resource lifetime; task scheduling, compatible Lua bridge and original
-root driver. See [startup runtime](docs/startup-runtime.md) for exact contracts,
-verification commands and limitations. This completes the infrastructure slice
-of SRC-02. It does not complete the interactive title/menu milestone: concrete
-character-load/menu and remaining profile/dialog services are still needed. The provisioned original-root scenario retains full-route fixtures and
-also drives the production session through title confirmation with real decoded
-title assets and controlled media/render observations. The native
-startup executable uses the same production session and original media. See
-[native startup](docs/native-startup-host.md) for device verification and limits.
+The resource/task/Lua infrastructure and concrete front-end slice are delivered.
+The original root drives logos, startup check, opening cinematic, animated title,
+profile loading and interactive menus. New Game, valid Continue and campaign-stage
+selections can produce a validated owned gameplay request; a future mission owner
+must consume it. The current executable reports the request and exits. No mission
+is loaded or rendered.
+
+The provisioned original-root scenario retains routing fixtures and also uses
+production profile/menu/session code, actual profile I/O, original decoded assets
+and a synthetic renderer. It selects costume 5 and reloads its saved profile.
+Native manual acceptance separately observed costume 1 preview/selection and the
+resulting new-game handoff. Strict checks and the recorded native run establish
+those boundaries, not full original-game parity. See
+[startup runtime](docs/startup-runtime.md), [native startup](docs/native-startup-host.md)
+and [front-end integration](research/engine/subsystems/frontend-integration.md).
+
+SRC-02 remains partial in fidelity and subsidiary features: options currently
+expose volumes and costumes; volumes persist without output-gain wiring; menu
+background music, cues and other option screens are absent. Fresh achievement
+flags remain false without a connected provider, so stage/extra and higher
+difficulty gates are not inferred from installed assets. The native extra status
+5 versus original Lua status 6 mismatch remains unresolved. The startup-check
+visuals and complete original storage/dialog behavior also remain work. The
+faithful menu milestone must not be declared complete by counting selection
+policies alone.
+
+The next engine foundation is the agreed memory subsystem before expanding world
+loading. Preserve the implemented front-end and gameplay-request contracts while
+adding mission/world ownership; address the remaining front-end gaps at their
+owning subsystems rather than fabricating successful behavior.

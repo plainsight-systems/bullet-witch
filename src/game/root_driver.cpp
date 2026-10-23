@@ -1,5 +1,13 @@
-// G1/G2: original root package -> init -> repeated main, with 17 startup
-// bindings delegated to explicit game services. This is not a screen renderer.
+// Front-end handoff extension: validate the Lua mission argument, dispatch to
+// the receiving game service, and suspend at its explicit completion gate.
+// Design MCP I.30 (#ri-encapsulate) contains the compatibility boundary;
+// implementation E.6 (#re-raii) preserves VM cleanup on exceptions, and
+// cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) retains owning
+// context semantics. The borrowed string lasts through dispatch; the receiver
+// owns any retained request. No world work or success is invented. G1/G2:
+// original root package -> init -> repeated main, with 19 startup bindings
+// delegated to explicit game services. This is not a screen renderer.
 // Resources/services must outlive this nonmovable driver. Tag must be exclusive
 // to this driver; destructor releases it. Single-threaded and nonreentrant.
 // Algorithm: request logical DPK, advance resource phases, copy/decode package,
@@ -51,6 +59,12 @@ int slot(const Value& value) {
   return static_cast<int>(n);
 }
 }  // namespace
+void StartupServices::start_mission(std::string_view) {
+  throw std::runtime_error("Mission receiver is not configured");
+}
+bool StartupServices::mission_pending() {
+  throw std::runtime_error("Mission receiver is not configured");
+}
 RootDriver::RootDriver(resources::ResourceService& resources,
                        StartupServices& services, resources::ResourceTag tag)
     : resources_(resources), services_(services), tag_(tag) {
@@ -59,6 +73,20 @@ RootDriver::RootDriver(resources::ResourceService& resources,
 }
 RootDriver::~RootDriver() { resources_.get().release(tag_); }
 void RootDriver::bindings() {
+  context_.bind("_StartMission", [this](auto args) {
+    count(args, 1);
+    const auto* mission = std::get_if<std::string>(&args[0]);
+    if (mission == nullptr || mission->empty()) {
+      throw Error(ErrorCode::malformed,
+                  "Mission name must be a nonempty string");
+    }
+    services_.get().start_mission(*mission);
+    return Reply{};
+  });
+  context_.bind("_WaitMission", [this](auto args) {
+    count(args, 0);
+    return Reply{{}, [this] { return services_.get().mission_pending(); }};
+  });
   context_.bind("_GetGlobalValue", [this](auto args) {
     count(args, 1);
     return Reply{{services_.get().global(slot(args[0]))}, {}};

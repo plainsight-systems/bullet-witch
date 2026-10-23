@@ -106,12 +106,12 @@ is verified; Windows/Xbox builds and ASan remain unverified.
 
 The driver requests `script.root.dpk`, waits for readiness, decodes `root.lub`,
 executes its top level and `init`, then repeatedly starts/resumes `main`. It
-registers the 17 startup/title/menu bindings: six Exec/Wait pairs, global get/set,
-latest-stage lookup, and title/menu status. `_WaitTitle` retains its initial
-pending return before polling. Game services own actual screens, save/global
-side effects and status interpretation; this layer does not replace them with
-an array or claim they have been reconstructed. Mission/result/movie bindings
-remain explicit future work.
+registers 19 bindings: six screen Exec/Wait pairs, global get/set, latest-stage
+lookup, title/menu status, and `_StartMission`/`_WaitMission`. `_WaitTitle`
+retains its initial pending return before polling. Game services own actual
+screens, profile/global side effects and status interpretation. Mission start
+now captures a validated gameplay request; mission execution and result bindings
+remain future work.
 
 ```mermaid
 sequenceDiagram
@@ -135,18 +135,21 @@ sequenceDiagram
 ```
 
 Provisioned integration runs the original, hash-checked root bytecode through
-resource loading, the scheduler and root driver. A deterministic **test fixture**
-supplies screen completion/status and the required global read. The observed
-route is company logo → memory-card check → advertise → title → character load
-→ title menu → title. It verifies continuation/routing and final tag release;
-it does not display these screens or establish native timing/behavior equivalence.
-The test explicitly rejects unexpected global side effects. The concrete
-`StartupSession` below now implements the first two screen services; the fixture
-route remains a separate routing assertion, not evidence that later screens run.
-The same provisioned integration scenario also drives the original root through
-`StartupSession`, using controlled media observations to verify both reconstructed
-flows through title confirmation and the explicit unsupported character-load boundary. It verifies cleanup of
-the root publication after each composition. No new integration scenario is added.
+resource loading, the scheduler and root driver. The retained deterministic
+**test fixture** verifies the full screen route and return-to-title scheduling.
+The same integration scenario separately composes the production `StartupSession`,
+`FrontEnd`, `Profile` and `StartupMenuSurface` with native POSIX save storage.
+It selects costume 5, confirms a new game through the original Lua root, validates
+`st01_00` and the selection in the gameplay request, then reloads the saved profile
+to check persistence without inventing a checkpoint. Original title/menu/costume
+assets are decoded; media observations and rendering are synthetic. Root/resource
+cleanup remains checked. This extends the existing scenario, adding no new
+integration scenario.
+
+Native manual verification separately observed costume 1 preview/selection and
+the resulting gameplay handoff. It is not original-game audiovisual parity or
+world rendering. `--verify-startup` still exercises the four-movie natural title
+route; it does not automatically navigate the interactive menus.
 
 ```sh
 python3 scripts/check.py all
@@ -292,19 +295,20 @@ Global slot **1** maps to the typed title-return request owned by the session:
 native getter **0x478e20** reads owner **0x432130 + 0x61470**, initialization
 **0x43e8d0** clears it, return handling **0x43fe32** sets it, and setter
 **0x47c080** writes it without further side effects. The root consumes it to
-choose cold startup or return-to-title. Other global slots, saved-stage lookup,
-and character-load/menu screens remain explicit unsupported
-operations; there is no fabricated global array or production screen fixture.
-The original root now runs advertise and title; confirmation reaches character
-load, while natural timeout returns to its attract loop.
+choose cold startup or return-to-title. With a front-end capability, typed session
+state also backs campaign stage (slot 0), replay/concept modes (slots 2/3), and
+replay stage (slot 6). Values are validated by role; there is no generic global
+array. Latest-stage lookup returns the confirmed stage-selection value. Title
+confirmation now enters profile loading and the interactive menu; natural title
+timeout returns to the attract loop.
 
 Shared game policy owns sequencing, fades requested by screens, task waits and
 session state. Native adapters own host event/device operations behind common
 headers, with media playback scheduling and sample ownership explicit at that
 boundary. The startup-check state advances without drawing a fabricated card or
 save dialog. Logo open-failure continuation remains unresolved and fails with a
-diagnostic. Completing this slice does not establish a world renderer, profile loading,
-a working title menu or Xbox device behavior.
+diagnostic. Completing startup and front-end reconstruction does not establish
+a world renderer, mission execution or Xbox device behavior.
 
 Three in-process cases in the existing runtime test executable cover PC check
 visibility/UI clocks/result ordering, two-logo progression with independent
@@ -329,3 +333,68 @@ See [screen evidence](../research/engine/subsystems/startup-screen-behavior.md),
 [native presentation](native-startup-host.md). The same original-root integration
 now decodes real title/font/loading data and checks emitted commands through a
 synthetic renderer; native verification separately checks actual Metal/audio.
+
+
+## Profile, menu and gameplay handoff
+
+The framework owns `Profile`, `StartupMenuSurface`, `FrontEnd` and
+`StartupSession` in lifetime order. `FrontEnd` owns `ProfileLoadFlow` and
+`MenuFlow`, borrowing profile, save storage, media/fades and `MenuSurface` until
+destruction. The session borrows the front end and schedules character-load and
+title-menu tasks with the same activation/idle/destruction ordering as the
+existing screens. The surface retains resources across the load/menu transition
+and releases textures and interests on departure.
+
+`Profile` retains the original 72-byte System and 992-byte Record payloads,
+modifying only mapped fields. Missing files use recovered defaults. Exact size
+and bounded checkpoint-header validation precede publication; malformed/I/O
+failures retain previous state. An existing 307,200-byte checkpoint can be
+retained for Continue, but this implementation does not synthesize world saves.
+Unknown System/Record bytes survive round trips. The mapped fields distinguish
+system difficulty preference from current-game difficulty and costume.
+
+The portable `SaveStorage` contract is separate from read-only game-file access.
+Its shared POSIX implementation validates leaf names, performs exact-sized reads,
+and writes a complete sibling temporary before file sync/close and atomic rename.
+Replacement is per file, not a transaction spanning System and Record; directory
+metadata is not synced. The Mac entry selects
+`~/Library/Application Support/Plainsight Systems/Bullet Witch` through Foundation
+(or `--profile PATH`). The game installation is never selected
+as writable storage.
+
+Character loading waits for menu presentation readiness, reveals, loads the
+profile and then conceals before publishing completion. Ordinary read/write
+errors offer Retry or Continue without saving. The latter retains in-memory
+choices and disables subsequent writes until the next profile-load sequence. These desktop dialogs
+are an explicit adaptation; complete original localized console/storage dialogs
+are not claimed. Menu input is gated by resource and fade completion. Dirty
+profile writes must succeed or receive an explicit error choice before a
+selection is published.
+
+The current menu supports New Game → difficulty, Continue with a valid existing
+checkpoint, campaign stage selection → difficulty, costume selection through
+Options, and return/quit. Options expose music/effects volume and costumes;
+volume values persist but are not yet connected to output gain. Menu background
+music, confirmation/navigation cues and other native option screens remain
+unimplemented. Costume previews are the original authored sprite textures,
+independent from the future player-model/resource application.
+
+Steam's recovered content refresh enables costumes 1–5 and the 18 extra-mission
+IDs 0–5, 16–21 and 32–37. Higher difficulties and the main stage/extra entries
+consume separate achievement flags. `MenuUnlocks` supplies those flags, but the
+current framework has no Steam achievement provider and passes fresh defaults:
+Easy/Normal/Hard available, stage/extra/Chaos/Hell gated. Asset presence does not
+silently unlock them. Extra selection policy preserves native result 5, while
+the original root handles result 6; that route remains explicitly unresolved.
+
+After a supported confirmed selection, the original Lua root calls
+`_StartMission`. `StartupSession` validates the mission identifier, selected stage
+and replay mode, then owns a `GameplayRequest` containing mission name, selection,
+and a checkpoint copy only for Continue. `_WaitMission` stays pending: no world
+consumer exists yet. The native framework prints `gameplay_request_ready` and
+exits at this boundary. This is a usable handoff for the next engine work, not a
+claim that selecting Start loads or renders a mission.
+
+Evidence and fidelity limits: [profile persistence](../research/engine/subsystems/profile-persistence.md),
+[menu policy](../research/engine/subsystems/front-end-menu-policy.md),
+[front-end integration](../research/engine/subsystems/frontend-integration.md).

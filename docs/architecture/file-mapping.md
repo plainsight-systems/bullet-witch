@@ -29,6 +29,9 @@ contracts. Original-engine research retains the identifiers needed to trace evid
 | `TaskLifecycleScheduler` | Advance lifecycle, active-update and late-update passes on one thread | Recovered task-dispatch functions |
 | `CompanyLogoFlow` | Advance the ordered logo movie/fade/input update policy | CompanyLogo task update |
 | `StartupCheckFlow` | Advance the PC startup UI check phases and result | MemoryCardCheck task update; no storage I/O in this update |
+| `Profile` / `ProfileLoadFlow` | Retain compatible save bytes and drive loading/error choices | System/Record files and CharacterLoad task |
+| `MenuFlow` / `FrontEnd` | Select game actions and compose profile, persistence, fades and presentation | TitleMenu and its native child screens |
+| `GameplayRequest` | Own the validated mission selection and optional retained checkpoint | Original root `_StartMission` boundary |
 
 The matching files are `formats/resource_archive`, `formats/resource_catalog`,
 `formats/named_file_package` and `tasks/task_lifecycle_scheduler`. Content entry
@@ -79,7 +82,7 @@ bullet-witch/
     video/                     Shared player/sample transport
       ffmpeg/                  Selected software codec backend and factory
     platform/                  Concrete adapters selected by target
-      files/                   Shared standard-library file adapter
+      files/                   Shared read-only files and POSIX save storage
       macos/                   Mac entry, window/input, Metal, AudioQueue and shaders
     game/                      Bullet Witch behavior; private headers alongside code
       session/                 Session owner, root driver and progression state
@@ -238,10 +241,11 @@ Target granularity can be refined during implementation without changing these
 boundaries. Keep CPU format tests and the inspector buildable without initializing
 a device or world. Do not create a new test-only loader, renderer or simulation.
 
-**Implemented today:** `bw_resources`, `bw_runtime`, `bw_game`, `bw_images`,
+**Implemented today:** `bw_resources`, `bw_runtime`, `bw_profiles`, `bw_game`, `bw_images`,
 `bw_startup_presentation`, `bw_video`,
 `bw_video_ffmpeg`, `bw_startup_playback`, `bw_startup_framework`,
-the Mac `bw_media_audio_macos` and `bw_startup_host_macos`, `bw-resource`, `bw-startup`,
+`bw_save_storage_posix`, the Mac `bw_save_directory_macos`,
+`bw_media_audio_macos` and `bw_startup_host_macos`, `bw-resource`, `bw-startup`,
 their tests and the engineering tooling. The [resource contract](../resources.md)
 and [startup contract](../startup-runtime.md) describe the implemented subsets.
 The completed [migration](../../IMPLEMENTATION.md#migrating-src-01) and subsequent
@@ -264,8 +268,9 @@ The implemented startup subset adds `formats/named_file_package`, `resources/ser
 `bw_lua502`. A1 owns DPK layout, A3/A4 resource lifecycle/USER construction, E1
 task progression, E2 Lua mechanics, and G1/G2 root policy/native bindings.
 The `StartupSession` implementation now owns the root, scheduler and concrete
-logo/check/advertise/title screen flows. Character load and the title menu
-still fail explicitly. See [startup runtime](../startup-runtime.md).
+logo/check/advertise/title screen flows. It borrows `FrontEnd` for character-load
+and title-menu tasks, validates the original root mission request, and owns the
+resulting `GameplayRequest`. See [startup runtime](../startup-runtime.md).
 
 `src/game/startup_flows` adds `CompanyLogoFlow` and `StartupCheckFlow` to `bw_game`.
 They own recovered game update policy and borrow explicit observations from a
@@ -285,8 +290,9 @@ output behind a portable declaration. Both are selected only by the Apple build
 branch. `src/platform/macos/shaders/movie.metal` is independently compiled GPU source.
 `src/platform/macos/main.cpp` owns process entry, native service construction
 and explicit FFmpeg selection. It calls `src/framework/startup_application.cpp`,
-which composes read-only resources, playback and the original-root session and
-owns the existing startup loop. The framework is application composition and
+which composes read-only resources, playback, profile, front end, presentation
+and the original-root session, and owns the startup loop. The target injects
+writable save storage separately from game files. The framework is application composition and
 can depend on game code; engine mechanisms cannot. Future target entries reuse
 that composition through common contracts.
 
@@ -296,7 +302,10 @@ factory. The Mac executable selects the concrete factory and native targets;
 shared playback tests link without FFmpeg. This is dependency separation, not
 a claim of a Windows/Xbox backend or hardware decoder.
 The original-root integration retains its full-route fixtures and also exercises
-the concrete session through title confirmation and the character-load boundary.
+the concrete session through profile loading, costume 5 selection, actual save
+I/O/reload and the original Lua new-game handoff, with controlled media and
+synthetic rendering. Native manual costume 1 selection/handoff is separately
+observed; this is not world execution.
 
 The required [memory subsystem](memory-and-residency.md) is not implemented yet.
 Portable contracts belong under `include/bw/memory/`, shared allocation/lifetime
@@ -315,3 +324,45 @@ resource readiness and presentation without coupling the flow to a codec or
 renderer. Mac implementation and standalone shaders remain under
 `src/platform/macos/`. Native texture handles and bounded ordered commands
 are the implemented renderer subset; the world renderer remains proposed.
+
+
+## Implemented profile, menu and handoff ownership
+
+`bw_profiles` contains `src/game/profile` and `profile_load_flow`: original save
+field compatibility and character-load policy remain game code. The portable
+`include/bw/platform/save_storage.hpp` capability knows leaf filenames and byte
+buffers, not Bullet Witch structures. `src/platform/files/save_storage.cpp`
+implements bounded POSIX reads and temporary-file replacement. The Mac target
+chooses its Application Support location in `save_directory.mm`; other targets
+must choose their own storage implementation and location.
+
+`MenuFlow` and `FrontEnd` are in `bw_game`. The former consumes profile fields and
+an explicit achievement snapshot; the latter sequences loading, menu resources,
+fades, retry/continue-without-saving choices, persistence and result publication.
+`MenuSurface` is the borrowed presentation contract. `StartupMenuSurface` in
+`bw_startup_presentation` retains menu/font/costume resources, decodes images and
+emits portable sprite commands. Costume previews use original authored images;
+selecting one records the later player-resource choice, not a rendered actor.
+
+Arrows below denote ownership or the labeled borrow, not source dependencies:
+
+```mermaid
+flowchart TD
+    Framework[Shared startup framework] --> Profile[Profile: retained save bytes]
+    Framework --> FrontEnd[FrontEnd: load and menu policies]
+    Framework --> MenuSurface[StartupMenuSurface: leases and textures]
+    Framework --> Session[StartupSession: root and screen tasks]
+    Entry[Mac entry] --> Storage[POSIX SaveStorage at Mac-selected path]
+    Session -. borrows .-> FrontEnd
+    FrontEnd -. borrows .-> Profile
+    FrontEnd -. borrows .-> Storage
+    FrontEnd -. borrows .-> MenuSurface
+    Session --> Request[GameplayRequest: mission, selection, checkpoint copy]
+```
+
+`_StartMission` and `_WaitMission` are part of the 19 root bindings. The former
+validates a campaign request against the confirmed selection; the latter remains
+pending for a future world owner. The framework currently reports the request
+and exits. Extra-mission routing, achievement-provider integration, omitted
+option screens and game/menu audio remain explicit gaps in the
+[startup contract](../startup-runtime.md#profile-menu-and-gameplay-handoff).

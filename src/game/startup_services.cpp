@@ -1,3 +1,9 @@
+// Front-end extension follows the header lifetime and owned handoff contract.
+// Keep Lua dispatch authoritative, validate native slot values, and retain a
+// pending mission wait after capturing the request. Design MCP I.30
+// (#ri-encapsulate), implementation E.6 (#re-raii), cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserve explicit
+// ownership; only the handoff copies checkpoint bytes. No frame-loop copies.
 // Startup route extension: game policies borrow capabilities; composition owns
 // them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
 // implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
@@ -27,6 +33,8 @@ namespace bw::game {
 namespace {
 constexpr int kScreenTaskPriority = 0x2000;
 constexpr int kRootTaskPriority = 0x2001;
+constexpr int kReplayStageSlot = 6;
+constexpr unsigned kCampaignStages = 6;
 [[noreturn]] void unsupported_screen(Screen screen) {
   switch (screen) {
     case Screen::character_load:
@@ -38,12 +46,14 @@ constexpr int kRootTaskPriority = 0x2001;
   }
 }
 }  // namespace
-StartupSession::StartupSession(LogoMedia& media, TitleSurface* title_surface)
+StartupSession::StartupSession(LogoMedia& media, TitleSurface* title_surface,
+                               FrontEnd* frontend)
     : logos_(media,
              {"data/movie/marvelousLogo.ssu", "data/movie/xeedLogo.ssu"}),
       advertise_(media),
       title_(media),
-      title_surface_(title_surface) {}
+      title_surface_(title_surface),
+      frontend_(frontend) {}
 StartupSession::~StartupSession() {
   if (title_surface_ != nullptr) title_surface_->end();
 }
@@ -58,7 +68,8 @@ void StartupSession::start_root(resources::ResourceService& resources,
                        }});
   root_ = std::move(root);
 }
-script::RunResult StartupSession::advance(LogoUpdate input) {
+script::RunResult StartupSession::advance(LogoUpdate input,
+                                          std::uint32_t repeated) {
   if (!std::isfinite(input.delta) || input.delta < 0) {
     throw std::invalid_argument("Startup delta must be finite and nonnegative");
   }
@@ -66,6 +77,7 @@ script::RunResult StartupSession::advance(LogoUpdate input) {
     return root_result_;
   }
   input_ = input;
+  repeated_ = repeated;
   scheduler_.tick(false);
   return root_result_;
 }
@@ -79,6 +91,12 @@ StartupSession::ScreenTask& StartupSession::task(Screen screen) {
       return advertise_task_;
     case Screen::title:
       return title_task_;
+    case Screen::character_load:
+      if (frontend_ != nullptr) return load_task_;
+      unsupported_screen(screen);
+    case Screen::title_menu:
+      if (frontend_ != nullptr) return menu_task_;
+      unsupported_screen(screen);
     default:
       unsupported_screen(screen);
   }
@@ -93,11 +111,29 @@ ScreenProgress StartupSession::progress(Screen screen) const {
       return advertise_.progress();
     case Screen::title:
       return title_.progress();
+    case Screen::character_load:
+    case Screen::title_menu:
+      if (frontend_ != nullptr) return frontend_->progress(screen);
+      unsupported_screen(screen);
     default:
       unsupported_screen(screen);
   }
 }
 double StartupSession::global(int slot) const {
+  if (frontend_ != nullptr) {
+    switch (slot) {
+      case 0:
+        return campaign_stage_;
+      case 2:
+        return replay_mode_ ? 1 : 0;
+      case 3:
+        return concept_mode_ ? 1 : 0;
+      case kReplayStageSlot:
+        return replay_stage_;
+      default:
+        break;
+    }
+  }
   if (slot != 1) {
     throw std::runtime_error("Startup global slot is not implemented: " +
                              std::to_string(slot));
@@ -109,6 +145,26 @@ double StartupSession::global(int slot) const {
 // root adapter validates each argument by role before this compatibility call.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void StartupSession::set_global(int slot, double value) {
+  if (frontend_ != nullptr &&
+      (slot == 0 || slot == 2 || slot == 3 || slot == kReplayStageSlot)) {
+    if (!std::isfinite(value) || std::floor(value) != value || value < 0 ||
+        value > kCampaignStages) {
+      throw std::invalid_argument("Invalid front-end global value");
+    }
+    const auto integer = static_cast<unsigned>(value);
+    if (slot == 0 || slot == kReplayStageSlot) {
+      if (integer == 0) {
+        throw std::invalid_argument("Campaign stage starts at one");
+      }
+      (slot == 0 ? campaign_stage_ : replay_stage_) = integer;
+    } else {
+      if (integer > 1) {
+        throw std::invalid_argument("Mission mode must be boolean");
+      }
+      (slot == 2 ? replay_mode_ : concept_mode_) = integer != 0;
+    }
+    return;
+  }
   if (slot != 1) {
     throw std::runtime_error("Startup global slot is not implemented: " +
                              std::to_string(slot));
@@ -146,6 +202,8 @@ void StartupSession::activate(Screen screen) {
     title_surface_->begin();
   } else if (screen == Screen::advertise) {
     advertise_.start();
+  } else if (screen == Screen::character_load || screen == Screen::title_menu) {
+    frontend_->start(screen);
   } else {
     check_.start();
   }
@@ -159,6 +217,14 @@ void StartupSession::update(Screen screen) {
     title_surface_->show(title_.progress().visible, title_.presentation());
   } else if (screen == Screen::advertise) {
     advertise_.update(input_);
+  } else if (screen == Screen::character_load || screen == Screen::title_menu) {
+    frontend_->update(screen, input_, repeated_);
+    if (screen == Screen::character_load &&
+        frontend_->progress(screen).status == FlowStatus::complete) {
+      campaign_stage_ = frontend_->profile().has_checkpoint()
+                            ? frontend_->profile().checkpoint_stage()
+                            : 1;
+    }
   } else {
     check_.update(input_.delta);
   }
@@ -201,6 +267,55 @@ double StartupSession::status(Screen screen) const {
   return progress(screen).result;
 }
 double StartupSession::latest_stage() const {
+  if (frontend_ != nullptr && frontend_->selection() &&
+      frontend_->selection()->action == MenuAction::stage_select) {
+    return frontend_->selection()->stage;
+  }
   throw std::runtime_error("Saved stage selection is not implemented");
+}
+void StartupSession::start_mission(std::string_view mission) {
+  if (frontend_ == nullptr || gameplay_request_ ||
+      frontend_->progress(Screen::title_menu).status != FlowStatus::complete) {
+    throw std::logic_error(
+        "Mission request requires one confirmed menu selection");
+  }
+  const auto selected = frontend_->selection();
+  if (!selected) {
+    throw std::logic_error("Mission request has no menu selection");
+  }
+  const auto selection = *selected;
+  if (selection.action != MenuAction::new_game &&
+      selection.action != MenuAction::continue_game &&
+      selection.action != MenuAction::stage_select) {
+    throw std::runtime_error("Extra mission launch routing is unresolved");
+  }
+  constexpr std::array<std::string_view, kCampaignStages> names{
+      "st01_00", "st02_00", "st03_00", "st04_00", "st05_00", "st06_00"};
+  if (selection.stage == 0 || selection.stage > names.size() ||
+      mission != names.at(selection.stage - 1) || concept_mode_ ||
+      (selection.action == MenuAction::stage_select &&
+       (!replay_mode_ || replay_stage_ != selection.stage))) {
+    throw std::runtime_error("Lua mission route disagrees with menu selection");
+  }
+  GameplayRequest request{std::string(mission), selection, {}};
+  if (selection.action == MenuAction::continue_game) {
+    const auto checkpoint = frontend_->profile().checkpoint();
+    if (checkpoint.empty()) {
+      throw std::logic_error("Continue requires checkpoint data");
+    }
+    request.checkpoint.assign(checkpoint.begin(), checkpoint.end());
+  }
+  gameplay_request_ = std::move(request);
+}
+bool StartupSession::mission_pending() {
+  if (!gameplay_request_) {
+    throw std::logic_error("Mission Wait precedes StartMission");
+  }
+  return true;
+}
+bool StartupSession::quit_requested() const {
+  return frontend_ != nullptr && frontend_->selection() &&
+         frontend_->selection()->action == MenuAction::quit &&
+         frontend_->progress(Screen::title_menu).status == FlowStatus::complete;
 }
 }  // namespace bw::game

@@ -9,8 +9,10 @@ The first visible slice runs the original root script through the reconstructed
 company-logo, startup-check, opening-cinematic and title tasks. Shared C++ owns task sequencing and fades; the reusable
 [video player](video-player.md) owns media scheduling and completion. The Mac backend owns its window, Metal
 presentation, audio device and input sampling. Title presents the original
-movie, animated prompt, copyright and font text. Character load and the title
-menu remain explicit unsupported boundaries; world rendering is not implemented.
+movie, animated prompt, copyright and font text. Title confirmation now runs
+profile loading and the interactive menu with original menu/costume sprite assets.
+A supported confirmed choice reaches an owned gameplay request; world rendering
+and mission execution are not implemented.
 
 Build and run with the local purchased installation:
 
@@ -35,8 +37,9 @@ transition before starting playback. `--windowed` selects a resizable window;
 1280×720 canvas. Control-Command-F and the green window control toggle fullscreen.
 
 The original root now advances through advertise and title. A natural title
-timeout returns to the original attract loop; confirmation reaches the explicit
-unimplemented character-load boundary. `--max-seconds N` bounds a development
+timeout returns to the original attract loop; confirmation enters profile loading
+and the menu. New Game, valid Continue and campaign-stage selection can reach a
+validated gameplay request, which the current executable reports before exiting. `--max-seconds N` bounds a development
 run (default 300 seconds). `--verify-startup` ignores skipping and exits after
 all four movies complete naturally and title publishes outcome 2. It checks
 complete PCM consumption, device drain, no unexpected audio underruns and
@@ -51,7 +54,10 @@ This mode belongs to the existing provisioned original-root integration scenario
 
 | Responsibility | Source | Implemented boundary |
 |---|---|---|
-| Root/screen lifecycle | `src/game/startup_services.*` | Original root bytecode and reconstructed task policies |
+| Root/screen lifecycle | `src/game/startup_services.*` | Original root bytecode, reconstructed task policies and owned gameplay request |
+| Profile/menu composition | `src/game/frontend.*`, `profile_load_flow.*`, `menu_flow.*` | Resource/fade gates, profile/error choices, persistence and selections |
+| Menu presentation | `src/game/startup_menu_surface.*` | Original menu, font and authored costume textures through portable sprite commands |
+| Save storage/location | `src/platform/files/save_storage.cpp`, `src/platform/macos/save_directory.mm` | Shared bounded POSIX storage at the target-selected user location |
 | Movie transport | `include/bw/video/player.hpp`, `src/video/player.cpp` | Independent session, consumed-media clocks and terminal presentation |
 | Game media adapter | `src/game/startup_playback.*` | Game-relative path resolution and recovered fade arithmetic |
 | Decoded samples | `include/bw/video/decoder.hpp` | Owned BGRA frames and stereo 48 kHz float PCM; see [decoder](video-decoder.md) |
@@ -69,8 +75,9 @@ backend behind those contracts. There is no Windows/Xbox backend in this slice;
 Apple API behavior is not prescribed for those implementations. Target entry
 points live beside their native implementations and reuse framework orchestration.
 The common host header hides the selected implementation through Pimpl. The
-framework borrows host/file services for the duration of the call; its session,
-playback and resources retire before the target entry destroys those services.
+framework borrows host/file/save services for the duration of the call; its
+session, front end, profile, presentation, playback and resources retire before
+the target entry destroys those services.
 
 Build targets preserve these boundaries: `bw_startup_framework` composes game
 and engine contracts; `bw_video` provides shared transport; `bw_video_ffmpeg`
@@ -131,8 +138,12 @@ observed `0x1010` action group, and Escape/controller B to `0x2020`. These are
 explicit host bindings for the observed skip consumers, not a claim that the
 original game's physical controller mapping has been reconstructed. Native
 keyboard repeat does not emit repeated press edges. Devices are sampled before
-game tasks, and focus loss clears held state. General input remapping, repeat
-navigation, axes and rumble remain outside this startup slice.
+game tasks, and focus loss clears held state. General input remapping and rumble
+remain outside this startup slice. Arrow keys and controller
+D-pad/left-stick directions now supply navigation. Repeated directions are
+derived from held state with the recovered 0.5-second delay and 0.125-second
+interval; options volume changes consume pressed left/right edges. Focus loss
+resets repeat timers.
 
 Window-close permission is applied before Cocoa processes close events; the
 window delegate vetoes closure while the shared session inhibits it. The native
@@ -140,8 +151,12 @@ backend never hides a window and then pretends the close was ignored.
 
 Startup-check lifecycle and result are implemented, but its unresolved sprite
 presentation is not replaced with invented artwork. It therefore runs against
-the black presentation surface. Character-load/menu behavior, settings/save dialogs, the title confirmation
-sound cue, world rendering and visual parity remain outstanding.
+the black presentation surface. Profile load/save failures now offer Retry or
+Continue without saving, but complete original localized storage dialogs remain
+unimplemented. Menu options expose volumes and costumes only; volumes persist
+without output-gain wiring. Title confirmation/menu sound cues, menu background
+music, other option screens, world rendering and original-game parity remain
+outstanding.
 
 Verification distinguishes the in-process playback tests (frame-tail timing,
 audio clock/drain, buffering, terminal exposure and interrupted fades), strict compilation/lint, and
@@ -222,3 +237,35 @@ no frame-perfect pacing or original-game parity claim is made. Strict checks,
 UBSan and the extended original-root integration pass. Generated evidence lives
 under `research/evidence/reconstruction/startup-title/`; the accepted run is
 `title-corrected-native.log`, checks are `accepted-checks.log`.
+
+
+## Profile and interactive-menu acceptance
+
+The Mac default profile directory is
+`~/Library/Application Support/Plainsight Systems/Bullet Witch`. `--profile PATH`
+selects a different writable directory. The entry rejects a profile directory
+inside the game installation; resources and purchased assets remain read-only.
+System (72 bytes) and Record (992 bytes) are written through the shared POSIX
+storage capability. The adapter replaces complete individual files; it does not
+promise an atomic transaction across the pair or synthesize a gameplay checkpoint.
+
+The recorded native manual run entered the menu, viewed the original authored
+costume 1 image, selected it and confirmed New Game at Normal difficulty. It
+published `st01_00`, stage 1, difficulty 1, costume 1 and zero checkpoint bytes;
+System/Record files were persisted at their original sizes. The program exited
+at the validated handoff boundary. Costume previews are authored 2D images;
+this run did not instantiate or render an actor/world.
+
+The same provisioned original-root integration separately selected costume 5 and
+verified an actual profile save/reload while using synthetic rendering and
+controlled media observations. Final strict checks, five CTest entries, UBSan
+and the original-root corpus passed. Native interaction and corpus assertions
+are distinct evidence, not additional unit-test counts. See
+[front-end integration](../research/engine/subsystems/frontend-integration.md).
+
+The current framework has no Steam achievement provider. Fresh achievement flags
+leave stage/extra and Chaos/Hell entries gated; installed archives do not unlock
+them. The recovered Steam refresh makes all five extra costumes available and
+supplies the 18 extra-mission availability entries, but native extra result 5
+versus original Lua result 6 remains unresolved. Neither automatic verification
+nor this native run claims extra-mission launch or gameplay execution.

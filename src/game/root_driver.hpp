@@ -1,12 +1,21 @@
-// G1/G2: original root package -> init -> repeated main, with 17 startup
-// bindings delegated to explicit game services. This is not a screen renderer.
-// Resources/services must outlive this nonmovable driver. Tag must be exclusive
-// to this driver; destructor releases it. Single-threaded and nonreentrant.
-// Algorithm: request logical DPK, advance resource phases, copy/decode package,
-// load original root bytecode, pump init, then main until pending/error/budget.
-// _WaitTitle preserves its initial pending return; completed waits resume in
-// the same pump. Unknown Lua/native calls fail visibly. Costs O(package bytes)
-// setup plus Lua/handler work. Optimization: retain one VM across main calls.
+// Front-end handoff extension: original Lua submits a mission name and waits
+// on the receiving game service. No synthetic mission completion is returned.
+// Design MCP I.30 (#ri-encapsulate) keeps compatibility arguments at the
+// bridge; implementation E.6 (#re-raii) retains owned VM cleanup on handler
+// failure. cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves existing
+// owner semantics; the mission name is borrowed only during start_mission and a
+// retaining receiver must copy it. Existing services without a mission receiver
+// fail explicitly. All calls stay on the session thread. G1/G2: original root
+// package -> init -> repeated main, with 19 startup bindings delegated to
+// explicit game services. This is not a screen renderer. Resources/services
+// must outlive this nonmovable driver. Tag must be exclusive to this driver;
+// destructor releases it. Single-threaded and nonreentrant. Algorithm: request
+// logical DPK, advance resource phases, copy/decode package, load original root
+// bytecode, pump init, then main until pending/error/budget. _WaitTitle
+// preserves its initial pending return; completed waits resume in the same
+// pump. Unknown Lua/native calls fail visibly. Costs O(package bytes) setup
+// plus Lua/handler work. Optimization: retain one VM across main calls.
 // Global-value side effects belong to game services, never a fabricated array.
 // MCP design/implementation: I.30 (#ri-encapsulate) isolates the Lua/native
 // boundary; SL.con.3 (#rsl-bounds) validates argument counts/types. Performance
@@ -39,6 +48,8 @@ class StartupServices {
   virtual bool pending(Screen screen) = 0;
   virtual double status(Screen screen) const = 0;
   virtual double latest_stage() const = 0;
+  virtual void start_mission(std::string_view mission);
+  virtual bool mission_pending();
 };
 class RootDriver {
  public:

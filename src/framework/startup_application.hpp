@@ -1,3 +1,11 @@
+// Front-end extension: SaveStorage is borrowed for the whole run alongside
+// Files and StartupHost. The target chooses a writable profile root separate
+// from the game installation. The framework owns profile/menu composition and
+// returns at a confirmed gameplay request until a mission consumer exists.
+// No checkpoint is synthesized. Bounded profile I/O and one menu image load per
+// activation supplement the costs below. Design I.30 (#ri-encapsulate),
+// implementation E.6 (#re-raii), and performance COPY.4 below preserve service
+// separation, owner lifetimes and absence of per-frame profile copies.
 // Startup route extension: game policies borrow capabilities; composition owns
 // them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
 // implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
@@ -27,12 +35,14 @@
 #include <span>
 
 #include "bw/platform/files.hpp"
+#include "bw/platform/save_storage.hpp"
 #include "bw/platform/startup_host.hpp"
 #include "bw/video/player.hpp"
 
 namespace bw::framework {
 struct StartupOptions {
   std::filesystem::path game;
+  std::filesystem::path profile;
   static constexpr int kDefaultMaximumSeconds = 300;
   int maximum_seconds{kDefaultMaximumSeconds};
   bool verify{};
@@ -42,5 +52,6 @@ StartupOptions parse_startup_options(std::span<char*> arguments);
 // Requires validated options, a live main-thread host and a nonempty factory.
 int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
+                platform::SaveStorage& saves,
                 video::Player::OpenDecoder open_decoder);
 }  // namespace bw::framework

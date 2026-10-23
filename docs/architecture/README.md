@@ -56,12 +56,24 @@ source reconstruction, faithful direct port, then improvements. The
 or milestone growth diagram determines the target runtime architecture.
 
 The implemented subset includes resource/data access, task lifecycle, Lua and
-root execution, concrete logo/check/advertise/title session tasks, shared movie timing/decoding,
+root execution, concrete logo/check/advertise/title session tasks, profile loading,
+interactive menus, a validated gameplay handoff, shared movie timing/decoding,
 and a Mac host using native Metal presentation and AudioQueue output. The
 [startup contract](../startup-runtime.md), [movie player](../video-player.md),
 [movie decoder](../video-decoder.md) and [native host](../native-startup-host.md) state their verification boundaries.
-Original title sprites/text and input outcomes are implemented. Character-load,
-title menu, world rendering and gameplay remain unimplemented.
+Original title/menu sprites, font text, authored costume previews and input
+outcomes are implemented. `FrontEnd` owns profile-load and menu policies while
+borrowing profile, writable storage, media/fades and presentation. The original
+Lua root produces an owned `GameplayRequest`; world loading, rendering and
+gameplay remain unimplemented.
+
+The current menu options are volumes and costume selection. Volumes persist but
+do not yet control audio gain; menu background music and cues are absent.
+Achievement-gated entries remain disabled on a fresh profile because no Steam
+achievement provider is connected. Extra-mission native status 5 versus Lua
+status 6 remains unresolved. These limits are distinct from the verified new-game
+handoff and costume save/reload path. See the
+[front-end contract](../startup-runtime.md#profile-menu-and-gameplay-handoff).
 
 The first presentation slice implements sample ownership, fade progression,
 screen retirement and conservative Mac GPU reuse. The independent media pipeline
@@ -93,5 +105,7 @@ describes implemented contracts alongside the remaining target structure.
 
 The implemented resource/task/Lua/root subset, its target dependencies and current
 limits are recorded in [startup runtime](../startup-runtime.md). Architecture
-views remain the full target; an original-root test with fixture services does
-not establish an interactive title screen or completed gameplay systems.
+views remain the full target. The original-root corpus now exercises real profile
+I/O and costume save/reload with a synthetic renderer; native manual verification
+separately observed costume selection and the gameplay request. Neither proves
+original-game parity or completed gameplay systems.

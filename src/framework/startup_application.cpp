@@ -1,3 +1,12 @@
+// Front-end extension: mount the supplied costume catalogs, own Profile and
+// menu presentation, and inject borrowed SaveStorage into FrontEnd. Original
+// Lua drives screen transitions and mission routing. On a confirmed campaign
+// request, print owned launch metadata and return at the world-loader boundary;
+// never report a completed mission. Profile I/O occurs only at load/change,
+// and menu images allocate once per front-end activation. Design I.30
+// (#ri-encapsulate), implementation E.6 (#re-raii) and performance COPY.4 below
+// preserve explicit game composition and retirement order. See
+// research/engine/subsystems/frontend-integration.md.
 // Startup route extension: game policies borrow capabilities; composition owns
 // them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
 // implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
@@ -32,6 +41,7 @@
 #include <thread>
 #include <utility>
 
+#include "game/startup_menu_surface.hpp"
 #include "game/startup_playback.hpp"
 #include "game/startup_services.hpp"
 #include "game/startup_title_surface.hpp"
@@ -45,13 +55,15 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
       result.window.fullscreen = false;
     } else if (argument == "--verify-startup") {
       result.verify = true;
-    } else if ((argument == "--game" || argument == "--max-seconds" ||
-                argument == "--window-width" ||
+    } else if ((argument == "--game" || argument == "--profile" ||
+                argument == "--max-seconds" || argument == "--window-width" ||
                 argument == "--window-height") &&
                index + 1 < arguments.size()) {
       const std::string_view value(arguments[++index]);
       if (argument == "--game") {
         result.game = value;
+      } else if (argument == "--profile") {
+        result.profile = value;
       } else {
         int parsed_value{};
         const auto parsed =
@@ -71,7 +83,8 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
       }
     } else {
       throw std::runtime_error(
-          "Usage: bw-startup --game GAME_DIRECTORY [--verify-startup] "
+          "Usage: bw-startup --game GAME_DIRECTORY [--profile SAVE_DIRECTORY] "
+          "[--verify-startup] "
           "[--max-seconds N] [--windowed] [--window-width N] [--window-height "
           "N]");
     }
@@ -84,12 +97,23 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
 
 int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
+                platform::SaveStorage& saves,
                 video::Player::OpenDecoder open_decoder) {
   bw::resources::CatalogSet catalogs;
   const auto catalog_path = configuration.game / "data/data/stable/stable.rat";
   constexpr int kStableCatalogPriority = 30;
   catalogs.mount(kStableCatalogPriority, catalog_path,
                  bw::content::open_catalog(files, catalog_path));
+  constexpr unsigned kSteamCostumePackages = 5;
+  for (unsigned index = 1; index <= kSteamCostumePackages; ++index) {
+    const auto name = std::string("PW") + std::to_string(index);
+    const auto path =
+        configuration.game / "data/concept" / name / (name + ".rat");
+    if (std::filesystem::exists(path)) {
+      catalogs.mount(static_cast<int>(index), path,
+                     bw::content::open_catalog(files, path));
+    }
+  }
   bw::resources::ResourceService resources(std::move(catalogs), files);
   bw::game::StartupPlayback playback(host, configuration.game,
                                      std::move(open_decoder));
@@ -110,7 +134,10 @@ int run_startup(const StartupOptions& configuration,
     return static_cast<unsigned>((seed >> random_shift) & random_mask) %
            loading_count;
   });
-  bw::game::StartupSession session(playback, &title_surface);
+  bw::game::Profile profile;
+  bw::game::StartupMenuSurface menu_surface(resources, host);
+  bw::game::FrontEnd frontend(profile, saves, playback, menu_surface, {});
+  bw::game::StartupSession session(playback, &title_surface, &frontend);
   session.start_root(resources, 1);
   const auto started = std::chrono::steady_clock::now();
   const auto deadline =
@@ -184,10 +211,23 @@ int run_startup(const StartupOptions& configuration,
       longest_pump = 0;
     }
     const auto actions = configuration.verify ? 0U : input.pressed_actions;
-    const auto result = session.advance({game_delta, actions});
+    const auto result =
+        session.advance({game_delta, actions},
+                        configuration.verify ? 0U : input.repeated_actions);
     playback.draw();
     if (result.state == bw::script::RunState::failed) {
       throw std::runtime_error(result.diagnostic);
+    }
+    if (session.quit_requested()) return 0;
+    if (session.gameplay_request()) {
+      const auto& request = *session.gameplay_request();
+      std::cout << "{\"status\":\"gameplay_request_ready\",\"mission\":\""
+                << request.mission << "\",\"stage\":" << request.selection.stage
+                << ",\"difficulty\":" << request.selection.difficulty
+                << ",\"costume\":" << request.selection.costume
+                << ",\"checkpoint_bytes\":" << request.checkpoint.size()
+                << "}\n";
+      return 0;
     }
     if (configuration.verify &&
         session.progress(bw::game::Screen::title).status ==

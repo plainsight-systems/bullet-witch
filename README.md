@@ -48,8 +48,10 @@ separate source files and compile with the build, so the graphics implementation
 can grow and be tuned independently of the host code.
 
 There is no playable build yet. The Mac build runs the logos, opening cinematic
-and animated title screen using the original assets. Character loading and the
-interactive menu come next. The [startup notes](docs/startup-runtime.md) and
+and animated title screen using the original assets. It loads profile data,
+displays interactive menus and costume previews, and carries the selection
+through the original Lua to a gameplay request. World loading comes next, after
+the memory subsystem; some menu options and extra-mission routing remain open. The [startup notes](docs/startup-runtime.md) and
 [native host notes](docs/native-startup-host.md) describe what runs and what
 remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
 a playable mission, the complete game and the Xbox port.

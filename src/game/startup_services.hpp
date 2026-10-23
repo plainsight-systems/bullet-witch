@@ -1,6 +1,17 @@
-// Startup route extension: game policies borrow capabilities; composition owns
-// them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
-// implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
+// Front-end extension: FrontEnd is borrowed through session destruction. Lua
+// remains the route owner; StartMission validates its identifier against the
+// confirmed menu selection and captures an owned request/checkpoint once.
+// WaitMission remains pending until a future world consumer exists. Main-thread
+// only. Invalid/mismatched routes throw, never become successful gameplay.
+// Design MCP I.30 (#ri-encapsulate) keeps compatibility slots at this boundary;
+// implementation E.6 (#re-raii) retains owned request cleanup; cpp-performance
+// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) gives
+// request data ordinary container ownership. Checkpoint copy is O(bytes) at
+// handoff, not per-frame. See
+// research/engine/subsystems/frontend-integration.md. Startup route extension:
+// game policies borrow capabilities; composition owns them through cleanup.
+// Design MCP R.20 (#rr-owner) retains explicit lifetime; implementation E.6
+// (#re-raii) unwinds on failures. cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves
 // container ownership without per-frame payload copies. Shared presentation
 // contracts are described in
@@ -29,15 +40,22 @@
 
 #include "advertise_flow.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
+#include "frontend.hpp"
 #include "root_driver.hpp"
 #include "startup_flows.hpp"
 #include "title_surface.hpp"
 
 namespace bw::game {
+struct GameplayRequest {
+  std::string mission;
+  MenuSelection selection;
+  std::vector<std::byte> checkpoint;
+};
 class StartupSession final : public StartupServices {
  public:
   explicit StartupSession(LogoMedia& media,
-                          TitleSurface* title_surface = nullptr);
+                          TitleSurface* title_surface = nullptr,
+                          FrontEnd* frontend = nullptr);
   ~StartupSession() override;
   StartupSession(const StartupSession&) = delete;
   StartupSession& operator=(const StartupSession&) = delete;
@@ -47,7 +65,7 @@ class StartupSession final : public StartupServices {
   // borrowed lifetime and exclusive-tag contract. No root exists before this.
   void start_root(resources::ResourceService& resources,
                   resources::ResourceTag tag);
-  script::RunResult advance(LogoUpdate input);
+  script::RunResult advance(LogoUpdate input, std::uint32_t repeated = 0);
   ScreenProgress progress(Screen screen) const;
   bool window_close_enabled() const { return window_close_enabled_; }
   double global(int slot) const override;
@@ -56,6 +74,12 @@ class StartupSession final : public StartupServices {
   bool pending(Screen screen) override;
   double status(Screen screen) const override;
   double latest_stage() const override;
+  void start_mission(std::string_view mission) override;
+  bool mission_pending() override;
+  const std::optional<GameplayRequest>& gameplay_request() const {
+    return gameplay_request_;
+  }
+  bool quit_requested() const;
 
  private:
   struct ScreenTask {
@@ -71,8 +95,14 @@ class StartupSession final : public StartupServices {
   AdvertiseFlow advertise_;
   TitleFlow title_;
   TitleSurface* title_surface_{};
-  ScreenTask logo_task_, check_task_, advertise_task_, title_task_;
+  FrontEnd* frontend_{};
+  ScreenTask logo_task_, check_task_, advertise_task_, title_task_, load_task_,
+      menu_task_;
   LogoUpdate input_;
+  std::uint32_t repeated_{};
+  unsigned campaign_stage_{1}, replay_stage_{1};
+  bool replay_mode_{}, concept_mode_{};
+  std::optional<GameplayRequest> gameplay_request_;
   std::int32_t title_return_request_{};
   bool window_close_enabled_{};
   script::RunResult root_result_{script::RunState::idle, {}};

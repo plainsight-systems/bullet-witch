@@ -1,3 +1,10 @@
+// Profile extension: choose the Mac default directory or explicit --profile,
+// canonicalize both roots and reject writable storage inside the game install.
+// Own SaveStorage through framework return. Path work is startup-only; ordinary
+// save errors are handled by FrontEnd, while path/setup errors reach stderr.
+// The source path and supplied directory must remain stable during this run.
+// Design I.30 (#ri-encapsulate), implementation E.6 (#re-raii) and performance
+// COPY.4 below keep platform choice and storage ownership at the target entry.
 // Startup route extension: game policies borrow capabilities; composition owns
 // them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
 // implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
@@ -17,6 +24,7 @@
 // performance COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) keeps
 // native and decoder resources uniquely owned.
+#include <algorithm>
 #include <exception>
 #include <iostream>
 #include <span>
@@ -26,11 +34,24 @@
 
 int main(int argc, char** argv) {
   try {
-    const auto configuration = bw::framework::parse_startup_options(
+    auto configuration = bw::framework::parse_startup_options(
         std::span<char*>(argv, static_cast<std::size_t>(argc)));
+    if (configuration.profile.empty()) {
+      configuration.profile = bw::platform::default_save_directory();
+    }
+    const auto game = std::filesystem::weakly_canonical(configuration.game);
+    const auto profile =
+        std::filesystem::weakly_canonical(configuration.profile);
+    const auto overlap =
+        std::mismatch(game.begin(), game.end(), profile.begin(), profile.end());
+    if (overlap.first == game.end()) {
+      throw std::runtime_error(
+          "Writable profile directory must be outside the game installation");
+    }
+    auto saves = bw::platform::make_save_storage(profile);
     bw::platform::HostFiles files;
     bw::platform::StartupHost host(configuration.window);
-    return bw::framework::run_startup(configuration, host, files,
+    return bw::framework::run_startup(configuration, host, files, *saves,
                                       bw::video::ffmpeg::open_decoder);
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
