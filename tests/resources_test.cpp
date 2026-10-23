@@ -1,3 +1,5 @@
+// Inline PNG cases apply retrieved SL.con.3 (#rsl-bounds) to framing bounds
+// and MEM.9 fixed fixture storage; no device or proprietary data is required.
 // Extended contracts: A1 DPK bounds; A3 publication/release using an in-memory
 // file capability. No processes/files. Ordered checks cover phases, cycle
 // termination, error/retry and lease lifetime, with fixture-sized allocations.
@@ -196,6 +198,31 @@ void archive_tests(Checks& checks) {
                       // three-byte size.
   auto alias = ResourceArchive::parse(b);
   checks.check(alias.payload(0)[0] == 'X', "Inline reference override");
+  // Inline PNG replacement keeps the old two-byte source size. Its selected
+  // span follows checked chunk framing, while original metadata is unchanged.
+  auto png = archive_fixture();
+  png.resize(329);
+  text(png, 144, "DDS ");
+  word(png, 156, 232);  // archive+40+232 = appended PNG at272.
+  const std::array<std::uint8_t, 8> signature{137, 80, 78, 71, 13, 10, 26, 10};
+  std::copy(signature.begin(), signature.end(), png.begin() + 272);
+  png.at(283) = 13;
+  text(png, 284, "IHDR");
+  text(png, 309, "IDAT");
+  text(png, 321, "IEND");
+  auto replacement = ResourceArchive::parse(png);
+  checks.check(replacement.payload(1).size() == 57 &&
+                   replacement.records()[1].raw[10] == 2,
+               "Inline PNG extent preserves original size metadata");
+  auto truncated_png = png;
+  truncated_png.resize(328);
+  checks.rejects([&] { ResourceArchive::parse(truncated_png); });
+  auto oversized_chunk = png;
+  oversized_chunk.at(280) = 0x7f;
+  checks.rejects([&] { ResourceArchive::parse(oversized_chunk); });
+  auto missing_end = png;
+  text(missing_end, 321, "IDAT");
+  checks.rejects([&] { ResourceArchive::parse(missing_end); });
   for (std::size_t length = 0; length < 272; ++length) {
     auto short_b = archive_fixture();
     short_b.resize(length);

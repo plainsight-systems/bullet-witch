@@ -28,6 +28,7 @@ void advertise_flow_contracts();
 void title_flow_contracts();
 void pcm_buffer_contracts();
 void startup_playback_contracts();
+void test_menu_flow();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -175,6 +176,7 @@ int main() {
     title_flow_contracts();
     pcm_buffer_contracts();
     startup_playback_contracts();
+    test_menu_flow();
     bridge_contract();
     failures();
     scheduling();

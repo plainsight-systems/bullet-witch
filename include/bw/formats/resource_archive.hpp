@@ -1,3 +1,8 @@
+// Inline DDS PNG replacements derive selected size from bounded PNG chunks;
+// raw and first/second section sizes remain original metadata. CRC/image
+// validation belongs to the image decoder. SL.con.3 (#rsl-bounds) bounds the
+// traversal; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// requires no allocation beyond existing parse owners. Both phases consulted.
 // A1: resource archive decoding (CPR1) (docs/resources.md). parse owns bytes
 // and throws Error for malformed/unsupported input. Metadata/spans borrow until
 // owner mutation, move or destruction; copies are independent. No I/O; caller

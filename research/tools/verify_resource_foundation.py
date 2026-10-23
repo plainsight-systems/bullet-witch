@@ -18,6 +18,7 @@ import sys
 
 from cpr_layout import inspect
 from layout_probe import dpk
+from menu_asset_inventory import png_extent
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -45,6 +46,15 @@ def verify_cpr(path, native, saved, counts):
         for key in ('index', 'table_offset', 'type', 'name', 'fields_after_type', 'payload_prefix_hex'):
             require(a[key] == b[key], f'Record {b["index"]}: {key}')
         expected_range = None if b['payload_offset'] is None else {'offset': b['payload_offset'], 'size': b['payload_bytes']}
+        # Steam's inline PNG pointer can select a replacement whose extent
+        # differs from the unchanged original section size. The independent
+        # audit walks chunk framing AND validates CRCs before accepting this
+        # interpretation; raw record fields above must still match exactly.
+        if (expected_range and b['type'] == 'DDS ' and
+                b['fields_after_type'][2] != 0xffffffff and
+                data[b['payload_offset']:b['payload_offset'] + 8] == b'\x89PNG\r\n\x1a\n'):
+            expected_range['size'] = png_extent(data, b['payload_offset'])
+            counts['inline_png_extents'] += 1
         require(a['selected_payload'] == expected_range, 'Selected payload range')
         payload = b'' if expected_range is None else data[b['payload_offset']:b['payload_offset'] + b['payload_bytes']]
         members = dpk(payload)['entries'] if payload.startswith(b'dpk\0') else []

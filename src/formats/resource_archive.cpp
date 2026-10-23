@@ -1,3 +1,8 @@
+// Inline PNG extent extension: checked chunks recover replacement size while
+// first/second payload metadata remains intact. Design and implementation MCP
+// SL.con.3 (#rsl-bounds) bounds every chunk; GPU.1 is applied by the consuming
+// image adapter, while MEM.9 keeps this traversal allocation-free. See
+// research/engine/subsystems/frontend-presentation.md for corpus evidence.
 // A1: resource archive decoding (CPR1) (docs/resources.md). parse owns bytes
 // and throws Error for malformed/unsupported input. Metadata/spans borrow until
 // owner mutation, move or destruction; copies are independent. No I/O; caller
@@ -44,6 +49,56 @@ constexpr std::size_t kFirstSizeField = 8;
 constexpr std::size_t kSecondOffsetField = 9;
 constexpr std::size_t kSecondSizeField = 10;
 constexpr std::uint64_t kArchivePointerBase = 0x28;
+// Steam inline PNG replacements retain the old section-size fields. Follow
+// checked PNG chunk lengths from the selected pointer, never a byte-pattern
+// scan. Archive and encoded-byte budget bound every chunk; libpng later owns
+// CRC/deflate/image validation. O(chunks), no allocation or payload copy.
+std::optional<std::uint64_t> inline_png_size(const Reader& reader,
+                                             std::uint64_t start) {
+  constexpr std::array<std::uint8_t, 8> signature{137, 80, 78, 71,
+                                                  13,  10, 26, 10};
+  constexpr std::uint64_t budget = 64ULL * 1024 * 1024;
+  constexpr std::uint64_t chunk_header = 8, chunk_overhead = 12, ihdr_size = 13;
+  reader.range(start, 0);
+  if (reader.b.size() - start < signature.size()) return std::nullopt;
+  const auto input = reader.b.subspan(static_cast<std::size_t>(start));
+  if (!std::equal(signature.begin(), signature.end(), input.begin())) {
+    return std::nullopt;
+  }
+  std::uint64_t cursor = signature.size();
+  bool has_data = false;
+  for (;;) {
+    reader.range(start + cursor, chunk_overhead);
+    const auto length_bytes =
+        reader.b.subspan(static_cast<std::size_t>(start + cursor), kWordBytes);
+    std::uint64_t length = 0;
+    for (const auto byte : length_bytes) {
+      length = (length << detail::kByteBits) | byte;
+    }
+    if (cursor > budget || length > budget - cursor ||
+        chunk_overhead > budget - cursor - length) {
+      malformed("Inline PNG exceeds encoded byte budget");
+    }
+    const auto type = reader.tag(start + cursor + kWordBytes);
+    if (cursor == signature.size() && (type != "IHDR" || length != ihdr_size)) {
+      malformed("Inline PNG has no valid first IHDR");
+    }
+    if (!std::all_of(type.begin(), type.end(), [](unsigned char c) {
+          return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        })) {
+      malformed("Inline PNG chunk type is invalid");
+    }
+    reader.range(start + cursor + chunk_header, length + kWordBytes);
+    cursor += length + chunk_overhead;
+    if (type == "IDAT") has_data = true;
+    if (type == "IEND") {
+      if (length != 0 || !has_data) {
+        malformed("Inline PNG terminal chunk is invalid");
+      }
+      return cursor;
+    }
+  }
+}
 }  // namespace
 ResourceArchive ResourceArchive::parse(Bytes bytes) {
   ResourceArchive out;
@@ -130,6 +185,12 @@ ResourceArchive ResourceArchive::parse(Bytes bytes) {
           Range{kArchivePointerBase + f[2],
                 record.selected_payload ? record.selected_payload->size : 0};
       r.range(record.selected_payload->offset, record.selected_payload->size);
+      if (record.type == "DDS ") {
+        if (const auto size =
+                inline_png_size(r, record.selected_payload->offset)) {
+          record.selected_payload->size = *size;
+        }
+      }
     }
     static constexpr std::array known{"USER", "DDS ", "DDSC", "DXVB",
                                       "DXIB", "DXVS", "DXPS", "CALL"};

@@ -1,6 +1,9 @@
-// Window options request windowed content points, clamped to the visible
-// display. Native full screen is the default; construction waits for the
-// completed native transition before media can begin, or throws on
+// Input repeats follow recovered per-bit 0.5s/0.125s arithmetic; pressed
+// actions remain edges. Arrow keys/controller directions map to bits 24-27.
+// Fixed 32-timer storage applies retrieved MEM.9; E.6 preserves native
+// lifetime. Window options request windowed content points, clamped to the
+// visible display. Native full screen is the default; construction waits for
+// the completed native transition before media can begin, or throws on
 // failure/stall. Sprite upload/submission follows render/sprites.hpp; all
 // sprites share the video fade. Design MCP R.2 (#rr-use-ptr) uses spans;
 // performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
@@ -26,6 +29,7 @@
 namespace bw::platform {
 struct StartupInput {
   std::uint32_t pressed_actions{};
+  std::uint32_t repeated_actions{};
   bool close_requested{};
 };
 inline constexpr std::uint32_t kDefaultWindowWidth = 1280;

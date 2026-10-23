@@ -1,3 +1,6 @@
+// Input implementation: original 0x41cfd0 per-bit elapsed-time repeat, fixed
+// 32 timers; focus loss clears held/repeat state. Retrieved SL.con.3 bounds
+// iteration, MEM.9 confines storage to setup. See frontend-presentation.md.
 // Native full screen uses completed AppKit delegate transitions before returning
 // from construction; no media session runs during startup animation. SDL Cocoa
 // source and the bounded event-pump design are in sprite-presentation-design.md.
@@ -90,6 +93,32 @@ constexpr unsigned short kReturnKey = 36;
 constexpr unsigned short kSpaceKey = 49;
 constexpr unsigned short kEscapeKey = 53;
 constexpr unsigned short kFullscreenKey = 3;
+constexpr unsigned short kUpKey = 126, kDownKey = 125, kLeftKey = 123, kRightKey = 124;
+constexpr std::size_t kActionBits = 32;
+constexpr std::uint32_t kUpAction = 0x01000000U;
+constexpr std::uint32_t kDownAction = 0x02000000U;
+constexpr std::uint32_t kLeftAction = 0x04000000U;
+constexpr std::uint32_t kRightAction = 0x08000000U;
+constexpr std::uint32_t kDirections = 0x0f000000U;
+std::uint32_t key_action(unsigned short code) {
+  switch (code) {
+    case kReturnKey:
+    case kSpaceKey:
+      return kConfirmAction;
+    case kEscapeKey:
+      return kCancelAction;
+    case kUpKey:
+      return kUpAction;
+    case kDownKey:
+      return kDownAction;
+    case kLeftKey:
+      return kLeftAction;
+    case kRightKey:
+      return kRightAction;
+    default:
+      return 0;
+  }
+}
 constexpr std::size_t kTextureByteBudget = std::size_t{128} * 1024 * 1024;
 struct SpriteParameters {
   std::array<float, 4> rectangle;
@@ -137,6 +166,8 @@ struct StartupHost::State {
   MediaAudio media_audio;
   std::uint32_t keyboard_keys{};
   std::uint32_t previous_held{};
+  std::array<double, kActionBits> repeat_elapsed{};
+  std::chrono::steady_clock::time_point input_time{std::chrono::steady_clock::now()};
   State() = default;
   ~State() {
     media_audio.stop();
@@ -287,11 +318,9 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
           }
           continue;
         }
+        const auto action = key_action(code);
         const std::uint32_t key =
-            code == kReturnKey ? 1U : (code == kSpaceKey ? 2U : (code == kEscapeKey ? 4U : 0U));
-        const std::uint32_t action =
-            code == kEscapeKey ? kCancelAction
-                               : (code == kReturnKey || code == kSpaceKey ? kConfirmAction : 0);
+            code == kReturnKey ? 1U : (code == kSpaceKey ? 2U : (code == kEscapeKey ? 4U : action));
         if (event.type == NSEventTypeKeyDown) {
           if (!event.isARepeat) {
             key_edges |= action;
@@ -306,7 +335,8 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     }
     [NSApp updateWindows];
     std::uint32_t held = ((state.keyboard_keys & 3U) != 0 ? kConfirmAction : 0U) |
-                         ((state.keyboard_keys & 4U) != 0 ? kCancelAction : 0U);
+                         ((state.keyboard_keys & 4U) != 0 ? kCancelAction : 0U) |
+                         (state.keyboard_keys & kDirections);
     if (NSApp.active && state.window.keyWindow) {
       NSArray<GCController*>* controllers = [GCController controllers];
       for (NSUInteger index = 0; index < controllers.count; ++index) {
@@ -318,6 +348,19 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
         if (pad.buttonB.pressed) {
           held |= kCancelAction;
         }
+        constexpr float navigation_threshold = 0.5F;
+        if (pad.dpad.up.pressed || pad.leftThumbstick.yAxis.value > navigation_threshold) {
+          held |= kUpAction;
+        }
+        if (pad.dpad.down.pressed || pad.leftThumbstick.yAxis.value < -navigation_threshold) {
+          held |= kDownAction;
+        }
+        if (pad.dpad.left.pressed || pad.leftThumbstick.xAxis.value < -navigation_threshold) {
+          held |= kLeftAction;
+        }
+        if (pad.dpad.right.pressed || pad.leftThumbstick.xAxis.value > navigation_threshold) {
+          held |= kRightAction;
+        }
       }
     } else {
       state.keyboard_keys = 0;
@@ -325,8 +368,30 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
       key_edges = 0;
     }
     const auto pressed = key_edges | (held & ~state.previous_held);
+    const auto now = std::chrono::steady_clock::now();
+    const auto elapsed = std::chrono::duration<double>(now - state.input_time).count();
+    state.input_time = now;
+    auto repeated = pressed;
+    constexpr double repeat_delay = 0.5;
+    constexpr double repeat_interval = 0.125;
+    for (std::size_t bit = 0; bit < state.repeat_elapsed.size(); ++bit) {
+      const auto mask = std::uint32_t{1} << bit;
+      auto& timer = state.repeat_elapsed.at(bit);
+      if ((held & mask) == 0) {
+        timer = 0;
+        continue;
+      }
+      // A new hold starts now; time spent idle/loading must not become a repeat.
+      timer += (state.previous_held & mask) != 0 ? elapsed : 0;
+      if (timer >= repeat_delay) {
+        repeated |= mask;
+        timer -= repeat_interval;
+      }
+    }
     state.previous_held = held;
-    return {.pressed_actions = pressed, .close_requested = !state.window.visible};
+    return {.pressed_actions = pressed,
+            .repeated_actions = repeated,
+            .close_requested = !state.window.visible};
   }
 }
 void StartupHost::upload(const video::VideoFrame& frame) {
