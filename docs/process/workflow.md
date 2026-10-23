@@ -10,7 +10,8 @@ and implemented behavior.
 
 1. Establish the logical architecture, change axes, execution contracts and
    file mapping before extending the engine. A review draft is not approval.
-2. During C++ header design, consult both corpora below. Write opening file
+2. Before designing standard subsystem behavior, apply the established-implementation
+   requirement below. During C++ header design, consult both corpora below. Write opening file
    contracts and the algorithm each file owns; review those before its body.
 3. During implementation, consult both corpora again for the concrete work.
    Apply the rules, implement meaningful contract verification, and keep file
@@ -26,6 +27,38 @@ boundaries, and document the original-to-engine mapping in
 
 File headers carry implementation design; there are no separate implementation
 packets. Formatting-only passes preserve existing contracts and citations.
+
+## Established implementations first
+
+For standard engine problems, study mature implementations before designing a new
+algorithm or extending an unproven one. This applies to clocks and frame pacing,
+audio/video playback, streaming, memory, jobs, input, rendering and resource
+lifetime. Appropriate references include Unreal source when accessible, Godot,
+other established engines, specialist libraries such as FFmpeg, and platform
+sample implementations. Choose references that actually solve the relevant
+problem; an engine name or API summary is not evidence.
+
+Read the concrete source paths and functions, pin the revision, and save a concise
+comparison under the relevant `research/engine/` subsystem. Record the existing
+algorithm, its relevant ownership/threading/timing contracts, what this engine
+will adopt, and why any departure is necessary. Local reference checkouts and
+source snapshots belong under ignored, organized `research/` directories; keep
+reviewed findings and source links tracked. Never place references in the game
+installation or silently vendor them into production code. Respect the source's
+terms when incorporating code.
+
+Prefer a proven implementation or algorithm behind the project's portable/native
+boundaries over inventing a new framework. Review known limitations as well as
+successful behavior. Reference study supplements the required C++ MCP guidance;
+neither replaces the other. If a reference is unavailable, use another suitable
+primary implementation and record the limitation rather than proceeding from
+assumptions.
+
+Verification must exercise the behavior that matters in the running subsystem.
+For media, that includes visible final frames, complete audio, clock progression,
+buffering and drain. A decoded-frame count, EOF flag or passing mock must not be
+presented as evidence of correct native playback. When a device run fails, compare
+its measured behavior with the reference algorithm before adding another patch.
 
 ## Required C++ MCP consultation
 

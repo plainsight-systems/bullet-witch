@@ -15,8 +15,11 @@ exception; the target is five repository-wide):
 
 - One `tests/startup_corpus.cpp` / `research/tools/verify_startup_runtime.py`
   provisioned scenario runs the hash-bound original root through resource/task/Lua
-  composition with deterministic screen services. No rendering or native-game
-  timing equivalence is claimed.
+  composition with deterministic screen services and the concrete startup session
+  using controlled media observations. Its native acceptance run uses `bw-startup
+  --verify-startup` with the actual playlist, GPU and audio device. Native-device
+  success is recorded separately from the fixture route; it does not establish
+  title/menu rendering or original-game timing equivalence.
 
 The corpus workflow remains an integration scenario even though it lives under
 research and is excluded from the default local check. Do not count CTest's three
@@ -39,3 +42,13 @@ process. `startup-corpus` is built by default but only runs when explicitly
 provisioned with the purchased game. It is not registered as a unit test. The
 new integration scenario is an explicit budget exception for the authorized
 startup slice; the five-scenario target and reconciliation debt remain.
+
+`startup_services_test.cpp` adds two in-process session contract cases.
+`startup_playback_test.cpp` exercises generic player timing, final presentation,
+continuous PCM/backpressure, late audio failure, long video tails and the thin
+game fade adapter. `pcm_buffer_test.cpp` adds three in-process cases for
+timestamp-segment wrap, partial reads/descriptor pressure and concurrent SPSC
+handoff. Their assertions are not
+separate test cases. Decoder reference probes and native run diagnostics stay
+under ignored `research/evidence/reconstruction/native-startup/`; they are not
+additional unit suites or asset fixtures.

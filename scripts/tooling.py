@@ -8,8 +8,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 LLVM_VERSION = '21.1.8'
-SOURCE_ROOTS = ('include', 'src', 'tools', 'tests', 'game', 'app', 'platform')
-SUFFIXES = {'.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx'}
+SOURCE_ROOTS = ('include', 'src', 'tools', 'tests')
+TRANSLATION_SUFFIXES = {'.c', '.cc', '.cpp', '.cxx', '.m', '.mm'}
+SUFFIXES = TRANSLATION_SUFFIXES | {'.h', '.hh', '.hpp', '.hxx', '.metal'}
 
 
 def find_tool(name):

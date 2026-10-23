@@ -88,6 +88,56 @@ resource operations. The session's UI scene presents those screen contributions.
 Menus can exist without a world, and a modal screen can overlay a world without
 implicitly stopping every world or service phase. Mode policy determines the gates.
 
+## Implemented startup ownership
+
+The current executable realizes a bounded subset of this tree. The Mac entry
+constructs file access and the native host, then calls shared framework code.
+The framework owns catalog resources, shared playback and `StartupSession`
+within that call. Destruction runs in reverse: the session releases its root
+and screen tasks before playback stops media, and the host outlives both.
+Resources remain alive until the root's archive/tag interests are released.
+
+The session owns one scheduler and its root driver; scheduler callbacks borrow
+the session and are destroyed before its flow/root storage. This prevents a
+callback from surviving an independently destroyed root. Screen priority
+`0x2000` precedes root priority `0x2001`; both execute on the owning thread.
+A completed flow requests idle, the root Wait observes idle and requests
+destruction, and a later lifecycle pass retires the task. Result publication
+survives that retirement. See [startup runtime](../startup-runtime.md).
+
+```mermaid
+flowchart TD
+    Entry[Mac process entry] --> Host[Native host: window / Metal / AudioQueue]
+    Entry --> Files[Host file adapter]
+    Entry --> Framework[Shared startup application scope]
+    Framework --> Resources[Read-only resource service]
+    Framework --> Playback[Game fade adapter and engine video Player]
+    Framework --> Session[StartupSession]
+    Framework -. borrows .-> Host
+    Resources -. borrows .-> Files
+    Session --> Scheduler[One task lifecycle scheduler]
+    Session --> Root[RootDriver and Lua context]
+    Session --> Screens[Logo and startup-check flows]
+    Playback -. borrows .-> Host
+    Screens -. borrows .-> Playback
+    Root -. borrows .-> Resources
+```
+
+Solid arrows indicate ownership, dashed arrows borrowing. There is no world
+owner yet. The Player owns its decoder session; that decoder owns demux, audio
+and video workers, separate compressed queues and bounded decoded storage.
+The Mac host composes a separate MediaAudio service whose joined run-loop owner
+feeds the native device independently of game updates and drawing. Its callback
+copies already decoded PCM into fixed buffers and publishes clock observations;
+it cannot decode, allocate or advance session state.
+
+The main owner controls playback and Metal presentation. Audio consumption is
+the media clock, with explicit pending, buffering and drained observations.
+Shutdown retires native audio callbacks before stopping decoder workers and
+releasing their storage. Movie presentation currently waits for GPU completion
+before texture reuse. These rules do not settle the eventual world renderer's
+worker cadence or asynchronous resource retirement.
+
 ## Object identities and cross-system references
 
 | Identity | Meaning | Validity / lookup rule |

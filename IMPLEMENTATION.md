@@ -30,7 +30,16 @@ contracts. The inspector and eventual game use the same production modules.
 SRC-01 now separates format readers, catalog lookup, content location and host
 file access while retaining its verified behavior. Shared DPK access and resource
 lifecycle now support task/Lua/root integration. Concrete startup services and
-screens are next; no renderer/backend has been selected by this infrastructure slice.
+logo/check tasks and native movie output are implemented. The Mac backend uses
+Metal and AudioQueue; advertise/title/menu remain next.
+
+The required [engine memory subsystem](docs/architecture/memory-and-residency.md)
+follows the launch-screen milestone, including its launch cinematics. Reach that
+visible startup boundary first, then implement the memory foundation deliberately.
+A small allocation interface may be introduced earlier where a concrete owner
+needs it; do not build a placeholder subsystem or treat it as completed memory
+management. Existing container allocations remain explicit migration work, and
+bounded media queues do not close that gap.
 
 ## What we are building
 
@@ -109,8 +118,9 @@ Legacy middleware needs explicit treatment. Reconstructing the game engine does
 not itself supply PhysX, XACT or video codecs. Resolve the physics implementation
 and compatibility requirements early enough to inform SRC-03. Record any change
 in collision/destruction behavior; do not silently substitute a newer simulation.
-Renderer backend, middleware implementations, build/deployment tooling and final
-packaging remain concrete engineering decisions. Source reconstruction is settled.
+The Mac startup backend uses Metal and a minimal shared FFmpeg decoder. World
+rendering, Xbox adapters, remaining middleware, deployment and final packaging
+remain concrete engineering work. Source reconstruction is settled.
 
 The [contract worklist](research/engine/WORKLIST.md) supplies local unknowns to resolve as code
 reaches them. Continue independent modules when one is blocked. Revisit user
@@ -177,8 +187,11 @@ that formula the resource service's unchecked runtime pointer semantics.
    and 17 native startup bindings delegated to explicit game-service capabilities.
    Original root routing is verified with fixture services. Background worker
    execution and the rest of the native API are not implied to exist.
-5. **Next:** concrete startup screens/game services and required renderer/media/input
-   contracts. Complete interactive title/menu as SRC-02 requires.
+5. **Implemented startup subset:** concrete logo/check session tasks, shared
+   decoding/playback/fades and native Mac presentation/audio/input. Both company
+   movies now complete with full PCM consumption and zero underruns in the
+   recorded native run. Next: advertise,
+   required sprite/font resources and interactive title/menu as SRC-02 requires.
 6. **Later:** world/entity/AI/animation/physics/effect behavior for a complete mission,
    preserving the same mechanisms for later missions and host ports.
 
@@ -193,5 +206,8 @@ DPK/USER resource lifetime; task scheduling, compatible Lua bridge and original
 root driver. See [startup runtime](docs/startup-runtime.md) for exact contracts,
 verification commands and limitations. This completes the infrastructure slice
 of SRC-02. It does not complete the interactive title/menu milestone: concrete
-screen, input, sprite/media and game-state services remain. The provisioned
-original-root test uses explicit deterministic service fixtures.
+advertise/title/menu, sprite/font and remaining game-state services are still
+needed. The provisioned original-root scenario retains full-route fixtures and
+also drives the production session through logo/check completion. The native
+startup executable uses the same production session and original media. See
+[native startup](docs/native-startup-host.md) for device verification and limits.

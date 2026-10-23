@@ -136,8 +136,13 @@ supplies screen completion/status and the required global read. The observed
 route is company logo → memory-card check → advertise → title → character load
 → title menu → title. It verifies continuation/routing and final tag release;
 it does not display these screens or establish native timing/behavior equivalence.
-The test explicitly rejects unexpected global side effects. Production service
-implementations are the next work.
+The test explicitly rejects unexpected global side effects. The concrete
+`StartupSession` below now implements the first two screen services; the fixture
+route remains a separate routing assertion, not evidence that later screens run.
+The same provisioned integration scenario also drives the original root through
+`StartupSession`, using controlled media observations to verify both reconstructed
+flows and the explicit unsupported-advertise boundary. It verifies cleanup of
+the root publication after each composition. No new integration scenario is added.
 
 ```sh
 python3 scripts/check.py all
@@ -163,10 +168,9 @@ errors, instruction guards, task activation/deactivation/removal and pass order.
 
 `src/game/startup_flows` now contains game-owned `CompanyLogoFlow` and
 `StartupCheckFlow`. They are compiled into `bw_game`, alongside the root driver,
-not separate applications. These implement the recovered update policies; they
-are not yet complete native task adapters or replacements for the original-root
-integration's screen fixtures. Scheduling, activation side effects, draw submission
-and task removal remain explicit composition work.
+not separate applications. `StartupSession` now composes these policies with
+the task lifecycle and original root. Presentation remains a separate capability;
+successful policy checks alone do not establish device or media correctness.
 
 `CompanyLogoFlow` consumes an explicitly supplied ordered movie playlist and an
 exclusively borrowed `LogoMedia` capability. Each update executes one native
@@ -218,15 +222,90 @@ Evidence is the existing pass-06w pseudocode **and instructions** for
 `0x4a0e80`, under ignored `research/evidence/engine/`. The source-level contracts
 cite the C++ MCP rules consulted during design and implementation.
 
-Remaining integration dependencies: recover/provision the exact logo table;
-resolve activation's session flag mutation at `0xa0b6d8`; implement selected
-media/fade/input adapters and draw presentation; pump media events independently
-of polling or preserve the native draw/event dependency; connect completion to
-task removal and Wait observation. Logo open-failure continuation needs further
-native evidence. No graphics API or media backend is selected here.
+## Startup session and native boundaries
+
+`src/game/startup_services` contains `StartupSession`, the concrete implementation
+of the root's `StartupServices` contract. It owns its root driver and one
+`TaskLifecycleScheduler`, keeping screen callbacks, Lua continuation and their
+state in one lifetime. Resource and media capabilities are borrowed and must
+outlive the session. Destruction releases callbacks without ticking them, then
+releases the root's resource tag and any owned movie operation. All session calls
+remain on one owning thread.
+
+`start_root` registers the original-root driver. `advance` takes the host's delta
+and pressed-action snapshot and runs the existing lifecycle/active passes. Root
+uses key **0x2001**, set by its creation callback **0x43e900** (owner vtable
+**0x82a084 + 4**). Screens retain base key **0x2000** through
+`0x49dfb0 → 0x474550 → 0x40b330`, so their active update precedes root polling.
+Insertion `0x40b5f0` preserves equal-key order. The scheduler's existing
+snapshot policy still makes tasks inserted during an update eligible on the next
+tick; complete native dynamic-insertion cadence remains outside this slice.
+
+Completion is not immediate destruction. Native **0x40b690** requests idle **4**.
+The next lifecycle pass deactivates the screen; its Wait now observes that it is
+not active, then finishes through **0x4745e0 → 0x40b5e0**, requesting state **1**.
+The following lifecycle pass destroys/removes it. The reconstructed session
+preserves those separate edges. Results survive task removal; failed flows throw
+through the root's pending operation and never become successful completion.
+
+```mermaid
+sequenceDiagram
+    participant Session as StartupSession
+    participant Root as Original root / Wait
+    participant Task as Screen task
+    participant Flow as Shared screen policy
+    Session->>Root: active pass
+    Root->>Task: Exec requests active
+    Note over Task: next lifecycle activates
+    Session->>Task: active update
+    Task->>Flow: input + delta
+    Flow-->>Task: result 1
+    Task->>Task: request idle
+    Note over Task: next lifecycle deactivates
+    Session->>Root: active pass
+    Root->>Task: Wait observes idle
+    Task->>Task: request destruction
+    Root->>Root: resume Lua in same pump
+    Note over Task: following lifecycle destroys
+```
+
+The exact logo table is now provisioned in source: `data/movie/marvelousLogo.ssu`
+then `data/movie/xeedLogo.ssu`. Read-only PE table recovery found count **2** at
+**0x95bd9c**, 12-byte entries at **0x95bd84 / 0x95bd90**, image identifiers
+**0x61 / 0x62**, and fallback durations **3.0**. Successful movie opens take the
+movie-completion branch, so those fallback durations do not become new timeouts.
+Only path separators are normalized for the host. Generated hash-bound evidence
+is in `research/evidence/reconstruction/native-startup/logo-playlist.json`.
+
+The activation flag has also been resolved: **0x49e0a8** clears bit **0x8** of
+application flags **0xa0b6d8**, enabling the window-close path. The window message
+jump table maps **WM_CLOSE (0x10)** to **0x411d4b**; when bit 0x8 is clear, that
+branch invokes quit helper **0x411eb0**. `window_close_enabled()` represents this
+role without carrying an opaque bitfield into the game API. It is separate from
+Lua globals, save data and the startup-check UI.
+
+Global slot **1** maps to the typed title-return request owned by the session:
+native getter **0x478e20** reads owner **0x432130 + 0x61470**, initialization
+**0x43e8d0** clears it, return handling **0x43fe32** sets it, and setter
+**0x47c080** writes it without further side effects. The root consumes it to
+choose cold startup or return-to-title. Other global slots, saved-stage lookup,
+and advertise/title/character-load/menu screens remain explicit unsupported
+operations; there is no fabricated global array or production screen fixture.
+The original root therefore reaches the advertise boundary after both supported
+flows and reports the missing screen instead of claiming a working menu.
+
+Shared game policy owns sequencing, fades requested by screens, task waits and
+session state. Native adapters own host event/device operations behind common
+headers, with media playback scheduling and sample ownership explicit at that
+boundary. The startup-check state advances without drawing a fabricated card or
+save dialog. Logo open-failure continuation remains unresolved and fails with a
+diagnostic. Completing this slice does not establish a world renderer, title
+sprite construction, profile loading or Xbox device behavior.
 
 Three in-process cases in the existing runtime test executable cover PC check
 visibility/UI clocks/result ordering, two-logo progression with independent
 fade/movie/input gates, and unavailable/open-failure/destructor cleanup. These
 use explicit test media observations and establish update-policy behavior only.
-No integration scenario or fake production completion service was added.
+Two further in-process session cases cover activation, explicit global ownership,
+result versus lifecycle timing, completed-screen re-execution and unsupported
+operations. No integration scenario or fake production completion service was added.

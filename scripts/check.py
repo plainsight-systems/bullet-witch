@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One explicit check entry point. No tool installs or game-data writes; CMake fetches the pinned Lua dependency."""
+"""One explicit check entry point. No tool installs or game-data writes; CMake fetches pinned Lua and FFmpeg sources."""
 import argparse
 import os
 from pathlib import Path

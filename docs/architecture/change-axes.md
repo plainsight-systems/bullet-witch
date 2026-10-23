@@ -33,8 +33,9 @@ systems retain their own state authority. E14 does not force actor queries,
 physics and rendering to use the same candidate-selection algorithm. R1/R2/R3
 separate renderer responsibilities that the earlier command-only E8 boundary did
 not describe. E8 below retains command encoding/submission and consumption.
-E16 leaves allocation ownership with the actual subsystem; shared helpers appear
-only where a concrete contract warrants them.
+E16 gives the engine a shared memory subsystem for allocation routing, budgets,
+accounting and backing storage. Logical lifetime and retirement remain with the
+actual subsystem. See [memory architecture](memory-and-residency.md).
 
 **Boundary tests:** correcting a camera follow equation changes G6, not the
 renderer device adapter. Correcting a shader constant changes R2 without changing
@@ -126,10 +127,11 @@ boundary is not a promise that every backend change is invisible.
 ## Independent dimensions, not speculative implementations
 
 The PC content format, game rules, script semantics, host operating system,
-graphics backend and middleware choice are separate dimensions. Only the PC
-RAT/CPR reader is implemented. Mac is the current development host; Series X is
-the destination. This design does not commit to Metal, D3D12, a newer PhysX,
-a particular codec, or a new Lua runtime.
+graphics backend and middleware choice are separate dimensions. The resource/task/Lua/startup subset and a shared movie player are implemented.
+Mac is the current development host; Series X is the destination. The Mac movie
+path selects Metal and a shared FFmpeg decoder. World rendering, Xbox adapters
+and remaining middleware remain separate decisions; portable contracts do not
+imply that those implementations already exist.
 
 Declare a supported combination at composition time. Unsupported capabilities
 fail explicitly. No empty alternative implementations, plugin loader, universal

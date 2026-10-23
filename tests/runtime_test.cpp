@@ -10,6 +10,11 @@
 // COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
 // moves; renaming adds no wrapper, allocation or payload copy.
 
+// Startup composition design/implementation: cpp-guidelines I.1 (#ri-explicit)
+// keeps scenario entry points explicit; cpp-performance MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps flow fixtures
+// bounded and setup-owned. Native device allocation is tested separately.
+
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -18,6 +23,9 @@
 #include "bw/script/context.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 void startup_flow_contracts();
+void startup_session_contracts();
+void pcm_buffer_contracts();
+void startup_playback_contracts();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -160,6 +168,9 @@ void scheduling() {
 int main() {
   try {
     startup_flow_contracts();
+    startup_session_contracts();
+    pcm_buffer_contracts();
+    startup_playback_contracts();
     bridge_contract();
     failures();
     scheduling();

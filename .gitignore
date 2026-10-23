@@ -1,6 +1,7 @@
 # Local game data and generated research. Keep readable code/docs in Git.
 /research/extracted/
 /research/vendor/
+/research/references/
 /assets/
 /game/
 /game-data/
@@ -88,6 +89,8 @@ compile_commands.json
 *.lib
 *.so
 *.dylib
+*.air
+*.metallib
 *.pdb
 *.class
 __pycache__/

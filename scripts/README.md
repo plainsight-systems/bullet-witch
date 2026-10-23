@@ -1,6 +1,6 @@
 # Engineering tools
 
-Run from the repository root with Python 3.9+, CMake 3.20+ and a C++20 compiler.
+Run from the repository root with Python 3.9+, CMake 3.24+ and a C++20 compiler.
 CMake uses the host's default generator; Ninja is not required. BUILD_TESTING
 requires Python for the CLI integration tests.
 
@@ -23,7 +23,7 @@ python3 scripts/check.py all
 policy checks. Individual actions are `format`, `host`, `tidy`, `policy`.
 `--jobs N` bounds build/analyzer concurrency; `--build-dir build/NAME` selects an
 ignored build directory. No source formatter or analyzer scans recovered game
-code under `research/`. All authored project C++ translation units must appear
+code under `research/`. Authored C++ and Objective-C++ translation units must appear
 in the compilation database or analysis fails. Headers are checked through their
 includers. A newly added standalone public header should have a compile consumer.
 
@@ -32,11 +32,16 @@ adds the selected Xcode SDK/libc++ headers for the separately installed analyzer
 Every enabled finding is fatal. Per-file logs and a summary stay under ignored
 `research/evidence/workflow/clang-tidy/`. LLVM 21.1.8 on native macOS is verified;
 other hosts are not established by these results. CUDA analysis is not needed
-by this CPU-only foundation and has not been imported as a false capability.
+by the Metal backend. Metal sources receive pinned formatting and build-time
+compiler warnings as errors; they are not claimed as clang-tidy coverage.
 
 The editor settings use `scripts/clang-format`, which enforces the same version
 and supports stdin formatting. A missing formatter reports an error; editor
-formatting does not replace `all`.
+formatting does not replace `all`. As in Serenity, workspace associations map
+`*.metal` and `*.metal.h` to C++ for shader syntax highlighting and pinned
+formatting through the existing C/C++ extension. Objective-C++ format-on-save
+is also enabled. Highlighting is editor support; the Metal compiler supplies
+shader validation.
 
 ## Presets, corpus and sanitizers
 
@@ -76,3 +81,12 @@ The runtime build now fetches Lua 5.0.2 from lua.org with a pinned SHA256 into
 tracked compatibility patch validates expected source fragments. No tools or
 assets are installed. CMake 3.24+ and C99/C++20 compilers are required. See
 [the startup verification commands](../docs/startup-runtime.md).
+
+The startup build also fetches pinned FFmpeg 7.1.1 source and builds a minimal
+shared LGPL configuration using `make`; see [decoder setup](../docs/video-decoder.md).
+The Mac host requires Xcode's SDK and Metal toolchain. `xcrun --find metal`
+checks availability; if missing, install Apple's component with
+`xcodebuild -downloadComponent MetalToolchain`. `cmake/MacShaders.cmake`
+compiles `.metal` source into a library beside `bw-startup`. A shader change
+rebuilds the library without recompiling the host. No runtime shader compiler
+or working-directory lookup is used.

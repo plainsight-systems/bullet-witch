@@ -59,6 +59,13 @@ worker into the control thread can change observable timing and must be assessed
 against its recovered contract. Startup construction can occur while a world is
 not active; that is different from unsynchronized mutation of a live world.
 
+The implemented startup path uses measured monotonic elapsed time. Recovered
+render-list publication `0x40f920` caps the screen/fade delta at 0.1 seconds
+after waiting for prior render completion; it does not establish a fixed logical
+timestep. Host pacing and game delta are separate from the movie's audio/PTS
+clock. Exact full-engine mode cadence remains unresolved. See the
+[clock evidence](../../research/engine/subsystems/bootstrap-and-tasks.md#startup-clock-and-presentation-pacing).
+
 ## Update phases and clocks
 
 Maintain distinct host elapsed time, game-mode timestep, animation/controller
@@ -291,9 +298,13 @@ execution of a path that needs the real result.
 
 The [runtime model](runtime-model.md) defines logical ownership. Allocation
 strategy must preserve that ownership and the original observable limits; a
-single global heap is not a lifetime model. Choose actual allocators from measured
-requirements rather than reproducing x86 addresses or introducing an unmeasured
-custom allocator framework.
+single global heap is not a lifetime model. The required
+[memory subsystem](memory-and-residency.md) owns allocation routing, backing
+storage, budgets and accounting. Subsystems select lifetime-appropriate arenas,
+pools or reclaimable allocations through that contract. Implicit default-heap
+allocation is not the final engine policy; current standard-container allocations
+remain an explicit migration gap. Exact pool sizes and target budgets require
+measurement rather than reproduction of original x86 addresses.
 
 | Memory scope | Contents | Reuse / release boundary |
 |---|---|---|

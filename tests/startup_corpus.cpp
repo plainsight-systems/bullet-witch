@@ -7,11 +7,19 @@
 // guide owned context lifetime, bounded fixtures and callback boundaries.
 // Provisioned integration scenario: real read-only catalog/archive/package,
 // original Lua, and scheduler/root composition. Screen/global services below
-// are deterministic test fixtures, NOT reconstructed game behavior/rendering.
+// retain deterministic routing fixtures; an additional assertion in this same
+// provisioned scenario uses the production StartupSession and controlled media.
+// Neither assertion claims native device rendering or playback.
 // Naming design/implementation consultation: cpp-guidelines P.3 (#rp-what)
 // selects role-based names. cpp-performance COPY.4 (guidelines/copy-move/
 // COPY.4-rule-of-five-rule-of-zero.md) preserves owning values and implicit
 // moves; renaming adds no wrapper, allocation or payload copy.
+
+// Startup composition design/implementation: cpp-guidelines I.1 (#ri-explicit)
+// makes controlled observations distinct from reconstructed screen behavior;
+// cpp-performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) bounds the frame loop and keeps media
+// observation state inline. Real archive setup allocates before those updates.
 
 #include <iostream>
 #include <stdexcept>
@@ -19,6 +27,7 @@
 
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/root_driver.hpp"
+#include "game/startup_services.hpp"
 namespace {
 using bw::game::Screen;
 class Screens final : public bw::game::StartupServices {
@@ -45,6 +54,52 @@ class Screens final : public bw::game::StartupServices {
     throw std::runtime_error("Unexpected stage selection");
   }
 };
+class Media final : public bw::game::LogoMedia {
+ public:
+  bool open_movie(std::string_view path) override {
+    opened.emplace_back(path);
+    return true;
+  }
+  bool movie_complete() const override { return true; }
+  void stop_movie() noexcept override { ++stops; }
+  void begin_fade(bw::game::FadeDirection, float) override {}
+  bool fade_pending() const override { return false; }
+  std::vector<std::string> opened;
+  unsigned stops{};
+};
+void reconstructed_session(bw::resources::ResourceService& resources) {
+  Media media;
+  {
+    bw::game::StartupSession session(media);
+    session.start_root(resources, 2);
+    bw::script::RunResult result{bw::script::RunState::idle, {}};
+    for (unsigned frame = 0; frame < 100; ++frame) {
+      result = session.advance({1.0F / 60.0F, 0});
+      if (result.state == bw::script::RunState::failed) {
+        break;
+      }
+    }
+    const std::vector<std::string> expected{"data/movie/marvelousLogo.ssu",
+                                            "data/movie/xeedLogo.ssu"};
+    if (result.state != bw::script::RunState::failed ||
+        result.diagnostic.find("Advertise screen is not implemented") ==
+            std::string::npos ||
+        media.opened != expected || media.stops != 2 ||
+        session.progress(Screen::company_logo).status !=
+            bw::game::FlowStatus::complete ||
+        session.progress(Screen::memory_card).status !=
+            bw::game::FlowStatus::complete ||
+        !session.window_close_enabled()) {
+      throw std::runtime_error(
+          "Original root reconstructed startup route mismatch: " +
+          result.diagnostic);
+    }
+  }
+  if (resources.acquire("script.root.dpk")) {
+    throw std::runtime_error(
+        "Session destruction did not release root publication");
+  }
+}
 }  // namespace
 int main(int argc, char** argv) {
   try {
@@ -94,11 +149,16 @@ int main(int argc, char** argv) {
     if (resources.acquire("script.root.dpk")) {
       throw std::runtime_error("Root destruction did not release publication");
     }
-    std::cout << "{\"status\":\"passed\",\"script\":\"original "
-                 "root.lub\",\"route\":[\"company_logo\",\"memory_card\","
-                 "\"advertise\",\"title\",\"character_load\",\"title_menu\","
-                 "\"title\"],\"services\":\"deterministic test fixture; no "
-                 "rendering or native equivalence claim\"}\n";
+    reconstructed_session(resources);
+    std::cout
+        << "{\"status\":\"passed\",\"script\":\"original "
+           "root.lub\",\"route\":[\"company_logo\",\"memory_card\","
+           "\"advertise\",\"title\",\"character_load\",\"title_menu\","
+           "\"title\"],\"services\":\"deterministic test fixture; no "
+           "rendering or native equivalence claim\",\"reconstructed_session\":"
+           "{\"route\":[\"company_logo\",\"memory_card\"],"
+           "\"boundary\":\"unsupported advertise\",\"media\":"
+           "\"controlled test observations\"}}\n";
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

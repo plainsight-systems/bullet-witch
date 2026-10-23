@@ -36,7 +36,9 @@ state numbers must not be treated as a universal screen state machine.
 **0x499ae0** resets state/flags and opens `data\movie\witchLOGO.ssu` through
 0x562f00; failure logs a movie initialization error and invokes stop/release.
 **0x499a10** requests `sprite.title`, waits for its resource group, and then waits
-for a further worker request before marking initialization ready.
+for a further loading-screen sprite resource group before marking initialization
+ready. The [title follow-up](startup-title-followup.md) corrects the earlier
+worker-barrier interpretation using the selector and polling instructions.
 
 In **0x499f10**, state 100 checks pressed action bits **0x1010**. Input selects
 the 500/501/502 fade path; timeout selects 2000 and subsequent movie/fade handling.

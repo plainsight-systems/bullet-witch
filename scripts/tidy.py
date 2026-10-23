@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from tooling import ROOT, SOURCE_ROOTS, LLVM_VERSION, find_tool, source_files
+from tooling import ROOT, SOURCE_ROOTS, TRANSLATION_SUFFIXES, LLVM_VERSION, find_tool, source_files
 
 
 def macos_arguments(arguments):
@@ -43,14 +43,14 @@ def run(build, jobs):
         source = (directory / entry['file']).resolve()
         if not any(source.is_relative_to(ROOT / name) for name in SOURCE_ROOTS):
             continue
-        if source.suffix not in {'.c', '.cc', '.cpp', '.cxx'}:
+        if source.suffix not in TRANSLATION_SUFFIXES:
             raise ValueError(f'Unsupported analysis language: {source}')
         if not source.is_file() or not directory.is_dir():
             raise ValueError(f'Stale compilation entry: {source}; reconfigure here')
         arguments = entry.get('arguments') or shlex.split(entry['command'])
         arguments += macos_arguments(arguments)
         commands.append({'directory': str(directory), 'file': str(source), 'arguments': arguments})
-    expected = {str(p.resolve()) for p in source_files() if p.suffix in {'.c', '.cc', '.cpp', '.cxx'}}
+    expected = {str(p.resolve()) for p in source_files() if p.suffix in TRANSLATION_SUFFIXES}
     found = {entry['file'] for entry in commands}
     if not commands or expected - found:
         raise ValueError(f'Incomplete analysis database; missing: {sorted(expected - found)}. Configure with BUILD_TESTING=ON.')

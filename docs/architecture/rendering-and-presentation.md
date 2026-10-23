@@ -1,5 +1,11 @@
 # Rendering and presentation architecture
 
+The independent movie transport completes both company movies on the Mac.
+Its [design record](../video-player-redesign.md),
+[reference findings](../../research/engine/subsystems/media-reference-design.md)
+and [native verification](../native-startup-host.md#recorded-native-verification)
+separate the implementation from its measured assurance.
+
 **Target architecture · working baseline · October 22, 2026.**
 [Engine architecture](logical-overview.md) · [World model](world-and-simulation.md).
 
@@ -9,6 +15,36 @@ render-pass construction, command storage and device-facing lifetime. Game code
 owns camera behavior and screen choices; a graphics adapter owns native API calls.
 The distinction permits a platform port without replacing gameplay or losing
 original draw semantics in an overly small device abstraction.
+
+## Shared contracts and native implementations
+
+The chosen platform split follows DoLittle: one portable contract header for a
+subsystem, shared implementation for behavior that does not benefit from a
+target-specific algorithm, and native implementations where platform services or
+silicon change the work. Common headers describe operations, ownership, clocks,
+completion and failures; they do not expose Metal, Windows or codec-library types.
+Composition selects implementations. A common contract does not require every
+backend to issue the same sequence of low-level API calls.
+
+Screen sequencing and recovered fade progression belong to shared game code.
+Decoding, buffering, audio/video clocks and timestamp selection belong to the
+reusable engine media player. Native backends own the window, input acquisition,
+audio device and graphics submission. The first Mac presentation implementation
+uses Metal. Xbox device code remains future work; a Mac result does not verify it.
+Software decoding of the original movie formats can be shared while its output
+is presented through native device APIs. No asset transcoding is required by this
+boundary.
+
+Shaders are first-class source assets in each native graphics backend. They are
+compiled by the build, with explicit entry points and CPU/shader binding contracts;
+host implementation files do not embed shader strings. The Mac movie pipeline
+uses `src/platform/macos/shaders/movie.metal`, compiled into `movie.metallib` and
+loaded relative to the executable. This keeps shader changes independently
+reviewable and makes native GPU profiling and target-specific tuning possible.
+Shared material semantics can have different native shader implementations;
+shared headers must not force a lowest-common-denominator shader language or
+layout. Optimize from measured GPU/CPU timings, bandwidth and synchronization
+costs while preserving the faithful baseline.
 
 ## Rendering structure
 
@@ -150,6 +186,64 @@ completion. Decode completion, end-of-stream, screen transition and frame
 presentation are different events. AV timing and failure policy remain explicit
 media contracts, not inferred from a single “finished” flag.
 
+### General media transport
+
+The media player owns the transport algorithm independently of any screen or
+asset name. Game code selects content, requests playback/stop, controls fades
+and observes status. It does not decode batches inside its update function or
+infer completion from a logo-specific timer.
+
+1. A demux owner routes compressed packets to independently bounded audio and
+   video queues. Separate codec workers publish owned video frames and timestamped
+   PCM. Video backpressure does not directly block audio decoding. Budget and
+   unsupported-interleave failures remain explicit; cancellation joins all owners.
+2. Immutable metadata declares stream presence before clock selection. Priming
+   requires video readiness and the audio target or true audio end. The main
+   presentation owner polls video without waiting for decoding; the native audio
+   service consumes PCM independently of rendering and game updates.
+3. Audio consumption is the master clock when audio exists. Timestamped PCM is
+   delivered continuously; sparse anchors do not insert silence between chunks.
+   The native service maps consumed device ranges to their media timestamps.
+   Temporary PCM starvation feeds maintenance silence while media time freezes.
+   Video-only playback and a video tail after explicit audio drain use monotonic
+   elapsed time. Host tick rate does not set media speed.
+4. Video selection retains the latest due sample and bounded future lookahead.
+   Completion requires both stream ends, actual audio drain and an accepted final
+   video presentation lasting its display interval. Cancellation and device failure
+   are separate outcomes. Screen completion follows the game's own lifecycle.
+
+```mermaid
+flowchart LR
+    Game[Game screen policy] --> Player[Shared media player]
+    Demux[Demux worker] --> AQ[Bounded audio packets]
+    Demux --> VQ[Bounded video packets]
+    AQ --> AD[Audio codec worker]
+    VQ --> VD[Video codec worker]
+    AD --> PCM[Timestamped PCM ring]
+    VD --> Frames[Bounded video frames]
+    Frames --> Player
+    PCM --> Audio[Native audio service]
+    Player -->|prepare / start / stop| Audio
+    Audio -->|consumed media clock / drain| Player
+    Player --> GPU[Native frame upload and presentation]
+    Player -->|status| Game
+```
+
+Arrows show requests/data/observations, not a fixed frame schedule. Decoder workers
+have no Lua, screen or device callbacks. The shared algorithm and portable sample
+contracts can serve logos, advertise movies and other pre-recorded sequences;
+codec implementations and output devices remain replaceable. The first native
+implementation lives under `src/platform/macos/`, selected by the Apple build branch.
+See [media redesign](../video-player-redesign.md) for budgets and reference choices.
+
+Movie-file playback is distinct from in-engine cinematics. Scripted cinematic
+cameras, animated actors and scene effects belong to the world, animation and
+rendering contracts; they do not become decoded BGRA video. A sequence that
+actually uses a pre-recorded asset can request media playback, while the game
+owns its transition and input policy. The current FFmpeg path is a first shared
+software decoder, and native Mac or other target decoder choices can be revisited
+without changing cinematic/game semantics.
+
 ## Evidence boundary
 
 | Established input | What remains open |
@@ -160,6 +254,7 @@ media contracts, not inferred from a single “finished” flag.
 | [Particle GPU path](../../research/engine/subsystems/particle-runtime-contracts.md) | Remaining numeric/state branches and unusual allocation/reuse paths |
 | [UI](../../research/engine/subsystems/ui-and-screen-tasks.md), [audio/video](../../research/engine/subsystems/audio-and-movies.md) | All screen/media failure, timing, layout and reuse branches |
 
-This is the renderer's structural design and ownership assignment. It is not a
-claim that all render passes are recovered, shaders are translated, a graphics
-backend is chosen or visual fidelity is demonstrated.
+The implemented Mac movie path selects Metal and a small independent shader
+pipeline. World render passes, original material-shader translation and visual
+fidelity remain separate work. See [native startup](../native-startup-host.md)
+for the implemented subset and verification results.

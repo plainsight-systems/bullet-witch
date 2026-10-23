@@ -42,23 +42,25 @@ This is R&D under [Plainsight Systems](https://plainsight-systems.com/) LLC.
 
 The resource readers handle the installed game's archives and catalogs, and
 the original startup Lua runs through the reconstructed task and script
-runtime. Tests take that script through its title/menu routing using
-controlled stand-ins for the screens. Company-logo and startup-check update
-logic are implemented separately, including their completion and cleanup
-behavior.
+runtime. Its company-logo and startup-check tasks now connect to shared movie
+playback and a native Mac host using Metal and AudioQueue. Shaders live in
+separate source files and compile with the build, so the graphics implementation
+can grow and be tuned independently of the host code.
 
-There is no playable build yet. The next work connects those flows to real
-media, input and presentation, then continues through title and menu behavior.
-The graphics and media backends are still to be selected. The
-[startup notes](docs/startup-runtime.md) describe what runs today and the
-remaining dependencies; the [implementation plan](IMPLEMENTATION.md) follows
-that work through a playable mission, the complete game and the Xbox port.
+There is no playable build yet. Both company-logo movies now complete on the Mac,
+with full audio consumption and no underruns in the verified run. Advertise,
+title and menu behavior come next. The [startup notes](docs/startup-runtime.md) and
+[native host notes](docs/native-startup-host.md) describe what runs and what
+remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
+a playable mission, the complete game and the Xbox port.
 
 ## Build locally
 
 The current native build is verified on macOS with Apple silicon. You need
 Git, Python 3.9+, CMake 3.24+ and C/C++ compilers with C99 and C++20 support.
-The first configuration downloads a checksum-pinned Lua 5.0.2 source archive.
+The build downloads checksum-pinned Lua 5.0.2 and FFmpeg 7.1.1 source archives.
+The Mac host also needs Xcode’s SDK, the Metal toolchain and `make`;
+[tooling setup](scripts/README.md) covers those dependencies.
 
 ```sh
 git clone https://github.com/plainsight-systems/bullet-witch.git
@@ -66,7 +68,8 @@ cd bullet-witch
 python3 scripts/check.py host
 ```
 
-This builds the libraries, resource inspector and tests, then runs the tests.
+This builds the libraries, resource inspector, Mac startup host and tests, then
+runs the tests.
 It does not need game data. The inspector is written to
 `build/host-debug/bw-resource`; [resource inspection](docs/resources.md)
 explains how to use it with your own purchased Steam installation.
@@ -88,6 +91,7 @@ against the installed game.
 | --- | --- |
 | `include/bw/`, `src/` | Shared engine contracts and their C++ implementations |
 | `src/game/` | Bullet Witch's script bindings and game-specific behavior |
+| `src/framework/`, `src/platform/` | Shared application composition, target entry points, native backends and shaders |
 | `tools/` | The resource inspector and repository-content guard |
 | `tests/` | Contract tests and integration checks |
 | `scripts/`, `cmake/` | Build, formatting, analysis and dependency setup |

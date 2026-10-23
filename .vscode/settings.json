@@ -2,7 +2,21 @@
   "C_Cpp.clang_format_path": "${workspaceFolder}/scripts/clang-format",
   "C_Cpp.clang_format_style": "file",
   "C_Cpp.default.compileCommands": "${workspaceFolder}/build/host-debug/compile_commands.json",
-  "[cpp]": { "editor.defaultFormatter": "ms-vscode.cpptools", "editor.formatOnSave": true },
-  "[c]": { "editor.defaultFormatter": "ms-vscode.cpptools", "editor.formatOnSave": true },
-  "cmake.useCMakePresets": "always"
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": true
+  },
+  "[c]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": true
+  },
+  "cmake.useCMakePresets": "always",
+  "files.associations": {
+    "*.metal": "cpp",
+    "*.metal.h": "cpp"
+  },
+  "[objective-cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": true
+  }
 }

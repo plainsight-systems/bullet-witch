@@ -40,7 +40,7 @@ def main():
     result.update(root_sha256=expected, archive_sha256=sha(path), binary_sha256=sha(binary),
                   source_sha256={str(p.relative_to(ROOT)): sha(p) for folder in ('include', 'src', 'cmake')
                                  for p in sorted((ROOT / folder).rglob('*')) if p.is_file()},
-                  tooling='Pinned Lua 5.0.2 + documented host patches; production resource/task/bridge/root modules; fixture screen services')
+                  tooling='Pinned Lua 5.0.2 + documented host patches; production resource/task/bridge/root modules; fixture route plus reconstructed startup session with controlled media observations')
     (output / 'verification-summary.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=2))
     return run.returncode

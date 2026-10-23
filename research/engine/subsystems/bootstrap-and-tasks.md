@@ -109,6 +109,35 @@ The lifecycle pass compares current state `+0x64` with requested state `+0x68`:
 [Later pass](../../evidence/engine/pass-02d/instructions/0040b4c0.txt).
 Do not label the entire second pass as rendering until its concrete methods are mapped.
 
+## Startup clock and presentation pacing
+
+The native-startup implementation pass closes the clock consumed by the two
+startup screens and fade helper. Raw timer `0x40eab0` measures successive
+QueryPerformanceCounter differences in seconds. The message loop contains no
+fixed-step accumulator or catch-up loop. Logo `0x49e320`, check `0x4a0f20` and
+fade `0x485a20` instead read renderer delta at `0xa0b7b8`.
+
+VSync task `0x417440` calls render-list publication `0x40f920` on renderer
+`0xa0b730`. Publication measures elapsed time, waits for the previous worker,
+measures again and stores **min(elapsed seconds, 0.1f)** at renderer +0x88,
+exactly `0xa0b7b8`. Thus the startup/UI delta includes render backpressure and
+is capped at 100 ms. This does not cap the movie/audio clock or prescribe a
+fixed 1/60 simulation step.
+
+The command worker `0x40fbe0` paces with QPC/Sleep and PresentEx. The settings
+table at `0x6c2660` contains nominal rates 30, 60, 120 and display refresh (0).
+The raw initialized preference is 120; another limiter branch uses 30. A separate
+worker sleep starts at 16 ms and is changed by other state paths. The limiter's
+repeated-subtraction arithmetic and presentation/OS timing mean these constants
+are not measurements of actual game FPS. Exact all-mode cadence remains open.
+
+[Detailed derivation](../../evidence/reconstruction/native-startup/timing/README.md),
+[raw witnesses](../../evidence/reconstruction/native-startup/timing/raw-witnesses.json)
+and [provenance](../../evidence/reconstruction/native-startup/timing/provenance.json)
+are bound to unpacked-image SHA-256
+`bdaff1746d3092215699b09eab11315c6adf8fb71eaa8f46c280b11b3cd448fd`.
+This is static evidence, not an original-game frame-rate observation.
+
 ## Connection to scripts
 
 Startup task `0x470ca0`, state 3, selects `root` through `0x43eae0`, inserts the

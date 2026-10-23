@@ -223,10 +223,10 @@ opening, decoded-frame readiness, completion events and stop/release. Screen and
 mission behavior consume those statuses independently of whether a frame has
 been presented or a cue has finished playing.
 
-**Unresolved:** backend choice, complete shader/postprocess semantics, device
+**Unresolved:** complete world shader/postprocess semantics, device
 failure/reset, legacy audio/video compatibility and some command/ring reuse
-paths. Interfaces record these requirements; no backend is selected or renderer
-implemented by this scenario description.
+paths. Metal is selected for the implemented Mac movie path. This does not
+implement the scene renderer or resolve its pass/submission behavior.
 [Rendering](../../research/engine/subsystems/rendering.md) ·
 [audio/video](../../research/engine/subsystems/audio-and-movies.md).
 

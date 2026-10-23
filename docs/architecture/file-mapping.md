@@ -50,7 +50,6 @@ logical owner can be an aggregate; the map does not mandate a class per row.
 
 ```text
 bullet-witch/
-  app/                         Executable composition and process entry
   include/bw/                  Portable engine contracts
     runtime/                   Engine instance, service lifetime and diagnostics
     world/                     World aggregate, stage instances and phase context
@@ -66,16 +65,22 @@ bullet-witch/
     input/                     Observations, action masks, edges/repeats/deadzones
     audio/                     Banks, cues, spatial bindings and device contract
     video/                     Player, sample ownership and backend contract
+    memory/                    Allocation domains, budgets, arenas, pools and leases
     tasks/                     Lifecycle passes, work queue and completion contracts
     script/                    Context, compatible runtime adapter, bridge/operations
     resources/                 Catalog, service, groups, typed references, handlers
     content/                   Mounted/virtual location and access policy
     formats/                   RAT/CPR/DPK/AMB container views
     assets/                    Model/motion/effect/UI/media/save payload families
-    memory/                    Required lifetime/arena interfaces and accounting
     math/                      Shared operations with explicit numerical conventions
     platform/                  File, clock, thread/event, window and raw input contracts
-  src/                         Implementations corresponding to the above families
+  src/                         One game/engine implementation root
+    framework/                 Shared application composition and frame orchestration
+    video/                     Shared player/sample transport
+      ffmpeg/                  Selected software codec backend and factory
+    platform/                  Concrete adapters selected by target
+      files/                   Shared standard-library file adapter
+      macos/                   Mac entry, window/input, Metal, AudioQueue and shaders
     game/                      Bullet Witch behavior; private headers alongside code
       session/                 Session owner, root driver and progression state
       mission/                 Mission owner, stage assembly, outcomes and events
@@ -88,9 +93,6 @@ bullet-witch/
       persistence/             Capture/restore, save operations and checkpoint policy
       progression/             Mission advancement, records and unlock policy
       resources/               Typed/CALL construction adapters and registrations
-  platform/                    Concrete adapters selected only by composition
-    files/ timing/ execution/ window/ input/ services/
-    graphics/ physics/ audio/ video/
   tools/                       Consumers of production engine/data contracts
   tests/                       In-process contracts and bounded integration coverage
   docs/architecture/           Target architecture and supporting views
@@ -107,7 +109,7 @@ only concrete shared contracts; they are not miscellaneous utility buckets.
 
 | Runtime unit | Source owner | Boundary | Change axes |
 |---|---|---|---|
-| ApplicationHost | `app/`, selected `platform/` factories | Compose adapters, engine and session; process event/run/stop coordination | C1/P1 |
+| ApplicationHost | `src/platform/<target>/` entry and `src/framework/` | Target selects adapters; shared framework composes engine/session and owns run/stop coordination | C1/P1 |
 | EngineInstance | `runtime/` | Own shared service lifetimes; expose explicit dependencies, not a service locator | E13 |
 | GameSession | `src/game/session/`, `modes/`, `screens/` | Root/modes/screens/progression and current mission relationship | G1/G5 |
 | MissionInstance | `src/game/mission/` | Mission context, world and stage group; game-specific stage assembly | G1 |
@@ -134,9 +136,11 @@ only concrete shared contracts; they are not miscellaneous utility buckets.
 
 ```mermaid
 flowchart TD
-    App["app: concrete composition"] --> Game["game session / mission / behavior"]
-    App --> Runtime["runtime: engine service aggregate"]
-    App --> Adapters["selected native adapters"]
+    Entry["platform target: process entry"] --> Framework["framework: shared application composition"]
+    Entry --> Adapters["selected native and codec adapters"]
+    Framework --> Game["game session / mission / behavior"]
+    Framework --> Runtime["runtime: engine service aggregate"]
+    Framework --> Ports["host and middleware capability contracts"]
     Game --> World["world aggregate / phase interface"]
     Game --> Interfaces["engine subsystem contracts"]
     Game --> Bindings["game construction and script adapters"]
@@ -214,7 +218,7 @@ header must define inputs, outputs, lifetime, failure and ordered steps using th
 | C19 Scene/spatial observations | `scene/`, world bindings | Authoritative transforms/bounds, consumer membership and phase-valid query results |
 | C20 View/material/pass preparation | `render/` + game camera | Camera request, visibility, material/light interpretation and pass dependencies |
 | C21 UI presentation | `ui/` + screen adapters | Layout/draw state independent of navigation and script-facing screen result |
-| C22 Memory/residency | Each owning system + necessary `memory/` helpers | Scoped allocation, retention, capacity/rejection and completion-based reuse |
+| C22 Memory/residency | `memory/`, native backing providers and subsystem domains | Scoped allocation, retention, capacity/rejection and completion-based reuse |
 | C23 Shared numerical operations | `math/` and owning subsystem | Coordinates, units, rounding and exact versus approximate operation contracts |
 
 ## Build composition and implementation state
@@ -234,7 +238,9 @@ Target granularity can be refined during implementation without changing these
 boundaries. Keep CPU format tests and the inspector buildable without initializing
 a device or world. Do not create a new test-only loader, renderer or simulation.
 
-**Implemented today:** `bw_resources`, `bw_runtime`, `bw_game`, `bw-resource`,
+**Implemented today:** `bw_resources`, `bw_runtime`, `bw_game`, `bw_video`,
+`bw_video_ffmpeg`, `bw_startup_playback`, `bw_startup_framework`,
+the Mac `bw_media_audio_macos` and `bw_startup_host_macos`, `bw-resource`, `bw-startup`,
 their tests and the engineering tooling. The [resource contract](../resources.md)
 and [startup contract](../startup-runtime.md) describe the implemented subsets.
 The completed [migration](../../IMPLEMENTATION.md#migrating-src-01) and subsequent
@@ -256,11 +262,43 @@ The implemented startup subset adds `formats/named_file_package`, `resources/ser
 `bw_game` → `bw_runtime` → `bw_resources`; the script adapter privately links
 `bw_lua502`. A1 owns DPK layout, A3/A4 resource lifecycle/USER construction, E1
 task progression, E2 Lua mechanics, and G1/G2 root policy/native bindings.
-Actual startup services remain abstract capabilities; fixture implementations
-exist only in the provisioned integration test. See `docs/startup-runtime.md`.
+The `StartupSession` implementation now owns the root, scheduler and concrete
+logo/check screen flows. Advertise and later screen capabilities still fail
+explicitly. See [startup runtime](../startup-runtime.md).
 
 `src/game/startup_flows` adds `CompanyLogoFlow` and `StartupCheckFlow` to `bw_game`.
 They own recovered game update policy and borrow explicit observations from a
 media/fade capability. They do not choose a backend, draw, mutate session globals
-or remove scheduler tasks. Those composition dependencies remain outstanding;
-the original-root integration still uses its explicit screen fixtures.
+or remove scheduler tasks. `startup_services` supplies those session/lifecycle
+operations. `startup_playback` supplies only game-relative paths and recovered
+fade policy, delegating transport to the reusable `video::Player`.
+
+`src/video/player.cpp` owns generic transport, clock and completion rules;
+`src/video/ffmpeg/decoder.cpp` owns demux, audio decode and video decode workers
+with separate bounded compressed queues. `src/video/pcm_buffer` owns timestamped
+PCM transfer to the audio consumer. `include/bw/video/` contains the common
+decoder, player and output contracts.
+`src/platform/macos/startup_host.mm` implements window/input and Metal presentation;
+`src/platform/macos/media_audio.mm` implements the independently serviced AudioQueue
+output behind a portable declaration. Both are selected only by the Apple build
+branch. `src/platform/macos/shaders/movie.metal` is independently compiled GPU source.
+`src/platform/macos/main.cpp` owns process entry, native service construction
+and explicit FFmpeg selection. It calls `src/framework/startup_application.cpp`,
+which composes read-only resources, playback and the original-root session and
+owns the existing startup loop. The framework is application composition and
+can depend on game code; engine mechanisms cannot. Future target entries reuse
+that composition through common contracts.
+
+`bw_video` contains shared player/PCM mechanisms; `bw_video_ffmpeg` alone links
+the codec libraries. Player and the game adapter require an injected decoder
+factory. The Mac executable selects the concrete factory and native targets;
+shared playback tests link without FFmpeg. This is dependency separation, not
+a claim of a Windows/Xbox backend or hardware decoder.
+The original-root integration retains its full-route fixtures and also exercises
+the concrete session through logo/check completion and the advertise boundary.
+
+The required [memory subsystem](memory-and-residency.md) is not implemented yet.
+Portable contracts belong under `include/bw/memory/`, shared allocation/lifetime
+policy under `src/memory/`, and native page/device backing in the corresponding
+platform/device implementation. Existing default-allocated containers and buffers
+are migration work, not an accepted final memory policy.

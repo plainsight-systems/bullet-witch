@@ -23,7 +23,7 @@ original bytecode.
 | Next slice | Existing evidence | Contracts to close before claiming production behavior |
 |---|---|---|
 | Advertise | Start `0x49e610`, update `0x49e900`, draw `0x49e7d0`, destroy `0x49e750`; path `data\\movie\\advertise.ssu` | Movie-open failure/fallback timer, skip masks, fade completion, visibility, movie release and task removal; reuse the shared movie/fade/input capabilities established for logos |
-| Title | Initialize `0x499a10`, start `0x499ae0`, update `0x499f10`, draw `0x499d00`, status `0x4999f0` | `sprite.title` readiness, the additional request/completion barrier, exact timer constants, sprite animation, input outcome 1 versus timeout/movie outcome 2, published status after cleanup |
+| Title | Initialize `0x499a10`, start `0x499ae0`, update `0x499f10`, draw `0x499d00`, status `0x4999f0` | `sprite.title` readiness, the loading-screen resource-group barrier, exact timer constants, sprite animation, input outcome 1 versus timeout/movie outcome 2, published status after cleanup |
 | Character load | Create `0x4a1100`, update `0x4a1240`, destroy `0x4a49d0` | Save/profile request, completion versus success, localized retry/cancel/error dialogs, state changes and cleanup; the memory-card-check screen does not substitute for these operations |
 | Title menu | Start `0x49a690`, update `0x49b320`, draw `0x49a990`, status `0x49a560` | Entry existence versus availability, selection wrapping/skipping, nested screens/dialogs, confirmed action/status mapping, persistent settings/save side effects |
 
@@ -79,10 +79,10 @@ audio/video time, final sample lifetime and stop behavior explicitly.
 **Resource readiness.** Title initialization requests `sprite.title` through
 `0x4ac660` and waits at `0x4ac700`. It then separately calls through `0x43add0`,
 `0x474830`, `0x475320`, and polls `0x475280` before completing initialization.
-The reviewed screen map identifies further worker work, but its actual payload,
-publication and failure contract still needs a focused trace. Do not equate this
-second barrier with archive readiness or assume it is the separately mapped
-background-resource queue solely from neighboring addresses. The current USER
+The [bounded follow-up](startup-title-followup.md) identifies this as another
+sprite resource-group load selected by the native random-index helper. Do not
+conflate it with the separately mapped background-resource worker queue; its
+selected asset construction and failure contract remain to be closed. The current USER
 publication service alone does not construct title textures or sprite objects.
 
 **Sprite and text presentation.** `0x569620` registers sprite entries, including
@@ -106,7 +106,7 @@ prove the flow. [Save evidence](saves-and-progression.md).
 
 1. Reuse the concrete logo slice's shared inputs and ownership boundaries for
    advertise; close its own failure/timer paths from the existing evidence.
-2. Close the title resource/worker barrier and required sprite/font construction
+2. Close the title resource/loading-screen barrier and required sprite/font construction
    contracts. Implement title state and result publication against explicit
    capabilities; keep deterministic capability implementations confined to
    verification until real adapters exist.
@@ -127,13 +127,11 @@ No user decision is needed for descriptive naming, preserving recovered state
 transitions, tracing a missing helper, keeping inputs read-only, or maintaining
 these subsystem boundaries. Those are established work.
 
-The material fork is the first live platform implementation: how much of the
-initial device/input/media investment should target macOS specifically versus
-the eventual Xbox-capable port. The current architecture deliberately selects
-no graphics backend. Choosing one is meaningful before device code, shader
-translation or platform-specific sample ownership becomes committed work;
-screen and resource semantics can proceed meanwhile. See
-[platform change axes](../../../docs/architecture/change-axes.md).
+The platform fork is resolved for this slice: shared screen/media contracts with
+a native macOS Metal/AudioQueue/input backend, following the agreed DoLittle
+split. Xbox remains a future backend. Startup timing and visible playback must
+be verified before extending the route; build and script results alone do not
+establish that. See [platform change axes](../../../docs/architecture/change-axes.md).
 
 Media selection must preserve the actual inputs. Prior FFprobe inventory found
 18 ASF movies, all 1280 x 720 with WMA Pro audio; 17 report WMV3 video and one
@@ -143,7 +141,8 @@ to transcode local media or change the asset pipeline would be a separate user
 decision; ordinary bounded decoding research is not.
 [Media inventory](../../reports/2026-10-21-asset-layout.md#media-and-build-provenance).
 
-This plan does not choose Metal, another graphics API, an input library or a
-codec implementation. Their suitability needs concrete dependency/platform
-evidence when the live-adapter slice begins. No blanket engine-mapping restart
-is required.
+The current adapter uses a pinned minimal FFmpeg build for pre-recorded media
+behind portable decoder/player contracts. Native Mac decoding may be revisited
+without changing the screen policies. The next milestone is the launch screen
+and launch cinematics; the full memory subsystem follows it. No blanket
+engine-mapping restart is required.

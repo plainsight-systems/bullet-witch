@@ -28,6 +28,19 @@ union-member address expressions become direct pointer casts, and pointer
 hashing narrows explicitly through uintptr_t. The upstream copyright and
 license remain unchanged. Include its notice when distributing linked binaries.
 
+Movie decoder
+=============
+
+FFmpeg 7.1.1 — Copyright the FFmpeg developers.
+LGPL 2.1 or later in this project's minimal shared-library configuration.
+Full upstream license: docs/licenses/FFmpeg-7.1.1-COPYING.LGPLv2.1.
+Source: https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
+
+cmake/MovieDecoder.cmake fetches checksum-pinned, unmodified upstream source.
+GPL, nonfree and version-3-only components are disabled. The source and shared
+libraries stay in ignored build directories; neither is committed here.
+See docs/video-decoder.md for the configuration and binary-distribution notes.
+
 Research tools and references
 ============================
 

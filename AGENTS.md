@@ -12,6 +12,13 @@ source. `CLAUDE.md` points to the same instructions.
 - Design architecture and file contracts before implementation. The architecture
   set is the working structural baseline. Detailed file/behavior contracts
   still need refinement; documented modules are not automatically implemented.
+- Before designing or changing a standard engine subsystem, inspect established
+  production implementations at source level. Reuse proven algorithms and
+  contracts; explain departures with concrete project needs or measurements.
+  Record pinned sources, relevant functions, applicability and the chosen design
+  under organized `research/` before implementation. See the reference-first
+  requirement in `docs/process/workflow.md`; passing synthetic tests alone does
+  not validate native behavior.
 - C++ header design and implementation must each query both `cpp_guidelines`
   and `cpp_performance` MCP corpora. Retrieve full applicable rules and explain
   their application in opening file comments; follow the unavailable-server
