@@ -1,8 +1,15 @@
-// Memory composition: target-selected resource, runtime and media domains are
-// required capabilities. Pass each to its owner before work starts; retained
-// catalog/sample/context storage keeps the capability through final release.
-// No native backing choice or historical aggregate budget is inferred here.
-// R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// Inspection configuration is an optional explicit camera pose. It changes
+// only static-view position/orientation; the authored projection and normal
+// mission route remain intact. Parse finite coordinates and angles before any
+// native window exists. Stored values require no per-frame parsing/allocation.
+// Both MCP phases: I.1 (#ri-explicit) exposes this development override;
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) confines
+// conversion to setup. See docs/native-startup-host.md for the CLI coordinate
+// convention. Memory composition: target-selected resource, runtime and media
+// domains are required capabilities. Pass each to its owner before work starts;
+// retained catalog/sample/context storage keeps the capability through final
+// release. No native backing choice or historical aggregate budget is inferred
+// here. R.1 (#rr-raii) and MEM.6 (guidelines/memory/
 // MEM.6-inject-allocators-behind-one-interface.md), read in both phases, keep
 // exception cleanup and injection explicit. No per-frame composition work.
 // Front-end extension: SaveStorage is borrowed for the whole run alongside
@@ -40,12 +47,14 @@
 #pragma once
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 
 #include "bw/memory/domain.hpp"
 #include "bw/platform/files.hpp"
 #include "bw/platform/save_storage.hpp"
 #include "bw/platform/startup_host.hpp"
+#include "bw/render/view.hpp"
 #include "bw/video/player.hpp"
 
 namespace bw::framework {
@@ -56,6 +65,7 @@ struct StartupOptions {
   int maximum_seconds{kDefaultMaximumSeconds};
   bool verify{};
   platform::WindowOptions window;
+  std::optional<render::ViewPose> inspection_camera;
 };
 // Target-selected capabilities; device allocation belongs to the native host.
 struct StartupMemory {

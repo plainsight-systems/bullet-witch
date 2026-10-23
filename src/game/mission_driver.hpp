@@ -1,0 +1,109 @@
+// Game mission-script lifetime and load orchestration. Own one Lua context and
+// an exclusive resource tag; borrow resources and load services through
+// teardown. Calls are single-threaded. Encoded publication, native load
+// readiness and gameplay setup are distinct: blocked loads suspend Lua,
+// failures are terminal, and completing load never starts gameplay. Destruction
+// cancels Lua polls before releasing tagged scripts. Native mission heap
+// capacity is 256 KiB. Algorithm: request selected
+// mission/default_callback packages -> load original chunks in native order ->
+// prepare load -> pump native requests -> await setup. Mission aliases are
+// resolved by the session, not by modifying original Lua. Costs: O(package
+// bytes) at setup plus bounded Lua pump work; named requests copy once across
+// the wait boundary, not per poll. Runtime/package storage retains the injected
+// Domain. Design MCP E.6 (#re-raii) owns partial failure cleanup;
+// cpp-performance MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// domain ownership. See research/engine/subsystems/mission-launch.md.
+#pragma once
+#include "bw/formats/named_file_package.hpp"
+#include "bw/resources/service.hpp"
+#include "bw/script/context.hpp"
+
+namespace bw::game {
+enum class MissionLoadKind : std::uint8_t {
+  character_light,
+  sky,
+  stage,
+  text,
+  score,
+  hiding_places,
+  sound,
+  sound_environment,
+  sound_reverb,
+  magic,
+  background_objects,
+  paths,
+  placements
+};
+enum class MissionLoadState : std::uint8_t { pending, ready, blocked, failed };
+struct MissionLoadReport {
+  MissionLoadState state{MissionLoadState::pending};
+  std::string diagnostic;
+};
+class MissionLoadServices {
+ public:
+  MissionLoadServices() = default;
+  virtual ~MissionLoadServices() = default;
+  MissionLoadServices(const MissionLoadServices&) = delete;
+  MissionLoadServices& operator=(const MissionLoadServices&) = delete;
+  MissionLoadServices(MissionLoadServices&&) = delete;
+  MissionLoadServices& operator=(MissionLoadServices&&) = delete;
+  // Retain the selected original package before load; ancillary members borrow
+  // this owned payload until cancellation.
+  virtual void retain_package(resources::NamedFilePackage package) = 0;
+  // Immediate script activation starts presentation; it does not wait for I/O.
+  virtual void begin_loading_scene(unsigned item) = 0;
+  // A request copies its retained name; poll never reports unsupported work
+  // ready.
+  virtual void request(MissionLoadKind kind, std::string_view name) = 0;
+  virtual MissionLoadReport poll() = 0;
+  virtual void cancel() noexcept = 0;
+};
+enum class MissionPhase : std::uint8_t {
+  scripts,
+  loading,
+  blocked,
+  awaiting_world_setup,
+  failed,
+  cancelled
+};
+struct MissionProgress {
+  MissionPhase phase{MissionPhase::scripts};
+  std::string diagnostic;
+};
+class MissionDriver {
+ public:
+  MissionDriver(resources::ResourceService& resources,
+                MissionLoadServices& loads, resources::ResourceTag tag,
+                std::string_view script_name,
+                const std::shared_ptr<memory::Domain>& runtime_memory);
+  ~MissionDriver();
+  MissionDriver(const MissionDriver&) = delete;
+  MissionDriver& operator=(const MissionDriver&) = delete;
+  MissionDriver(MissionDriver&&) = delete;
+  MissionDriver& operator=(MissionDriver&&) = delete;
+  // Advance genuine native waits; awaiting_world_setup retains the original VM.
+  const MissionProgress& advance();
+  void cancel() noexcept;
+  const MissionProgress& progress() const { return progress_; }
+  std::string_view stage_name() const { return stage_name_; }
+  memory::HeapSnapshot memory_snapshot() const {
+    return context_ ? context_->memory_snapshot() : memory::HeapSnapshot{};
+  }
+
+ private:
+  void bindings();
+  struct ScriptPackage {
+    std::string_view resource;
+    std::string_view member;
+  };
+  resources::NamedFilePackage load_package(ScriptPackage source);
+  resources::ResourceService& resources_;
+  MissionLoadServices& loads_;
+  resources::ResourceTag tag_;
+  std::shared_ptr<memory::Domain> memory_;
+  memory::String script_name_, package_name_, stage_name_;
+  MissionProgress progress_;
+  std::optional<script::Context> context_;
+};
+}  // namespace bw::game

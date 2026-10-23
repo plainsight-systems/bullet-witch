@@ -1,3 +1,10 @@
+// Forward authored display policy to the retained world renderer used by draw.
+// C.128 (#rh-override) makes the adapter override explicit; GPU.9
+// (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md) retains
+// the existing target pool rather than allocating another output owner.
+// World uploads delegate to the native immutable geometry owner. They neither
+// change movie/sprite ordering nor publish color-ready materials. E.6 and GPU.1
+// were retrieved in both phases; see render/world.hpp and world-renderer.hpp.
 // Memory ownership: host State/control and path scratch use the injected CPU
 // domain. Native texture owners separately admit/reconcile logical and reported
 // Metal sizes, retain charges through use, and release after synchronous command
@@ -35,6 +42,7 @@
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
 #include "platform/macos/texture_allocation.hpp"
+#include "platform/macos/world_renderer.hpp"
 
 #import <Cocoa/Cocoa.h>
 #import <GameController/GameController.h>
@@ -158,8 +166,10 @@ struct StartupHost::State {
   id<MTLDevice> device{};
   id<MTLCommandQueue> commands{};
   id<MTLRenderPipelineState> pipeline{};
+  id<MTLLibrary> shader_library{};
   macos::TextureAllocation video;
   std::shared_ptr<memory::DeviceBudget> device_budget;
+  std::shared_ptr<macos::WorldRenderer> world;
   id<MTLRenderPipelineState> sprite_pipeline{};
   struct Texture {
     render::TextureHandle handle;
@@ -211,6 +221,9 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
       throw std::runtime_error("No Metal device is available");
     }
     state.commands = [state.device newCommandQueue];
+    state.world = std::allocate_shared<macos::WorldRenderer>(
+        memory::Allocator<macos::WorldRenderer>(cpu_domain), state.device, state.commands,
+        cpu_domain, state.device_budget);
     NSError* error = nil;
     // Resolve compiled shaders beside the executable, independent of working directory.
     std::uint32_t path_size = 0;
@@ -231,6 +244,7 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
       throw std::runtime_error("Metal movie shader: " +
                                std::string(error.localizedDescription.UTF8String));
     }
+    state.shader_library = library;
     MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
     descriptor.vertexFunction = [library newFunctionWithName:@"movie_vertex"];
     descriptor.fragmentFunction = [library newFunctionWithName:@"movie_fragment"];
@@ -460,9 +474,39 @@ bool StartupHost::draw(float opacity) {
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
     id<MTLCommandBuffer> command = [state.commands commandBuffer];
+    MTLViewport world_viewport{};
+    if (state.world->has_color_draws()) {
+      const double width = static_cast<double>(drawable.texture.width);
+      const double height = static_cast<double>(drawable.texture.height);
+      const double fit = std::min(width / render::kCanvasWidth, height / render::kCanvasHeight);
+      const auto scene_width = static_cast<std::uint32_t>(render::kCanvasWidth * fit);
+      const auto scene_height = static_cast<std::uint32_t>(render::kCanvasHeight * fit);
+      // Pixel-align the fitted scene and its display viewport together; the
+      // recovered fullscreen sample offset is defined in destination pixels.
+      world_viewport = {std::floor((width - scene_width) / 2),
+                        std::floor((height - scene_height) / 2),
+                        static_cast<double>(scene_width),
+                        static_cast<double>(scene_height),
+                        0,
+                        1};
+      state.world->prepare_presentation(command, state.shader_library, scene_width, scene_height);
+    }
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     if (command == nil || encoder == nil) {
       throw std::runtime_error("Could not encode movie presentation");
+    }
+    if (state.world->has_color_draws()) {
+      // Preserve the inspection projection's logical aspect through the same
+      // centered canvas fit used by menu presentation; clear retains black bars.
+      [encoder setViewport:world_viewport];
+      state.world->encode_presentation(encoder, state.shader_library, opacity);
+      [encoder endEncoding];
+      pass.colorAttachments[0].loadAction = MTLLoadActionLoad;
+      pass.depthAttachment.texture = nil;
+      encoder = [command renderCommandEncoderWithDescriptor:pass];
+      if (encoder == nil) {
+        throw std::runtime_error("Could not encode overlays after world presentation");
+      }
     }
     // Aspect-fit the movie into the cleared drawable, preserving black bars.
     if (state.video.get() != nil) {
@@ -481,13 +525,7 @@ bool StartupHost::draw(float opacity) {
     }
     // Overlay ordered quads in the shared logical canvas with the same fade.
     if (state.sprite_count != 0) {
-      const double width = static_cast<double>(drawable.texture.width);
-      const double height = static_cast<double>(drawable.texture.height);
-      const double fit = std::min(width / render::kCanvasWidth, height / render::kCanvasHeight);
-      [encoder
-          setViewport:MTLViewport{(width - render::kCanvasWidth * fit) / 2,
-                                  (height - render::kCanvasHeight * fit) / 2,
-                                  render::kCanvasWidth * fit, render::kCanvasHeight * fit, 0, 1}];
+      [encoder setViewport:world_viewport];
       [encoder setRenderPipelineState:state.sprite_pipeline];
       for (const auto& submitted : std::span(state.sprites).first(state.sprite_count)) {
         const auto& sprite = submitted.sprite;
@@ -597,5 +635,41 @@ void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
   state.sprite_count = sprites.size();
 }
 void StartupHost::clear_sprites() noexcept { state_->sprite_count = 0; }
+
+render::WorldModelHandle StartupHost::upload_model(const formats::ModelDefinition& model) {
+  require_main_thread();
+  return state_->world->upload_model(model);
+}
+render::WorldTextureHandle StartupHost::upload_world_texture(
+    const formats::WorldTextureImage& image) {
+  require_main_thread();
+  return state_->world->upload_world_texture(image);
+}
+void StartupHost::release_world_texture(render::WorldTextureHandle texture) noexcept {
+  state_->world->release_world_texture(texture);
+}
+void StartupHost::bind_model_textures(render::WorldModelHandle model,
+                                      std::span<const render::WorldTextureHandle> textures) {
+  require_main_thread();
+  state_->world->bind_model_textures(model, textures);
+}
+render::WorldGeometryStatus StartupHost::geometry_status(render::WorldModelHandle model) const {
+  require_main_thread();
+  return state_->world->geometry_status(model);
+}
+// Keep world configuration and presentation on the same native owner.
+void StartupHost::set_world_output_parameters(const render::WorldOutputParameters& parameters) {
+  require_main_thread();
+  state_->world->set_world_output_parameters(parameters);
+}
+
+void StartupHost::set_world_draws(std::span<const render::WorldColorDraw> draws) {
+  require_main_thread();
+  state_->world->set_world_draws(draws);
+}
+void StartupHost::clear_world_draws() noexcept { state_->world->clear_world_draws(); }
+void StartupHost::release_model(render::WorldModelHandle model) noexcept {
+  state_->world->release_model(model);
+}
 video::AudioOutput& StartupHost::audio() noexcept { return state_->media_audio; }
 }  // namespace bw::platform

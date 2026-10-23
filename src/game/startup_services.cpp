@@ -282,7 +282,15 @@ bool StartupSession::pending(Screen screen) {
   return result.status != FlowStatus::complete;
 }
 double StartupSession::status(Screen screen) const {
-  return progress(screen).result;
+  const auto result = progress(screen).result;
+  // Native accessor 0x49a560 swaps internal menu results5/6 for the Lua API.
+  if (screen == Screen::title_menu) {
+    constexpr double kNativeConceptResult = 5;
+    constexpr double kScriptConceptResult = 6;
+    if (result == kNativeConceptResult) return kScriptConceptResult;
+    if (result == kScriptConceptResult) return kNativeConceptResult;
+  }
+  return result;
 }
 double StartupSession::latest_stage() const {
   if (frontend_ != nullptr && frontend_->selection() &&
@@ -302,6 +310,20 @@ void StartupSession::start_mission(std::string_view mission) {
     throw std::logic_error("Mission request has no menu selection");
   }
   const auto selection = *selected;
+  if (selection.action == MenuAction::concept_mission) {
+    if (mission != "concept" || !concept_mode_ ||
+        selection.stage >= menu_row_capacity) {
+      throw std::runtime_error(
+          "Lua concept route disagrees with menu selection");
+    }
+    // Native0x4c2cf0/0x441a80 resolves the selected cm%02d_00 package alias.
+    const auto number = std::to_string(selection.stage);
+    const auto script =
+        std::string("cm") + (selection.stage < 10 ? "0" : "") + number + "_00";
+    gameplay_request_ =
+        GameplayRequest{std::string(mission), selection, {}, script};
+    return;
+  }
   if (selection.action != MenuAction::new_game &&
       selection.action != MenuAction::continue_game &&
       selection.action != MenuAction::stage_select) {
@@ -315,7 +337,8 @@ void StartupSession::start_mission(std::string_view mission) {
        (!replay_mode_ || replay_stage_ != selection.stage))) {
     throw std::runtime_error("Lua mission route disagrees with menu selection");
   }
-  GameplayRequest request{std::string(mission), selection, {}};
+  GameplayRequest request{
+      std::string(mission), selection, {}, std::string(mission)};
   // Own checkpoint bytes at handoff so the request can outlive front-end state.
   if (selection.action == MenuAction::continue_game) {
     const auto checkpoint = frontend_->profile().checkpoint();

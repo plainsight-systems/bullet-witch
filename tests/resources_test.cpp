@@ -49,6 +49,8 @@
 #include <iostream>
 
 #include "bw/formats/named_file_package.hpp"
+#include "bw/formats/section_table.hpp"
+#include "bw/formats/text_table.hpp"
 #include "bw/resources/service.hpp"
 
 using bw::resources::Bytes;
@@ -57,6 +59,14 @@ using bw::resources::Error;
 using bw::resources::ErrorCode;
 using bw::resources::ResourceArchive;
 using bw::resources::ResourceCatalog;
+void model_tests();
+void stage_definition_tests();
+void audio_bank_tests();
+void animation_definition_tests();
+void world_output_tests();
+void view_tests();
+void customization_tests();
+void static_collision_tests();
 namespace {
 class Checks {
  public:
@@ -70,7 +80,9 @@ class Checks {
 };
 void Checks::check(bool value, const char* message) {
   ++checks;
-  if (!value) throw std::runtime_error(message);
+  if (!value) {
+    throw std::runtime_error(message);
+  }
 }
 void Checks::rejects(const std::function<void()>& fn, ErrorCode expected) {
   ++checks;
@@ -278,7 +290,9 @@ void catalog_tests(Checks& checks) {
   for (std::size_t length = 0; length < b.size(); ++length) {
     auto short_b = b;
     short_b.resize(length);
-    if (length >= 8) word(short_b, 4, static_cast<std::uint32_t>(length));
+    if (length >= 8) {
+      word(short_b, 4, static_cast<std::uint32_t>(length));
+    }
     checks.rejects([&] { ResourceCatalog::parse(short_b); });
   }
   for (auto [at, value] :
@@ -334,7 +348,9 @@ class MemoryFiles final : public bw::platform::Files {
   Bytes contents;
   bool fail{};
   Bytes read(const std::filesystem::path&) const override {
-    if (fail) throw Error(ErrorCode::io, "fixture read failure");
+    if (fail) {
+      throw Error(ErrorCode::io, "fixture read failure");
+    }
     return contents;
   }
   std::filesystem::path canonical(
@@ -418,7 +434,9 @@ void lifecycle_tests(Checks& checks) {
 class TestBacking final : public bw::memory::CpuBacking {
  public:
   void* allocate(std::size_t bytes, std::size_t alignment) noexcept override {
-    if (reject) return nullptr;
+    if (reject) {
+      return nullptr;
+    }
     try {
       auto* result =
           std::pmr::new_delete_resource()->allocate(bytes, alignment);
@@ -537,7 +555,9 @@ void memory_tests(Checks& checks) {
   checks.check(retained && retained->bytes()[0] == 'A' &&
                    domain->snapshot().live_allocations > 0,
                "Injected archive lease survives service destruction");
-  if (!retained) throw std::runtime_error("Missing retained memory lease");
+  if (!retained) {
+    throw std::runtime_error("Missing retained memory lease");
+  }
   std::weak_ptr<Domain> observed_domain = domain;
   domain.reset();
   checks.check(!observed_domain.expired() && retained->bytes()[0] == 'A',
@@ -724,6 +744,71 @@ void package_memory_tests(Checks& checks) {
       failed && domain->snapshot().live_allocations == 0,
       "Native package allocation rejection has no compatibility fallback");
 }
+void section_table_tests(Checks& checks) {
+  auto domain = bw::memory::Domain::create(std::make_shared<TestBacking>());
+  Bytes bytes(168);
+  text(bytes, 0, "STBL");
+  word(bytes, 4, 1);
+  word(bytes, 28, 1);
+  word(bytes, 32, 40);
+  text(bytes, 40, "example");
+  word(bytes, 72, 1);
+  word(bytes, 76, 4);
+  word(bytes, 80, 104);
+  word(bytes, 104, 1);
+  word(bytes, 108, 0x3f800000);
+  word(bytes, 112, 1);
+  word(bytes, 116, 0xfffffffe);
+  word(bytes, 128, 1);
+  word(bytes, 132, 144);
+  text(bytes, 144, "name");
+  {
+    auto table = bw::formats::SectionTable::parse(bytes, domain);
+    checks.check(table.find("example") == 0 && !table.find("EXAMPLE"),
+                 "Section lookup preserves original exact names");
+    checks.check(
+        table.number({0, 0, 0}) == 1.0F && table.integer({0, 0, 1}) == -2 &&
+            !table.number({0, 0, 2}) && table.text({0, 0, 3}) == "name",
+        "Section cells preserve bits, absence and string references");
+    checks.rejects([&] { (void)table.number({0, 1, 0}); });
+    word(bytes, 132, 168);
+    checks.rejects([&] { (void)table.text({0, 0, 3}); });
+  }
+  word(bytes, 72, 0xffffffff);
+  checks.rejects(
+      [&] { (void)bw::formats::SectionTable::parse(bytes, domain); });
+  checks.check(domain->snapshot().live_bytes == 0,
+               "Section rejection/destruction releases metadata owner");
+}
+void text_table_tests(Checks& checks) {
+  Bytes bytes(140);
+  text(bytes, 0, "STMANAGE");
+  constexpr std::array<std::uint32_t, 6> offsets{32, 60, 80, 100, 116, 124};
+  for (std::size_t index = 0; index < offsets.size(); ++index) {
+    word(bytes, 8 + index * 4, offsets.at(index));
+  }
+  word(bytes, 36, 0);  // Empty sibling pointer sentinel is not dereferenced.
+  word(bytes, 40, 0xffffffe4);
+  word(bytes, 44, 1);
+  word(bytes, 64, 1);
+  word(bytes, 84, 1);
+  word(bytes, 100, 200);
+  word(bytes, 104, 1);
+  word(bytes, 108, 1);
+  word(bytes, 116, 7);
+  text(bytes, 125, "hello");
+  text(bytes, 131, "tag");
+  const auto table = bw::formats::TextTable::parse(bytes);
+  checks.check(table.records(3) == 1 && table.node(3, 0).identifier == 200 &&
+                   table.node(3, 0).text == "hello" &&
+                   table.property(0).name == "tag",
+               "Text registration resolves counted links and string pool");
+  word(bytes, 84, 2);
+  checks.rejects([&] { (void)bw::formats::TextTable::parse(bytes); });
+  word(bytes, 84, 1);
+  word(bytes, 104, 140);
+  checks.rejects([&] { (void)bw::formats::TextTable::parse(bytes); });
+}
 void package_tests(Checks& checks) {
   Bytes b(99);
   text(b, 0, "dpk");
@@ -763,6 +848,16 @@ void package_tests(Checks& checks) {
 int main() {
   Checks checks;
   try {
+    model_tests();
+    stage_definition_tests();
+    audio_bank_tests();
+    animation_definition_tests();
+    world_output_tests();
+    view_tests();
+    customization_tests();
+    static_collision_tests();
+    section_table_tests(checks);
+    text_table_tests(checks);
     archive_tests(checks);
     catalog_tests(checks);
     lifecycle_tests(checks);

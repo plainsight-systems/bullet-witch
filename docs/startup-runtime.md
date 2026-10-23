@@ -388,15 +388,30 @@ Missions is accessible without completion by explicit user-approved policy, an
 intentional departure from the original achievement-13 check. Its child entries
 still use the recovered content availability; asset presence does not silently
 unlock campaign progression. Extra selection policy preserves native result 5,
-while the original root handles result 6; that route remains explicitly unresolved.
+while native accessor0x49a560 maps it to API result6 for the original root.
+The selected concept package/member alias is recovered; see
+[mission launch](../research/engine/subsystems/mission-launch.md).
 
 After a supported confirmed selection, the original Lua root calls
 `_StartMission`. `StartupSession` validates the mission identifier, selected stage
 and replay mode, then owns a `GameplayRequest` containing mission name, selection,
 and a checkpoint copy only for Continue. `_WaitMission` stays pending: no world
-consumer exists yet. The native framework prints `gameplay_request_ready` and
-exits at this boundary. This is a usable handoff for the next engine work, not a
-claim that selecting Start loads or renders a mission.
+outcome producer exists yet. The native framework prints `gameplay_request_ready`.
+For One Shot Kill it retains the session and creates the selected mission
+resource owner, original mission/default-callback Lua context and typed load
+services. The original `load()` returns after real resource construction,
+including stage/character dependencies and text, cover and sound registrations.
+The mission enters `awaiting_world_setup`; actors and gameplay have not started.
+The static inspection borrows resident models/textures for all ten ordinary
+stage models: 4,097 selected draws, three untextured-material omissions and one sky draw,
+using the original fresh-start pose, authored behind-camera preset and static
+clearance queries. Original reverse-depth projection and native comparison/clear
+state are applied together. The corrected native host verifies a coherent cave
+and exterior view with the original sky and authored stage ambient SH inputs.
+Slices 1–3 are ready for user review; this initial snapshot does not execute actor
+construction or the live gameplay camera.
+That presentation remains independent of authored world setup. Other routes still exit at the
+handoff boundary.
 
 Evidence and fidelity limits: [profile persistence](../research/engine/subsystems/profile-persistence.md),
 [menu policy](../research/engine/subsystems/front-end-menu-policy.md),

@@ -1,13 +1,21 @@
-// Memory composition: require resource/runtime/media capabilities, construct
-// catalogs and their service with one resource identity, then inject runtime
-// and media owners. Failure unwinds without a default-heap retry. R.1
+// An optional inspection pose is passed once to stage-view construction.
+// This development setting never replaces the original player spawn or starts
+// actor simulation. Both MCP phases: I.1 (#ri-explicit) keeps the override in
+// owned configuration; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps parsing and view
+// construction outside repeated frame work. Memory composition: require
+// resource/runtime/media capabilities, construct catalogs and their service
+// with one resource identity, then inject runtime and media owners. Failure
+// unwinds without a default-heap retry. R.1
 // (#rr-raii) and MEM.6 (guidelines/memory/
 // MEM.6-inject-allocators-behind-one-interface.md), read in both phases,
 // govern ownership and startup-only capability propagation.
 // Front-end extension: mount the supplied costume catalogs, own Profile and
 // menu presentation, and inject borrowed SaveStorage into FrontEnd. Original
-// Lua drives screen transitions and mission routing. On a confirmed campaign
-// request, print owned launch metadata and return at the world-loader boundary;
+// Lua drives screen transitions and mission routing. One Shot Kill owns its
+// original mission/load context and a separate static inspection after its
+// resource constructors complete. World setup remains a separate gate. Other
+// requests retain the handoff boundary;
 // never report a completed mission. Profile I/O occurs only at load/change,
 // and menu images allocate once per front-end activation. Design I.30
 // (#ri-encapsulate), implementation E.6 (#re-raii) and performance COPY.4 below
@@ -38,68 +46,21 @@
 #include "startup_application.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
-#include <string_view>
 #include <thread>
 #include <utility>
 
+#include "game/mission_loading.hpp"
+#include "game/stage_inspection.hpp"
 #include "game/startup_menu_surface.hpp"
 #include "game/startup_playback.hpp"
 #include "game/startup_services.hpp"
 #include "game/startup_title_surface.hpp"
 
 namespace bw::framework {
-StartupOptions parse_startup_options(std::span<char*> arguments) {
-  StartupOptions result;
-  for (std::size_t index = 1; index < arguments.size(); ++index) {
-    const std::string_view argument(arguments[index]);
-    if (argument == "--windowed") {
-      result.window.fullscreen = false;
-    } else if (argument == "--verify-startup") {
-      result.verify = true;
-    } else if ((argument == "--game" || argument == "--profile" ||
-                argument == "--max-seconds" || argument == "--window-width" ||
-                argument == "--window-height") &&
-               index + 1 < arguments.size()) {
-      const std::string_view value(arguments[++index]);
-      if (argument == "--game") {
-        result.game = value;
-      } else if (argument == "--profile") {
-        result.profile = value;
-      } else {
-        int parsed_value{};
-        const auto parsed =
-            std::from_chars(value.begin(), value.end(), parsed_value);
-        if (parsed.ec != std::errc{} || parsed.ptr != value.end() ||
-            parsed_value <= 0) {
-          throw std::runtime_error(std::string(argument) +
-                                   " requires a positive integer");
-        }
-        if (argument == "--max-seconds") {
-          result.maximum_seconds = parsed_value;
-        } else if (argument == "--window-width") {
-          result.window.width = static_cast<std::uint32_t>(parsed_value);
-        } else {
-          result.window.height = static_cast<std::uint32_t>(parsed_value);
-        }
-      }
-    } else {
-      throw std::runtime_error(
-          "Usage: bw-startup --game GAME_DIRECTORY [--profile SAVE_DIRECTORY] "
-          "[--verify-startup] "
-          "[--max-seconds N] [--windowed] [--window-width N] [--window-height "
-          "N]");
-    }
-  }
-  if (result.game.empty()) {
-    throw std::runtime_error("--game GAME_DIRECTORY is required");
-  }
-  return result;
-}
 
 int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
@@ -157,6 +118,14 @@ int run_startup(const StartupOptions& configuration,
   bw::game::StartupSession session(playback, &title_surface, &frontend,
                                    memory.runtime);
   session.start_root(resources, 1);
+  // Mission owners retire in reverse order: Lua polls, load data, then
+  // catalogs.
+  std::optional<resources::ResourceService> mission_resources;
+  std::optional<game::MissionLoading> mission_loading;
+  std::optional<game::MissionDriver> mission;
+  std::optional<game::StageInspection> stage_inspection;
+  bool inspected_stage = false;
+  std::optional<game::MissionPhase> reported_mission_phase;
   const auto started = std::chrono::steady_clock::now();
   const auto deadline =
       started + std::chrono::seconds(configuration.maximum_seconds);
@@ -236,14 +205,18 @@ int run_startup(const StartupOptions& configuration,
     const auto result =
         session.advance({game_delta, actions},
                         configuration.verify ? 0U : input.repeated_actions);
-    playback.draw();
+    if (stage_inspection) {
+      // Inspection presents independently while the original mission load and
+      // its black fade remain pending; this never advances script completion.
+      (void)host.draw(1.0F);
+    } else {
+      playback.draw();
+    }
     if (result.state == bw::script::RunState::failed) {
       throw std::runtime_error(result.diagnostic);
     }
     if (session.quit_requested()) return 0;
-    if (session.gameplay_request()) {
-      // Stop at the owned handoff boundary until a world-loading consumer
-      // exists.
+    if (session.gameplay_request() && !mission) {
       const auto& request = *session.gameplay_request();
       std::cout << "{\"status\":\"gameplay_request_ready\",\"mission\":\""
                 << request.mission << "\",\"stage\":" << request.selection.stage
@@ -251,7 +224,70 @@ int run_startup(const StartupOptions& configuration,
                 << ",\"costume\":" << request.selection.costume
                 << ",\"checkpoint_bytes\":" << request.checkpoint.size()
                 << "}\n";
-      return 0;
+      if (request.selection.action != game::MenuAction::concept_mission ||
+          request.script_name != "cm01_00") {
+        return 0;
+      }
+      // Mount the selected concept catalog with its original alias priority.
+      resources::CatalogSet selected_catalogs(memory.resources);
+      selected_catalogs.mount(
+          kStableCatalogPriority, catalog_path,
+          content::open_catalog(files, catalog_path, memory.resources));
+      const auto selected_path =
+          configuration.game / "data/concept/cm01_00/cm01_00.rat";
+      constexpr int kConceptCatalogPriority = 40;
+      selected_catalogs.mount(
+          kConceptCatalogPriority, selected_path,
+          content::open_catalog(files, selected_path, memory.resources));
+      mission_resources.emplace(std::move(selected_catalogs), files,
+                                memory.resources);
+      mission_loading.emplace(
+          files, mission_resources->catalogs(), memory.resources, &host,
+          game::MissionLoadOptions{configuration.game,
+                                   profile.current_difficulty()});
+      constexpr resources::ResourceTag kMissionScriptTag = 100;
+      mission.emplace(mission_resources.value(), mission_loading.value(),
+                      kMissionScriptTag, request.script_name, memory.runtime);
+    }
+    if (mission) {
+      const auto& progress = mission->advance();
+      if (progress.phase == game::MissionPhase::failed) {
+        throw std::runtime_error(progress.diagnostic);
+      }
+      if (reported_mission_phase != progress.phase) {
+        reported_mission_phase = progress.phase;
+        std::cerr << "Mission phase=" << static_cast<unsigned>(progress.phase)
+                  << " " << progress.diagnostic << '\n';
+      }
+      if (!inspected_stage &&
+          progress.phase == game::MissionPhase::awaiting_world_setup &&
+          !mission->stage_name().empty()) {
+        // Publish a static view only after the original load has completed.
+        // It borrows those owners while actor/gameplay setup remains separate.
+        if (!mission_loading) {
+          throw std::logic_error("Mission loading owner is missing");
+        }
+        mission_loading->prepare_stage(mission->stage_name());
+        const auto& stage = mission_loading->stage();
+        const auto& sky = mission_loading->sky();
+        if (!stage || !sky) {
+          throw std::logic_error(
+              "Inspection stage/sky definitions are missing");
+        }
+        stage_inspection.emplace(
+            host,
+            game::StageViewSource{stage.value(),
+                                  mission_loading->resident_models()},
+            game::StageViewSource{sky.value(),
+                                  mission_loading->sky_resident_models()},
+            memory.resources, configuration.inspection_camera);
+        inspected_stage = true;
+        std::cerr
+            << "Static inspection: " << stage_inspection->selected_draws()
+            << " selected draws, " << stage_inspection->omitted_draws()
+            << " omitted static-world draws; authored base light/output, "
+               "fog, full visibility and shadow passes remain incomplete\n";
+      }
     }
     if (configuration.verify &&
         session.progress(bw::game::Screen::title).status ==

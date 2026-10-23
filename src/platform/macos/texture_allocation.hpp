@@ -1,13 +1,23 @@
-// Native retained 2D color texture plus portable device charge. Objective-C++
-// backend header only. create validates BGRA/RGBA dimensions, admits a
-// heap-size estimate, allocates a standalone shared Metal texture, reconciles
-// allocatedSize before returning. Native failure/over-budget reconciliation
-// releases both. Upload consumes a borrowed tightly packed buffer
-// synchronously. Caller must retire all GPU consumers before reset/destruction;
-// host waits for completion. Move-only; borrowed get() is valid only during
-// this owner's retained lifetime. reset releases Metal ownership before
-// accounting. No residency/process usage claim. One device allocation per
-// creation, no per-upload allocation. E.6
+// Display-output extension: explicit creation usage preserves borrowed access
+// (I.11, #ri-raw); retained render targets follow GPU.9
+// (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md),
+// retrieved for both output design and implementation phases.
+// Render-target callers specify sampled/render usage; R32Float retains original
+// luminance precision. Resource usage is fixed at creation.
+// Native retained 2D or six-face cube texture plus portable device charge.
+// World textures preserve packed half-float RGBA data; no gamma conversion or
+// mip generation occurs here. The caller supplies already interpreted pixels.
+// Objective-C++ backend header only. create validates BGRA/RGBA8, RGBA16Float
+// or Depth32Float dimensions, admits a heap-size estimate and allocates a
+// shared sampled color texture or private depth attachment. It reconciles
+// allocatedSize before returning. Depth textures reject CPU upload. Native
+// failure/over-budget reconciliation releases both. Upload consumes a borrowed
+// tightly packed buffer synchronously; cubes retain six square faces in native
+// +X, -X, +Y, -Y, +Z, -Z slice order. Caller must retire all GPU consumers
+// before reset/destruction; host waits for completion. Move-only; borrowed
+// get() is valid only during this owner's retained lifetime. reset releases
+// Metal ownership before accounting. No residency/process usage claim. One
+// device allocation per creation, no per-upload allocation. E.6
 // (#re-raii), SL.con.3 (#rsl-bounds), GPU.1
 // (guidelines/gpu/GPU.1-keep-data-on-device.md), COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
@@ -35,7 +45,9 @@ class TextureAllocation {
   // Admit estimated storage, then reconcile the native size before publication.
   static TextureAllocation create(
       id<MTLDevice> device, const std::shared_ptr<memory::DeviceBudget>& budget,
-      std::uint32_t width, std::uint32_t height, MTLPixelFormat format);
+      std::uint32_t width, std::uint32_t height, MTLPixelFormat format,
+      MTLTextureType type = MTLTextureType2D,
+      MTLTextureUsage usage = MTLTextureUsageShaderRead);
   void upload(std::span<const std::uint8_t> bytes);
   // Caller retires GPU consumers first; release returns the charge afterward.
   void reset() noexcept;

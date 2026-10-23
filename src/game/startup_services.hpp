@@ -6,16 +6,18 @@
 // Front-end extension: FrontEnd is borrowed through session destruction. Lua
 // remains the route owner; StartMission validates its identifier against the
 // confirmed menu selection and captures an owned request/checkpoint once.
-// WaitMission remains pending until a future world consumer exists. Main-thread
-// only. Invalid/mismatched routes throw, never become successful gameplay.
-// Design MCP I.30 (#ri-encapsulate) keeps compatibility slots at this boundary;
-// implementation E.6 (#re-raii) retains owned request cleanup; cpp-performance
-// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) gives
-// request data ordinary container ownership. Checkpoint copy is O(bytes) at
-// handoff, not per-frame. See
-// research/engine/subsystems/frontend-integration.md. Startup route extension:
-// game policies borrow capabilities; composition owns them through cleanup.
-// Design MCP R.20 (#rr-owner) retains explicit lifetime; implementation E.6
+// Concept aliases retain selected package identity separately from root name.
+// WaitMission remains pending until a future world consumer supplies outcomes.
+// Main-thread only. Invalid/mismatched routes throw, never become successful
+// gameplay. Design MCP I.30 (#ri-encapsulate) keeps compatibility slots at this
+// boundary; implementation E.6 (#re-raii) retains owned request cleanup;
+// cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) gives request data
+// ordinary container ownership. Checkpoint copy is O(bytes) at handoff, not
+// per-frame. See research/engine/subsystems/frontend-integration.md. Startup
+// route extension: game policies borrow capabilities; composition owns them
+// through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
+// implementation E.6
 // (#re-raii) unwinds on failures. cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves
 // container ownership without per-frame payload copies. Shared presentation
@@ -56,6 +58,9 @@ struct GameplayRequest {
   std::string mission;
   MenuSelection selection;
   std::vector<std::byte> checkpoint;
+  // Selected concept package/member alias; mission retains the original Lua
+  // name.
+  std::string script_name;
 };
 class StartupSession final : public StartupServices {
  public:

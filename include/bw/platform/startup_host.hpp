@@ -1,3 +1,12 @@
+// Authored world display settings forward to the same retained renderer used
+// by draw(). C.121 (#rh-abstract) makes this adapter obligation explicit;
+// GPU.9 (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md)
+// keeps postprocess resources in the existing device pool. Implementation also
+// applies C.128 (#rh-override) to the explicit forwarding override.
+// World geometry extends the device owner through render/world.hpp. Upload is
+// transactional and does not claim original material readiness. E.6 (#re-raii)
+// and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md), retrieved in both
+// phases, retain immutable native buffers and their charges until retirement.
 // Memory ownership: host State/control and path scratch use the injected CPU
 // domain. Native texture owners separately admit/reconcile logical and reported
 // Metal sizes, retain charges through use, and release after synchronous
@@ -33,6 +42,7 @@
 
 #include "bw/memory/device_budget.hpp"
 #include "bw/render/sprites.hpp"
+#include "bw/render/world.hpp"
 #include "bw/video/output.hpp"
 
 namespace bw::platform {
@@ -48,7 +58,9 @@ struct WindowOptions {
   std::uint32_t height{kDefaultWindowHeight};
   bool fullscreen{true};
 };
-class StartupHost final : public video::Output, public render::SpriteOutput {
+class StartupHost final : public video::Output,
+                          public render::SpriteOutput,
+                          public render::WorldOutput {
  public:
   StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
               std::shared_ptr<memory::DeviceBudget> device_budget,
@@ -73,6 +85,24 @@ class StartupHost final : public video::Output, public render::SpriteOutput {
   void release_texture(render::TextureHandle texture) noexcept override;
   void set_sprites(std::span<const render::Sprite> sprites) override;
   void clear_sprites() noexcept override;
+  // Immutable world geometry has device ownership distinct from color
+  // readiness.
+  render::WorldModelHandle upload_model(
+      const formats::ModelDefinition& model) override;
+  render::WorldTextureHandle upload_world_texture(
+      const formats::WorldTextureImage& image) override;
+  void release_world_texture(
+      render::WorldTextureHandle texture) noexcept override;
+  void bind_model_textures(
+      render::WorldModelHandle model,
+      std::span<const render::WorldTextureHandle> textures) override;
+  render::WorldGeometryStatus geometry_status(
+      render::WorldModelHandle model) const override;
+  void release_model(render::WorldModelHandle model) noexcept override;
+  void set_world_output_parameters(
+      const render::WorldOutputParameters& parameters) override;
+  void set_world_draws(std::span<const render::WorldColorDraw> draws) override;
+  void clear_world_draws() noexcept override;
 
  private:
   struct State;

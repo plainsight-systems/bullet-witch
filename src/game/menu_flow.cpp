@@ -8,9 +8,10 @@
 // edge and publish an immutable original-status selection. Costume selection
 // and options update their actual profile fields; campaign difficulty updates
 // live record0. No mission or checkpoint is fabricated. Extra status5 is
-// preserved despite the original root only recognizing6 (documented unresolved
-// route mismatch). Costs: bounded64-row work, constexpr labels and no update
-// heap allocation. MCP design: Enum.3 (#renum-class); implementation SL.con.3
+// preserved internally; StartupSession applies native accessor0x49a560
+// mapping5 to Lua6 at the script boundary. Costs: bounded64-row work, constexpr
+// labels and no update heap allocation. MCP design: Enum.3 (#renum-class);
+// implementation SL.con.3
 // (#rsl-bounds) checks indices via at(); performance COPY.7
 // (guidelines/copy-move/COPY.7-eliminate- hidden-copies.md) borrows profile and
 // copies only small presentation values. Concept-menu change design and
@@ -40,6 +41,31 @@ constexpr std::array<std::string_view, 17> volumes{
 constexpr auto extras = [] {
   std::array<std::string_view, 64> result{};
   result.fill("Extra Mission");
+  constexpr std::array<std::string_view, 6> concept_titles{
+      "Geist Search and Destroy", "One Shot Kill",
+      "Caterpillar City",         "7 Minutes",
+      "Dynamite Beauty",          "Endless"};
+  std::ranges::copy(concept_titles, result.begin());
+  constexpr std::size_t kExtraEditionBase = 16;
+  constexpr std::size_t kSpellEditionBase = 32;
+  constexpr std::array<std::string_view, 6> extra_editions{
+      "Clad in Streaming Black - Extra Edition",
+      "City of Screams - Extra Edition",
+      "10,000 ft of Flames - Extra Edition",
+      "Dawn in the Valley - Extra Edition",
+      "The Bound Soul - Extra Edition",
+      "The End of Chaos - Extra Edition"};
+  constexpr std::array<std::string_view, 6> spell_editions{
+      "Clad in Streaming Black - Great spells unlocked",
+      "City of Screams - Great spells unlocked",
+      "10,000 ft of Flames - Great spells unlocked",
+      "Dawn in the Valley - Great spells unlocked",
+      "The Bound Soul - Great spells unlocked",
+      "The End of Chaos - Great spells unlocked"};
+  for (std::size_t index = 0; index < extra_editions.size(); ++index) {
+    result.at(kExtraEditionBase + index) = extra_editions.at(index);
+    result.at(kSpellEditionBase + index) = spell_editions.at(index);
+  }
   return result;
 }();
 constexpr unsigned volume_step = 16;

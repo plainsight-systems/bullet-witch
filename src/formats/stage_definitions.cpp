@@ -1,0 +1,318 @@
+// Bounded load-time views implement stage_definitions.hpp. The original loaders
+// patch 32-bit pointers in retained data; these constructors instead validate
+// ranges and retain immutable spans. Later physics/sampling policy stays
+// outside format decoding. Partial metadata unwinds through the explicit domain
+// owner. Both MCP phases retrieved SL.con.3 (#rsl-bounds) and MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md).
+#include "bw/formats/stage_definitions.hpp"
+
+#include <bit>
+#include <cmath>
+
+#include "reader.hpp"
+
+namespace bw::formats {
+namespace {
+using resources::detail::malformed;
+using resources::detail::Reader;
+using resources::detail::unsupported;
+constexpr std::uint64_t kWordBytes = 4;
+constexpr std::uint64_t kCollisionHeaderBytes = 48;
+constexpr std::uint64_t kPartHeaderBytes = 96;
+constexpr std::uint64_t kPartCountOffset = 36;
+constexpr std::uint64_t kPartTableOffset = 40;
+constexpr std::uint64_t kPartTriangleCountOffset = 44;
+constexpr std::uint64_t kPartTriangleOffset = 48;
+constexpr std::uint64_t kPartFlagsOffset = 52;
+constexpr std::uint64_t kPartNameOffset = 64;
+constexpr std::uint64_t kPartNameBytes = 32;
+constexpr std::uint64_t kVectorBytes = 12;
+constexpr std::uint64_t kTriangleBytes = 8;
+constexpr std::uint64_t kExtentOffset = 16;
+constexpr std::uint64_t kRadiusOffset = 32;
+constexpr std::uint64_t kAreaRecordBytes = 96;
+constexpr std::uint64_t kAnimationHeaderBytes = 24;
+constexpr std::uint64_t kAnimationCountOffset = 20;
+constexpr std::uint64_t kTrackHeaderBytes = 32;
+constexpr std::uint64_t kTrackFirstDataOffset = 24;
+constexpr std::uint64_t kTrackSecondDataOffset = 28;
+constexpr std::uint64_t kLabelRecordBytes = 40;
+constexpr unsigned kByteBits = 8;
+std::span<const std::uint8_t> span(const Reader& reader,
+                                   resources::Range range) {
+  reader.range(range.offset, range.size);
+  return reader.b.subspan(static_cast<std::size_t>(range.offset),
+                          static_cast<std::size_t>(range.size));
+}
+float number(const Reader& reader, std::uint64_t offset) {
+  const auto result = std::bit_cast<float>(reader.u32(offset));
+  if (!std::isfinite(result)) {
+    malformed("Nonfinite collision bounds");
+  }
+  return result;
+}
+std::uint16_t half(std::span<const std::uint8_t> bytes, std::size_t offset) {
+  return static_cast<std::uint16_t>(bytes[offset] |
+                                    (bytes[offset + 1] << kByteBits));
+}
+}  // namespace
+CollisionDefinition CollisionDefinition::parse(
+    std::span<const std::uint8_t> bytes,
+    const std::shared_ptr<memory::Domain>& domain) {
+  const Reader reader{bytes};
+  reader.range(0, kCollisionHeaderBytes);
+  const auto count = reader.u32(kPartCountOffset);
+  const auto directory = reader.u32(kPartTableOffset);
+  reader.range(directory, count * kWordBytes);
+  CollisionDefinition result(domain);
+  result.parts_.reserve(count);
+  for (std::uint32_t part = 0; part < count; ++part) {
+    const auto offset = reader.u32(directory + part * kWordBytes);
+    reader.range(offset, kPartHeaderBytes);
+    CollisionPart record;
+    record.name =
+        reader.text_view({offset + kPartNameOffset, kPartNameBytes}, 0);
+    for (std::size_t axis = 0; axis < record.center.size(); ++axis) {
+      record.center.at(axis) = number(reader, offset + axis * kWordBytes);
+      record.extent.at(axis) =
+          number(reader, offset + kExtentOffset + axis * kWordBytes);
+    }
+    record.radius = number(reader, offset + kRadiusOffset);
+    record.vertex_count = reader.u32(offset + kPartCountOffset);
+    record.triangle_count = reader.u32(offset + kPartTriangleCountOffset);
+    record.flags = reader.u32(offset + kPartFlagsOffset);
+    record.vertices =
+        span(reader, {offset + reader.u32(offset + kPartTableOffset),
+                      record.vertex_count * kVectorBytes});
+    record.triangles =
+        span(reader, {offset + reader.u32(offset + kPartTriangleOffset),
+                      record.triangle_count * kTriangleBytes});
+    for (std::size_t face = 0; face < record.triangles.size();
+         face += kTriangleBytes) {
+      for (std::size_t corner = 0; corner < 3; ++corner) {
+        if (half(record.triangles, face + corner * 2) >= record.vertex_count) {
+          malformed("Collision triangle references missing vertex");
+        }
+      }
+    }
+    result.parts_.push_back(record);
+  }
+  return result;
+}
+PhysicsCollisionDefinition PhysicsCollisionDefinition::parse(
+    std::span<const std::uint8_t> bytes,
+    const std::shared_ptr<memory::Domain>& domain) {
+  const Reader reader{bytes};
+  PhysicsCollisionDefinition result(bytes, domain);
+  constexpr std::uint64_t kHeaderBase = 4;
+  constexpr std::uint64_t kVersionOffset = 8;
+  constexpr std::uint64_t kFlagsOffset = 12;
+  constexpr std::uint64_t kExtendedHeaderBytes = 56;
+  constexpr std::uint32_t kExtendedVersion = 0x20060411;
+  constexpr std::uint64_t kCompactHeaderBytes = 32;
+  reader.range(0, kCompactHeaderBytes);
+  const auto version = reader.u32(kVersionOffset);
+  if (version != 0 && version != kExtendedVersion) {
+    unsupported("Unsupported physics collision definition version");
+  }
+  if (version != 0) {
+    reader.range(0, kExtendedHeaderBytes);
+  }
+  constexpr unsigned kCompactFlagShift = 16;
+  const auto flags =
+      reader.u32(kFlagsOffset) >> (version == 0 ? kCompactFlagShift : 0);
+  if ((flags & 1U) != 0) {
+    unsupported("Physics collision input is already pointer-patched");
+  }
+  auto reference = [&](std::uint64_t field,
+                       std::uint64_t base = 0) -> std::uint64_t {
+    const auto relative = reader.u32(field);
+    if (relative == 0) {
+      return 0;
+    }
+    const auto target = base + relative;
+    reader.range(target, 1);
+    if (target > UINT32_MAX) {
+      malformed("Physics collision offset overflows source address width");
+    }
+    result.references_.push_back({static_cast<std::uint32_t>(field),
+                                  static_cast<std::uint32_t>(target)});
+    return target;
+  };
+  struct DirectoryFields {
+    std::uint64_t count, pointer;
+  };
+  auto directory = [&](DirectoryFields fields, auto visit) {
+    const auto table = reference(fields.pointer);
+    if (table == 0) {
+      return;
+    }
+    const auto count = reader.u32(fields.count);
+    reader.range(table, count * kWordBytes);
+    for (std::uint32_t i = 0; i < count; ++i) {
+      const auto target = reference(table + i * kWordBytes);
+      if (target != 0) {
+        visit(target);
+      }
+    }
+  };
+  // Bind each shape to its optional transform and referenced geometry.
+  constexpr std::uint64_t kShapeDataOffset = 4;
+  constexpr std::uint64_t kShapeTransformOffset = 16;
+  constexpr std::uint64_t kShapeCountOffset = 20;
+  constexpr std::uint64_t kShapeTableOffset = 24;
+  constexpr std::uint64_t kGeometryDataOffset = 64;
+  constexpr std::uint32_t kFirstGeometryKind = 3, kLastGeometryKind = 5;
+  reference(kHeaderBase);
+  directory({kHeaderBase + 3 * kWordBytes, kHeaderBase + 4 * kWordBytes},
+            [&](std::uint64_t shape) {
+              reference(shape + kShapeDataOffset);
+              reference(shape + kShapeTransformOffset);
+              directory({shape + kShapeCountOffset, shape + kShapeTableOffset},
+                        [&](std::uint64_t geometry) {
+                          const auto kind = reader.u32(geometry);
+                          if (kind >= kFirstGeometryKind &&
+                              kind <= kLastGeometryKind) {
+                            reference(geometry + kGeometryDataOffset);
+                          }
+                        });
+            });
+  constexpr std::uint64_t kSecondaryCountWord = 5, kSecondaryTableWord = 6;
+  constexpr std::uint64_t kSecondaryDataOffset = 40;
+  directory(
+      {kHeaderBase + kSecondaryCountWord * kWordBytes,
+       kHeaderBase + kSecondaryTableWord * kWordBytes},
+      [&](std::uint64_t record) { reference(record + kSecondaryDataOffset); });
+  if (version != 0) {
+    constexpr std::uint64_t kGroupWord = 7, kBoundsTableWord = 8;
+    constexpr std::uint64_t kLinksCountWord = 9, kLinksTableWord = 10;
+    constexpr std::uint64_t kExtraCountWord = 11, kExtraTableWord = 12;
+    constexpr std::uint64_t kGroupCountOffset = 12, kGroupTableOffset = 16;
+    constexpr std::uint64_t kBoundsCountOffset = 28, kBoundsTableOffset = 32;
+    constexpr std::uint64_t kLinksCountOffset = 8, kLinksTableOffset = 12;
+    const auto group = reference(kHeaderBase + kGroupWord * kWordBytes);
+    if (group != 0) {
+      directory({group + kGroupCountOffset, group + kGroupTableOffset},
+                [](std::uint64_t) {});
+    }
+    directory({kHeaderBase + 3 * kWordBytes,
+               kHeaderBase + kBoundsTableWord * kWordBytes},
+              [&](std::uint64_t record) {
+                directory(
+                    {record + kBoundsCountOffset, record + kBoundsTableOffset},
+                    [](std::uint64_t) {});
+              });
+    directory({kHeaderBase + kLinksCountWord * kWordBytes,
+               kHeaderBase + kLinksTableWord * kWordBytes},
+              [&](std::uint64_t record) {
+                directory(
+                    {record + kLinksCountOffset, record + kLinksTableOffset},
+                    [](std::uint64_t) {});
+              });
+    directory({kHeaderBase + kExtraCountWord * kWordBytes,
+               kHeaderBase + kExtraTableWord * kWordBytes},
+              [](std::uint64_t) {});
+  }
+  // The outer root uses root-relative children, then child-relative payloads.
+  const auto root = reference(0);
+  if (root != 0) {
+    const auto count = reader.u32(root);
+    reader.range(root + kWordBytes, count * kWordBytes);
+    for (std::uint32_t i = 0; i < count; ++i) {
+      const auto child = reference(root + (i + 1ULL) * kWordBytes, root);
+      if (child == 0) {
+        malformed("Null physics collision root child");
+      }
+      reference(child + 2 * kWordBytes, child);
+      reference(child + 3 * kWordBytes, child);
+    }
+  }
+  return result;
+}
+AreaDefinition AreaDefinition::parse(
+    std::span<const std::uint8_t> bytes,
+    const std::shared_ptr<memory::Domain>& domain) {
+  const Reader reader{bytes};
+  if (reader.tag_view(0) != "AREA" || reader.u32(4) != 1) {
+    unsupported("Unsupported area definition version");
+  }
+  const auto count = reader.u32(8);
+  const auto directory = reader.u32(12);
+  reader.range(directory, count * kWordBytes);
+  AreaDefinition result(domain);
+  result.records_.reserve(count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    result.records_.push_back(span(
+        reader, {reader.u32(directory + i * kWordBytes), kAreaRecordBytes}));
+  }
+  return result;
+}
+ScalarAnimationDefinition ScalarAnimationDefinition::parse(
+    std::span<const std::uint8_t> bytes) {
+  const Reader reader{bytes};
+  reader.range(0, kAnimationHeaderBytes);
+  if (reader.tag_view(0) != "FLAN") {
+    unsupported("Unsupported scalar animation signature");
+  }
+  const auto count = reader.u32(8);
+  const auto times = reader.u32(12);
+  const auto channels = reader.u32(16);
+  const auto values = reader.u32(20);
+  if (times < kAnimationHeaderBytes || channels < times || values < channels ||
+      values > bytes.size()) {
+    malformed("Invalid scalar animation section ordering");
+  }
+  reader.range(times, count * kWordBytes);
+  if (count * kWordBytes > channels - times) {
+    malformed("Scalar animation times overlap channel codes");
+  }
+  return {reader.u32(4), count, span(reader, {times, count * kWordBytes}),
+          span(reader, {channels, values - channels}),
+          span(reader, {values, bytes.size() - values})};
+}
+MaterialAnimationDefinition MaterialAnimationDefinition::parse(
+    std::span<const std::uint8_t> bytes,
+    const std::shared_ptr<memory::Domain>& domain) {
+  const Reader reader{bytes};
+  reader.range(0, kAnimationHeaderBytes);
+  if (reader.tag_view(0) != "MTAB") {
+    unsupported("Unsupported material animation signature");
+  }
+  const auto count = reader.u32(kAnimationCountOffset);
+  reader.range(kAnimationHeaderBytes, count * kWordBytes);
+  MaterialAnimationDefinition result(bytes, domain);
+  result.tracks_.reserve(count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    const auto offset = reader.u32(kAnimationHeaderBytes + i * kWordBytes);
+    if (offset == 0) {
+      result.tracks_.push_back({});
+      continue;
+    }
+    const auto header = span(reader, {offset, kTrackHeaderBytes});
+    const auto first = reader.u32(offset + kTrackFirstDataOffset);
+    const auto second = reader.u32(offset + kTrackSecondDataOffset);
+    reader.range(first, kWordBytes);
+    reader.range(second, kWordBytes);
+    result.tracks_.push_back({header, first, second});
+  }
+  return result;
+}
+MaterialAnimationLabels MaterialAnimationLabels::parse(
+    std::span<const std::uint8_t> bytes) {
+  const Reader reader{bytes};
+  if (reader.tag_view(0) != "CILB") {
+    unsupported("Unsupported material animation labels");
+  }
+  const auto count = reader.u32(4);
+  constexpr std::uint64_t kLabelHeaderBytes = 8;
+  const auto records =
+      span(reader, {kLabelHeaderBytes, count * kLabelRecordBytes});
+  for (std::uint32_t i = 0; i < count; ++i) {
+    (void)reader.text_view(
+        {kLabelHeaderBytes + i * kLabelRecordBytes + kWordBytes,
+         kPartNameBytes},
+        0);
+  }
+  return {count, records};
+}
+}  // namespace bw::formats

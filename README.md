@@ -40,6 +40,9 @@ installation at `~/Games/BulletWitch-Steam`. To use another location, set
 Use `./run --windowed` for a window, or `./run --build-only` to build without
 launching. Native host options pass through; see the
 [host notes](docs/native-startup-host.md) for controls and verification options.
+For static-stage inspection, `./run --inspect-camera X Y Z YAW PITCH` sets an
+explicit camera position and angles in degrees. Omitting it uses the recovered
+starting camera. This is a development view; player movement is not implemented.
 
 ## Where it stands
 
@@ -52,8 +55,11 @@ can grow and be tuned independently of the host code.
 There is no playable build yet. The Mac build runs the logos, opening cinematic
 and animated title screen using the original assets. It loads profile data,
 displays interactive menus and costume previews, and carries the selection
-through the original Lua to a gameplay request. World loading, some menu options
-and extra-mission routing remain open. The [startup notes](docs/startup-runtime.md) and
+through the original Lua to a gameplay request. One Shot Kill now opens its
+original mission script and completes its resource-loading sequence. The static
+view uses the ordinary stage models, original textures and
+reconstructed shaders. Actor creation and gameplay have not started; authored
+environment presentation and some menu options remain open. The [startup notes](docs/startup-runtime.md) and
 [native host notes](docs/native-startup-host.md) describe what runs and what
 remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
 a playable mission, the complete game and the Xbox port.

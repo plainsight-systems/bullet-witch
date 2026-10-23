@@ -21,6 +21,7 @@
 #include "bw/formats/bitmap_font.hpp"
 #include "bw/formats/common.hpp"
 #include "bw/formats/image.hpp"
+#include "bw/formats/world_texture.hpp"
 #include "media_memory_fixture.hpp"
 namespace {
 void check(bool condition, const char* message) {
@@ -147,6 +148,84 @@ void font_contracts() {
   bytes.at(48 + 256 * 12 + 12) = 0x10;
   rejects([&] { (void)bw::formats::BitmapFont::parse(bytes); });
 }
+void world_texture_contracts() {
+  // Authored4x2 RGBA byte ramp, no color-profile metadata or original bytes.
+  constexpr std::array<std::uint8_t, 99> png{
+      137, 80,  78, 71,  13, 10,  26, 10,  0,   0,   0,   13,  73,  72,  68,
+      82,  0,   0,  0,   4,  0,   0,  0,   2,   8,   6,   0,   0,   0,   127,
+      168, 125, 99, 0,   0,  0,   42, 73,  68,  65,  84,  120, 156, 99,  96,
+      96,  100, 98, 102, 97, 101, 99, 231, 224, 228, 226, 230, 225, 229, 227,
+      103, 16,  16, 20,  18, 22,  17, 21,  19,  151, 144, 148, 146, 150, 145,
+      149, 147, 7,  0,   21, 234, 1,  241, 191, 137, 157, 82,  0,   0,   0,
+      0,   73,  69, 78,  68, 174, 66, 96,  130};
+  const auto domain =
+      bw::memory::Domain::create(std::make_shared<bw::test::MediaBacking>());
+  const bw::memory::Allocator<std::uint8_t> allocator(domain);
+  std::vector<std::uint8_t> metadata(40);
+  word(metadata, 32, 29);
+  word(metadata, 36, 1 | (1U << 13U));
+  {
+    const auto decoded =
+        bw::formats::decode_world_texture({png, metadata}, allocator);
+    check(decoded.width == 2 && decoded.height == 2 &&
+              decoded.format == bw::formats::WorldTextureFormat::rgba16_float,
+          "Packed HDR uses metadata dimensions, not PNG width");
+    for (std::size_t i = 0; i < decoded.pixels.size(); i += 4) {
+      check(decoded.pixels[i] == i + 2 && decoded.pixels[i + 1] == i + 1 &&
+                decoded.pixels[i + 2] == i && decoded.pixels[i + 3] == i + 3,
+            "Packed HDR preserves original BGRA byte copy as little-endian "
+            "HALF4");
+    }
+    word(metadata, 32, 18);
+    const auto ordinary =
+        bw::formats::decode_world_texture({png, metadata}, allocator);
+    check(ordinary.width == 4 && ordinary.height == 2 &&
+              ordinary.pixels[0] == 0 && ordinary.pixels[2] == 2 &&
+              ordinary.format == bw::formats::WorldTextureFormat::rgba8,
+          "Ordinary world texture retains RGBA color order");
+  }
+  word(metadata, 32, 29);
+  // Six independent encoded faces retain their order in one HALF4 owner.
+  constexpr std::size_t kFaceCount = 6;
+  constexpr std::size_t kTableBytes = kFaceCount * 8;
+  std::vector<std::uint8_t> cube(kTableBytes);
+  for (std::size_t face = 0; face < kFaceCount; ++face) {
+    word(cube, face * 4, static_cast<std::uint32_t>(cube.size()));
+    word(cube, kFaceCount * 4 + face * 4,
+         static_cast<std::uint32_t>(png.size()));
+    cube.insert(cube.end(), png.begin(), png.end());
+  }
+  // Cube constructor takes only the packed width; height is square by contract.
+  word(metadata, 36, 1);
+  {
+    const auto decoded = bw::formats::decode_world_texture(
+        {cube, metadata, bw::formats::WorldTextureShape::cube}, allocator);
+    check(decoded.shape == bw::formats::WorldTextureShape::cube &&
+              decoded.width == 2 && decoded.height == 2 &&
+              decoded.pixels.size() == kFaceCount * 32,
+          "Cube preserves six square packed-HDR faces");
+    for (std::size_t face = 0; face < kFaceCount; ++face) {
+      check(decoded.pixels.at(face * 32) == 2 &&
+                decoded.pixels.at(face * 32 + 2) == 0,
+            "Cube face bytes keep original channel interpretation");
+    }
+  }
+  word(cube, 4, kTableBytes);
+  rejects([&] {
+    (void)bw::formats::decode_world_texture(
+        {cube, metadata, bw::formats::WorldTextureShape::cube}, allocator);
+  });
+  word(metadata, 36, 3 | (1U << 13U));
+  rejects([&] {
+    (void)bw::formats::decode_world_texture({png, metadata}, allocator);
+  });
+  metadata.resize(31);
+  rejects([&] {
+    (void)bw::formats::decode_world_texture({png, metadata}, allocator);
+  });
+  check(domain->snapshot().live_bytes == 0,
+        "Failed world conversion releases all decoded pixels");
+}
 void image_contracts() {
   // Authored 1x1 PNG: pixel RGBA(10,20,30,40), generated from zlib-compressed
   // unfiltered scanline and standard PNG chunks; contains no game bytes.
@@ -204,6 +283,7 @@ void image_contracts() {
 int main() {
   try {
     image_contracts();
+    world_texture_contracts();
     font_contracts();
     font_memory_contracts();
     std::cout << "PNG and bitmap-font contract checks passed\n";

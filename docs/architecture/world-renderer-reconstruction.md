@@ -1,6 +1,6 @@
 # World renderer reconstruction
 
-**Faithful reconstruction baseline · October 23, 2026 · world implementation pending.**
+**Faithful reconstruction baseline · October 23, 2026 · static device/material subset implemented; stage acceptance tracked separately.**
 [Rendering and presentation](rendering-and-presentation.md) defines the engine
 owners. This drill-in defines how their implementation follows the original
 renderer, beginning with One Shot Kill (`cm01_00`, stage `st04_c`). The
@@ -96,12 +96,234 @@ not require the same native binding layout on every target. Avoid embedding shad
 text in the host, silently substituting PBR materials, or introducing an unproven
 shader translator as a prerequisite for the whole registry.
 
+## Implemented static geometry and surface boundary
+
+The singular portable [WorldOutput](../../include/bw/render/world.hpp) owns model
+and texture identities, immutable uploads, explicit runtime texture tables and
+ordered surface draws. [WorldRenderer](../../src/platform/macos/world_renderer.hpp)
+is the selected Mac backend. Its standalone depth shader reconstructs projected
+bias behavior; its surface shader reconstructs the traced static families with
+geometric/normal-map surfaces, layered bases, vertex illumination/color,
+directional diffuse/specular, reflection, cube environment and fog inputs.
+The shared `world_material_requirements` helper classifies exact supported
+original selectors and required inputs independently of the target. [Source and verification mapping](../../research/engine/subsystems/world-renderer-foundation.md)
+records the original program identities and register meanings without exposing
+those names as engine architecture.
+
+```mermaid
+flowchart LR
+    CPU["Retained stage/model definitions"] --> Upload["WorldOutput uploads"]
+    Upload --> Mesh["Native vertex / index owners"]
+    Upload --> Texture["Native texture owners / runtime table"]
+    Camera["Authored initial camera / explicit diagnostic pose"] --> Game["Game view + original material inputs"]
+    Sky["Camera-centered sky / white harmonics / disabled depth"] --> Game
+    Game --> Family["Shared exact family / input requirements"]
+    Family --> Draw["Ordered opaque / cutout / source-alpha draws"]
+    Mesh --> Draw
+    Texture --> Draw
+    Draw --> World["World HDR color + depth pass"]
+    World --> Output["Luminance / exposure / bloom / display output"]
+    Output --> Overlay["Existing movie / UI overlay pass"]
+    Overlay --> Completion["Command completion wait"]
+    Completion --> Release["Safe owner mutation / release / budget return"]
+```
+
+This is implemented ownership and presentation order, distinct from the recovered
+original engine's full pass graph. CPU metadata uses injected domains; buffers,
+textures and depth storage hold device charges until actual GPU completion.
+Native pipeline and command metadata remain external API allocations. Failed
+upload or selection replacement retains the prior complete owner. Absent texture
+table entries are explicit: partial inspection can draw only materials whose own
+required textures reside, while whole-model readiness remains false.
+
+The implemented family set covers 4,097 draws across the ten ordinary stage
+objects plus the sky material under the explicit inspection contribution policy.
+Three below-stage untextured quads remain unsupported. Most selected draws use original
+cached no-shadow families; 139 use their actual cached shadow/local-light programs
+with authored light contributions explicitly omitted. That restricted policy
+rejects supplied light energy and preserves the remaining material equations.
+Alpha-cutout coverage and source-alpha blending are implemented. This census
+describes material support, not native stage-view acceptance or completed lighting.
+
+Inspection composes a source-derived static initial camera and explicitly selects
+all groups. It consumes authored camera, stage directional light, constant spherical-harmonic
+irradiance and display settings. The view uses the recovered reverse-depth and surface-sampler state.
+It does not claim original visibility, runtime pass selection, complete depth/shadow graph,
+effects or full renderer readiness. The cutout depth program's raw-UV alpha
+threshold is merged into direct inspection shading; original pass ordering is
+still a separate contract. [State evidence](../../research/engine/subsystems/world-renderer-state.md)
+distinguishes defaults from authored state. [Material evidence](../../research/engine/subsystems/world-renderer-foundation.md)
+records each supported family and the precise remaining variants.
+
+The existing native memory scenario exercises indexed depth and actual surface
+pixels with synthetic data, including layered texture/material modulation, HDR
+sky, environment cubes, source-alpha blending, raw-UV cutout coverage, fog, unusual
+normal-map inputs, resource failure and retirement. Stage-corpus execution and
+matched original-game captures are different evidence levels. The implementation
+has not established full numerical or image parity from those synthetic checks.
+
+## Initial camera, view and native state
+
+The earlier camera height, direction and field of view were inspection guesses.
+They did not establish the original initial view and are replaced by a bounded
+source-derived initialization. [Camera reconstruction](../../research/engine/subsystems/player-camera-initialization.md)
+records the scripted pose, authored ordinary preset, collision registration and
+ordered clearance algorithm. This is a static snapshot: the actual player actor
+and mission `start` callback have not executed in the inspection path.
+
+The shared customization tree belongs to the resource/format layer. Its player
+camera settings are inputs to game camera policy; stage assembly does not turn
+the tree into a player-camera owner. The game camera composes an explicit
+scripted player position/yaw, the authored preset and registered static collision.
+It applies vertical, lateral and rear clearance in source order. Moving actor
+collision, following, input, interpolation and vibration remain outside this
+initial snapshot.
+
+```mermaid
+flowchart LR
+  Script["Explicit scripted player pose"] --> Camera["Game initial camera composition"]
+  Tree["Shared customization tree"] --> Settings["Authored player camera settings"]
+  Settings --> Camera
+  Geometry["Registered static collision parts"] --> Clearance["Source segment clearance"]
+  Clearance --> Camera
+  Camera --> Pose["Rigid pose + perspective frustum"]
+  Pose --> View["Shared ViewTransforms"]
+  View --> Clip["Clip rows: near 1 / far 0"]
+  View --> Material["Camera-relative world rows: global axes"]
+  Clip --> Native["Native HDR scene: clear 0 / greater-equal depth"]
+  Material --> Native
+```
+
+[ViewTransforms](../../include/bw/render/view.hpp) validates a rigid camera basis
+and symmetric perspective frustum, then constructs portable dot-product rows.
+View rows rotate into camera coordinates; material rows only subtract the eye
+and retain global axes for normals and light vectors. Mixing those spaces would
+change material equations even when the projected geometry appears correct.
+The recovered positive-forward-Z projection maps the near plane to one and the
+far plane to zero. Native world presentation clears depth to zero and requires
+compatible greater-depth submissions; the sky can use nonwriting always-pass
+depth. Isolated caller-owned render passes keep an explicit independent policy.
+
+The sky is an independently submitted scene object. Its original transform keeps
+its authored yaw and height while following the camera eye; the shared view
+composes that transform without scaling the dome or changing the perspective.
+Its original pass disables depth testing and writing, represented as an
+always-pass, nonwriting draw before world geometry. Its original constant white
+spherical-harmonic input is carried as seven packed coefficient vectors,
+independently of material ambient and illumination.
+The initial inspection omitted the enabled runtime harmonic feature and selected
+a different cached program, producing a black sky. The corrected selector and
+coefficient path preserve the original polynomial instead of injecting ambient
+brightness. The [installed-sky comparison and source trace](../../research/engine/subsystems/sky-presentation.md)
+record that correction and its exact key encoding.
+
+An optional explicit rigid pose supports diagnostic exterior and upward views
+through the same stage view and renderer. It retains the authored perspective,
+resident assets and output history. This override changes neither the normal
+starting camera nor Lua/checkpoint execution; it is not player movement.
+
+The original main stage pass overrides surface minification to anisotropic
+filtering with a maximum of four, retaining linear magnification and mip
+filtering. The portable surface state represents this requirement; Metal maps
+it to a linear filter plus maximum anisotropy. Environment sampling retains its
+separate clamp/linear state and anisotropy one. Original generated mip chains
+remain a separate fidelity boundary. [State and sampling audit](../../research/engine/subsystems/world-output-fidelity-audit.md)
+records the exact clear/compare and sampler witnesses, API sample-center
+translation and numerical device checks.
+
+Repeated offscreen inspection also samples the original mission's checkpoint10
+and checkpoint20 positions through the same initial-camera constructor, plus an
+explicit upward pose. These are diagnostic viewpoints; neither checkpoint is
+executed or saved. Each capture first advances 90 starting-view frames, then 180
+exterior-view frames on the same production renderer and exposure history.
+The earlier captures showed textured exterior geometry but clipped ground and a
+black sky. Source tracing identified a missing runtime irradiance selector bit:
+it selected shader programs that never consumed the objects' original harmonic
+coefficients. The implementation now evaluates those coefficients at the surface
+normal, using authored scene RGB for ordinary objects and the original white
+field for sky. This contribution adds to baked vertex illumination independently
+of material ambient. Corrected offscreen captures now show the starting cave,
+textured exterior ground, industrial buildings, mountains and cloudy sky without
+the previous white-ground clipping. The renderer does not substitute ambient
+values or normalize the images.
+Generated PNGs, raw HDR readback and pose logs remain under the ignored stage
+reconstruction evidence directory.
+
+The actual `StartupHost` path was independently launched at the diagnostic
+checkpoint 10 pose and captured after 60 presented frames. Its 4,097 ordinary
+world draws plus sky show the same coherent scene as offscreen rendering;
+`slice3-host-checkpoint10.png` and its log retain that window verification.
+This closes the earlier black-sky/clipped-ground failure for the first static
+view. It does not claim full original-game image parity, the complete shadow
+pass graph or gameplay camera execution.
+
+Verification includes the existing six CTest entries, original-root corpus,
+and fatal clang-tidy across all 96 compilation entries. Native readback checks
+exercise constant irradiance, quadratic normal dependence, transformed normals,
+and additive combination with baked vertex illumination. These supplement the
+real scene/window verification rather than replacing it.
+
+## Scene color and display output
+
+The material pass produces scene HDR color. Writing it directly to an eight-bit
+window target bypassed the original exposure and gamma processing and produced
+a rejected, nearly black cave view. Display conversion is an engine owner with
+a native backend, independent of game menu composition.
+
+The portable `WorldOutputParameters` carries stage-authored tone, bloom and
+adaptation settings. `ExposureController` owns the recovered bounded luminance
+history and slew algorithm without a device or implicit clock. The Mac
+`WorldPostprocess` owns retained HDR/depth/intermediate textures, GPU reduction,
+bloom and final display encoding. Its standalone shader preserves the recovered
+output equations; it does not substitute a modern tone curve. See
+[display reconstruction](../../research/engine/subsystems/world-display-output.md)
+and [adaptation](../../research/engine/subsystems/world-output-adaptation.md).
+
+```mermaid
+flowchart LR
+  Customizer["Authored stage environment"] --> View["Game view composition"]
+  View --> Settings["Portable light / output parameters"]
+  Settings --> Host["Native host forwards output configuration"]
+  Materials["Original surface equations"] --> HDR["Native HDR scene"]
+  HDR --> Reduction["Log luminance reductions"]
+  Reduction --> History["Shared exposure history / slew"]
+  HDR --> Bloom["Native original bloom filters"]
+  HDR --> Display["Exposure / gamma display pass"]
+  Host --> Display
+  History --> Display
+  Bloom --> Display
+  Display --> UI["Display-space menu / overlays"]
+```
+
+The host adapter must forward authored output settings to the same native
+renderer that presents the frame. This operation is required by the common
+interface; a silent default previously caused the live host to omit tone mapping
+while direct-backend probes displayed it. Native-host acceptance therefore
+exercises this adapter as well as the backend shader chain.
+
+The host completes GPU work before reusing the retained targets or reading the
+previous luminance scalar. The first frame consumes its current GPU measurement;
+there is no invented initial exposure. Target storage is charged to the device
+budget and retired with the view. This preserves the existing conservative
+submission contract; asynchronous rendering remains separate work.
+
+`StageEnvironment` reads the original customization hierarchy. The game adapter
+converts the source light vector to the recovered shader direction and publishes
+the base light plus tone settings once. Ordinary objects publish authored stage RGB through the original constant
+spherical-harmonic constructor; the sky publishes white through that same
+coefficient path. This is separate from material ambient/emission. The 139
+explicitly restricted inspection draws retain this irradiance while omitting
+their unresolved directional/local-light and shadow terms. Fog, visibility,
+area-driven environment changes and full shadow passes remain open. Native
+image acceptance is tracked separately from implementation and scalar tests.
+
 ## First workload: One Shot Kill
 
 The **World renderer foundation** milestone builds reusable world rendering. Its
 first acceptance criterion is **first visible level**, using actual `st04_c`
-geometry and an explicitly identified inspection camera near the authored spawn.
-The camera is a development view, not reconstructed gameplay-camera acceptance.
+geometry and a source-derived static initial camera at the scripted spawn.
+The inspection supplies that pose explicitly; actual actor creation and camera
+execution during gameplay remain separate acceptance work.
 
 Before implementing the material subset, enumerate the stage's actual mesh,
 texture, shader, group and draw-record dependencies from its loading path and
@@ -118,9 +340,10 @@ resulting architectural decisions and links to that evidence.
 
 The foundation covers the confirmed static subset: mesh/index data, transforms,
 view/projection, depth and original textured-material behavior needed to see the
-level. Record all omitted contributions visibly in the acceptance report. Sky,
-lighting, backgrounds, effects and additional passes enter the following stage
-presentation slice as their actual consumers are reconstructed. A simplified
+level. Record all omitted contributions visibly in the acceptance report. Sky is included where its original static material is now reconstructed.
+The base authored light and HDR-to-display chain are required by this first view.
+Animated area overrides, backgrounds, effects and additional passes enter the
+following stage presentation slice as their actual consumers are reconstructed. A simplified
 inspection output, if needed, must be identified as diagnostic and cannot satisfy
 acceptance for a missing original material or pass.
 

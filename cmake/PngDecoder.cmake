@@ -27,7 +27,7 @@ function(bw_configure_png_decoder)
     URL_HASH SHA256=2540302a1844ad2b2b501977abecfa850f265f97b78f065a712ab4074a89f5b5
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(bw_libpng)
-  add_library(bw_images src/formats/image.cpp src/formats/bitmap_font.cpp)
+  add_library(bw_images src/formats/image.cpp src/formats/bitmap_font.cpp src/formats/world_texture.cpp)
   target_include_directories(bw_images PUBLIC include)
   target_compile_features(bw_images PUBLIC cxx_std_20)
   target_link_libraries(bw_images PRIVATE png_static PUBLIC bw_resources)

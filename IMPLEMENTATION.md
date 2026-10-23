@@ -34,7 +34,10 @@ logo/check tasks and native movie output are implemented. The Mac backend uses
 Metal and AudioQueue. Advertise, title, profile loading, interactive menus and
 validated campaign gameplay requests are implemented. The current front end
 supports persisted costume selection and volume settings, with original authored
-menu/costume sprite assets. World loading and gameplay remain next-stage work.
+menu/costume sprite assets. One Shot Kill now owns its original mission context,
+retained stage and character dependencies, and a static stage/sky
+view. The original mission load returns naturally and waits at world setup;
+actor creation, gameplay and authored stage presentation remain work.
 
 The [memory foundation](research/engine/subsystems/memory-migration-completion.md)
 now covers the current startup owners, bounded root Lua heap, native CPU backing
@@ -116,9 +119,13 @@ The arrows describe the chosen development approach, not an already working port
 
 ## SRC-03: One Shot Kill delivery breakdown
 
-**Target selected October 23, 2026; mission/world slices below remain planned.**
-The user-approved Concept Mission menu unlock is implemented; it does not complete
-mission launch or loading. The renderer follows the faithful reconstruction
+**Target selected October 23, 2026; slices 1–3 are authorized, with distinct
+acceptance boundaries below.**
+The Concept Mission menu unlock, source-backed concept routing and owned mission
+Lua are implemented. The original load returns after genuine resource
+construction. Static main-stage, spawn-cave and sky rendering uses a declared
+inspection policy; native observations are recorded separately from CPU tests.
+The renderer follows the faithful reconstruction
 direction in its dedicated architecture drill-in. Use One Shot Kill (`cm01_00`, extra mission ID 1), which
 loads stage resources `st04_c`. The [DLC comparison](research/engine/subsystems/dlc-first-level-selection.md)
 supports the choice by script scope; it does not establish the smallest asset or
@@ -129,27 +136,56 @@ level-viewer project.
 |---|---|---|
 | 1. Concept launch and mission ownership | Resolve native menu status 5 versus root status 6 and the selected-extra resource route. Original root calls `_StartMission("concept")`; establish how selection ID 1 resolves to `cm01_00`. Consume the owned request instead of exiting the host. Retain root/profile/screens in the session; give the mission its Lua context, default callbacks, pending operations and resource group. | Original Lua reaches the validated concept handoff with difficulty/costume intact; mission script loading and pending/error transitions are observed. Concept Mission is accessible without game completion by explicit user decision; campaign Stage Select and difficulty gates remain intact. No guessed status remapping, changed Lua or fabricated achievements. Full mission `load()` completion depends on slice 2. |
 | 2. Required content and typed loading | Follow the real `load()` sequence and census its transitive stage/placement dependencies: sky, character lighting, area/model data, text/score, hide/path data, sound/environment/reverb, magic/background objects and `cm01_00_0`. Extend typed record/CALL handling and the shared background resource worker as required. | Required content is decoded and owned with explicit readiness; queue completion alone never reports successful asset construction. Missing/malformed content, cancellation and release have observable outcomes and balanced ownership. GPU readiness remains a later consumer boundary. |
-| 3. World renderer foundation | Follow the [renderer reconstruction drill-in](docs/architecture/world-renderer-reconstruction.md). Assemble real static stage geometry through shared world/render contracts and the Mac Metal backend. Add vertex/index/depth handling and the required original textured material subset. Use a declared inspection camera near the authored spawn. | First visible level: actual `st04_c` geometry appears with checked placement, scale and depth. This is a static world view, not player control or completed original lighting; omissions are recorded. |
+| 3. World renderer foundation | Follow the [renderer reconstruction drill-in](docs/architecture/world-renderer-reconstruction.md). Assemble real static stage geometry through shared world/render contracts and the Mac Metal backend. Add vertex/index/depth handling and the required original textured material subset. Use the script-authored spawn and recovered initial player-camera settings, clearance and projection. | First visible level: actual `st04_c` geometry appears with checked placement, scale and depth. This is a static world view, not player control or completed original lighting; omissions are recorded. |
 | 4. Required stage presentation | Add the sky, background, lighting/area behavior and material/effect variants required by the confirmed dependency closure. This can proceed alongside later actor work once interfaces are stable. | The stage's required presentation inputs have visible consumers and known gaps; no blanket original-renderer parity claim. |
 | 5. Alicia and traversal | Construct the player actor, model/animation, input, game camera and collision/movement path. Honor mission entry and checkpoint-dependent player positions. | Alicia can traverse the stage through the game camera without falling through geometry; original start/pause/resume gates and checkpoint 0/10/20 placement branches are exercised. |
 | 6. Mission behavior | Implement the placement-driven enemies and required native AI/combat/damage, traps 610/620, checkpoints 10/20, goal 500, timer dispatch, HUD/messages, gameplay audio and effects. Establish where the one-hit rule is implemented outside the mission script. | The actual actors and mission callbacks produce observable behavior: checkpoint progression, music timer, goal handling and evidenced one-hit/death behavior. Script simplicity is not treated as absence of native enemies or AI. |
 | 7. Complete the mission loop | Connect clear/death/retry/result/root-return routing and repeat load/unload. Preserve outcome values separately from cleanup completion. | Load, play, clear or die, retry, return to menu and load again without stale jobs, callbacks, leases or device uses. Gameplay save writing is accepted only after its schema and restoration behavior are implemented. |
+
+Current slice status: slice 1 owns routing, original mission/default callbacks,
+wait/error states and cancellation. Slice 2 now completes the original
+`cm01_00.load()` naturally: stage/sky residency, typed collision/area/material
+animation, text/cover/sound registration, background variants, placement tables,
+character/weapon motion/shape dependencies and NPC palette bindings are owned.
+The script stops at `awaiting_world_setup`; no gameplay start is fabricated.
+The original-root corpus verifies 54 dependency model variants, 11 shared support
+sets and 178 palette bindings, plus complete cancellation and zero retained CPU
+allocation. Slice 3 composes all ten ordinary stage models from borrowed
+load-owned resources: 4,097 selected draws, three explicit untextured-material omissions
+and one sky draw. Source-backed model classification includes background,
+detail and cave geometry; overlapping bounds are not treated as a LOD filter. The initial camera now consumes the original fresh-start pose, authored player
+settings and static collision queries. Shared view transforms and native depth
+state preserve the original reverse-depth convention. This remains a static
+snapshot before actor setup. Slices 1–3 are implemented, verified and accepted
+for commit on October 23, 2026.
+The corrected native host shows the cave, exterior ground, buildings, mountains
+and sky. Runtime shader selection now consumes the original sky and authored
+stage spherical-harmonic inputs, and the host forwards the authored output
+settings. This closes the earlier black sky and clipped ground failures without
+changing exposure values. Complete stage presentation remains slice 4: original
+visibility, shadows, material animation, generated mip chains and background
+placement still need their consumers. Slice 4 is the proposed next scope for
+discussion; implementation is not yet authorized.
+Current native observations belong in [renderer evidence](research/engine/subsystems/stage-view-completion.md);
+load acceptance is recorded in [mission ownership](research/engine/subsystems/mission-launch.md).
 
 Teardown and partial-construction rollback belong to every slice; slice 7 verifies
 the complete loop rather than introducing cleanup at the end. A developer mission
 launch path may shorten iteration, but cannot stand in for validated menu routing.
 The user-approved Concept Mission completion-gate removal is an intentional
 menu-policy departure for this reconstruction. It does not mark the game complete,
-set achievements or unlock campaign Stage Select, Chaos or Hell. Resolving status
-5 versus 6 and the selected-concept resource alias remains separate work.
+set achievements or unlock campaign Stage Select, Chaos or Hell. The native
+status accessor and selected-concept resource alias are separately recovered and
+implemented; menu access policy does not replace those contracts.
 
 Before traversal, decide the backend and cooked-collision treatment for the
 [recovered PhysX 2.6.4 boundary](research/engine/subsystems/physics-and-collision.md).
 That choice affects behavior and needs explicit direction if it changes fidelity;
 it need not block the first static view. Existing movie PCM playback does not
 implement gameplay sound banks. Scope material/shader work to actual stage needs,
-not translation of all 490 shaders. The existing 15-terrain-mesh inventory is not
-a confirmed `st04_c` subset, and its actor/placement census is still outstanding.
+not translation of all 490 shaders. The CPU loader now confirms 15 model definitions in the `st04_c` namespace;
+that is not 15 placed terrain objects. Actor/placement construction remains
+outstanding.
 
 Keep shared contracts and reusable algorithms portable, with native device work
 under the target folders. Use subagents, header-first contracts and brief local
@@ -266,9 +302,12 @@ runtime structure; the same complete engine architecture governs every slice.
 The resource/task/Lua infrastructure and concrete front-end slice are delivered.
 The original root drives logos, startup check, opening cinematic, animated title,
 profile loading and interactive menus. New Game, valid Continue and campaign-stage
-selections can produce a validated owned gameplay request; a future mission owner
-must consume it. The current executable reports the request and exits. No mission
-is loaded or rendered.
+selections can produce a validated owned gameplay request. One Shot Kill now
+consumes that request through its original mission Lua and retained load owners.
+The shared host prepares a separate static stage/sky view from the
+load owner's resident models and textures. Original load completes before the
+world-setup boundary; the inspection does not advance actor or gameplay setup.
+Other mission routes still stop at the request boundary.
 
 The provisioned original-root scenario retains routing fixtures and also uses
 production profile/menu/session code, actual profile I/O, original decoded assets
@@ -286,12 +325,13 @@ flags remain false without a connected provider, so campaign Stage Select and
 higher difficulty gates remain intact. Concept Mission alone bypasses its
 game-completion gate by user-approved menu policy; installed assets are not
 evidence of achievements. The native extra status 5 versus original Lua status 6
-mismatch and selected-concept resource alias remain unresolved. The startup-check
+accessor mapping and selected-concept resource alias are resolved and implemented
+without changing original Lua. The startup-check
 visuals and complete original storage/dialog behavior also remain work. The
 faithful menu milestone must not be declared complete by counting selection
 policies alone.
 
-The next target is One Shot Kill. Preserve the implemented front-end and owned
-gameplay-request contracts while adding mission/world ownership; address the
+The current target is One Shot Kill. Preserve the implemented front-end, owned
+mission and inspection contracts while completing remaining load consumers; address the
 remaining front-end gaps at their owning subsystems rather than fabricating
 successful behavior.

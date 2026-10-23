@@ -121,8 +121,12 @@ including declaration groups and inline or template implementations.
 
 Keep the full design in the opening contract. Local comments should be brief
 signposts, not copied paragraphs, repeated rule citations or a narration of every
-statement. There is no requirement to comment every function or branch. Update
-or remove each comment when the corresponding behavior changes.
+statement. There is no requirement to comment every function or branch. Lead with the
+operation and its purpose. Native addresses, opaque shader IDs and recovered
+handler names belong in the research/provenance mapping; they do not substitute
+for explaining the implementation. Keep exact disk tags where they clarify a
+format boundary, and retain the required guideline citations in file contracts.
+Update or remove comments when the corresponding behavior changes.
 
 ## Verification
 

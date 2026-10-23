@@ -20,13 +20,12 @@ from the currently implemented subset.
 Main-menu status 2 is Continue; status 7 returns to title. Quit uses the native
 application-exit branch, not a fabricated Lua result.
 
-The extra-mission route has an unresolved original mismatch: the recovered
-native parent sets status **5** after its stage child succeeds, while the original
-root bytecode recognizes **6** for `concept_mission`. `MenuSelection` preserves
-5 and identifies the action explicitly; it does not silently rewrite the value.
-The stage child stores the selection and returns, and its examined update does
-not call a mission-start routine. Any bridge around this mismatch must be an
-explicit compatibility decision, not an assertion that root handled it.
+The extra-mission parent stores internal status **5**, but native accessor
+`0x49a560` maps it to API result **6**, matching original root `concept_mission`.
+The earlier mismatch report stopped at the internal field. `MenuSelection`
+retains internal5; `StartupSession::status` now applies the recovered accessor
+mapping. The selected content alias resolves to the matching `cmXX_00` package.
+See [mission launch](mission-launch.md) for pointer/table witnesses and lifecycle.
 
 ## Steam overrides and achievement availability
 
@@ -60,8 +59,8 @@ The child list still uses the recovered content refresh and availability bytes;
 no extra IDs are fabricated and no original assets, Lua or save achievements
 are patched. In-process tests navigate a fresh profile into the 18 supplied
 mission choices, select One Shot Kill (ID 1), and verify the other gates remain
-closed. Selection still publishes native status 5: the unresolved root-status-6
-route and mission loading are separate work. Menu access does not establish a
+closed. Selection still publishes internal native status5; the status accessor
+returns API6 for the original root. Mission loading has separate readiness gates. Menu access does not establish a
 working mission handoff or native visual acceptance.
 
 ## Costume preview: sprites, independently from applying the costume

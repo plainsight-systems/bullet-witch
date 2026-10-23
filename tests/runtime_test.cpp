@@ -31,6 +31,8 @@ void title_flow_contracts();
 void pcm_buffer_contracts();
 void startup_playback_contracts();
 void test_menu_flow();
+void initial_camera_tests();
+void startup_options_tests();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -179,6 +181,8 @@ int main() {
     pcm_buffer_contracts();
     startup_playback_contracts();
     test_menu_flow();
+    initial_camera_tests();
+    startup_options_tests();
     bridge_contract();
     failures();
     scheduling();

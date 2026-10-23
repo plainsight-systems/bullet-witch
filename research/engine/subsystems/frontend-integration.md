@@ -109,8 +109,9 @@ CRC/RGBA comparison covers all 93 menu textures.
 
 ## Remaining boundaries
 
-- Extra selection emits recovered native status 5, while the original root tests
-  6 for concept missions. The mismatch remains explicit; no invented remapping.
+- Extra selection retains internal native status5; recovered accessor0x49a560
+  maps it to API6, matching the original root. This former uncertainty is closed
+  in [mission launch](mission-launch.md); load/setup readiness remains separate.
 - The app provides fresh achievement state. The policy can accept recovered
   difficulty/stage unlocks, but Steam achievement import and a local gameplay
   progression producer are not implemented.

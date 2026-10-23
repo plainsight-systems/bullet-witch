@@ -99,6 +99,22 @@ Resources remain alive until root and title archive/tag interests are released.
 Title asset composition releases sprite commands and texture identities before
 its borrowed renderer is destroyed; the host outlives all game asset owners.
 
+For One Shot Kill, that same framework scope now owns a selected resource
+service, `MissionLoading`, `MissionDriver` and `StageInspection`, in that
+construction order. Destruction reverses the order: inspection retires native
+submission and mesh/texture handles; the mission destroys its Lua context and
+poll captures, cancels load owners and releases script tags; loading/catalog
+owners then retire. Files, domains and the native host outlive these borrowers.
+No worker captures or detached asynchronous work are introduced by this slice.
+
+The root remains pending while original mission Lua executes `load()`. Genuine
+resource readiness is separate from blocked collision/material-animation/world
+consumers. Static inspection can own and submit its supported original-material
+subset during that wait; it neither starts gameplay nor completes root's mission
+wait. This implements mission/content ownership and a renderer consumer, not the
+planned actor/physics `World` object. See
+[mission launch](../../research/engine/subsystems/mission-launch.md).
+
 The session owns one scheduler and its root driver; scheduler callbacks borrow
 the session and are destroyed before its flow/root storage. This prevents a
 callback from surviving an independently destroyed root. Screen priority

@@ -14,14 +14,24 @@
   profile/menu/campaign-request slice. Resolve logo open-failure continuation,
   ordinary media-open rejection versus terminal decoder errors, and startup-wide
   initial fade state at their owning systems.
-- Resolve extra-mission native status 5 versus original root status 6 before
-  claiming a concept mission handoff. Trace original `_StartMission("concept")`
-  through selected-extra mounting/alias resolution to `cm01_00`; do not change
-  Lua or guess a remapping. Supply achievement/progression state for
-  IDs 9/10/13 for campaign Stage Select and higher difficulties; those gates
-  still use fresh locked state. The concept-menu completion gate is intentionally
-  removed, but mission content availability and the unresolved handoff remain
-  separate. Installed content flags alone must not unlock campaign progression.
+- Continue One Shot Kill after its original load now returns: implement actor
+  and world setup before calling gameplay start. Loading-scene animated
+  sprites/text, authored environment/visibility, background placement and
+  complete stage passes remain presentation work. Stage collision/area/material
+  animation, character motion/shape definitions and sound-bank registration have
+  real load owners; runtime simulation, animation and cue playback are separate
+  consumers. Slices 1–3 were accepted for commit on October 23, 2026, after native verification of the
+  recovered initial camera, original static clearance, reverse-depth projection,
+  authored stage ambient SH and camera-centered sky. Carry the remaining three
+  untextured below-stage quads, generated mip chains, visibility and shadow/pass
+  behavior into the proposed slice 4, whose implementation awaits agreement;
+  do not confuse a coherent static view with complete
+  original presentation. The view supplies an explicit recovered script-pose bootstrap;
+  later actor start must become its live pose owner. Camera input, animated
+  anchor transforms, follow transitions and dynamic collision remain separate. Native internal menu 5 to API 6 and selected concept alias are
+  resolved; keep original Lua unchanged. Supply achievement/progression
+  state for IDs 9/10/13 for campaign Stage Select and higher difficulties; the
+  concept-menu completion gate alone is intentionally removed.
 - Continue memory reconstruction when world/AI/worker consumers are introduced.
   The current startup-owner migration is complete; the recovered AI linear mode
   is distinct from the implemented root reclaiming heap. Establish reset and
@@ -37,7 +47,10 @@
   explicit development choices; backend execution does not prove full fidelity.
 - Extend root/mission native bindings as their owning game systems are implemented;
   missing bindings and unsupported resource/CALL handlers remain explicit failures.
-- Close camera/view, scene/visibility, lighting/pass, all-mode schedule and
+- Extend the bounded initial game camera and static spatial query into live
+  actor camera/follow and dynamic-scene ownership; preserve the source clearance
+  contract and measured query cost when replacing linear broad-phase traversal.
+  Close scene/visibility, lighting/pass, all-mode schedule and
   auxiliary-worker contracts at their owning boundaries as source reconstruction
   reaches them. Structural ownership is established; behavior remains explicit.
 - Reconcile the eleven-scenario integration inventory with the five-scenario target

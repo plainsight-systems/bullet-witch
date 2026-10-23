@@ -77,6 +77,8 @@ class ResourceService {
   ResourceService(CatalogSet catalogs, const platform::Files& files,
                   std::shared_ptr<memory::Domain> domain);
   auto memory_domain() const { return allocator_.domain(); }
+  // Typed load owners borrow immutable catalog identities through this service.
+  const CatalogSet& catalogs() const { return catalogs_; }
   // Register dependency interests, then advance encoded readiness one phase at
   // a time.
   void request(std::string_view name, ResourceTag tag);

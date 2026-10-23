@@ -66,6 +66,7 @@ void navigation_and_new_game() {
   require(flow.presentation().page == bw::game::MenuPage::extra &&
               flow.presentation().count == 18 &&
               flow.presentation().rows.at(1).compatibility_id == 1 &&
+              flow.presentation().rows.at(1).label == "One Shot Kill" &&
               flow.presentation().rows.at(6).compatibility_id == 16,
           "Fresh profile exposes only the original supplied mission groups");
   down(flow);
@@ -79,7 +80,8 @@ void navigation_and_new_game() {
           flow.selection()->action == bw::game::MenuAction::concept_mission &&
           flow.selection()->stage == 1 &&
           flow.selection()->original_status == 5,
-      "One Shot Kill is selectable without inventing a working Lua handoff");
+      "One Shot Kill preserves internal result5 for the native status "
+      "accessor");
 }
 void continue_and_back() {
   bw::game::Profile profile;
@@ -152,7 +154,7 @@ void persisted_availability() {
   accept(flow);
   require(flow.selection() && flow.selection()->stage == 0 &&
               flow.selection()->original_status == 5,
-          "Extra handoff preserves observed native5 instead of guessing Lua6");
+          "Extra handoff retains native5 before the status accessor");
 }
 void options_and_stage() {
   bw::game::Profile profile;

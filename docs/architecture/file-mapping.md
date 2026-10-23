@@ -26,6 +26,12 @@ contracts. Original-engine research retains the identifiers needed to trace evid
 | `ResourceCatalogData` | Decode catalog names, file references and dependencies | `.rat`, `RAT ` |
 | `ResourceCatalog` | Own decoded catalog data and index it for lookup | RAT-backed catalog |
 | `NamedFilePackage` / `PackageMember` | Access individual named files inside a package | `.dpk`, `dpk\0` |
+| `ModelDefinition` | Retain original mesh records and decode bounded streams, indexed draws, materials and constants | `VFX2`, `CNKH`, `DIP`, `kns2`, `CF1I` |
+| `StageDefinition` | Resolve catalog-selected model/texture definitions and retain explicit auxiliary inputs | Native stage/sky loading namespaces and texture `table._tm` |
+| `SectionTable` | Borrow bounded row/column sections with typed optional cells | `STBL`, placement/cover/score tables |
+| `TextTable` | Validate immutable text-tree links and string pools for registration | `STMANAGE` |
+| `AudioBankDefinition` | Construct typed wave, cue, sound, track and event definitions with borrowed payloads | `FBSC` wrapper, XACT sound/wave banks |
+| `WorldTextureImage` | Preserve original ordinary and packed half-float pixel interpretation before device upload | CPR texture metadata; D3D A8R8G8B8 / A16B16G16R16F |
 | `TaskLifecycleScheduler` | Advance lifecycle, active-update and late-update passes on one thread | Recovered task-dispatch functions |
 | `CompanyLogoFlow` | Advance the ordered logo movie/fade/input update policy | CompanyLogo task update |
 | `StartupCheckFlow` | Advance the PC startup UI check phases and result | MemoryCardCheck task update; no storage I/O in this update |
@@ -320,6 +326,47 @@ world/AI pools and asynchronous GPU retirement await their consumers. See
 [the current implementation record](../../research/engine/subsystems/memory-migration-completion.md)
 for coverage and verification.
 
+## Implemented stage content boundary
+
+`formats/model` owns retained CPU mesh bytes, declarations, indexed draws,
+material references/constants and original record ordering. `content/stage`
+selects definitions through mounted catalogs and resolves the original runtime
+texture tables. `formats/stage_definitions` binds collision geometry, physics
+reference graphs, AREA/FLAN views and material-animation tables; `StageInput`
+keeps typed construction readiness separate from device residency. Unknown
+present consumers retain explicit unresolved reasons, while absent optional
+requests remain absent. Texture-only palette sets share the runtime table loader.
+`formats/stage_environment` resolves the original customization hierarchy into
+small typed lighting, sky and tone-mapping values. The primary stage retains one
+customization archive; dependency mesh loads do not duplicate this owner.
+These belong to `bw_resources`. `formats/world_texture` in `bw_images` decodes
+ordinary RGBA8 and packed HALF4 pixels, including six-face cubes, using original resource metadata. None
+of these types contains native device objects, actor instances or visibility
+policy. Native rendering borrows their stable definitions and owns its own
+device allocations; CPU definition readiness does not imply full stage readiness.
+See [stage decoding evidence](../../research/engine/subsystems/stage-content-decoding.md)
+for original source anchors, supported subsets and acceptance boundaries.
+
+## Implemented world device boundary
+
+| File | Responsibility |
+|---|---|
+| `include/bw/render/world.hpp` | Singular portable model/texture ownership, explicit residency and ordered material draw contract |
+| `include/bw/render/world_material.hpp`, `src/render/world_material.cpp` | Shared classification of exact recovered static material families and required textures/attributes; unknown variants reject |
+| `include/bw/render/world_output.hpp`, `src/render/world_output.cpp` | Authored HDR display parameters and portable sampled luminance adaptation; bounded history, explicit elapsed input and output-only limits. Native backends own image reduction, readback and final composition |
+| `src/platform/macos/world_postprocess.hpp/.mm`, `src/platform/macos/shaders/world_output.metal` | Accounted HDR/intermediate target owners and recovered luminance, bloom, exposure and gamma passes; device completion gates reuse and scalar readback |
+| `src/platform/macos/world_renderer.hpp/.mm` | Native immutable uploads, selected surface/depth pipelines, original draw addressing and submission validation |
+| `src/platform/macos/buffer_allocation.hpp/.mm` | Retained native vertex/index bytes with transactional device admission and reconciled accounting |
+| `src/platform/macos/texture_allocation.hpp/.mm` | Shared sampled color/packed-half textures and private depth attachments with device charges |
+| `src/platform/macos/shaders/world_color.metal` | Static transforms and original geometric/normal/layered/sky equations, cube reflection and alpha coverage/blending |
+| `src/platform/macos/shaders/world_depth.metal` | Original projected constant/slope-biased depth output |
+| `src/platform/macos/startup_host.mm` | World pass followed by existing movie/UI composition and completion-safe retirement |
+
+Game stage selection and inspection-camera/material policy remain in `src/game/`.
+Device classes do not own gameplay visibility or infer lighting. See the
+[renderer drill-in](world-renderer-reconstruction.md#implemented-static-geometry-and-surface-boundary)
+for implemented flow, supported material coverage and remaining pass semantics.
+
 ## Implemented title presentation
 
 `bw_images` owns shared bounded PNG and original FONT decoding under
@@ -330,7 +377,8 @@ portable `render::SpriteOutput` and the resource service, not Metal.
 resource readiness and presentation without coupling the flow to a codec or
 renderer. Mac implementation and standalone shaders remain under
 `src/platform/macos/`. Native texture handles and bounded ordered commands
-are the implemented renderer subset; the world renderer remains proposed.
+and static world geometry/material draws are implemented renderer subsets. The
+full world pass graph remains proposed.
 
 
 ## Implemented profile, menu and handoff ownership
@@ -368,8 +416,81 @@ flowchart TD
 ```
 
 `_StartMission` and `_WaitMission` are part of the 19 root bindings. The former
-validates a campaign request against the confirmed selection; the latter remains
-pending for a future world owner. The framework currently reports the request
-and exits. Extra-mission routing, achievement-provider integration, omitted
-option screens and game/menu audio remain explicit gaps in the
+validates the confirmed campaign or concept selection; the latter remains
+pending until an implemented mission outcome exists. The framework now consumes
+One Shot Kill through `MissionDriver` and `MissionLoading`; other routes still
+report the request boundary. `StageInspection` borrows mission-owned models and
+textures and owns only the submitted static view. Original load readiness is
+independent of that view; unsupported constructors remain explicit. Achievement
+providers, omitted option screens and game/menu audio remain explicit gaps in the
 [startup contract](../startup-runtime.md#profile-menu-and-gameplay-handoff).
+
+
+## Implemented mission and inspection ownership
+
+| File | Responsibility |
+|---|---|
+| `src/game/mission_driver.hpp/.cpp` | Original mission/default-callback Lua context, serial native waits and cancellation |
+| `src/game/mission_loading.hpp/.cpp` | Serial native load requests, CPU definition and device residency ownership, readiness and cancellation |
+| `src/game/mission_package_inputs.cpp` | Package text/cover/placement consumers, sound-bank registration and model dependency preloads |
+| `src/game/npc_palette.hpp/.cpp` | Compatible NPC material-variation registry linked to resident textures |
+| `include/bw/formats/section_table.hpp`, `src/formats/section_table.cpp` | Shared bounded placement, cover and score table access |
+| `include/bw/formats/text_table.hpp`, `src/formats/text_table.cpp` | Text-tree construction and registration data without pointer relocation |
+| `include/bw/formats/audio_bank.hpp`, `src/formats/audio_bank.cpp` | Typed sound/wave bank metadata; no audio voices or playback |
+| `src/game/stage_inspection.hpp/.cpp` | Static material selection, explicit near-spawn camera and borrowed-device view submission |
+
+```mermaid
+flowchart LR
+    Root[Original root Lua] --> Selection[Owned concept selection]
+    Selection --> Mission[MissionDriver: original mission Lua]
+    Mission --> Loads[MissionLoading: load owners]
+    Loads --> Definitions[Stage, text, cover, sound and placement definitions]
+    Loads --> Residency[Native mesh and texture residency]
+    Loads --> Character[Character support and NPC palette owners]
+    Definitions -. borrow .-> Inspection[StageInspection: declared static view]
+    Residency -. borrow .-> Inspection
+    Inspection --> Device[WorldOutput: native rendering]
+    Loads --> Readiness[Original load constructor readiness]
+    Readiness --> Setup[Later world and gameplay setup]
+```
+
+Inspection never completes the original mission's load or starts gameplay.
+Device owners retire before their borrowed host; the Lua context retires before
+load-service captures and tagged scripts. See
+[mission launch](../../research/engine/subsystems/mission-launch.md).
+
+
+## Implemented character support construction
+
+| File | Responsibility |
+|---|---|
+| `include/bw/formats/animation_definition.hpp`, `src/formats/animation_definition.cpp` | Bounded motion/shape relocation and skeleton bind-transform construction; no sampling |
+| `include/bw/content/character_support.hpp`, `src/content/character_support.cpp` | Native support-name aliases, ordered lists and retained archive/USER ownership |
+
+Model definitions retain ordinary and shape streams separately. Device residency
+can complete while deformation-dependent drawing remains unavailable. See
+[character load constructors](../../research/engine/subsystems/character-load-constructors.md).
+
+
+### Initial game camera and static spatial query
+
+| Source | Responsibility |
+|---|---|
+| `include/bw/formats/customization.hpp`, `src/formats/customization.cpp` | Shared immutable customization tree and bounded authored payload lookup |
+| `include/bw/formats/player_camera.hpp`, `src/formats/player_camera.cpp` | Original initial player camera preset and general frustum settings |
+| `include/bw/scene/spatial/static_collision.hpp`, `src/scene/spatial/static_collision.cpp` | Static collision part registration, original triangle/clearance query; borrowed definition lifetime |
+| `src/game/camera/initial_camera.hpp/.cpp` | Initial scripted-pose camera composition, ordered original clearance and renderer view output |
+
+The stage content owner retains generic customization bytes; game camera policy
+selects its own authored paths. Initial inspection supplies the recovered script
+pose explicitly until the actor/start owner executes it. This bounded static
+snapshot does not imply player traversal or a complete camera controller. Source
+contracts and limitations are in [player camera initialization](../../research/engine/subsystems/player-camera-initialization.md).
+
+
+Launch option parsing lives in `src/framework/startup_options.cpp`; it produces
+the owned `StartupOptions` declared alongside application composition. The
+optional inspection pose crosses into `StageInspection` only during view setup.
+It adds no input controller or replacement gameplay-camera owner. Keeping the
+parser independent of the native loop permits in-process configuration checks
+without launching a window or reading game files.

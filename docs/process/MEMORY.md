@@ -21,9 +21,34 @@
   (`cm01_00`, extra mission ID 1), using `st04_c` stage resources. The planned
   breakdown in `IMPLEMENTATION.md` separates mission/content loading, a first
   static stage view, stage presentation, player traversal and mission behavior.
-  These slices are not implemented or separately approved. Original concept
-  launch routing remains evidence work; a development launch path is not faithful
-  menu acceptance. The user explicitly removed the concept-menu completion gate:
+  Slices 1–3 are authorized. Original concept launch follows native internal
+  status 5 to API 6 and selected-package aliasing to cm01_00. Its original load
+  now returns naturally after typed stage/collision/material-animation owners,
+  text/cover/audio registration and character/weapon dependency construction.
+  The mission waits at `awaiting_world_setup`; actor creation and gameplay do
+  not run. Original-root integration verifies 54 dependency model variants,
+  11 shared character support sets and 178 NPC palette bindings, with balanced
+  teardown. The static view borrows those load-owned GPU resources and selects
+  all ten ordinary stage models: 4,097 selected draws, three untextured-material
+  omissions and one sky draw. This is a
+  bounded static snapshot. Its initial camera now decodes the authored behind-player
+  preset, applies the recovered fresh script pose/yaw and original static
+  triangle-clearance sequence, then supplies the original fixed-aspect reverse-depth
+  projection. Generic stage customization and scene collision remain engine
+  owners; player camera policy lives under game/camera. Mission start/actor
+  simulation has not executed, so this explicit pose bootstrap does not claim a
+  live gameplay camera. Slices 1–3 are implemented, verified and accepted for
+  commit on October 23, 2026. Slice 4 remains planned for discussion; its
+  implementation is not yet authorized. Corrected native captures show cave, exterior ground,
+  buildings, mountains and sky. The host now forwards authored output settings;
+  shader selection includes the original runtime SH feature, with white sky
+  coefficients and authored stage ambient RGB. No exposure adjustment was used
+  to fix the black sky or clipped ground. An explicit `--inspect-camera` override
+  supports exterior review while normal launch retains the source camera.
+  Authored visibility, shadows, generated texture mip chains, background
+  placement and complete stage presentation remain separate. Current native
+  evidence is recorded in stage-view-completion.md; earlier rejected captures
+  are historical. The user explicitly removed the concept-menu completion gate:
   fresh profiles can select supplied extra missions, while campaign Stage Select
   and higher difficulties retain their progression gates. This intentional
   departure changes menu access, not content availability or original Lua.
@@ -47,7 +72,8 @@
   costumes available; achievement 13 still gates campaign Stage Select, and 9/10
   gate Chaos/Hell. Concept Mission access is enabled independently by the
   approved reconstruction policy. The app currently supplies fresh achievement
-  state. Extra launch status 5 versus root status 6 remains unresolved. Current startup memory
+  state. Native accessor0x49a560 resolves internal extra result5 to API6; selected
+  concept aliasing is mapped in mission-launch.md. Current startup memory
   ownership is implemented; mission/world consumers extend that foundation next.
 - Platform design follows the agreed DoLittle split: single portable subsystem
   headers, shared behavior/algorithms where target-specific optimization adds no
@@ -102,7 +128,8 @@
   main on the current host; no passing ASan claim is made. ThreadSanitizer also
   fails before main with signal 11 in a minimal diagnostic; no TSan pass or
   race-freedom claim is made. Other target builds
-  remain unverified; world rendering/gameplay are unimplemented.
+  remain unverified. World rendering now has a bounded static inspection subset;
+  gameplay and complete original stage presentation remain unimplemented.
 - Existing integration coverage exceeds the imported five-scenario target;
   the explicit adoption exception now enumerates eleven scenarios, including
   the provisioned original-root integration required for the startup slice.
@@ -199,6 +226,7 @@
   Costume previews are authored 2D images, not a world-rendering dependency.
   FrontEnd gates readiness, fades and persistence; StartupSession captures
   StartMission as owned launch data and leaves WaitMission pending. The host
-  exits at that boundary until a world-loading consumer exists. Current options
+  consumes One Shot Kill into owned mission/load state and independent static
+  inspection; other routes still stop at the request boundary. Current options
   cover persisted volumes and costume; audio gain, BGM/cues, other options and
   full submenu animation/localization parity remain outstanding.

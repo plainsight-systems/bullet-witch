@@ -11,8 +11,10 @@ company-logo, startup-check, opening-cinematic and title tasks. Shared C++ owns 
 presentation, audio device and input sampling. Title presents the original
 movie, animated prompt, copyright and font text. Title confirmation now runs
 profile loading and the interactive menu with original menu/costume sprite assets.
-A supported confirmed choice reaches an owned gameplay request; world rendering
-and mission execution are not implemented.
+A supported confirmed choice reaches an owned gameplay request. One Shot Kill
+continues into its original mission script and a limited static world inspection
+view. The original mission load completes and waits at `awaiting_world_setup`;
+actor construction and playable mission execution have not started.
 
 Build and run with the local purchased installation:
 
@@ -44,7 +46,9 @@ transition before starting playback. `--windowed` selects a resizable window;
 The original root now advances through advertise and title. A natural title
 timeout returns to the original attract loop; confirmation enters profile loading
 and the menu. New Game, valid Continue and campaign-stage selection can reach a
-validated gameplay request, which the current executable reports before exiting. `--max-seconds N` bounds a development
+validated gameplay request, which the executable reports before exiting. One
+Shot Kill instead retains the request, original mission/load owners and the
+static inspection view. `--max-seconds N` bounds a development
 run (default 300 seconds). `--verify-startup` ignores skipping and exits after
 all four movies complete naturally and title publishes outcome 2. It checks
 complete PCM consumption, device drain, no unexpected audio underruns and
@@ -71,6 +75,8 @@ This mode belongs to the existing provisioned original-root integration scenario
 | macOS presentation/input | `src/platform/macos/startup_host.mm` | Cocoa, Metal and GameController |
 | macOS media audio | `src/platform/macos/media_audio.mm` | Joined AudioQueue service, callback PCM feed, mapped device clock and drain |
 | Movie shader | `src/platform/macos/shaders/movie.metal` | Build-compiled movie texture sampling and black fade composition |
+| World output | `include/bw/render/world.hpp`, `src/platform/macos/world_renderer.*` | Retained geometry/textures and explicitly selected original surface/depth draws |
+| World shaders | `src/platform/macos/shaders/world_color.metal`, `world_depth.metal` | Static transforms, original geometric/normal/layered/sky surface families, cube reflection, alpha coverage/blending and projected depth |
 | Mac process entry | `src/platform/macos/main.cpp` | Parse launch options, own native services and select the FFmpeg factory |
 | Shared application composition | `src/framework/startup_application.*` | Resource/session ownership and input → media → game → presentation loop |
 | Software decoder backend | `src/video/ffmpeg/decoder.*` | Explicit factory and private FFmpeg implementation |
@@ -160,8 +166,8 @@ the black presentation surface. Profile load/save failures now offer Retry or
 Continue without saving, but complete original localized storage dialogs remain
 unimplemented. Menu options expose volumes and costumes only; volumes persist
 without output-gain wiring. Title confirmation/menu sound cues, menu background
-music, other option screens, world rendering and original-game parity remain
-outstanding.
+music, other option screens, the complete world renderer and original-game parity
+remain outstanding.
 
 Verification distinguishes the in-process playback tests (frame-tail timing,
 audio clock/drain, buffering, terminal exposure and interrupted fades), strict compilation/lint, and
@@ -274,6 +280,72 @@ do not unlock them. Concept Mission access is enabled independently under the
 [user-approved reconstruction policy](../research/engine/subsystems/front-end-menu-policy.md#reconstruction-policy-concept-access-without-game-completion).
 That menu-policy change has in-process coverage, not a new native acceptance
 run. The recovered Steam refresh makes all five extra costumes available and
-supplies the 18 extra-mission availability entries, but native extra result 5
-versus original Lua result 6 remains unresolved. Neither automatic verification
-nor this native run claims extra-mission launch or gameplay execution.
+supplies the 18 extra-mission availability entries. Native accessor0x49a560
+resolves internal extra result5 to Lua6. The host now consumes One Shot Kill into
+owned mission/load state; actual original-script evidence and remaining device/
+loading-presentation boundaries are recorded in
+[mission launch](../research/engine/subsystems/mission-launch.md). The implemented
+static inspection borrows the real load owner's stage/sky residency. The
+unchanged mission load now returns naturally and stops at `awaiting_world_setup`.
+The view includes all ten ordinary stage models (4,097 selected draws, three
+untextured-material omissions), plus one sky draw, with declared camera/material policies. Authored environment,
+visibility, background placement and unrelated passes remain later work.
+Inspection presentation uses full opacity without altering the original
+script-controlled fade or advancing world/actor setup. Original-root CPU and
+synthetic-device acceptance are recorded in the mission research; current native
+observations are recorded in [stage view completion](../research/engine/subsystems/stage-view-completion.md).
+Earlier manual front-end acceptance alone does not establish world rendering or
+gameplay execution.
+
+
+## First static-world observation
+
+On October 23, the user navigated the normal Concept Mission menu to One Shot
+Kill. The native log confirmed original concept selection ID 1 and the mission's
+real stage-load wait. The separate inspection displayed textured buildings
+against black, with 104 supported opaque draws and 1,124 omitted main-world
+draws. Ground, sky, authored environment and gameplay are not established by
+that observation. Evidence remains ignored under
+`research/evidence/reconstruction/stage/native-scene.log` and `native-world.png`.
+The implementation checks passed strict build, all six CTest entries, fatal
+clang-tidy and the content guard. This is the first limited native static view,
+not completed mission loading or original-renderer parity.
+
+
+## Static-stage camera inspection
+
+`./run --inspect-camera X Y Z YAW PITCH` follows the normal menus and original
+mission load, then places the static inspection camera at explicit world
+coordinates. Yaw zero looks along positive Z, yaw 90 along positive X; positive
+pitch looks upward. Pitch is limited to -90 through 90 degrees. The view retains
+the authored vertical field of view, aspect and near/far planes. Invalid values
+fail before a native window opens. This override does not reposition Alicia,
+execute mission start or provide player controls. Without it, the original
+initial behind-camera preset and static collision clearance determine the view.
+
+The sky uses its authored yaw/height relative to the selected camera, so an
+exterior view can inspect the horizon without dragging the sky away from the
+viewer. Camera diagnostics use the same native renderer and authored exposure
+settings as the normal starting view. The development command is also passed
+through the top-level `run` launcher; no private diagnostic executable is needed
+to choose a view for review.
+
+The exterior checkpoint10 camera can be inspected with:
+
+```sh
+./run --inspect-camera -7.98534 1.35 54.8025 -0.28 0
+```
+
+Select Concept Mission → One Shot Kill normally. These camera coordinates come
+from the script's checkpoint10 pose and original camera constructor; the command
+does not load or save a checkpoint. Add a pitch of `45` in place of the final
+`0` to look upward. Run plain `./run` for the authored fresh-start camera.
+
+The final slice-3 native capture shows textured ground, buildings, mountains and
+clouded sky through `StartupHost`, including its output-parameter forwarding.
+The initial cave and upward sky are also verified with the production renderer.
+The missing runtime SH selector and authored ambient inputs are corrected;
+the previous black sky and clipped-ground captures remain historical failures.
+Full shadows, visibility, generated texture mip chains and animated/placed
+objects remain later presentation work. See the
+[completion record](../research/engine/subsystems/stage-view-completion.md).
