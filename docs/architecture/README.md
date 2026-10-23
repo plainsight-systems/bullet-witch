@@ -56,11 +56,12 @@ source reconstruction, faithful direct port, then improvements. The
 or milestone growth diagram determines the target runtime architecture.
 
 The implemented subset includes resource/data access, task lifecycle, Lua and
-root execution, concrete logo/check session tasks, shared movie timing/decoding,
+root execution, concrete logo/check/advertise/title session tasks, shared movie timing/decoding,
 and a Mac host using native Metal presentation and AudioQueue output. The
 [startup contract](../startup-runtime.md), [movie player](../video-player.md),
 [movie decoder](../video-decoder.md) and [native host](../native-startup-host.md) state their verification boundaries.
-World rendering, interactive title/menu and gameplay remain unimplemented.
+Original title sprites/text and input outcomes are implemented. Character-load,
+title menu, world rendering and gameplay remain unimplemented.
 
 The first presentation slice implements sample ownership, fade progression,
 screen retirement and conservative Mac GPU reuse. The independent media pipeline

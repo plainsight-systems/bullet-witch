@@ -16,14 +16,15 @@ exception; the target is five repository-wide):
 - One `tests/startup_corpus.cpp` / `research/tools/verify_startup_runtime.py`
   provisioned scenario runs the hash-bound original root through resource/task/Lua
   composition with deterministic screen services and the concrete startup session
-  using controlled media observations. Its native acceptance run uses `bw-startup
+  using controlled media observations and real decoded title assets with a
+  synthetic renderer. Its native acceptance run uses `bw-startup
   --verify-startup` with the actual playlist, GPU and audio device. Native-device
   success is recorded separately from the fixture route; it does not establish
-  title/menu rendering or original-game timing equivalence.
+  menu implementation or original-game timing equivalence.
 
 The corpus workflow remains an integration scenario even though it lives under
-research and is excluded from the default local check. Do not count CTest's three
-registered commands as two tests or the reader's assertions as separate tests.
+research and is excluded from the default local check. Do not count CTest's four
+registered commands as four individual behavioral cases or the reader's assertions as separate tests.
 Add no integration scenarios until this inventory is reduced or explicitly
 rebudgeted. New parser boundary cases belong in the in-process suite.
 
@@ -52,3 +53,11 @@ handoff. Their assertions are not
 separate test cases. Decoder reference probes and native run diagnostics stay
 under ignored `research/evidence/reconstruction/native-startup/`; they are not
 additional unit suites or asset fixtures.
+
+`image-font-tests` adds two in-process contract groups for bounded PNG decoding
+and original FONT metadata, including signed bearings and packed channel flags.
+`advertise_flow_test.cpp` and `title_flow_test.cpp` exercise recovered gates,
+fallback timers, animation and input outcomes. The session suite additionally
+checks title readiness and lifetime, and the fade adapter checks zero-duration
+snap on its next update. These extend in-process coverage; the integration
+scenario inventory remains eleven.

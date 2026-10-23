@@ -1,3 +1,13 @@
+// Native full screen uses completed AppKit delegate transitions before returning
+// from construction; no media session runs during startup animation. SDL Cocoa
+// source and the bounded event-pump design are in sprite-presentation-design.md.
+// Sprite implementation MCP: cpp-guidelines SL.con.3 (#rsl-bounds) validates
+// complete bounded submissions before mutation; cpp-performance GPU.1
+// (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded sprite textures.
+// Sprite state owns at most 128 textures/128 MiB and 511 ordered quads; each
+// submission copies commands into fixed storage, resolves texture slots once,
+// and performs no heap allocation. Release removes referencing queued quads.
+// Native allocations remain explicit setup costs pending engine memory work.
 // macOS startup window/input and Metal presentation; reusable audio is composed
 // through MediaAudio, with its own execution and lifetime contract. Main-thread
 // calls own Cocoa, one retained BGRA texture and the compiled movie pipeline.
@@ -20,9 +30,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -31,11 +43,42 @@
 
 @interface BWStartupWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic) BOOL closeEnabled;
+@property(nonatomic) BOOL fullscreen;
+@property(nonatomic) BOOL fullscreenTransition;
+@property(nonatomic) BOOL fullscreenFailed;
 @end
 @implementation BWStartupWindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
   (void)sender;
   return self.closeEnabled;
+}
+- (void)windowWillEnterFullScreen:(NSNotification*)notification {
+  (void)notification;
+  self.fullscreenTransition = YES;
+  self.fullscreenFailed = NO;
+}
+- (void)windowDidEnterFullScreen:(NSNotification*)notification {
+  (void)notification;
+  self.fullscreen = YES;
+  self.fullscreenTransition = NO;
+}
+- (void)windowDidFailToEnterFullScreen:(NSWindow*)window {
+  (void)window;
+  self.fullscreenFailed = YES;
+  self.fullscreenTransition = NO;
+}
+- (void)windowWillExitFullScreen:(NSNotification*)notification {
+  (void)notification;
+  self.fullscreenTransition = YES;
+}
+- (void)windowDidExitFullScreen:(NSNotification*)notification {
+  (void)notification;
+  self.fullscreen = NO;
+  self.fullscreenTransition = NO;
+}
+- (void)windowDidFailToExitFullScreen:(NSWindow*)window {
+  (void)window;
+  self.fullscreenTransition = NO;
 }
 @end
 
@@ -46,6 +89,20 @@ constexpr std::uint32_t kCancelAction = 0x2020U;
 constexpr unsigned short kReturnKey = 36;
 constexpr unsigned short kSpaceKey = 49;
 constexpr unsigned short kEscapeKey = 53;
+constexpr unsigned short kFullscreenKey = 3;
+constexpr std::size_t kTextureByteBudget = std::size_t{128} * 1024 * 1024;
+struct SpriteParameters {
+  std::array<float, 4> rectangle;
+  std::array<float, 4> uv;
+  std::array<float, 4> color;
+  std::array<float, 4> sampling;
+};
+bool valid_rectangle(const render::Rect& rect) {
+  return std::isfinite(rect.x) && std::isfinite(rect.y) && std::isfinite(rect.width) &&
+         std::isfinite(rect.height) && rect.width > 0 && rect.height > 0 &&
+         std::isfinite(rect.x + rect.width) && std::isfinite(rect.y + rect.height);
+}
+bool unit_value(float value) { return std::isfinite(value) && value >= 0 && value <= 1; }
 void require_main_thread() {
   if (![NSThread isMainThread]) {
     throw std::runtime_error("StartupHost requires the main thread");
@@ -62,6 +119,21 @@ struct StartupHost::State {
   id<MTLCommandQueue> commands{};
   id<MTLRenderPipelineState> pipeline{};
   id<MTLTexture> video{};
+  id<MTLRenderPipelineState> sprite_pipeline{};
+  struct Texture {
+    render::TextureHandle handle;
+    id<MTLTexture> native{};
+    std::size_t bytes{};
+  };
+  struct SubmittedSprite {
+    render::Sprite sprite;
+    std::size_t texture_slot{};
+  };
+  std::array<Texture, render::kMaximumTextures> textures;
+  std::array<SubmittedSprite, render::kMaximumSprites> sprites;
+  std::size_t sprite_count{};
+  std::size_t texture_bytes{};
+  std::uint64_t next_texture{1};
   MediaAudio media_audio;
   std::uint32_t keyboard_keys{};
   std::uint32_t previous_held{};
@@ -76,8 +148,13 @@ struct StartupHost::State {
   State& operator=(State&&) = delete;
 };
 
-StartupHost::StartupHost() : state_(std::make_unique<State>()) {
+StartupHost::StartupHost(WindowOptions options) : state_(std::make_unique<State>()) {
   require_main_thread();
+  constexpr std::uint32_t maximum_window_dimension = 16384;
+  if (options.width == 0 || options.height == 0 || options.width > maximum_window_dimension ||
+      options.height > maximum_window_dimension) {
+    throw std::runtime_error("Invalid startup window dimensions");
+  }
   @autoreleasepool {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -114,22 +191,36 @@ StartupHost::StartupHost() : state_(std::make_unique<State>()) {
     if (state.commands == nil || state.pipeline == nil) {
       throw std::runtime_error("Could not initialize Metal movie pipeline");
     }
-    constexpr CGFloat width = 960;
-    constexpr CGFloat height = 540;
-    state.window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, width, height)
-                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
-                    backing:NSBackingStoreBuffered
-                      defer:NO];
+    descriptor.vertexFunction = [library newFunctionWithName:@"sprite_vertex"];
+    descriptor.fragmentFunction = [library newFunctionWithName:@"sprite_fragment"];
+    descriptor.colorAttachments[0].blendingEnabled = YES;
+    descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    state.sprite_pipeline = [state.device newRenderPipelineStateWithDescriptor:descriptor
+                                                                         error:&error];
+    if (state.sprite_pipeline == nil) {
+      throw std::runtime_error("Could not initialize Metal sprite pipeline");
+    }
+    const NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                    NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+    const auto visible = [NSWindow contentRectForFrameRect:NSScreen.mainScreen.visibleFrame
+                                                 styleMask:style];
+    const CGFloat fit =
+        std::min({1.0, visible.size.width / options.width, visible.size.height / options.height});
+    const CGFloat width = options.width * fit;
+    const CGFloat height = options.height * fit;
+    state.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, width, height)
+                                               styleMask:style
+                                                 backing:NSBackingStoreBuffered
+                                                   defer:NO];
     state.window.releasedWhenClosed = NO;
     state.window_delegate = [[BWStartupWindowDelegate alloc] init];
     state.window.delegate = state.window_delegate;
     state.window.title =
         NSLocalizedString(@"Bullet Witch — startup reconstruction", @"Startup window title");
-    constexpr CGFloat aspect_width = 16;
-    constexpr CGFloat aspect_height = 9;
-    state.window.contentAspectRatio = NSMakeSize(aspect_width, aspect_height);
+    state.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
     state.layer = [CAMetalLayer layer];
     state.layer.device = state.device;
     state.layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -141,6 +232,34 @@ StartupHost::StartupHost() : state_(std::make_unique<State>()) {
     [state.window makeKeyAndOrderFront:nil];
     [NSApp finishLaunching];
     [NSApp activate];
+    if (options.fullscreen) {
+      // SDL's Cocoa backend similarly pumps the native transition to completion.
+      // The deadline bounds a failed transition; it does not schedule playback.
+      state.window_delegate.fullscreenTransition = YES;
+      [state.window toggleFullScreen:nil];
+      constexpr auto maximum_transition = std::chrono::seconds(10);
+      constexpr NSTimeInterval event_wait = 0.01;
+      const auto deadline = std::chrono::steady_clock::now() + maximum_transition;
+      while (state.window_delegate.fullscreenTransition &&
+             std::chrono::steady_clock::now() < deadline) {
+        @autoreleasepool {
+          NSEvent* event =
+              [NSApp nextEventMatchingMask:NSEventMaskAny
+                                 untilDate:[NSDate dateWithTimeIntervalSinceNow:event_wait]
+                                    inMode:NSDefaultRunLoopMode
+                                   dequeue:YES];
+          if (event != nil) {
+            [NSApp sendEvent:event];
+          }
+          [NSApp updateWindows];
+        }
+      }
+      if (!state.window_delegate.fullscreen || state.window_delegate.fullscreenFailed ||
+          state.window_delegate.fullscreenTransition) {
+        throw std::runtime_error(
+            "Could not complete native full screen transition; retry with --windowed");
+      }
+    }
   }
 }
 StartupHost::~StartupHost() = default;
@@ -157,6 +276,17 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
                                                  dequeue:YES]) {
       if (event.type == NSEventTypeKeyDown || event.type == NSEventTypeKeyUp) {
         const auto code = event.keyCode;
+        constexpr NSEventModifierFlags fullscreen_modifiers =
+            NSEventModifierFlagControl | NSEventModifierFlagCommand;
+        if (code == kFullscreenKey &&
+            (event.modifierFlags & fullscreen_modifiers) == fullscreen_modifiers) {
+          if (event.type == NSEventTypeKeyDown && !event.isARepeat &&
+              !state.window_delegate.fullscreenTransition) {
+            state.window_delegate.fullscreenTransition = YES;
+            [state.window toggleFullScreen:nil];
+          }
+          continue;
+        }
         const std::uint32_t key =
             code == kReturnKey ? 1U : (code == kSpaceKey ? 2U : (code == kEscapeKey ? 4U : 0U));
         const std::uint32_t action =
@@ -269,6 +399,32 @@ bool StartupHost::draw(float opacity) {
       [encoder setFragmentBytes:&opacity length:sizeof(opacity) atIndex:0];
       [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     }
+    if (state.sprite_count != 0) {
+      const double width = static_cast<double>(drawable.texture.width);
+      const double height = static_cast<double>(drawable.texture.height);
+      const double fit = std::min(width / render::kCanvasWidth, height / render::kCanvasHeight);
+      [encoder
+          setViewport:MTLViewport{(width - render::kCanvasWidth * fit) / 2,
+                                  (height - render::kCanvasHeight * fit) / 2,
+                                  render::kCanvasWidth * fit, render::kCanvasHeight * fit, 0, 1}];
+      [encoder setRenderPipelineState:state.sprite_pipeline];
+      for (const auto& submitted : std::span(state.sprites).first(state.sprite_count)) {
+        const auto& sprite = submitted.sprite;
+        const SpriteParameters parameters{
+            .rectangle = {sprite.destination.x / render::kCanvasWidth,
+                          sprite.destination.y / render::kCanvasHeight,
+                          sprite.destination.width / render::kCanvasWidth,
+                          sprite.destination.height / render::kCanvasHeight},
+            .uv = {sprite.uv.x, sprite.uv.y, sprite.uv.width, sprite.uv.height},
+            .color = {sprite.color.red * opacity, sprite.color.green * opacity,
+                      sprite.color.blue * opacity, sprite.color.alpha},
+            .sampling = {static_cast<float>(sprite.channel), 0, 0, 0}};
+        [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
+        [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
+        [encoder setFragmentTexture:state.textures.at(submitted.texture_slot).native atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+      }
+    }
     [encoder endEncoding];
     [command presentDrawable:drawable];
     [command commit];
@@ -279,5 +435,92 @@ bool StartupHost::draw(float opacity) {
     return true;
   }
 }
+render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint32_t height,
+                                                  std::span<const std::uint8_t> rgba) {
+  require_main_thread();
+  constexpr std::uint32_t max_dimension = 8192;
+  constexpr std::size_t channels = 4;
+  if (width == 0 || height == 0 || width > max_dimension || height > max_dimension ||
+      rgba.size() != static_cast<std::size_t>(width) * height * channels) {
+    throw std::runtime_error("Invalid RGBA sprite texture");
+  }
+  auto& state = *state_;
+  const auto slot = std::ranges::find_if(state.textures,
+                                         [](const auto& texture) { return texture.native == nil; });
+  if (slot == state.textures.end() || rgba.size() > kTextureByteBudget - state.texture_bytes ||
+      state.next_texture == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::runtime_error("Sprite texture residency limit exceeded");
+  }
+  @autoreleasepool {
+    MTLTextureDescriptor* descriptor =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                           width:width
+                                                          height:height
+                                                       mipmapped:NO];
+    descriptor.storageMode = MTLStorageModeShared;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    id<MTLTexture> texture = [state.device newTextureWithDescriptor:descriptor];
+    if (texture == nil) {
+      throw std::runtime_error("Could not allocate sprite texture");
+    }
+    [texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
+               mipmapLevel:0
+                 withBytes:rgba.data()
+               bytesPerRow:static_cast<std::size_t>(width) * channels];
+    slot->handle = {state.next_texture++};
+    slot->native = texture;
+    slot->bytes = rgba.size();
+    state.texture_bytes += rgba.size();
+    return slot->handle;
+  }
+}
+void StartupHost::release_texture(render::TextureHandle texture) noexcept {
+  auto& state = *state_;
+  const auto slot = std::ranges::find_if(state.textures, [texture](const auto& entry) {
+    return entry.handle == texture && entry.native != nil;
+  });
+  if (slot == state.textures.end()) {
+    return;
+  }
+  state.texture_bytes -= slot->bytes;
+  *slot = {};
+  auto commands = std::span(state.sprites).first(state.sprite_count);
+  const auto removed = std::ranges::remove_if(
+      commands, [texture](const auto& entry) { return entry.sprite.texture == texture; });
+  state.sprite_count -= static_cast<std::size_t>(removed.size());
+}
+void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
+  require_main_thread();
+  if (sprites.size() > render::kMaximumSprites) {
+    throw std::runtime_error("Sprite command limit exceeded");
+  }
+  auto& state = *state_;
+  std::array<std::size_t, render::kMaximumSprites> slots{};
+  std::size_t index = 0;
+  for (const auto& sprite : sprites) {
+    const auto& uv = sprite.uv;
+    const auto& color = sprite.color;
+    if (!valid_rectangle(sprite.destination) || !valid_rectangle(uv) || !unit_value(uv.x) ||
+        !unit_value(uv.y) || !unit_value(uv.x + uv.width) || !unit_value(uv.y + uv.height) ||
+        !unit_value(color.red) || !unit_value(color.green) || !unit_value(color.blue) ||
+        !unit_value(color.alpha) || sprite.channel > render::TextureChannel::alpha) {
+      throw std::runtime_error("Invalid sprite geometry or color");
+    }
+    const auto texture = std::ranges::find_if(state.textures, [&sprite](const auto& entry) {
+      return entry.handle == sprite.texture && entry.native != nil;
+    });
+    if (texture == state.textures.end()) {
+      throw std::runtime_error("Unknown sprite texture");
+    }
+    slots.at(index++) = static_cast<std::size_t>(texture - state.textures.begin());
+  }
+  index = 0;
+  for (const auto& sprite : sprites) {
+    state.sprites.at(index) = {.sprite = sprite, .texture_slot = slots.at(index)};
+    ++index;
+  }
+  state.sprite_count = sprites.size();
+}
+void StartupHost::clear_sprites() noexcept { state_->sprite_count = 0; }
 video::AudioOutput& StartupHost::audio() noexcept { return state_->media_audio; }
 }  // namespace bw::platform

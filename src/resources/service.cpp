@@ -1,15 +1,23 @@
-// A3: startup USER-resource lifecycle, docs/startup-runtime.md.
+// Encoded sprite payload extension: leases retain the immutable sibling archive
+// (R.20 #rr-owner); native texture readiness belongs to the consuming adapter.
+// E.6 (#re-raii) preserves cleanup on construction failure; cpp-performance
+// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps
+// leases cheap shared owners without payload copies. Design and implementation
+// queried. See research/engine/subsystems/startup-title-integration.md. USER
+// restrictions remain; DDS selected ranges are exposed as encoded bytes, never
+// executed. A3: encoded USER/image-resource lifecycle, docs/startup-runtime.md.
 // Single-threaded; the Files capability must outlive this service. Owns
 // catalogs, requested-file interests and publications. Leases retain immutable
 // CPR owners after release. Errors are terminal per file until all tags release
 // it; lookup never reports failed/unsupported work ready. Request resolves the
 // dependency closure before changing interests; allocation failure may leave
 // valid partial interests. Algorithm: mark closure (cycle-safe), open all
-// tagged files, publish USER in phase 1, finish phase 2; release interests and
-// identity-matching publications. Each pump advances one global phase; it never
-// spins on failed/pending work. Cost: closure O((R+D) log R), pumps O(files +
-// records), retained archive bytes. Optimization: leases share archives;
-// publication lookup does not copy payloads. Design: cpp-guidelines R.20
+// tagged files, publish USER names and retain encoded image siblings in phase
+// 1, finish phase 2; release interests and identity-matching publications. Each
+// pump advances one global phase; it never spins on failed/pending work. Cost:
+// closure O((R+D) log R), pumps O(files + records), retained archive bytes.
+// Optimization: leases share archives; publication lookup does not copy
+// payloads. Design: cpp-guidelines R.20
 // (#rr-owner) makes archive retention explicit; cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps container
 // owners rule-of-zero. Implementation: SL.con.3 (#rsl-bounds) bounds every
@@ -74,9 +82,14 @@ void ResourceService::publish(const Key& key, File& file) {
   std::map<std::string, Publication, std::less<>> additions;
   for (std::size_t i = 0; i < file.archive->records().size(); ++i) {
     const auto& record = file.archive->records()[i];
-    if (record.type != "USER" ||
-        (record.publication_name && !record.first_payload) ||
-        record.raw[2] != std::numeric_limits<std::uint32_t>::max()) {
+    const bool user = record.type == "USER";
+    const bool encoded_image = record.type == "DDS ";
+    if ((!user && !encoded_image) ||
+        (user &&
+         ((record.publication_name && !record.first_payload) ||
+          record.raw[2] != std::numeric_limits<std::uint32_t>::max())) ||
+        (encoded_image &&
+         (!record.selected_payload || record.publication_name))) {
       throw Error(ErrorCode::unsupported,
                   "Runtime record/inline reference unsupported: " +
                       record.type + ":" + record.name);
@@ -132,7 +145,8 @@ LoadReport ResourceService::pump(ResourceTag tag) {
         publish(key, file);
         file.state = LoadState::published;
       } else if (phase == LoadState::published) {
-        // USER has no phase-2 callback. Other handlers are explicitly rejected.
+        // Encoded bytes are ready; consumers separately construct typed/GPU
+        // assets.
         file.state = LoadState::ready;
       }
     } catch (const Error& error) {

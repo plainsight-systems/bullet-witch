@@ -92,10 +92,12 @@ implicitly stopping every world or service phase. Mode policy determines the gat
 
 The current executable realizes a bounded subset of this tree. The Mac entry
 constructs file access and the native host, then calls shared framework code.
-The framework owns catalog resources, shared playback and `StartupSession`
+The framework owns catalog resources, shared playback, title asset composition and `StartupSession`
 within that call. Destruction runs in reverse: the session releases its root
 and screen tasks before playback stops media, and the host outlives both.
-Resources remain alive until the root's archive/tag interests are released.
+Resources remain alive until root and title archive/tag interests are released.
+Title asset composition releases sprite commands and texture identities before
+its borrowed renderer is destroyed; the host outlives all game asset owners.
 
 The session owns one scheduler and its root driver; scheduler callbacks borrow
 the session and are destroyed before its flow/root storage. This prevents a
@@ -113,11 +115,15 @@ flowchart TD
     Framework --> Resources[Read-only resource service]
     Framework --> Playback[Game fade adapter and engine video Player]
     Framework --> Session[StartupSession]
+    Framework --> TitleAssets[Title asset composition / retained leases]
+    Session -. borrows .-> TitleAssets
+    TitleAssets -. borrows .-> Resources
+    TitleAssets -. borrows renderer .-> Host
     Framework -. borrows .-> Host
     Resources -. borrows .-> Files
     Session --> Scheduler[One task lifecycle scheduler]
     Session --> Root[RootDriver and Lua context]
-    Session --> Screens[Logo and startup-check flows]
+    Session --> Screens[Logo / startup-check / advertise / title flows]
     Playback -. borrows .-> Host
     Screens -. borrows .-> Playback
     Root -. borrows .-> Resources

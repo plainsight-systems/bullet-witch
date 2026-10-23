@@ -1,6 +1,13 @@
-// Shared launch configuration and startup orchestration for the game/engine.
-// Target entry points normalize arguments, parse before opening native output,
-// then borrow Files/StartupHost for run_startup. All calls use the main thread;
+// Startup route extension: game policies borrow capabilities; composition owns
+// them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
+// implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves
+// container ownership without per-frame payload copies. Shared presentation
+// contracts are described in
+// research/engine/subsystems/startup-title-integration.md. Shared launch
+// configuration and startup orchestration for the game/engine. Target entry
+// points normalize arguments, parse before opening native output, then borrow
+// Files/StartupHost for run_startup. All calls use the main thread;
 // capabilities outlive the call and the decoder factory creates owned sessions.
 // Parsing owns its result; invalid input throws. run_startup returns zero for
 // normal close or the verified boundary, throws on failure, and retires game /
@@ -26,9 +33,10 @@
 namespace bw::framework {
 struct StartupOptions {
   std::filesystem::path game;
-  static constexpr int kDefaultMaximumSeconds = 90;
+  static constexpr int kDefaultMaximumSeconds = 300;
   int maximum_seconds{kDefaultMaximumSeconds};
   bool verify{};
+  platform::WindowOptions window;
 };
 StartupOptions parse_startup_options(std::span<char*> arguments);
 // Requires validated options, a live main-thread host and a nonempty factory.

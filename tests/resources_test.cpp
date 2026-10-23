@@ -366,6 +366,22 @@ void lifecycle_tests(Checks& checks) {
   checks.check(service.pump(1).state == LoadState::failed &&
                    !service.acquire("script.root"),
                "Unsupported record prevents partial publication");
+  service.release(1);
+  files.contents = archive_fixture();
+  text(files.contents, 144, "DDS ");
+  word(files.contents, 156,
+       225);  // Selected sibling payload at archive+40+225.
+  service.request("script.root", 1);
+  (void)service.pump(1);
+  (void)service.pump(1);
+  checks.check(service.pump(1).state == LoadState::ready,
+               "Encoded image siblings do not require catalog publications");
+  auto sprite_lease = service.acquire("script.root");
+  service.release(1);
+  checks.check(
+      sprite_lease && sprite_lease->archive().payload(1).size() == 2 &&
+          sprite_lease->archive().payload(1)[0] == 'X',
+      "Lease retains bounded inline-selected sibling bytes after release");
 }
 void package_tests(Checks& checks) {
   Bytes b(99);

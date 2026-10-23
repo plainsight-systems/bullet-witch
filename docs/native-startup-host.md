@@ -6,10 +6,11 @@ service. The replacement passes silent component probes and the integrated
 two-logo run recorded below.
 
 The first visible slice runs the original root script through the reconstructed
-company-logo and startup-check tasks. Shared C++ owns task sequencing and fades; the reusable
+company-logo, startup-check, opening-cinematic and title tasks. Shared C++ owns task sequencing and fades; the reusable
 [video player](video-player.md) owns media scheduling and completion. The Mac backend owns its window, Metal
-presentation, audio device and input sampling. Advertise remains an explicit
-unsupported boundary; this does not claim a running title menu or world renderer.
+presentation, audio device and input sampling. Title presents the original
+movie, animated prompt, copyright and font text. Character load and the title
+menu remain explicit unsupported boundaries; world rendering is not implemented.
 
 Build and run with the local purchased installation:
 
@@ -27,14 +28,20 @@ burst of artificial fixed-step updates. The Mac event pump does not set the game
 clock. The original render worker also has configurable pacing and an additional
 sleep, so its nominal setting alone does not establish its effective frame rate.
 
-The executable exits with an explicit advertise diagnostic when the supported
-startup route completes. `--max-seconds N` bounds a run (default 90 seconds).
-`--verify-startup` accepts that boundary only after both real logo streams finish,
-the startup-check task completes and final-frame presentation has been accepted. Verification
-prints compact per-movie timing/sample counters, including decoded versus
-uploaded video, source, submitted and actually played PCM, and audio starvation observations.
-Normal verification rejects any PCM mismatch or unexpected underflow.
-Those acceptance conditions alone do not establish perceptual audio/video parity.
+The game launches in native macOS fullscreen and waits for the fullscreen
+transition before starting playback. `--windowed` selects a resizable window;
+`--window-width N --window-height N` request its size in content points (default
+1280×720, clamped to the available display). Both modes aspect-fit the original
+1280×720 canvas. Control-Command-F and the green window control toggle fullscreen.
+
+The original root now advances through advertise and title. A natural title
+timeout returns to the original attract loop; confirmation reaches the explicit
+unimplemented character-load boundary. `--max-seconds N` bounds a development
+run (default 300 seconds). `--verify-startup` ignores skipping and exits after
+all four movies complete naturally and title publishes outcome 2. It checks
+complete PCM consumption, device drain, no unexpected audio underruns and
+terminal-frame presentation, and prints per-movie counters. These conditions
+do not establish original-game audiovisual parity.
 Verification ignores skip actions so typing in another task cannot shorten a
 movie; closing the window still aborts. It fails for early close, timeout or
 decode/device errors. Ordinary playback retains the documented skip bindings.
@@ -133,15 +140,15 @@ backend never hides a window and then pretends the close was ignored.
 
 Startup-check lifecycle and result are implemented, but its unresolved sprite
 presentation is not replaced with invented artwork. It therefore runs against
-the black presentation surface. Advertise/title, sprite/font resource handlers,
-settings/save dialogs, world rendering and visual parity remain outstanding.
+the black presentation surface. Character-load/menu behavior, settings/save dialogs, the title confirmation
+sound cue, world rendering and visual parity remain outstanding.
 
 Verification distinguishes the in-process playback tests (frame-tail timing,
 audio clock/drain, buffering, terminal exposure and interrupted fades), strict compilation/lint, and
 provisioned native device execution. Passing the first two alone is not a claim
 of visible playback or audible output.
 
-## Recorded native verification
+## Earlier logo-only native verification
 
 The October 22, 2026 Mac run used the original root script, the purchased movie
 files and `--verify-startup`. Both movies ended naturally, completed their final
@@ -172,3 +179,46 @@ Generated logs and probes remain ignored under
 `native-redesign-accepted.log`; its checks use `redesign-accepted-*`. Earlier
 failed runs remain alongside them. No game files or reference-engine sources
 are included in the tracked result.
+
+## Opening cinematic and title implementation
+
+`src/game/advertise_flow` and `title_flows` preserve recovered state, timing,
+fades, input outcomes and cleanup. `startup_title_surface` owns title/font and
+selected-loading resource interests, image construction and original draw data.
+`bw_images` supplies bounded PNG/FONT decoding; `render::SpriteOutput` supplies
+portable texture ownership and ordered quads. Native Metal implements those
+commands, including channel-packed font coverage. Encoded resource readiness
+and texture readiness are separate.
+
+```mermaid
+flowchart LR
+    Root[Original root] --> Session[StartupSession]
+    Session --> Flows[Advertise / TitleFlow]
+    Flows --> Media[Existing Player and native audio]
+    Session --> Surface[Game title asset composition]
+    Surface --> Resources[Retained encoded archive leases]
+    Resources --> Decoders[PNG / FONT decoders]
+    Decoders --> Textures[Renderer-owned textures]
+    Surface --> Commands[Original sprite and glyph commands]
+    Commands --> Metal[Metal presentation]
+    Textures --> Metal
+    Media --> Metal
+```
+
+The opening-cinematic run completed in 130.551 seconds including both logos and
+startup check. Advertise consumed all 5,899,200 PCM frames with zero underruns
+and presented its terminal frame. The first full title run completed all four
+movies in 152.153 seconds, with all PCM consumed and zero underruns; title
+published outcome 2. That run exposed an incorrect red/blue FONT channel mapping
+in the version text. It is retained as failed visual evidence, despite passing
+transport checks. See the corrected acceptance record in
+`research/engine/subsystems/startup-title-integration.md`.
+
+The corrected fullscreen run completed in 151.036 seconds with title outcome 2,
+all four movies fully consumed and zero audio underruns. Native visual inspection
+confirmed readable `Version 1.0.5`, the START prompt and copyright overlay. The
+title movie dropped eight late video frames while retaining its terminal frame;
+no frame-perfect pacing or original-game parity claim is made. Strict checks,
+UBSan and the extended original-root integration pass. Generated evidence lives
+under `research/evidence/reconstruction/startup-title/`; the accepted run is
+`title-corrected-native.log`, checks are `accepted-checks.log`.

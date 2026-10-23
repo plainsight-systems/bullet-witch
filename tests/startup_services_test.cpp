@@ -1,14 +1,14 @@
-// V1: in-process startup-session contracts. Controlled media checks
-// registration, activation side effects, lifecycle wait completion, retry and
-// failure; these tests do not claim native playback, rendering or original-root
-// execution. Fixture media outlives each session. Algorithm: observe public
-// progress while advancing explicit frames, then verify Wait and unsupported
-// boundaries. Bounded fixture work/storage. Design/implementation MCP:
-// cpp-guidelines I.1
-// (#ri-explicit) uses explicit media observations; cpp-performance MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps control state
-// inline and bounds frame iterations, without claiming the scheduler allocates
-// nothing.
+// V1: in-process startup-session lifecycle and title readiness contracts.
+// Controlled media/surface owners outlive each session. Inputs are explicit
+// frame deltas, pressed actions and resource readiness; observe visibility,
+// retained-resource retirement, status and Wait. No native media, file I/O,
+// rendering or original-root execution. Algorithm: hold readiness despite
+// elapsed time/input; complete the accepted route through scheduler idle and
+// destruction; separately abandon an active title to check owner cleanup.
+// Bounded fixture work/storage. Design/implementation MCP: cpp-guidelines I.1
+// (#ri-explicit) makes media/readiness explicit; cpp-performance COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) verifies
+// exclusive operation retirement without asserting incidental cleanup counts.
 #include "game/startup_services.hpp"
 
 #include <limits>
@@ -38,16 +38,100 @@ class Media final : public bw::game::LogoMedia {
  public:
   bool open_movie(std::string_view path) override {
     paths.emplace_back(path);
+    active = opens;
     return opens;
   }
   bool movie_complete() const override { return ended; }
-  void stop_movie() noexcept override { ++stops; }
+  void stop_movie() noexcept override {
+    active = false;
+    ++stops;
+  }
   void begin_fade(bw::game::FadeDirection, float) override {}
   bool fade_pending() const override { return fading; }
-  bool opens{true}, ended{}, fading{};
+  bool opens{true}, ended{}, fading{}, active{};
   unsigned stops{};
   std::vector<std::string> paths;
 };
+class Surface final : public bw::game::TitleSurface {
+ public:
+  void begin() override {
+    active = true;
+    visible = false;
+    begun = true;
+  }
+  bool ready() override {
+    require(active, "Readiness requires retained title resources");
+    return resources_ready;
+  }
+  void show(bool show_title,
+            bw::game::TitlePresentation presentation) override {
+    require(active, "Drawing requires retained title resources");
+    visible = show_title;
+    current = presentation;
+  }
+  void end() noexcept override {
+    visible = false;
+    active = false;
+    current = {};
+  }
+  bw::game::TitlePresentation current;
+  bool resources_ready{}, active{}, visible{}, begun{};
+};
+void title_readiness_and_lifecycle() {
+  Media media;
+  Surface surface;
+  {
+    bw::game::StartupSession session(media, &surface);
+    session.execute(Screen::title);
+    require(session.pending(Screen::title) && !surface.begun,
+            "Title Exec registers without synchronous activation");
+    media.ended = true;
+    for (unsigned frame = 0; frame < 3; ++frame) {
+      (void)session.advance({100, 0x1010});
+    }
+    require(surface.active && !surface.visible && media.active &&
+                session.pending(Screen::title) &&
+                session.progress(Screen::title).status == FlowStatus::pending &&
+                session.status(Screen::title) == 0,
+            "Missing readiness cannot fabricate completion from input, time or "
+            "movie end");
+    media.ended = false;
+    surface.resources_ready = true;
+    for (unsigned frame = 0; frame < 3; ++frame) {
+      (void)session.advance({});
+    }
+    require(
+        surface.visible && surface.active && session.status(Screen::title) == 0,
+        "Ready title becomes visible without inheriting blocked input or time");
+    (void)session.advance({0, 0x1010});
+    for (unsigned frame = 0;
+         frame < 20 &&
+         session.progress(Screen::title).status != FlowStatus::complete;
+         ++frame) {
+      (void)session.advance({0.25F, 0});
+    }
+    require(session.progress(Screen::title).status == FlowStatus::complete &&
+                session.status(Screen::title) == 1 && !surface.active &&
+                !surface.visible && !media.active,
+            "Accepted title publishes outcome one and retires both surface and "
+            "movie");
+    require(session.pending(Screen::title),
+            "Title result does not bypass the scheduler idle transition");
+    (void)session.advance({});
+    require(!session.pending(Screen::title),
+            "Title Wait observes idle and requests destruction");
+    (void)session.advance({});
+    require(!surface.active && !media.active,
+            "Task destruction preserves retired presentation state");
+    session.execute(Screen::title);
+    (void)session.advance({});
+    require(
+        surface.active && media.active && session.status(Screen::title) == 0,
+        "Re-execution starts fresh resources and clears published outcome");
+  }
+  require(!surface.active && !surface.visible && !media.active,
+          "Session destruction retires an active title and its movie");
+}
 void session_lifecycle() {
   Media media;
   bw::game::StartupSession session(media);
@@ -120,8 +204,8 @@ void session_failures_and_globals() {
       "Nonfinite session value rejected");
   rejects([&] { (void)session.global(0); },
           "Unimplemented stage owner rejected");
-  rejects([&] { session.execute(Screen::advertise); },
-          "Unimplemented screen must not auto-complete");
+  rejects([&] { session.execute(Screen::title); },
+          "Title requires an explicit presentation capability");
   rejects([&] { (void)session.latest_stage(); }, "No fabricated saved stage");
   rejects([&] { (void)session.advance({-1, 0}); }, "Invalid delta rejected");
   media.opens = false;
@@ -141,4 +225,5 @@ void session_failures_and_globals() {
 void startup_session_contracts() {
   session_lifecycle();
   session_failures_and_globals();
+  title_readiness_and_lifecycle();
 }

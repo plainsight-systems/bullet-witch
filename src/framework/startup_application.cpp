@@ -1,16 +1,23 @@
-// Shared startup composition for this game/engine product; target entry points
-// select and own native services. See startup_application.hpp for the borrowed
-// lifetime contract and docs/native-startup-host.md for unchanged loop
-// semantics. Algorithm: parse owned configuration; mount read-only resources;
-// own session and playback; pump -> media/fade -> game tasks -> presentation;
-// retire in reverse order. Unsupported routes and verification failures throw
-// to the target entry. A monotonic 60 Hz deadline paces the loop; game delta
-// caps at recovered 0.1 s, media wall time is uncapped. Costs remain the
-// composed resource/media work; moving the selected factory does not copy
-// decoder or native owners. Design MCP: C.129 (#rh-kind) keeps codec choice
-// outside shared composition; I.27 (#ri-pimpl) hides the selected host
-// implementation. Implementation MCP: E.6 (#re-raii) preserves exception
-// cleanup; cpp-performance COPY.5
+// Startup route extension: game policies borrow capabilities; composition owns
+// them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
+// implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves
+// container ownership without per-frame payload copies. Shared presentation
+// contracts are described in
+// research/engine/subsystems/startup-title-integration.md. Shared startup
+// composition for this game/engine product; target entry points select and own
+// native services. See startup_application.hpp for the borrowed lifetime
+// contract and docs/native-startup-host.md for unchanged loop semantics.
+// Algorithm: parse owned configuration; mount read-only resources; own session
+// and playback; pump -> media/fade -> game tasks -> presentation; retire in
+// reverse order. Unsupported routes and verification failures throw to the
+// target entry. A monotonic 60 Hz deadline paces the loop; game delta caps at
+// recovered 0.1 s, media wall time is uncapped. Costs remain the composed
+// resource/media work; moving the selected factory does not copy decoder or
+// native owners. Design MCP: C.129 (#rh-kind) keeps codec choice outside shared
+// composition; I.27 (#ri-pimpl) hides the selected host implementation.
+// Implementation MCP: E.6 (#re-raii) preserves exception cleanup;
+// cpp-performance COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
 // preserves unique ownership while transferring the decoder factory.
 #include "startup_application.hpp"
@@ -27,31 +34,46 @@
 
 #include "game/startup_playback.hpp"
 #include "game/startup_services.hpp"
+#include "game/startup_title_surface.hpp"
 
 namespace bw::framework {
 StartupOptions parse_startup_options(std::span<char*> arguments) {
   StartupOptions result;
   for (std::size_t index = 1; index < arguments.size(); ++index) {
     const std::string_view argument(arguments[index]);
-    if (argument == "--verify-startup") {
+    if (argument == "--windowed") {
+      result.window.fullscreen = false;
+    } else if (argument == "--verify-startup") {
       result.verify = true;
-    } else if ((argument == "--game" || argument == "--max-seconds") &&
+    } else if ((argument == "--game" || argument == "--max-seconds" ||
+                argument == "--window-width" ||
+                argument == "--window-height") &&
                index + 1 < arguments.size()) {
       const std::string_view value(arguments[++index]);
       if (argument == "--game") {
         result.game = value;
       } else {
+        int parsed_value{};
         const auto parsed =
-            std::from_chars(value.begin(), value.end(), result.maximum_seconds);
+            std::from_chars(value.begin(), value.end(), parsed_value);
         if (parsed.ec != std::errc{} || parsed.ptr != value.end() ||
-            result.maximum_seconds <= 0) {
-          throw std::runtime_error("--max-seconds requires a positive integer");
+            parsed_value <= 0) {
+          throw std::runtime_error(std::string(argument) +
+                                   " requires a positive integer");
+        }
+        if (argument == "--max-seconds") {
+          result.maximum_seconds = parsed_value;
+        } else if (argument == "--window-width") {
+          result.window.width = static_cast<std::uint32_t>(parsed_value);
+        } else {
+          result.window.height = static_cast<std::uint32_t>(parsed_value);
         }
       }
     } else {
       throw std::runtime_error(
           "Usage: bw-startup --game GAME_DIRECTORY [--verify-startup] "
-          "[--max-seconds N]");
+          "[--max-seconds N] [--windowed] [--window-width N] [--window-height "
+          "N]");
     }
   }
   if (result.game.empty()) {
@@ -71,7 +93,24 @@ int run_startup(const StartupOptions& configuration,
   bw::resources::ResourceService resources(std::move(catalogs), files);
   bw::game::StartupPlayback playback(host, configuration.game,
                                      std::move(open_decoder));
-  bw::game::StartupSession session(playback);
+  // Original selector seeds MSVCRT rand with platform milliseconds per title
+  // activation, then chooses rand()%10. Preserve the algorithm with a portable
+  // unsigned seed; exact boot epoch is host-specific.
+  bw::game::StartupTitleSurface title_surface(resources, host, [] {
+    const auto ticks = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+    constexpr std::uint32_t multiplier = 214013;
+    constexpr std::uint32_t increment = 2531011;
+    constexpr std::uint32_t random_mask = 0x7fff;
+    constexpr unsigned random_shift = 16;
+    constexpr unsigned loading_count = 10;
+    const auto seed =
+        static_cast<std::uint32_t>(ticks) * multiplier + increment;
+    return static_cast<unsigned>((seed >> random_shift) & random_mask) %
+           loading_count;
+  });
+  bw::game::StartupSession session(playback, &title_surface);
   session.start_root(resources, 1);
   const auto started = std::chrono::steady_clock::now();
   const auto deadline =
@@ -148,41 +187,30 @@ int run_startup(const StartupOptions& configuration,
     const auto result = session.advance({game_delta, actions});
     playback.draw();
     if (result.state == bw::script::RunState::failed) {
-      const bool reached_boundary =
-          result.diagnostic.find("Advertise screen is not implemented") !=
-              std::string::npos &&
-          session.progress(bw::game::Screen::company_logo).status ==
-              bw::game::FlowStatus::complete &&
-          session.progress(bw::game::Screen::memory_card).status ==
-              bw::game::FlowStatus::complete;
-      if (configuration.verify && reached_boundary &&
-          playback.completed_movies() == 2 && playback.presented_frames() > 0) {
-        std::cout
-            << "{\"status\":\"passed\",\"route\":[\"company_logo\",\"memory_"
-               "card\"],"
-               "\"boundary\":\"advertise unsupported\",\"completed_movies\":"
-            << playback.completed_movies()
-            << ",\"uploaded_frames\":" << playback.presented_frames()
-            << ",\"wall_seconds\":"
-            << std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                             started)
-                   .count()
-            << "}\n";
-        return 0;
-      }
-      if (configuration.verify) {
-        std::cerr
-            << "Startup verification boundary=" << reached_boundary
-            << " logo_status="
-            << static_cast<unsigned>(
-                   session.progress(bw::game::Screen::company_logo).status)
-            << " check_status="
-            << static_cast<unsigned>(
-                   session.progress(bw::game::Screen::memory_card).status)
-            << " completed_movies=" << playback.completed_movies()
-            << " uploaded_frames=" << playback.presented_frames() << '\n';
-      }
       throw std::runtime_error(result.diagnostic);
+    }
+    if (configuration.verify &&
+        session.progress(bw::game::Screen::title).status ==
+            bw::game::FlowStatus::complete) {
+      if (playback.completed_movies() != 4 ||
+          session.status(bw::game::Screen::title) != 2 ||
+          session.progress(bw::game::Screen::advertise).status !=
+              bw::game::FlowStatus::complete) {
+        throw std::runtime_error(
+            "Startup title route did not complete naturally");
+      }
+      std::cout
+          << "{\"status\":\"passed\",\"route\":[\"company_logo\",\"memory_"
+             "card\","
+             "\"advertise\",\"title\"],\"title_result\":2,\"completed_movies\":"
+          << playback.completed_movies()
+          << ",\"uploaded_frames\":" << playback.presented_frames()
+          << ",\"wall_seconds\":"
+          << std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                           started)
+                 .count()
+          << "}\n";
+      return 0;
     }
   }
   throw std::runtime_error("Startup exceeded its time budget");

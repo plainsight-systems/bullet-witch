@@ -42,14 +42,14 @@ This is R&D under [Plainsight Systems](https://plainsight-systems.com/) LLC.
 
 The resource readers handle the installed game's archives and catalogs, and
 the original startup Lua runs through the reconstructed task and script
-runtime. Its company-logo and startup-check tasks now connect to shared movie
+runtime. Its startup tasks connect to shared movie
 playback and a native Mac host using Metal and AudioQueue. Shaders live in
 separate source files and compile with the build, so the graphics implementation
 can grow and be tuned independently of the host code.
 
-There is no playable build yet. Both company-logo movies now complete on the Mac,
-with full audio consumption and no underruns in the verified run. Advertise,
-title and menu behavior come next. The [startup notes](docs/startup-runtime.md) and
+There is no playable build yet. The Mac build runs the logos, opening cinematic
+and animated title screen using the original assets. Character loading and the
+interactive menu come next. The [startup notes](docs/startup-runtime.md) and
 [native host notes](docs/native-startup-host.md) describe what runs and what
 remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
 a playable mission, the complete game and the Xbox port.

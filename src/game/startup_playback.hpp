@@ -9,8 +9,9 @@
 // independent fade. Algorithm: resolve safe relative path -> delegate open;
 // update fade using game delta while Player receives uncapped wall delta ->
 // draw with 1-overlay alpha. Fade begin preserves alpha; update uses recovered
-// 0x485a20 rate/clamp/snap. Costs: path allocation on open, O(1) fade work per
-// tick plus Player's contract. Design/implementation MCP: cpp-guidelines R.1
+// 0x485a20 rate/clamp/snap, including zero-duration snap on the next update.
+// Costs: path allocation on open, O(1) fade work per tick plus Player's
+// contract. Design/implementation MCP: cpp-guidelines R.1
 // (#rr-raii) gives Player sole media ownership; cpp-performance COPY.5
 // (guidelines/copy-move/ COPY.5-resource-owning-types-are-move-only.md)
 // prevents copied playback owners.
@@ -39,7 +40,7 @@ class StartupPlayback final : public LogoMedia {
   bool movie_complete() const override { return player_.complete(); }
   void stop_movie() noexcept override { player_.stop(); }
   void begin_fade(FadeDirection direction, float duration) override;
-  bool fade_pending() const override { return fade_remaining_ > 0; }
+  bool fade_pending() const override { return fade_active_; }
   void advance(PlaybackUpdate input);
   void draw() { player_.draw(opacity()); }
   float opacity() const { return 1 - overlay_alpha_; }
@@ -53,6 +54,7 @@ class StartupPlayback final : public LogoMedia {
   video::Player player_;
   std::filesystem::path game_directory_;
   float overlay_alpha_{1}, fade_remaining_{}, fade_rate_{};
+  bool fade_active_{};
   FadeDirection fade_direction_{FadeDirection::reveal};
 };
 }  // namespace bw::game

@@ -31,7 +31,8 @@ SRC-01 now separates format readers, catalog lookup, content location and host
 file access while retaining its verified behavior. Shared DPK access and resource
 lifecycle now support task/Lua/root integration. Concrete startup services and
 logo/check tasks and native movie output are implemented. The Mac backend uses
-Metal and AudioQueue; advertise/title/menu remain next.
+Metal and AudioQueue. Advertise and title presentation are implemented;
+character-load/profile and menu behavior remain next.
 
 The required [engine memory subsystem](docs/architecture/memory-and-residency.md)
 follows the launch-screen milestone, including its launch cinematics. Reach that
@@ -190,8 +191,9 @@ that formula the resource service's unchecked runtime pointer semantics.
 5. **Implemented startup subset:** concrete logo/check session tasks, shared
    decoding/playback/fades and native Mac presentation/audio/input. Both company
    movies now complete with full PCM consumption and zero underruns in the
-   recorded native run. Next: advertise,
-   required sprite/font resources and interactive title/menu as SRC-02 requires.
+   recorded native run. Advertise and title now reuse that transport and add
+   decoded original sprite/font assets and native Metal quad presentation.
+   Next: character-load/profile and interactive menu as SRC-02 requires.
 6. **Later:** world/entity/AI/animation/physics/effect behavior for a complete mission,
    preserving the same mechanisms for later missions and host ports.
 
@@ -206,8 +208,8 @@ DPK/USER resource lifetime; task scheduling, compatible Lua bridge and original
 root driver. See [startup runtime](docs/startup-runtime.md) for exact contracts,
 verification commands and limitations. This completes the infrastructure slice
 of SRC-02. It does not complete the interactive title/menu milestone: concrete
-advertise/title/menu, sprite/font and remaining game-state services are still
-needed. The provisioned original-root scenario retains full-route fixtures and
-also drives the production session through logo/check completion. The native
+character-load/menu and remaining profile/dialog services are still needed. The provisioned original-root scenario retains full-route fixtures and
+also drives the production session through title confirmation with real decoded
+title assets and controlled media/render observations. The native
 startup executable uses the same production session and original media. See
 [native startup](docs/native-startup-host.md) for device verification and limits.

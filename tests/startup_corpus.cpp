@@ -28,6 +28,7 @@
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/root_driver.hpp"
 #include "game/startup_services.hpp"
+#include "game/startup_title_surface.hpp"
 namespace {
 using bw::game::Screen;
 class Screens final : public bw::game::StartupServices {
@@ -67,29 +68,55 @@ class Media final : public bw::game::LogoMedia {
   std::vector<std::string> opened;
   unsigned stops{};
 };
+class SpriteOutput final : public bw::render::SpriteOutput {
+ public:
+  bw::render::TextureHandle upload_texture(
+      std::uint32_t width, std::uint32_t height,
+      std::span<const std::uint8_t> rgba) override {
+    if (rgba.size() != static_cast<std::size_t>(width) * height * 4) {
+      throw std::runtime_error("Invalid original sprite pixels");
+    }
+    ++live;
+    return {++identity};
+  }
+  void release_texture(bw::render::TextureHandle) noexcept override { --live; }
+  void set_sprites(std::span<const bw::render::Sprite> commands) override {
+    if (!commands.empty()) {
+      presented = true;
+    }
+  }
+  void clear_sprites() noexcept override {}
+  std::size_t live{};
+  std::uint64_t identity{};
+  bool presented{};
+};
 void reconstructed_session(bw::resources::ResourceService& resources) {
   Media media;
+  SpriteOutput output;
+  bw::game::StartupTitleSurface surface(resources, output, [] { return 0U; });
   {
-    bw::game::StartupSession session(media);
+    bw::game::StartupSession session(media, &surface);
     session.start_root(resources, 2);
     bw::script::RunResult result{bw::script::RunState::idle, {}};
-    for (unsigned frame = 0; frame < 100; ++frame) {
-      result = session.advance({1.0F / 60.0F, 0});
+    for (unsigned frame = 0; frame < 500; ++frame) {
+      result = session.advance({0.1F, 0x1010});
       if (result.state == bw::script::RunState::failed) {
         break;
       }
     }
-    const std::vector<std::string> expected{"data/movie/marvelousLogo.ssu",
-                                            "data/movie/xeedLogo.ssu"};
+    const std::vector<std::string> expected{
+        "data/movie/marvelousLogo.ssu", "data/movie/xeedLogo.ssu",
+        "data/movie/advertise.ssu", "data/movie/witchLOGO.ssu"};
     if (result.state != bw::script::RunState::failed ||
-        result.diagnostic.find("Advertise screen is not implemented") ==
+        result.diagnostic.find("Character load screen is not implemented") ==
             std::string::npos ||
-        media.opened != expected || media.stops != 2 ||
+        media.opened != expected || media.stops != 4 ||
         session.progress(Screen::company_logo).status !=
             bw::game::FlowStatus::complete ||
         session.progress(Screen::memory_card).status !=
             bw::game::FlowStatus::complete ||
-        !session.window_close_enabled()) {
+        !session.window_close_enabled() || !output.presented ||
+        output.live != 0 || session.status(Screen::title) != 1) {
       throw std::runtime_error(
           "Original root reconstructed startup route mismatch: " +
           result.diagnostic);
@@ -156,9 +183,11 @@ int main(int argc, char** argv) {
            "\"advertise\",\"title\",\"character_load\",\"title_menu\","
            "\"title\"],\"services\":\"deterministic test fixture; no "
            "rendering or native equivalence claim\",\"reconstructed_session\":"
-           "{\"route\":[\"company_logo\",\"memory_card\"],"
-           "\"boundary\":\"unsupported advertise\",\"media\":"
-           "\"controlled test observations\"}}\n";
+           "{\"route\":[\"company_logo\",\"memory_card\",\"advertise\","
+           "\"title\"],"
+           "\"boundary\":\"unsupported character_load\",\"media\":"
+           "\"controlled test observations; original title assets decoded with "
+           "synthetic renderer\"}}\n";
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

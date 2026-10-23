@@ -238,7 +238,8 @@ Target granularity can be refined during implementation without changing these
 boundaries. Keep CPU format tests and the inspector buildable without initializing
 a device or world. Do not create a new test-only loader, renderer or simulation.
 
-**Implemented today:** `bw_resources`, `bw_runtime`, `bw_game`, `bw_video`,
+**Implemented today:** `bw_resources`, `bw_runtime`, `bw_game`, `bw_images`,
+`bw_startup_presentation`, `bw_video`,
 `bw_video_ffmpeg`, `bw_startup_playback`, `bw_startup_framework`,
 the Mac `bw_media_audio_macos` and `bw_startup_host_macos`, `bw-resource`, `bw-startup`,
 their tests and the engineering tooling. The [resource contract](../resources.md)
@@ -263,8 +264,8 @@ The implemented startup subset adds `formats/named_file_package`, `resources/ser
 `bw_lua502`. A1 owns DPK layout, A3/A4 resource lifecycle/USER construction, E1
 task progression, E2 Lua mechanics, and G1/G2 root policy/native bindings.
 The `StartupSession` implementation now owns the root, scheduler and concrete
-logo/check screen flows. Advertise and later screen capabilities still fail
-explicitly. See [startup runtime](../startup-runtime.md).
+logo/check/advertise/title screen flows. Character load and the title menu
+still fail explicitly. See [startup runtime](../startup-runtime.md).
 
 `src/game/startup_flows` adds `CompanyLogoFlow` and `StartupCheckFlow` to `bw_game`.
 They own recovered game update policy and borrow explicit observations from a
@@ -295,10 +296,22 @@ factory. The Mac executable selects the concrete factory and native targets;
 shared playback tests link without FFmpeg. This is dependency separation, not
 a claim of a Windows/Xbox backend or hardware decoder.
 The original-root integration retains its full-route fixtures and also exercises
-the concrete session through logo/check completion and the advertise boundary.
+the concrete session through title confirmation and the character-load boundary.
 
 The required [memory subsystem](memory-and-residency.md) is not implemented yet.
 Portable contracts belong under `include/bw/memory/`, shared allocation/lifetime
 policy under `src/memory/`, and native page/device backing in the corresponding
 platform/device implementation. Existing default-allocated containers and buffers
 are migration work, not an accepted final memory policy.
+
+## Implemented title presentation
+
+`bw_images` owns shared bounded PNG and original FONT decoding under
+`src/formats/`. `bw_startup_presentation` owns game title resource selection,
+construction and draw data in `src/game/startup_title_surface`. It depends on
+portable `render::SpriteOutput` and the resource service, not Metal.
+`AdvertiseFlow` and `TitleFlow` remain in `bw_game`; `TitleSurface` injects
+resource readiness and presentation without coupling the flow to a codec or
+renderer. Mac implementation and standalone shaders remain under
+`src/platform/macos/`. Native texture handles and bounded ordered commands
+are the implemented renderer subset; the world renderer remains proposed.

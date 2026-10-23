@@ -1,12 +1,12 @@
 # Remaining work
 
-- Next milestone: reach the launch screen and its launch cinematics. Reconstruct advertise using the shared playback/native output already in
-  place, then title initialization, character-load save/dialog behavior and
-  title-menu status contracts. Follow
-  `research/engine/subsystems/startup-next-contracts.md`. Implement required
-  sprite/font presentation through renderer-owned contracts; keep the current
-  startup check's missing visual presentation explicit. Resolve logo open-failure
-  continuation and startup-wide initial fade state from evidence.
+- Next: implement character-load save/profile operations and localized dialog
+  results, then title-menu availability, navigation and action outcomes. Advertise
+  and animated title presentation are implemented. Follow
+  `research/engine/subsystems/startup-next-contracts.md`. Complete the original
+  title confirmation sound cue and startup-check visuals at their owning systems.
+  Resolve logo open-failure continuation, ordinary media-open rejection versus
+  terminal decoder errors, and startup-wide initial fade state.
 - After the launch-screen milestone: implement the memory contracts in
   `docs/architecture/memory-and-residency.md`, including backing, domains/budgets,
   alignment/failure, persistent storage, phase arenas and streaming leases.

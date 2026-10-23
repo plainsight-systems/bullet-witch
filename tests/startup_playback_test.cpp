@@ -212,6 +212,12 @@ void interrupted_fade() {
           "Clamping does not finish fade timer early");
   playback.advance({.wall_delta = 1, .game_delta = 1});
   require(!playback.fade_pending(), "Terminal fade clears timer");
+  playback.begin_fade(FadeDirection::reveal, 0);
+  require(playback.fade_pending() && playback.opacity() == 0,
+          "Zero-duration fade remains pending until its next update");
+  playback.advance({0, 0});
+  require(!playback.fade_pending() && playback.opacity() == 1,
+          "Zero-duration fade snaps without division by zero");
 }
 }  // namespace
 void startup_playback_contracts() {

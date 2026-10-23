@@ -43,7 +43,8 @@
   separately from monotonic device time. The game adapter owns recovered fade
   arithmetic. Mac native code
   owns Metal/AudioQueue/window/input. The two company movies are marvelousLogo
-  and xeedLogo. Advertise and later screens remain explicitly unsupported. Logo open-failure
+  and xeedLogo. Advertise and title now reuse that transport; character-load/menu
+  remain explicitly unsupported. Logo open-failure
   continuation is an explicit unresolved failure; see `docs/startup-runtime.md`.
 - The engineering workflow requires both C++ MCP corpora in design and
   implementation, opening file contracts, pinned Google formatting, fatal
@@ -106,3 +107,19 @@
   explicit FFmpeg factory. Shared video, FFmpeg, native audio and native
   presentation have separate build targets. Future target entries reuse the
   shared framework; no additional target implementation is claimed.
+
+- The opening cinematic and title flow preserve recovered timing/input/status
+  contracts. Title uses original PNG images, FONT glyphs and packed atlas
+  channels through shared bounded decoders and renderer-owned Metal textures.
+  The game adapter owns title/font/selected-loading resource interests; encoded
+  publication is distinct from decoded/device readiness. Native startup defaults
+  to fullscreen after AppKit transition completion; `--windowed` and size options
+  remain available. Version glyph flags cross an original BGRA convention and
+  require explicit red/blue mapping into canonical RGBA sampling.
+
+- Corrected native fullscreen acceptance now covers all four startup movies and
+  title outcome 2, with full PCM consumption, no underruns and terminal frames.
+  The original START/copyright overlays and corrected Version1.0.5 glyphs were
+  visually inspected. Late video-frame drops remain observable; original-game
+  audiovisual parity is not claimed. Strict checks, UBSan and real-root/asset
+  integration pass; character-load/menu and confirmation sound remain gaps.

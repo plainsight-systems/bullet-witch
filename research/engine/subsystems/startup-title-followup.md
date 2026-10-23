@@ -1,8 +1,10 @@
 # Title prerequisites: bounded follow-up
 
 October 22, 2026. Planning evidence for the later launch-screen milestone.
-The current immediate task remains final-logo playback; no title implementation
-or visual-equivalence claim accompanies this note.
+This is the earlier bounded inspection; implementation now follows
+[startup-title-integration.md](startup-title-integration.md) and
+[title-assets.md](title-assets.md). It is retained as the provenance of the
+resource-gate correction.
 
 ## Resource initialization correction
 

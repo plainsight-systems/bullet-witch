@@ -1,15 +1,23 @@
-// A3: startup USER-resource lifecycle, docs/startup-runtime.md.
+// Encoded sprite payload extension: leases retain the immutable sibling archive
+// (R.20 #rr-owner); native texture readiness belongs to the consuming adapter.
+// E.6 (#re-raii) preserves cleanup on construction failure; cpp-performance
+// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps
+// leases cheap shared owners without payload copies. Design and implementation
+// queried. See research/engine/subsystems/startup-title-integration.md. USER
+// restrictions remain; DDS selected ranges are exposed as encoded bytes, never
+// executed. A3: encoded USER/image-resource lifecycle, docs/startup-runtime.md.
 // Single-threaded; the Files capability must outlive this service. Owns
 // catalogs, requested-file interests and publications. Leases retain immutable
 // CPR owners after release. Errors are terminal per file until all tags release
 // it; lookup never reports failed/unsupported work ready. Request resolves the
 // dependency closure before changing interests; allocation failure may leave
 // valid partial interests. Algorithm: mark closure (cycle-safe), open all
-// tagged files, publish USER in phase 1, finish phase 2; release interests and
-// identity-matching publications. Each pump advances one global phase; it never
-// spins on failed/pending work. Cost: closure O((R+D) log R), pumps O(files +
-// records), retained archive bytes. Optimization: leases share archives;
-// publication lookup does not copy payloads. Design: cpp-guidelines R.20
+// tagged files, publish USER names and retain encoded image siblings in phase
+// 1, finish phase 2; release interests and identity-matching publications. Each
+// pump advances one global phase; it never spins on failed/pending work. Cost:
+// closure O((R+D) log R), pumps O(files + records), retained archive bytes.
+// Optimization: leases share archives; publication lookup does not copy
+// payloads. Design: cpp-guidelines R.20
 // (#rr-owner) makes archive retention explicit; cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps container
 // owners rule-of-zero. Implementation: SL.con.3 (#rsl-bounds) bounds every
@@ -41,6 +49,8 @@ class ResourceLease {
   ResourceLease(std::shared_ptr<const ResourceArchive> archive,
                 std::size_t record);
   std::span<const std::uint8_t> bytes() const;
+  // Borrowed archive view remains valid while this or a copied lease survives.
+  const ResourceArchive& archive() const { return *archive_; }
 
  private:
   std::shared_ptr<const ResourceArchive> archive_;

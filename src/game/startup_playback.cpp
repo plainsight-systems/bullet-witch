@@ -35,12 +35,18 @@ bool StartupPlayback::open_movie(std::string_view path) {
   return true;
 }
 void StartupPlayback::begin_fade(FadeDirection direction, float duration) {
-  if (!std::isfinite(duration) || duration <= 0) {
-    throw std::runtime_error("Fade duration must be finite and positive");
+  if (!std::isfinite(duration) || duration < 0) {
+    throw std::runtime_error("Fade duration must be finite and nonnegative");
   }
   fade_direction_ = direction;
   fade_remaining_ = duration;
-  fade_rate_ = (direction == FadeDirection::reveal ? -1.0F : 1.0F) / duration;
+  // Native zero-duration fades snap on the next update. Avoid its transient
+  // division by zero while preserving that update boundary (0x485a20).
+  fade_active_ = true;
+  fade_rate_ =
+      duration == 0
+          ? 0
+          : (direction == FadeDirection::reveal ? -1.0F : 1.0F) / duration;
 }
 void StartupPlayback::advance(PlaybackUpdate input) {
   const auto game_delta = input.game_delta;
@@ -51,7 +57,9 @@ void StartupPlayback::advance(PlaybackUpdate input) {
     fade_remaining_ -= game_delta;
     overlay_alpha_ =
         std::clamp(overlay_alpha_ + fade_rate_ * game_delta, 0.0F, 1.0F);
-    if (!fade_pending()) {
+    if (fade_remaining_ <= 0) {
+      fade_remaining_ = 0;
+      fade_active_ = false;
       overlay_alpha_ = fade_direction_ == FadeDirection::reveal ? 0.0F : 1.0F;
     }
   }

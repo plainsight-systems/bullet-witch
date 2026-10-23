@@ -16,8 +16,12 @@ Native USER constructor `0x41ac30` relocates section fields and publishes record
 `+0x20` through `0x415530`; it releases through `0x4149b0`. The reconstructed
 service retains immutable file-relative views instead of relocated addresses.
 The separate opened/published pump boundary is a host scheduling choice; it
-is not a claim that native USER uses the CALL phase-1 callback. CALL, graphics
-handlers, inline runtime references and cancellation races remain unresolved.
+is not a claim that native USER uses the CALL phase-1 callback. Unnamed encoded DDS image siblings are now retained alongside USER publications,
+including parser-validated selected payload ranges. A lease exposes its retained
+archive for typed asset construction; ready here means encoded bytes available.
+PNG/FONT decoding and GPU texture construction have their own readiness gate.
+CALL, executable graphics handlers, USER inline runtime references and
+cancellation races remain unresolved.
 
 A tag records an interest in its dependency files. Multiple tags can retain a
 file; release removes the caller's interest and only unpublishes when no tags
@@ -141,7 +145,7 @@ The test explicitly rejects unexpected global side effects. The concrete
 route remains a separate routing assertion, not evidence that later screens run.
 The same provisioned integration scenario also drives the original root through
 `StartupSession`, using controlled media observations to verify both reconstructed
-flows and the explicit unsupported-advertise boundary. It verifies cleanup of
+flows through title confirmation and the explicit unsupported character-load boundary. It verifies cleanup of
 the root publication after each composition. No new integration scenario is added.
 
 ```sh
@@ -289,18 +293,18 @@ native getter **0x478e20** reads owner **0x432130 + 0x61470**, initialization
 **0x43e8d0** clears it, return handling **0x43fe32** sets it, and setter
 **0x47c080** writes it without further side effects. The root consumes it to
 choose cold startup or return-to-title. Other global slots, saved-stage lookup,
-and advertise/title/character-load/menu screens remain explicit unsupported
+and character-load/menu screens remain explicit unsupported
 operations; there is no fabricated global array or production screen fixture.
-The original root therefore reaches the advertise boundary after both supported
-flows and reports the missing screen instead of claiming a working menu.
+The original root now runs advertise and title; confirmation reaches character
+load, while natural timeout returns to its attract loop.
 
 Shared game policy owns sequencing, fades requested by screens, task waits and
 session state. Native adapters own host event/device operations behind common
 headers, with media playback scheduling and sample ownership explicit at that
 boundary. The startup-check state advances without drawing a fabricated card or
 save dialog. Logo open-failure continuation remains unresolved and fails with a
-diagnostic. Completing this slice does not establish a world renderer, title
-sprite construction, profile loading or Xbox device behavior.
+diagnostic. Completing this slice does not establish a world renderer, profile loading,
+a working title menu or Xbox device behavior.
 
 Three in-process cases in the existing runtime test executable cover PC check
 visibility/UI clocks/result ordering, two-logo progression with independent
@@ -309,3 +313,19 @@ use explicit test media observations and establish update-policy behavior only.
 Two further in-process session cases cover activation, explicit global ownership,
 result versus lifecycle timing, completed-screen re-execution and unsupported
 operations. No integration scenario or fake production completion service was added.
+
+## Advertise and title
+
+Advertise reuses the existing movie/fade capability with its recovered 0.25-second
+fades, pressed skip masks and three-second open-false fallback. Title opens its
+movie before resource readiness, waits for title and selected loading assets,
+then applies the recovered reveal, prompt/glow pulse and copyright/version
+opacity. Its natural outcome is 2; confirmed input yields 1 after the original
+accept/fade phases. Zero-duration fade commands snap on their next update.
+The title confirmation sound cue remains unimplemented.
+
+See [screen evidence](../research/engine/subsystems/startup-screen-behavior.md),
+[assets](../research/engine/subsystems/title-assets.md) and
+[native presentation](native-startup-host.md). The same original-root integration
+now decodes real title/font/loading data and checks emitted commands through a
+synthetic renderer; native verification separately checks actual Metal/audio.

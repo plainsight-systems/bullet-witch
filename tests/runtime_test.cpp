@@ -24,6 +24,8 @@
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 void startup_flow_contracts();
 void startup_session_contracts();
+void advertise_flow_contracts();
+void title_flow_contracts();
 void pcm_buffer_contracts();
 void startup_playback_contracts();
 namespace {
@@ -169,6 +171,8 @@ int main() {
   try {
     startup_flow_contracts();
     startup_session_contracts();
+    advertise_flow_contracts();
+    title_flow_contracts();
     pcm_buffer_contracts();
     startup_playback_contracts();
     bridge_contract();

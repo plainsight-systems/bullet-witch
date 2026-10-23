@@ -41,6 +41,21 @@ GPL, nonfree and version-3-only components are disabled. The source and shared
 libraries stay in ignored build directories; neither is committed here.
 See docs/video-decoder.md for the configuration and binary-distribution notes.
 
+PNG images
+==========
+
+libpng 1.6.59 — Copyright the PNG Reference Library Authors.
+PNG Reference Library License; full notice: docs/licenses/libpng-1.6.59-LICENSE.
+Source: https://github.com/pnggroup/libpng/tree/v1.6.59
+
+zlib 1.3.2 — Copyright Jean-loup Gailly and Mark Adler.
+zlib license; full notice: docs/licenses/zlib-1.3.2-LICENSE.
+Source: https://github.com/madler/zlib/tree/v1.3.2
+
+cmake/PngDecoder.cmake fetches checksum-pinned, unmodified upstream sources
+and builds static libraries under the ignored build directory. Include their
+notices when distributing linked binaries.
+
 Research tools and references
 ============================
 

@@ -258,3 +258,21 @@ The implemented Mac movie path selects Metal and a small independent shader
 pipeline. World render passes, original material-shader translation and visual
 fidelity remain separate work. See [native startup](../native-startup-host.md)
 for the implemented subset and verification results.
+
+## Implemented sprite and bitmap-text subset
+
+`render::SpriteOutput` owns opaque texture identities and copies up to 511
+ordered quads on the original 1280×720 canvas. Native Metal retains uploaded
+RGBA textures, selects straight-alpha color or a packed glyph coverage channel,
+and composites movie then sprites under the shared fade. Texture release and
+command replacement respect GPU completion. Bounds are explicit: 128 textures
+and 128 MiB native sprite residency. These are current backend limits, not the
+finished memory subsystem.
+
+The title game adapter supplies recovered sprite positions, animation opacity
+and glyph metrics. Its retained encoded archive leases, decoded images and
+native textures have separate lifetimes/readiness. Shared PNG/FONT decoders
+perform no file I/O or GPU work. The original native BGRA font flags map into
+canonical RGBA channels before commands reach the renderer. See the
+[sprite design](../../research/engine/subsystems/sprite-presentation-design.md)
+for inspected reference implementations, ordering evidence and shader equations.
