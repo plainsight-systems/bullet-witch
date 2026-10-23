@@ -58,6 +58,11 @@ No new original-engine behavior is established by that design documentation.
   title/menu transitions, font/sprite queues and GPU consumers.
 - [Platform services](subsystems/platform-and-services.md): Windows threads/events,
   Steam context/callbacks, configuration and shutdown boundaries.
+- [Current runtime memory migration](subsystems/memory-migration-completion.md):
+  implemented allocation owners, native boundaries and evidence.
+- [Memory management research](subsystems/memory-management-research.md): recovered
+  PC allocators, Unreal and modern references, and the approved faithful-first
+  implementation direction.
 - [Particles and effects](subsystems/particles-and-effects.md): original class families,
   all four pack tables, stage sequences and native simulation.
 - [Particle runtime contracts](subsystems/particle-runtime-contracts.md): emission,

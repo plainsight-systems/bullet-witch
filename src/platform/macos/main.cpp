@@ -1,13 +1,22 @@
-// Profile extension: choose the Mac default directory or explicit --profile,
-// canonicalize both roots and reject writable storage inside the game install.
-// Own SaveStorage through framework return. Path work is startup-only; ordinary
-// save errors are handled by FrontEnd, while path/setup errors reach stderr.
-// The source path and supplied directory must remain stable during this run.
-// Design I.30 (#ri-encapsulate), implementation E.6 (#re-raii) and performance
-// COPY.4 below keep platform choice and storage ownership at the target entry.
-// Startup route extension: game policies borrow capabilities; composition owns
-// them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
-// implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
+// Memory composition: select Mac CPU backing, separate resource/runtime/media
+// domains and a distinct device budget before creating services. Aggregate
+// limits remain explicitly uncapped pending workload policy. Device bytes are
+// logical/reported metrics, not additional physical RAM. Owners survive until
+// final use, including exceptional unwind. Bootstrap/native framework internals
+// remain documented external boundaries. R.1 (#rr-raii) and MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md), read in
+// design and implementation, select and inject capabilities at the target
+// entry. Profile extension: choose the Mac default directory or explicit
+// --profile, canonicalize both roots and reject writable storage inside the
+// game install. Own SaveStorage through framework return. Path work is
+// startup-only; ordinary save errors are handled by FrontEnd, while path/setup
+// errors reach stderr. The source path and supplied directory must remain
+// stable during this run. Design I.30 (#ri-encapsulate), implementation E.6
+// (#re-raii) and performance COPY.4 below keep platform choice and storage
+// ownership at the target entry. Startup route extension: game policies borrow
+// capabilities; composition owns them through cleanup. Design MCP R.20
+// (#rr-owner) retains explicit lifetime; implementation E.6 (#re-raii) unwinds
+// on failures. cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves
 // container ownership without per-frame payload copies. Shared presentation
 // contracts are described in
@@ -28,8 +37,11 @@
 #include <exception>
 #include <iostream>
 #include <span>
+#include <utility>
 
+#include "bw/memory/device_budget.hpp"
 #include "framework/startup_application.hpp"
+#include "platform/macos/cpu_backing.hpp"
 #include "video/ffmpeg/decoder.hpp"
 
 int main(int argc, char** argv) {
@@ -48,11 +60,22 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "Writable profile directory must be outside the game installation");
     }
+    const auto backing = bw::platform::macos::make_cpu_backing();
+    const bw::framework::StartupMemory memory{
+        .resources = bw::memory::Domain::create(backing),
+        .runtime = bw::memory::Domain::create(backing),
+        .media = bw::memory::Domain::create(backing)};
+    const auto device_memory = bw::memory::DeviceBudget::create(memory.runtime);
     auto saves = bw::platform::make_save_storage(profile);
     bw::platform::HostFiles files;
-    bw::platform::StartupHost host(configuration.window);
-    return bw::framework::run_startup(configuration, host, files, *saves,
-                                      bw::video::ffmpeg::open_decoder);
+    bw::platform::StartupHost host(memory.runtime, device_memory,
+                                   configuration.window);
+    return bw::framework::run_startup(
+        configuration, host, files, *saves,
+        [domain = memory.media](const std::filesystem::path& path) {
+          return bw::video::ffmpeg::open_decoder_in_domain(path, domain);
+        },
+        memory);
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

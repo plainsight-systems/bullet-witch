@@ -1,3 +1,9 @@
+// Memory migration: use the domain-owned retained snapshot; clear it on success
+// and exception, keeping capacity without resetting any task/coroutine owner.
+// R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md), retrieved in both phases,
+// preserve owned storage and injection. Algorithm/order below is unchanged;
+// O(N) work with no snapshot allocation after capacity stabilizes.
 // E1: task lifecycle and ordered update passes (0x40b4f0/570/4c0).
 // Runs callbacks on the thread calling tick; no worker threads or locks.
 // All API calls require one owning thread; concurrent access is unsafe.
@@ -80,12 +86,13 @@ void TaskLifecycleScheduler::tick(bool late_pass) {
   }
   ticking_ = true;
   try {
-    std::vector<std::pair<int, TaskId>> order;
+    order_.clear();
+    order_.reserve(tasks_.size());
     for (const auto& [key, value] : tasks_) {
       (void)value;
-      order.push_back(key);
+      order_.push_back(key);
     }
-    for (const auto& key : order) {
+    for (const auto& key : order_) {
       auto& task = tasks_.at(key);
       if (task.faulted) {
         continue;
@@ -131,7 +138,7 @@ void TaskLifecycleScheduler::tick(bool late_pass) {
       if (late && !late_pass) {
         break;
       }
-      for (const auto& key : order) {
+      for (const auto& key : order_) {
         auto found = tasks_.find(key);
         if (found == tasks_.end()) {
           continue;
@@ -150,8 +157,10 @@ void TaskLifecycleScheduler::tick(bool late_pass) {
         }
       }
     }
+    order_.clear();
     ticking_ = false;
   } catch (...) {
+    order_.clear();
     ticking_ = false;
     throw;
   }

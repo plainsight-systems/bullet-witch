@@ -1,3 +1,8 @@
+// Domain extension: decoded pixels/glyphs retain allocator capabilities through
+// copies; malformed input and native/budget rejection unwind without fallback.
+// R.1 (#rr-raii), E.6 (#re-raii), MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) apply as consulted in both
+// design/implementation phases; no native rendering or filesystem dependency.
 // In-process PNG/FONT contract checks using only synthetic owned bytes. Verify
 // canonical RGBA, signed glyph metrics/channel mapping, ownership and malformed
 // bounds. No files, renderer or process launches. Small fixture-sized cost.
@@ -6,14 +11,17 @@
 // COPY.4-rule-of-five-rule-of-zero.md) keeps fixtures owning values.
 // Implementation: E.6 (#re-raii) and COPY.4 release failed decode
 // intermediates.
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 
 #include "bw/formats/bitmap_font.hpp"
 #include "bw/formats/common.hpp"
 #include "bw/formats/image.hpp"
+#include "media_memory_fixture.hpp"
 namespace {
 void check(bool condition, const char* message) {
   if (!condition) {
@@ -57,6 +65,43 @@ std::vector<std::uint8_t> font_fixture() {
   bytes.at(glyphs + 13) = 9;
   word(bytes, glyphs + 16, 65);
   return bytes;
+}
+void font_memory_contracts() {
+  const auto backing = std::make_shared<bw::test::MediaBacking>();
+  std::weak_ptr<bw::memory::Domain> owner;
+  std::optional<bw::formats::BitmapFont> retained;
+  {
+    auto domain = bw::memory::Domain::create(backing);
+    owner = domain;
+    const auto decoded = bw::formats::BitmapFont::parse(
+        font_fixture(), bw::memory::Allocator<std::byte>(domain));
+    retained = decoded;
+    check(domain->snapshot().live_bytes > 0, "Font tables are domain owned");
+  }
+  check(!owner.expired() && retained->glyph(u'A').has_value(),
+        "Copied font retains its domain after producer destruction");
+  retained.reset();
+  check(owner.expired() && backing->acquired == backing->released,
+        "Final font owner returns all storage");
+  auto domain = bw::memory::Domain::create(backing);
+  auto damaged = font_fixture();
+  word(damaged, 48 + 256 * 12 + 16, 65 | (1U << 16U));
+  rejects([&] {
+    (void)bw::formats::BitmapFont::parse(
+        damaged, bw::memory::Allocator<std::byte>(domain));
+  });
+  check(domain->snapshot().live_allocations == 0,
+        "Malformed mapping returns already-decoded glyph storage");
+  backing->reject.store(true);
+  bool failed = false;
+  try {
+    (void)bw::formats::BitmapFont::parse(
+        font_fixture(), bw::memory::Allocator<std::byte>(domain));
+  } catch (const std::bad_alloc&) {
+    failed = true;
+  }
+  check(failed && domain->snapshot().live_allocations == 0,
+        "Font allocation rejection never falls back to compatibility storage");
 }
 void font_contracts() {
   auto bytes = font_fixture();
@@ -111,21 +156,56 @@ void image_contracts() {
       0,   31, 21,  196, 137, 0,   0,  0,  13, 73,  68,  65,  84,  120,
       156, 99, 224, 18,  145, 211, 0,  0,  0,  205, 0,   101, 106, 153,
       132, 66, 0,   0,   0,   0,   73, 69, 78, 68,  174, 66,  96,  130};
+  const auto backing = std::make_shared<bw::test::MediaBacking>();
+  std::weak_ptr<bw::memory::Domain> owner;
+  std::optional<bw::formats::Image> retained;
+  {
+    const auto domain = bw::memory::Domain::create(backing);
+    owner = domain;
+    const auto decoded = bw::formats::decode_png(
+        png, {}, bw::memory::Allocator<std::uint8_t>(domain));
+    retained = decoded;
+  }
+  check(!owner.expired() && retained->rgba[3] == 40,
+        "Copied PNG pixels retain their original domain");
+  retained.reset();
+  check(owner.expired() && backing->acquired == backing->released,
+        "Final decoded image releases domain pixels");
+  const auto limited =
+      bw::memory::Domain::create(backing, {.max_live_bytes = 3});
+  bool failed = false;
+  try {
+    (void)bw::formats::decode_png(png, {},
+                                  bw::memory::Allocator<std::uint8_t>(limited));
+  } catch (const std::bad_alloc&) {
+    failed = true;
+  }
+  check(failed && limited->snapshot().live_allocations == 0,
+        "PNG output budget rejects without global fallback or leaked charge");
   auto image = bw::formats::decode_png(png);
   check(image.width == 1 && image.height == 1 &&
-            image.rgba == std::vector<std::uint8_t>{10, 20, 30, 40},
+            std::ranges::equal(image.rgba,
+                               std::array<std::uint8_t, 4>{10, 20, 30, 40}),
         "PNG did not preserve straight-alpha RGBA");
   rejects([&] { (void)bw::formats::decode_png(std::span(png).first(32)); });
   rejects([&] { (void)bw::formats::decode_png(png, {1, 3, 1024}); });
   auto damaged = png;
   damaged.at(50) ^= 0xff;
   rejects([&] { (void)bw::formats::decode_png(damaged); });
+  const auto domain = bw::memory::Domain::create(backing);
+  rejects([&] {
+    (void)bw::formats::decode_png(damaged, {},
+                                  bw::memory::Allocator<std::uint8_t>(domain));
+  });
+  check(domain->snapshot().live_allocations == 0,
+        "PNG codec failure releases the domain output buffer");
 }
 }  // namespace
 int main() {
   try {
     image_contracts();
     font_contracts();
+    font_memory_contracts();
     std::cout << "PNG and bitmap-font contract checks passed\n";
     return 0;
   } catch (const std::exception& error) {

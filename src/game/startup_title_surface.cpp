@@ -1,4 +1,15 @@
-// Title asset construction and original sprite/font submission. See header and
+// Memory migration: native owners propagate the ResourceService CPU domain to
+// final pixel/glyph storage and retained presentation state/strings. Owning
+// allocators retain the domain through copies and partial-construction cleanup;
+// defaults are legacy parser/test compatibility, never exhaustion fallback.
+// PNG writes directly to its final owned destination. Fixed draw storage adds
+// no per-frame allocations; native texture lifetime stays with SpriteOutput.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
+// fixed presentation capacity. Pinned source/external libpng exclusions are
+// recorded in research/engine/subsystems/memory-image-presentation.md. Title
+// asset construction and original sprite/font submission. See header and
 // research/engine/subsystems/title-assets.md for recovered data and
 // coordinates. Leases retain encoded sibling records; PNG/FONT decoders
 // validate input; persistent texture handles retire before their renderer. The
@@ -21,6 +32,12 @@
 
 namespace bw::game {
 namespace {
+memory::Allocator<std::byte> storage_for(
+    const resources::ResourceService& resources) {
+  const auto domain = resources.memory_domain();
+  return domain ? memory::Allocator<std::byte>(domain)
+                : memory::Allocator<std::byte>{};
+}
 constexpr resources::ResourceTag kTitleTag = 10;
 constexpr resources::ResourceTag kLoadingTag = 11;
 constexpr std::array<unsigned, 3> kDrawIds{424, 423, 452};
@@ -59,6 +76,7 @@ struct StartupTitleSurface::State {
     render::TextureHandle texture;
     float width{}, height{};
   };
+  memory::Allocator<std::byte> allocator;
   resources::ResourceService& resources;
   render::SpriteOutput& renderer;
   std::function<unsigned()> choose_loading;
@@ -71,12 +89,14 @@ struct StartupTitleSurface::State {
   std::array<render::Sprite, kDrawCapacity> commands{};
   enum class Phase : std::uint8_t { idle, title, loading, ready };
   Phase phase{Phase::idle};
-  std::string loading_name;
+  memory::String loading_name;
   State(resources::ResourceService& resource_service,
         render::SpriteOutput& output, std::function<unsigned()> selector)
-      : resources(resource_service),
+      : allocator(storage_for(resource_service)),
+        resources(resource_service),
         renderer(output),
-        choose_loading(std::move(selector)) {
+        choose_loading(std::move(selector)),
+        loading_name(allocator) {
     if (!choose_loading) {
       throw std::invalid_argument("Loading selector is required");
     }
@@ -118,7 +138,8 @@ struct StartupTitleSurface::State {
     if (texture_count == textures.size()) {
       throw std::runtime_error("Title texture capacity exceeded");
     }
-    const auto decoded = formats::decode_png(archive.payload(index));
+    const auto decoded =
+        formats::decode_png(archive.payload(index), {}, allocator);
     const auto handle =
         renderer.upload_texture(decoded.width, decoded.height, decoded.rgba);
     textures.at(texture_count++) = handle;
@@ -146,7 +167,7 @@ struct StartupTitleSurface::State {
     }
     font = acquire("sprite.font");
     const auto& font_metrics =
-        metrics.emplace(formats::BitmapFont::parse(font->bytes()));
+        metrics.emplace(formats::BitmapFont::parse(font->bytes(), allocator));
     const auto expected_width = static_cast<float>(font_metrics.atlas_width());
     const auto expected_height =
         static_cast<float>(font_metrics.atlas_height());
@@ -190,8 +211,9 @@ struct StartupTitleSurface::State {
 StartupTitleSurface::StartupTitleSurface(
     resources::ResourceService& resources, render::SpriteOutput& renderer,
     std::function<unsigned()> choose_loading)
-    : state_(std::make_unique<State>(resources, renderer,
-                                     std::move(choose_loading))) {}
+    : state_(std::allocate_shared<State>(storage_for(resources), resources,
+                                         renderer, std::move(choose_loading))) {
+}
 StartupTitleSurface::~StartupTitleSurface() = default;
 void StartupTitleSurface::begin() {
   auto& state = *state_;
@@ -213,9 +235,12 @@ bool StartupTitleSurface::ready() {
       throw std::runtime_error("Loading selection out of range");
     }
     const auto number = selected + 1;
-    state.loading_name = "sprite.loading" +
-                         std::string(number < loading_count ? "0" : "") +
-                         std::to_string(number);
+    state.loading_name = "sprite.loading";
+    constexpr unsigned decimal_radix = 10;
+    state.loading_name.push_back(
+        static_cast<char>('0' + number / decimal_radix));
+    state.loading_name.push_back(
+        static_cast<char>('0' + number % decimal_radix));
     state.resources.request(state.loading_name, kLoadingTag);
     state.phase = State::Phase::loading;
     return false;

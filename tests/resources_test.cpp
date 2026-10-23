@@ -1,10 +1,15 @@
-// Inline PNG cases apply retrieved SL.con.3 (#rsl-bounds) to framing bounds
-// and MEM.9 fixed fixture storage; no device or proprietary data is required.
-// Extended contracts: A1 DPK bounds; A3 publication/release using an in-memory
-// file capability. No processes/files. Ordered checks cover phases, cycle
-// termination, error/retry and lease lifetime, with fixture-sized allocations.
-// Optimization: retain one archive lease across release rather than copying.
-// Design: R.20 (#rr-owner) and COPY.4 (guidelines/copy-move/
+// Resource memory cases exercise injected allocator propagation, owned copies,
+// archive lease survival and exhaustion rollback. In-process backing is an
+// explicit test provider; no filesystem/device acceptance is claimed. Retrieved
+// R.20/F.27 retain owners, E.17 permits cleanup through unwinding, MEM.6
+// injects the provider, MEM.8 checks nested allocation identities (see source
+// contracts). Inline PNG cases apply retrieved SL.con.3 (#rsl-bounds) to
+// framing bounds and MEM.9 fixed fixture storage; no device or proprietary data
+// is required. Extended contracts: A1 DPK bounds; A3 publication/release using
+// an in-memory file capability. No processes/files. Ordered checks cover
+// phases, cycle termination, error/retry and lease lifetime, with fixture-sized
+// allocations. Optimization: retain one archive lease across release rather
+// than copying. Design: R.20 (#rr-owner) and COPY.4 (guidelines/copy-move/
 // COPY.4-rule-of-five-rule-of-zero.md) define shared lifetime. Implementation:
 // SL.con.3 (#rsl-bounds) checks fixture writes; COPY.4 preserves value
 // ownership. In-process resource contract verification (V1 in the draft file
@@ -410,6 +415,315 @@ void lifecycle_tests(Checks& checks) {
           sprite_lease->archive().payload(1)[0] == 'X',
       "Lease retains bounded inline-selected sibling bytes after release");
 }
+class TestBacking final : public bw::memory::CpuBacking {
+ public:
+  void* allocate(std::size_t bytes, std::size_t alignment) noexcept override {
+    if (reject) return nullptr;
+    try {
+      auto* result =
+          std::pmr::new_delete_resource()->allocate(bytes, alignment);
+      ++live;
+      return result;
+    } catch (const std::bad_alloc&) {
+      return nullptr;
+    }
+  }
+  void deallocate(void* pointer, std::size_t bytes,
+                  std::size_t alignment) noexcept override {
+    std::pmr::new_delete_resource()->deallocate(pointer, bytes, alignment);
+    --live;
+  }
+  std::size_t live{};
+  bool reject{};
+};
+void memory_tests(Checks& checks) {
+  using bw::memory::Allocator;
+  using bw::memory::Domain;
+  using bw::resources::ArchiveBytes;
+  auto backing = std::make_shared<TestBacking>();
+  auto domain = Domain::create(backing);
+  // Expand the pool, preserving section-relative payload offsets. These names
+  // exceed short-string storage; their actual allocations must use the domain.
+  auto source = archive_fixture();
+  source.insert(source.begin() + 252, 256, 0);
+  word(source, 24, 304);
+  word(source, 44, 416);
+  word(source, 100, 48);
+  word(source, 192, 112);
+  word(source, 200, 176);
+  text(source, 252, std::string(48, 'n'));
+  text(source, 316, std::string(48, 'k'));
+  text(source, 380, std::string(48, 'v'));
+  {
+    auto archive = ResourceArchive::parse(ArchiveBytes(
+        source.begin(), source.end(), Allocator<std::uint8_t>(domain)));
+    const auto& record = archive.records().at(0);
+    const auto& argument = record.arguments.at(0);
+    if (!record.publication_name || !argument.name || !argument.string_value) {
+      throw std::runtime_error("Missing memory fixture strings");
+    }
+    checks.check(
+        archive.records().get_allocator().domain() == domain &&
+            archive.argument_table().get_allocator().domain() == domain &&
+            record.name.get_allocator().domain() == domain &&
+            record.type.get_allocator().domain() == domain &&
+            record.publication_name->get_allocator().domain() == domain &&
+            record.arguments.get_allocator().domain() == domain &&
+            argument.name->get_allocator().domain() == domain &&
+            argument.string_value->get_allocator().domain() == domain,
+        "Archive nested allocations retain the injected domain");
+    auto copy = archive;
+    archive = ResourceArchive::parse(archive_fixture());
+    const auto& copied_argument = copy.records()[0].arguments[0];
+    if (!copied_argument.string_value) {
+      throw std::runtime_error("Missing copied fixture argument");
+    }
+    checks.check(
+        copy.payload(0)[0] == 'A' && copy.records()[0].name.size() == 48 &&
+            copied_argument.string_value->size() == 48 &&
+            copy.records()[0].name.get_allocator().domain() == domain,
+        "Independent archive copy preserves bytes and nested allocator "
+        "ownership");
+  }
+  checks.check(domain->snapshot().live_bytes == 0 && backing->live == 0,
+               "Archive copy and replacement release all domain allocations");
+  auto limited = Domain::create(backing, {.max_live_bytes = source.size()});
+  bool rejected = false;
+  try {
+    (void)ResourceArchive::parse(ArchiveBytes(
+        source.begin(), source.end(), Allocator<std::uint8_t>(limited)));
+  } catch (const std::bad_alloc&) {
+    rejected = true;
+  }
+  checks.check(rejected && limited->snapshot().live_bytes == 0 &&
+                   limited->snapshot().backing_bytes == 0 && backing->live == 0,
+               "Metadata exhaustion unwinds payload without legacy fallback");
+
+  MemoryFiles files;
+  files.contents = archive_fixture();
+  text(files.contents, 144, "USER");
+  auto rat = catalog_fixture();
+  word(rat, 152, 0);
+  word(rat, 156, 0);
+  auto no_storage = Domain::create(backing, {.max_live_bytes = 0});
+  {
+    CatalogSet catalogs;
+    catalogs.mount(30, "/fixture/data.rat", ResourceCatalog::parse(rat));
+    bw::resources::ResourceService service(std::move(catalogs), files,
+                                           no_storage);
+    rejected = false;
+    try {
+      service.request("script.root", 1);
+    } catch (const std::bad_alloc&) {
+      rejected = true;
+    }
+    checks.check(rejected && no_storage->snapshot().live_bytes == 0 &&
+                     service.status("script.root").state ==
+                         bw::resources::LoadState::unrequested,
+                 "Service traversal uses the injected budget without fallback "
+                 "or publication");
+  }
+  std::optional<bw::resources::ResourceLease> retained;
+  {
+    CatalogSet catalogs;
+    catalogs.mount(30, "/fixture/data.rat", ResourceCatalog::parse(rat));
+    bw::resources::ResourceService service(std::move(catalogs), files, domain);
+    service.request("script.root", 1);
+    (void)service.pump(1);
+    (void)service.pump(1);
+    retained = service.acquire("script.root");
+    service.release(1);
+  }
+  checks.check(retained && retained->bytes()[0] == 'A' &&
+                   domain->snapshot().live_allocations > 0,
+               "Injected archive lease survives service destruction");
+  if (!retained) throw std::runtime_error("Missing retained memory lease");
+  std::weak_ptr<Domain> observed_domain = domain;
+  domain.reset();
+  checks.check(!observed_domain.expired() && retained->bytes()[0] == 'A',
+               "Lease retains allocation owner beyond composition reference");
+  retained.reset();
+  checks.check(
+      observed_domain.expired() && backing->live == 0,
+      "Last lease releases payload metadata and shared control storage");
+}
+void catalog_memory_tests(Checks& checks) {
+  using bw::memory::Allocator;
+  using bw::memory::Domain;
+  using bw::resources::CatalogBytes;
+  using bw::resources::ResourceCatalogData;
+  auto backing = std::make_shared<TestBacking>();
+  auto domain = Domain::create(backing);
+  auto source = catalog_fixture();
+  source.resize(740);
+  word(source, 4, 740);
+  word(source, 60, 568);
+  word(source, 108, 56);
+  word(source, 128, 440);
+  word(source, 84, 120);
+  word(source, 116, 184);
+  word(source, 160, 248);
+  word(source, 164, 312);
+  word(source, 168, 376);
+  text(source, 228, std::string(40, 'r'));
+  text(source, 292, std::string(40, 'n'));
+  text(source, 356, std::string(40, 'e'));
+  text(source, 420, std::string(60, 'x'));
+  text(source, 484, std::string(40, 'd'));
+  text(source, 548, std::string(40, 'f') + ".cpr");
+  text(source, 612, std::string(40, 'p'));
+  const auto name = std::string(40, 'n') + "." + std::string(40, 'r');
+  {
+    auto catalog = ResourceCatalog::parse(CatalogBytes(
+        source.begin(), source.end(), Allocator<std::uint8_t>(domain)));
+    const auto& resource = catalog.resources().at(0);
+    if (!resource.extra) {
+      throw std::runtime_error("Missing catalog extra fixture");
+    }
+    checks.check(
+        catalog.domain() == domain &&
+            catalog.resources().get_allocator().domain() == domain &&
+            resource.name.get_allocator().domain() == domain &&
+            resource.full_name.get_allocator().domain() == domain &&
+            resource.extra->get_allocator().domain() == domain &&
+            resource.dependencies.get_allocator().domain() == domain &&
+            resource.dependencies.at(0).name.get_allocator().domain() ==
+                domain &&
+            resource.dependencies.at(1).name.get_allocator().domain() == domain,
+        "Catalog nested resources and dependencies retain allocation owner");
+    const auto& file = catalog.files().at(0);
+    const auto& node = catalog.namespaces().at(1);
+    checks.check(file.directory.get_allocator().domain() == domain &&
+                     file.filename.get_allocator().domain() == domain &&
+                     file.relative_path.get_allocator().domain() == domain &&
+                     node.name.get_allocator().domain() == domain &&
+                     node.children.get_allocator().domain() == domain &&
+                     node.resources.get_allocator().domain() == domain,
+                 "Catalog file and namespace storage use injected owner");
+    auto copy = catalog;
+    catalog = ResourceCatalog::parse(catalog_fixture());
+    CatalogSet mounts(domain);
+    mounts.mount(30, "/fixture/catalog.rat", std::move(copy));
+    checks.check(
+        mounts.catalogs().get_allocator().domain() == domain &&
+            mounts.resolve(name).resource_index == 0 &&
+            mounts.catalogs()[0]
+                    .catalog.resources()[0]
+                    .dependencies[1]
+                    .name.size() == 60,
+        "Copied catalog index and mount retain independently owned long names");
+    auto copied_mounts = mounts;
+    mounts = CatalogSet{};
+    checks.check(
+        copied_mounts.resolve(name).resource_index == 0 &&
+            copied_mounts.domain() == domain,
+        "Mount copies preserve catalog indexes and allocator ownership");
+    bool rejected = false;
+    try {
+      copied_mounts.mount(30, "/fixture/legacy.rat",
+                          ResourceCatalog::parse(catalog_fixture()));
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    checks.check(rejected && copied_mounts.catalogs().size() == 1,
+                 "Injected mount rejects legacy catalog without changing "
+                 "existing entries");
+  }
+  checks.check(domain->snapshot().live_bytes == 0 && backing->live == 0,
+               "Catalog copies and mount teardown release all owned storage");
+  auto limited = Domain::create(backing, {.max_live_bytes = source.size()});
+  bool rejected = false;
+  try {
+    (void)ResourceCatalog::parse(CatalogBytes(
+        source.begin(), source.end(), Allocator<std::uint8_t>(limited)));
+  } catch (const std::bad_alloc&) {
+    rejected = true;
+  }
+  checks.check(
+      rejected && limited->snapshot().live_bytes == 0 && backing->live == 0,
+      "Catalog metadata exhaustion unwinds acquired bytes");
+  {
+    auto data = ResourceCatalogData::parse(CatalogBytes(
+        source.begin(), source.end(), Allocator<std::uint8_t>(domain)));
+    backing->reject = true;
+    rejected = false;
+    try {
+      (void)ResourceCatalog(std::move(data));
+    } catch (const std::bad_alloc&) {
+      rejected = true;
+    }
+    backing->reject = false;
+    checks.check(
+        rejected && domain->snapshot().live_bytes == 0 && backing->live == 0,
+        "Lookup index allocation failure unwinds decoded catalog");
+  }
+}
+void package_memory_tests(Checks& checks) {
+  using bw::resources::NamedFilePackage;
+  Bytes bytes(195);
+  const std::string name = std::string(64, 'p') + ".lub";
+  text(bytes, 0, "dpk");
+  word(bytes, 4, 32);
+  word(bytes, 8, 1);
+  word(bytes, 12, 192);
+  word(bytes, 16, 1);
+  word(bytes, 48, 3);
+  word(bytes, 52, 3);
+  word(bytes, 56, 192);
+  word(bytes, 60, 96);
+  text(bytes, 96, name);
+  text(bytes, 192, "abc");
+  auto backing = std::make_shared<TestBacking>();
+  std::weak_ptr<bw::memory::Domain> owner;
+  std::optional<NamedFilePackage> retained;
+  {
+    auto domain = bw::memory::Domain::create(backing);
+    owner = domain;
+    auto package = NamedFilePackage::parse(bytes, domain);
+    checks.check(
+        package.members().get_allocator().domain() == domain &&
+            package.members()[0].name.get_allocator().domain() == domain,
+        "Package member storage and long names retain injected domain");
+    retained = package;
+  }
+  checks.check(!owner.expired() && retained->member(name)[2] == 'c',
+               "Copied package survives original and composition domain owner");
+  retained.reset();
+  checks.check(owner.expired() && backing->live == 0,
+               "Final package owner releases bytes, index and nested names");
+  auto limited =
+      bw::memory::Domain::create(backing, {.max_live_bytes = bytes.size()});
+  bool failed = false;
+  try {
+    (void)NamedFilePackage::parse(bytes, limited);
+  } catch (const std::bad_alloc&) {
+    failed = true;
+  }
+  checks.check(
+      failed && limited->snapshot().live_allocations == 0 && backing->live == 0,
+      "Package metadata budget rejection unwinds the already-owned payload");
+  auto domain = bw::memory::Domain::create(backing);
+  auto malformed = bytes;
+  word(malformed, 16, 2);
+  word(malformed, 80, 3);
+  word(malformed, 84, 3);
+  word(malformed, 88, 195);
+  word(malformed, 92, 96);
+  checks.rejects([&] { (void)NamedFilePackage::parse(malformed, domain); });
+  checks.check(
+      domain->snapshot().live_allocations == 0 && backing->live == 0,
+      "Malformed later member releases earlier names, index and payload");
+  backing->reject = true;
+  failed = false;
+  try {
+    (void)NamedFilePackage::parse(bytes, domain);
+  } catch (const std::bad_alloc&) {
+    failed = true;
+  }
+  checks.check(
+      failed && domain->snapshot().live_allocations == 0,
+      "Native package allocation rejection has no compatibility fallback");
+}
 void package_tests(Checks& checks) {
   Bytes b(99);
   text(b, 0, "dpk");
@@ -453,6 +767,9 @@ int main() {
     catalog_tests(checks);
     lifecycle_tests(checks);
     package_tests(checks);
+    package_memory_tests(checks);
+    memory_tests(checks);
+    catalog_memory_tests(checks);
     std::cout << checks.count() << " checks passed\n";
   } catch (const std::exception& e) {
     std::cerr << "Failure after " << checks.count() << " checks: " << e.what()

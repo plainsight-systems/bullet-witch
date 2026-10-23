@@ -307,11 +307,18 @@ I/O/reload and the original Lua new-game handoff, with controlled media and
 synthetic rendering. Native manual costume 1 selection/handoff is separately
 observed; this is not world execution.
 
-The required [memory subsystem](memory-and-residency.md) is not implemented yet.
-Portable contracts belong under `include/bw/memory/`, shared allocation/lifetime
-policy under `src/memory/`, and native page/device backing in the corresponding
-platform/device implementation. Existing default-allocated containers and buffers
-are migration work, not an accepted final memory policy.
+The [memory subsystem](memory-and-residency.md) has common CPU/domain/allocator,
+bounded coalescing-heap and device-budget contracts in `include/bw/memory/`.
+`src/memory/` owns admission, accounting and recovered first-fit split/coalesce.
+`src/platform/macos/cpu_backing.*` selects native CPU backing, and
+`texture_allocation.*` owns Metal resources and their portable budget tokens.
+`src/script/context.cpp` and the pinned Lua patch preserve context association.
+Catalogs/resources, task nodes and retained snapshots, owned image/video/PCM
+buffers and presentation state now carry domains. `StartupMemory` in the shared
+framework receives capabilities chosen in the Mac entry. Virtual-page backing,
+world/AI pools and asynchronous GPU retirement await their consumers. See
+[the current implementation record](../../research/engine/subsystems/memory-migration-completion.md)
+for coverage and verification.
 
 ## Implemented title presentation
 

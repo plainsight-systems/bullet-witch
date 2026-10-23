@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Build and launch the native Mac host from any working directory."""
+import argparse
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Build and launch Bullet Witch fullscreen on macOS.',
+        epilog='Host options pass through, for example: ./run --windowed',
+        allow_abbrev=False,
+    )
+    parser.add_argument(
+        '--game', type=Path,
+        default=Path(os.environ.get('BULLET_WITCH_GAME_DIR') or
+                     Path.home() / 'Games' / 'BulletWitch-Steam'),
+        help='read-only Steam installation (default: BULLET_WITCH_GAME_DIR or '
+             '~/Games/BulletWitch-Steam)',
+    )
+    parser.add_argument('--build-only', action='store_true',
+                        help='build the host without opening a window')
+    options, host_options = parser.parse_known_args()
+    if sys.platform != 'darwin':
+        parser.error('The native launcher currently supports macOS only.')
+    game = options.game.expanduser().resolve()
+    if not options.build_only and not (game / 'data/data/stable/stable.rat').is_file():
+        parser.error(f'Game installation not found at {game}. '
+                     'Use --game PATH or set BULLET_WITCH_GAME_DIR.')
+    if shutil.which('cmake') is None:
+        parser.error('CMake is required. See scripts/README.md for build setup.')
+    subprocess.run(['cmake', '--preset', 'host-debug'], cwd=ROOT, check=True)
+    subprocess.run(['cmake', '--build', '--preset', 'host-debug',
+                    '--target', 'bw-startup', '--parallel', '4'], cwd=ROOT, check=True)
+    if not options.build_only:
+        executable = ROOT / 'build/host-debug/bw-startup'
+        os.execv(executable, [str(executable), '--game', str(game), *host_options])
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        sys.exit(error.returncode)
+    except KeyboardInterrupt:
+        sys.exit(130)

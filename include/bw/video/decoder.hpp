@@ -1,5 +1,17 @@
-// Backend independence: C.129 (#rh-kind) keeps concrete factory selection out
-// of this interface. E.6 (#re-raii) and performance COPY.5
+// Memory migration: native composition injects a reclaiming Domain; allocator-
+// bearing samples and containers retain it through worker shutdown and caller
+// retention. Default construction is the explicit legacy tool/test route, not
+// fallback on domain exhaustion. Callback PCM reads/writes do not allocate,
+// release or enter domain locks. State and queue allocation occurs on control/
+// codec owners. See research/engine/subsystems/memory-media-ownership.md for
+// pinned references, coverage and external codec/bootstrap exclusions.
+// Design MCP R.1 (#rr-raii), implementation E.6 (#re-raii) retain lifetime;
+// both phases apply MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) for injected ownership and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) for callback
+// preallocation. Domain zeroing adds O(bytes) work on allocation, never
+// callback. Backend independence: C.129 (#rh-kind) keeps concrete factory
+// selection out of this interface. E.6 (#re-raii) and performance COPY.5
 // (guidelines/copy-move/ COPY.5-resource-owning-types-are-move-only.md)
 // preserve owned session lifetime. Portable asynchronous movie session:
 // immutable metadata and independent video and PCM consumption. See
@@ -37,7 +49,8 @@
 #include <optional>
 #include <span>
 #include <type_traits>
-#include <vector>
+
+#include "bw/memory/allocator.hpp"
 
 namespace bw::video {
 inline constexpr std::uint32_t kAudioSampleRate = 48000;
@@ -72,7 +85,7 @@ struct VideoFrame {
   std::uint32_t height = 0;
   double timestamp_seconds = 0;
   double duration_seconds = 0;
-  std::vector<std::uint8_t> bgra;
+  memory::Vector<std::uint8_t> bgra;
 };
 static_assert(std::is_nothrow_move_constructible_v<VideoFrame>);
 enum class DecodeState : std::uint8_t { pending, sample, end, failed, stopped };

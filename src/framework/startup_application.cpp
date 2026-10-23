@@ -1,3 +1,9 @@
+// Memory composition: require resource/runtime/media capabilities, construct
+// catalogs and their service with one resource identity, then inject runtime
+// and media owners. Failure unwinds without a default-heap retry. R.1
+// (#rr-raii) and MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md), read in both phases,
+// govern ownership and startup-only capability propagation.
 // Front-end extension: mount the supplied costume catalogs, own Profile and
 // menu presentation, and inject borrowed SaveStorage into FrontEnd. Original
 // Lua drives screen transitions and mission routing. On a confirmed campaign
@@ -98,12 +104,18 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
 int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
                 platform::SaveStorage& saves,
-                video::Player::OpenDecoder open_decoder) {
-  bw::resources::CatalogSet catalogs;
+                video::Player::OpenDecoder open_decoder,
+                const StartupMemory& memory) {
+  if (!memory.resources || !memory.runtime || !memory.media) {
+    throw std::invalid_argument(
+        "Startup requires resource, runtime and media domains");
+  }
+  bw::resources::CatalogSet catalogs(memory.resources);
   const auto catalog_path = configuration.game / "data/data/stable/stable.rat";
   constexpr int kStableCatalogPriority = 30;
-  catalogs.mount(kStableCatalogPriority, catalog_path,
-                 bw::content::open_catalog(files, catalog_path));
+  catalogs.mount(
+      kStableCatalogPriority, catalog_path,
+      bw::content::open_catalog(files, catalog_path, memory.resources));
   constexpr unsigned kSteamCostumePackages = 5;
   for (unsigned index = 1; index <= kSteamCostumePackages; ++index) {
     const auto name = std::string("PW") + std::to_string(index);
@@ -111,12 +123,13 @@ int run_startup(const StartupOptions& configuration,
         configuration.game / "data/concept" / name / (name + ".rat");
     if (std::filesystem::exists(path)) {
       catalogs.mount(static_cast<int>(index), path,
-                     bw::content::open_catalog(files, path));
+                     bw::content::open_catalog(files, path, memory.resources));
     }
   }
-  bw::resources::ResourceService resources(std::move(catalogs), files);
+  bw::resources::ResourceService resources(std::move(catalogs), files,
+                                           memory.resources);
   bw::game::StartupPlayback playback(host, configuration.game,
-                                     std::move(open_decoder));
+                                     std::move(open_decoder), memory.media);
   // Original selector seeds MSVCRT rand with platform milliseconds per title
   // activation, then chooses rand()%10. Preserve the algorithm with a portable
   // unsigned seed; exact boot epoch is host-specific.
@@ -137,7 +150,8 @@ int run_startup(const StartupOptions& configuration,
   bw::game::Profile profile;
   bw::game::StartupMenuSurface menu_surface(resources, host);
   bw::game::FrontEnd frontend(profile, saves, playback, menu_surface, {});
-  bw::game::StartupSession session(playback, &title_surface, &frontend);
+  bw::game::StartupSession session(playback, &title_surface, &frontend,
+                                   memory.runtime);
   session.start_root(resources, 1);
   const auto started = std::chrono::steady_clock::now();
   const auto deadline =

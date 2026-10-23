@@ -1,6 +1,16 @@
-// Channel correction design/implementation: cpp-guidelines I.1 (#ri-explicit)
-// specifies canonical PNG RGBA semantics at this boundary. cpp-performance
-// CDSA.32
+// Memory migration: native owners propagate the ResourceService CPU domain to
+// final pixel/glyph storage and retained presentation state/strings. Owning
+// allocators retain the domain through copies and partial-construction cleanup;
+// defaults are legacy parser/test compatibility, never exhaustion fallback.
+// PNG writes directly to its final owned destination. Fixed draw storage adds
+// no per-frame allocations; native texture lifetime stays with SpriteOutput.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
+// fixed presentation capacity. Pinned source/external libpng exclusions are
+// recorded in research/engine/subsystems/memory-image-presentation.md. Channel
+// correction design/implementation: cpp-guidelines I.1 (#ri-explicit) specifies
+// canonical PNG RGBA semantics at this boundary. cpp-performance CDSA.32
 // (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
 // converts original packed-channel identity once while parsing; renderer draws
 // remain independent of legacy mask words. Original pixel inspection, not only
@@ -65,7 +75,8 @@ FontChannel channel(std::uint8_t flags) {
   }
 }
 }  // namespace
-BitmapFont BitmapFont::parse(std::span<const std::uint8_t> encoded) {
+BitmapFont BitmapFont::parse(std::span<const std::uint8_t> encoded,
+                             const memory::Allocator<std::byte>& allocator) {
   using resources::detail::malformed;
   constexpr std::size_t header_bytes = 32;
   constexpr std::size_t face_bytes = 16;
@@ -96,6 +107,9 @@ BitmapFont BitmapFont::parse(std::span<const std::uint8_t> encoded) {
     malformed("FONT section size mismatch");
   }
   BitmapFont output;
+  output.glyphs_ = memory::Vector<FontGlyph>(allocator);
+  output.lookup_ =
+      memory::Vector<std::pair<char16_t, std::uint32_t>>(allocator);
   output.pixel_size_ = reader.u32(header_bytes);
   output.baseline_ = reader.u32(header_bytes + 4);
   output.atlas_width_ = reader.u32(kAtlasWidthOffset);

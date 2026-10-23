@@ -1,14 +1,26 @@
-// Inline PNG extent extension: checked chunks recover replacement size while
-// first/second payload metadata remains intact. Design and implementation MCP
-// SL.con.3 (#rsl-bounds) bounds every chunk; GPU.1 is applied by the consuming
-// image adapter, while MEM.9 keeps this traversal allocation-free. See
+// Memory adoption: payload/metadata and nested strings retain an owning domain
+// allocator; legacy parser defaults remain compatibility allocations. Copies
+// preserve allocator ownership and leases may outlive their service. Allocation
+// failures unwind without fallback. R.20 (#rr-owner), F.27 (#rf-shared_ptr),
+// E.17 (#re-not-always) govern ownership/unwinding; MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) routes
+// actual storage; MEM.8
+// (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md) motivates
+// retaining the resource instead of borrowing a PMR pointer. Both design and
+// implementation consulted. See resource-memory-migration.md. Inline PNG extent
+// extension: checked chunks recover replacement size while first/second payload
+// metadata remains intact. Design and implementation MCP SL.con.3 (#rsl-bounds)
+// bounds every chunk; GPU.1 is applied by the consuming image adapter, while
+// MEM.9 keeps this traversal allocation-free. See
 // research/engine/subsystems/frontend-presentation.md for corpus evidence.
 // A1: resource archive decoding (CPR1) (docs/resources.md). parse owns bytes
 // and throws Error for malformed/unsupported input. Metadata/spans borrow until
 // owner mutation, move or destruction; copies are independent. No I/O; caller
 // synchronizes. Algorithm: validate sections, decode arguments/records, return
-// bounded views. Cost: O(bytes + decoded metadata); payload O(1). Optimization:
-// no payload copy. Design: cpp-guidelines I.1 (#ri-explicit), C.122
+// bounded views. Cost: O(bytes + decoded metadata); allocator-aware payload
+// moves are O(1), legacy byte conversion copies O(bytes). Optimization:
+// native payload ownership transfers without copying. Design: cpp-guidelines
+// I.1 (#ri-explicit), C.122
 // (#rh-separation): explicit ownership and injected file capability.
 // cpp-performance COPY.2
 // (guidelines/copy-move/COPY.2-mark-move-constructors-noexcept.md): container
@@ -79,7 +91,7 @@ std::optional<std::uint64_t> inline_png_size(const Reader& reader,
         chunk_overhead > budget - cursor - length) {
       malformed("Inline PNG exceeds encoded byte budget");
     }
-    const auto type = reader.tag(start + cursor + kWordBytes);
+    const auto type = reader.tag_view(start + cursor + kWordBytes);
     if (cursor == signature.size() && (type != "IHDR" || length != ihdr_size)) {
       malformed("Inline PNG has no valid first IHDR");
     }
@@ -101,11 +113,14 @@ std::optional<std::uint64_t> inline_png_size(const Reader& reader,
 }
 }  // namespace
 ResourceArchive ResourceArchive::parse(Bytes bytes) {
-  ResourceArchive out;
+  return parse(ArchiveBytes(bytes.begin(), bytes.end()));
+}
+ResourceArchive ResourceArchive::parse(ArchiveBytes bytes) {
+  ResourceArchive out(bytes.get_allocator());
   out.bytes_ = std::move(bytes);
   Reader r{out.bytes_};
   r.range(0, kArchiveHeaderBytes);
-  if (r.tag(0) != "CPR1") {
+  if (r.tag_view(0) != "CPR1") {
     malformed("Not a CPR1 archive");
   }
   for (std::size_t i = 0; i < out.header_.size(); ++i) {
@@ -141,23 +156,29 @@ ResourceArchive ResourceArchive::parse(Bytes bytes) {
   // record refers to it.
   for (std::uint64_t i = 0; i < args.size / kArchiveArgumentBytes; ++i) {
     auto q = args.offset + i * kArchiveArgumentBytes;
-    Argument arg{{r.u32(q), r.u32(q + 4), r.u32(q + 2 * kWordBytes)}, {}, {}};
-    arg.name = r.optional_text(names, arg.raw[0]);
+    Argument arg(out.bytes_.get_allocator());
+    arg.raw = {r.u32(q), r.u32(q + 4), r.u32(q + 2 * kWordBytes)};
+    if (arg.raw[0] != 0) {
+      arg.name.emplace(r.text_view(names, arg.raw[0]), arg.allocator);
+    }
     if (arg.name && arg.raw[1] == 2) {
-      arg.string_value = r.text(names, arg.raw[2]);
+      arg.string_value.emplace(r.text_view(names, arg.raw[2]), arg.allocator);
     }
     out.arguments_.push_back(std::move(arg));
   }
   for (std::uint64_t p = table.offset; p < table.offset + table.size;
        p += kArchiveRecordBytes) {
-    ResourceArchiveRecord record;
-    record.type = r.tag(p);
+    ResourceArchiveRecord record(out.bytes_.get_allocator());
+    record.type = r.tag_view(p);
     for (std::size_t i = 0; i < record.raw.size(); ++i) {
       record.raw.at(i) = r.u32(p + 4 + i * 4);
     }
     const auto& f = record.raw;
-    record.name = r.text(names, f[0]);
-    record.publication_name = r.optional_text(names, f[1]);
+    record.name = r.text_view(names, f[0]);
+    if (f[1] != 0) {
+      record.publication_name.emplace(r.text_view(names, f[1]),
+                                      out.bytes_.get_allocator());
+    }
     if (f[3]) {
       r.within(args, static_cast<std::uint64_t>(f[4]) * kArchiveArgumentBytes,
                static_cast<std::uint64_t>(f[3]) * kArchiveArgumentBytes);

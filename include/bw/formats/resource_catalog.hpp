@@ -1,3 +1,13 @@
+// Catalog memory migration: encoded bytes, decoded nested strings/vectors,
+// traversal scratch and indexes retain the injected allocator owner. Native
+// ingress moves its buffer; legacy Bytes conversion copies. Copies retain the
+// source domain. Failure unwinds owned storage without allocation fallback.
+// R.20 (#rr-owner) preserves ownership; SL.con.3 (#rsl-bounds) preserves
+// checked traversal. MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// allocation; MEM.8 (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md)
+// requires explicit nested propagation and owner lifetime. Design and
+// implementation queried separately. See resource-memory-migration.md.
 // A1: decoded resource catalog owner (RAT). parse owns bytes and validates
 // bounds, namespace membership and unique full names. Throws Error; borrowed
 // metadata lasts until owner mutation/move/destruction. Full names are
@@ -18,29 +28,42 @@
 
 #pragma once
 #include "bw/formats/common.hpp"
+#include "bw/memory/allocator.hpp"
 namespace bw::resources {
+using CatalogBytes = memory::Vector<std::uint8_t>;
 struct CatalogFile {
-  std::string directory, filename, relative_path;
+  explicit CatalogFile(const memory::Allocator<char>& allocator = {})
+      : directory(allocator), filename(allocator), relative_path(allocator) {}
+  memory::String directory, filename, relative_path;
 };
 struct Dependency {
+  Dependency(std::optional<std::uint32_t> index, std::string_view value,
+             const memory::Allocator<char>& allocator)
+      : local_index(index), name(value, allocator) {}
   std::optional<std::uint32_t> local_index;
-  std::string name;  // Even local-index dependencies are requested through
-                     // global name lookup.
+  memory::String name;  // Even local-index dependencies are requested through
+                        // global name lookup.
 };
 struct CatalogResource {
+  explicit CatalogResource(const memory::Allocator<char>& allocator = {})
+      : name(allocator), full_name(allocator), dependencies(allocator) {}
   std::array<std::uint32_t, kCatalogResourceWordCount> raw{};
-  std::string name, full_name;
-  std::optional<std::string> extra;
-  std::vector<Dependency> dependencies;
+  memory::String name, full_name;
+  std::optional<memory::String> extra;
+  memory::Vector<Dependency> dependencies;
 };
 struct NamespaceNode {
+  explicit NamespaceNode(const memory::Allocator<char>& allocator = {})
+      : name(allocator), children(allocator), resources(allocator) {}
   std::uint32_t offset{}, parent{};
-  std::string name;
-  std::vector<std::uint32_t> children, resources;
+  memory::String name;
+  memory::Vector<std::uint32_t> children, resources;
 };
 class ResourceCatalogData {
  public:
   static ResourceCatalogData parse(Bytes bytes);
+  static ResourceCatalogData parse(CatalogBytes bytes);
+  auto allocator() const { return bytes_.get_allocator(); }
   const auto& sections() const { return sections_; }
   const auto& files() const { return files_; }
   const auto& resources() const { return resources_; }
@@ -48,10 +71,15 @@ class ResourceCatalogData {
   std::span<const std::uint8_t> bytes() const { return bytes_; }
 
  private:
-  Bytes bytes_;
+  explicit ResourceCatalogData(const memory::Allocator<std::uint8_t>& allocator)
+      : bytes_(allocator),
+        files_(allocator),
+        resources_(allocator),
+        namespaces_(allocator) {}
+  CatalogBytes bytes_;
   std::array<Range, kSectionCount> sections_{};
-  std::vector<CatalogFile> files_;
-  std::vector<CatalogResource> resources_;
-  std::vector<NamespaceNode> namespaces_;
+  memory::Vector<CatalogFile> files_;
+  memory::Vector<CatalogResource> resources_;
+  memory::Vector<NamespaceNode> namespaces_;
 };
 }  // namespace bw::resources

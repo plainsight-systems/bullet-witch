@@ -17,9 +17,14 @@ and mission execution are not implemented.
 Build and run with the local purchased installation:
 
 ```sh
-python3 scripts/check.py all
-build/host-debug/bw-startup --game "$BW_GAME_DIR"
+./run
 ```
+
+The root launcher incrementally builds the host before opening it. The game path
+comes from `--game PATH`, then `BULLET_WITCH_GAME_DIR`, then
+`~/Games/BulletWitch-Steam`. `./run --windowed` forwards the window option;
+`./run --build-only` builds without launching or requiring game data. Full
+lint/test checks remain `python3 scripts/check.py all`.
 
 The host targets 60 updates per second using `steady_clock` deadlines. This is
 an explicit development cadence, not a recovered fixed simulation timestep.

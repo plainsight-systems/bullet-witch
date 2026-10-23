@@ -1,5 +1,16 @@
-// PNG decoding implementation; contract/design in bw/formats/image.hpp.
-// Validate signature/dimension/output budgets before libpng allocation; use its
+// Memory migration: native owners propagate the ResourceService CPU domain to
+// final pixel/glyph storage and retained presentation state/strings. Owning
+// allocators retain the domain through copies and partial-construction cleanup;
+// defaults are legacy parser/test compatibility, never exhaustion fallback.
+// PNG writes directly to its final owned destination. Fixed draw storage adds
+// no per-frame allocations; native texture lifetime stays with SpriteOutput.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
+// fixed presentation capacity. Pinned source/external libpng exclusions are
+// recorded in research/engine/subsystems/memory-image-presentation.md. PNG
+// decoding implementation; contract/design in bw/formats/image.hpp. Validate
+// signature/dimension/output budgets before libpng allocation; use its
 // simplified read API to own library state through a scope guard and normalize
 // to RGBA8. Linear decode work, one output vector; library owns transient
 // state. Design: cpp-guidelines SL.con.3 (#rsl-bounds), cpp-performance COPY.4
@@ -32,7 +43,8 @@ std::uint32_t big_word(std::span<const std::uint8_t> bytes) {
   return result;
 }
 }  // namespace
-Image decode_png(std::span<const std::uint8_t> encoded, ImageLimits limits) {
+Image decode_png(std::span<const std::uint8_t> encoded, ImageLimits limits,
+                 const memory::Allocator<std::uint8_t>& allocator) {
   constexpr std::array<std::uint8_t, 8> signature{137, 80, 78, 71,
                                                   13,  10, 26, 10};
   constexpr std::array<std::uint8_t, 4> header{'I', 'H', 'D', 'R'};
@@ -67,7 +79,8 @@ Image decode_png(std::span<const std::uint8_t> encoded, ImageLimits limits) {
   }
   state.format = PNG_FORMAT_RGBA;
   Image output{width, height,
-               std::vector<std::uint8_t>(static_cast<std::size_t>(pixels) * 4)};
+               memory::Vector<std::uint8_t>(
+                   static_cast<std::size_t>(pixels) * 4, allocator)};
   if (!png_image_finish_read(&state, nullptr, output.rgba.data(), 0, nullptr)) {
     throw resources::Error(
         resources::ErrorCode::malformed,

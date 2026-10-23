@@ -16,11 +16,45 @@
 #include <stdexcept>
 #include <thread>
 
+#include "media_memory_fixture.hpp"
+
 namespace {
 void require(bool condition, const char* message) {
   if (!condition) {
     throw std::runtime_error(message);
   }
+}
+void domain_storage_lifetime_and_callback_gate() {
+  auto backing = std::make_shared<bw::test::MediaBacking>();
+  auto domain = bw::memory::Domain::create(backing);
+  const std::weak_ptr<bw::memory::Domain> owner = domain;
+  {
+    bw::video::PcmBuffer ring(8, bw::memory::Allocator<float>(domain));
+    require(domain->snapshot().live_bytes > 0, "PCM storage is domain charged");
+    domain.reset();
+    require(!owner.expired(), "PCM ring retains its original domain");
+    const auto attempts = backing->attempts.load();
+    backing->reject.store(true);
+    const std::array<float, 4> input{1, -1, 2, -2};
+    std::array<float, 4> output{};
+    require(ring.write(input, 4) == 2 && ring.read(output).frames == 2 &&
+                output == input,
+            "Prepared PCM remains usable with native allocation disabled");
+    require(backing->attempts.load() == attempts,
+            "PCM read/write never enters the native allocator");
+  }
+  require(owner.expired() && backing->acquired == backing->released,
+          "Retired ring releases all storage and its domain");
+  auto bounded = bw::memory::Domain::create(backing, {.max_live_bytes = 1024});
+  backing->reject.store(false);
+  bool failed = false;
+  try {
+    bw::video::PcmBuffer ring(8, bw::memory::Allocator<float>(bounded));
+  } catch (const std::bad_alloc&) {
+    failed = true;
+  }
+  require(failed && bounded->snapshot().live_allocations == 0,
+          "Partial PCM construction rolls back on descriptor budget failure");
 }
 void segment_wrap_and_pressure() {
   bw::video::PcmBuffer buffer(4);
@@ -105,6 +139,7 @@ void concurrent_handoff() {
 }
 }  // namespace
 void pcm_buffer_contracts() {
+  domain_storage_lifetime_and_callback_gate();
   segment_wrap_and_pressure();
   partial_read_and_segment_pressure();
   concurrent_handoff();

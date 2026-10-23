@@ -1,3 +1,9 @@
+// Domain-aware chunk conversion keeps the temporary host ABI byte stream in
+// its owning context domain. Legacy tools retain the original std::string API.
+// Design R.1 (#rr-raii), SL.C.1 (#rclib-jmp); implementation F.6 (#rf-noexcept)
+// keeps C callbacks separate from this throwing converter. Performance MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// the output allocator without changing decoding, bounds or serialized bytes.
 // E2: translate observed little-endian Lua 5.0 32-bit chunks to the pinned
 // host Lua ABI. Input is borrowed for the call; output owns bytes. Throws Error
 // on bounds/version/depth/trailing-data failure. No script executes here.
@@ -25,10 +31,12 @@ using resources::ErrorCode;
 constexpr std::size_t kInstructionBytes = sizeof(unsigned long);
 constexpr std::uint32_t kByteMask = 0xffU;
 constexpr std::size_t kHeader = 22, kWord = 4, kNumber = 8, kMaxDepth = 100;
+template <typename Output>
 class Converter {
  public:
-  explicit Converter(std::span<const std::uint8_t> bytes) : bytes_(bytes) {}
-  std::string run() {
+  explicit Converter(std::span<const std::uint8_t> bytes, Output output = {})
+      : bytes_(bytes), output_(std::move(output)) {}
+  Output run() {
     constexpr std::array<std::uint8_t, 14> header{
         0x1b, 'L', 'u', 'a', 0x50, 1, 4, 4, 4, 6, 8, 9, 9, 8};
     if (bytes_.size() < kHeader ||
@@ -147,12 +155,18 @@ class Converter {
   }
   std::span<const std::uint8_t> bytes_;
   std::size_t pos_{};
-  std::string output_;
+  Output output_;
 };
 }  // namespace
 std::string host_chunk(std::span<const std::uint8_t> bytes) {
   static_assert(std::endian::native == std::endian::little);
   static_assert(sizeof(int) == kWord && sizeof(double) == kNumber);
-  return Converter(bytes).run();
+  return Converter<std::string>(bytes).run();
+}
+memory::String host_chunk(std::span<const std::uint8_t> bytes,
+                          const std::shared_ptr<memory::Domain>& domain) {
+  return Converter<memory::String>(
+             bytes, memory::String(memory::Allocator<char>(domain)))
+      .run();
 }
 }  // namespace bw::script

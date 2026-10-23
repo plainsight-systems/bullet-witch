@@ -1,3 +1,10 @@
+// Memory composition: target-selected resource, runtime and media domains are
+// required capabilities. Pass each to its owner before work starts; retained
+// catalog/sample/context storage keeps the capability through final release.
+// No native backing choice or historical aggregate budget is inferred here.
+// R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md), read in both phases, keep
+// exception cleanup and injection explicit. No per-frame composition work.
 // Front-end extension: SaveStorage is borrowed for the whole run alongside
 // Files and StartupHost. The target chooses a writable profile root separate
 // from the game installation. The framework owns profile/menu composition and
@@ -32,8 +39,10 @@
 // cleanup; COPY.5 above preserves unique ownership through composition.
 #pragma once
 #include <filesystem>
+#include <memory>
 #include <span>
 
+#include "bw/memory/domain.hpp"
 #include "bw/platform/files.hpp"
 #include "bw/platform/save_storage.hpp"
 #include "bw/platform/startup_host.hpp"
@@ -48,10 +57,17 @@ struct StartupOptions {
   bool verify{};
   platform::WindowOptions window;
 };
+// Target-selected capabilities; device allocation belongs to the native host.
+struct StartupMemory {
+  std::shared_ptr<memory::Domain> resources;
+  std::shared_ptr<memory::Domain> runtime;
+  std::shared_ptr<memory::Domain> media;
+};
 StartupOptions parse_startup_options(std::span<char*> arguments);
 // Requires validated options, a live main-thread host and a nonempty factory.
 int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
                 platform::SaveStorage& saves,
-                video::Player::OpenDecoder open_decoder);
+                video::Player::OpenDecoder open_decoder,
+                const StartupMemory& memory);
 }  // namespace bw::framework

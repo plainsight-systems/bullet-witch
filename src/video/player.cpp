@@ -1,5 +1,17 @@
-// Shared media control and video selection; no game/fade/native API policy.
-// Decoder metadata exists before clock choice; independent native audio
+// Memory migration: native composition injects a reclaiming Domain; allocator-
+// bearing samples and containers retain it through worker shutdown and caller
+// retention. Default construction is the explicit legacy tool/test route, not
+// fallback on domain exhaustion. Callback PCM reads/writes do not allocate,
+// release or enter domain locks. State and queue allocation occurs on control/
+// codec owners. See research/engine/subsystems/memory-media-ownership.md for
+// pinned references, coverage and external codec/bootstrap exclusions.
+// Design MCP R.1 (#rr-raii), implementation E.6 (#re-raii) retain lifetime;
+// both phases apply MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) for injected ownership and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) for callback
+// preallocation. Domain zeroing adds O(bytes) work on allocation, never
+// callback. Shared media control and video selection; no game/fade/native API
+// policy. Decoder metadata exists before clock choice; independent native audio
 // consumes PCM without advance/draw calls. Player owns the session, borrows
 // Output, and retires its audio consumer before stopping decoder workers. See
 // docs/video-player.md. Algorithm: open/prime -> retain first video -> accept
@@ -137,8 +149,12 @@ struct Player::State {
     stats.audio_end_seconds = audio.media_seconds;
   }
 };
-Player::Player(Output& output, OpenDecoder factory, PlayerLimits limits)
-    : state_(std::make_unique<State>(output, std::move(factory), limits)) {}
+Player::Player(Output& output, OpenDecoder factory, PlayerLimits limits,
+               const std::shared_ptr<memory::Domain>& domain)
+    : state_(std::allocate_shared<State>(domain
+                                             ? memory::Allocator<State>(domain)
+                                             : memory::Allocator<State>{},
+                                         output, std::move(factory), limits)) {}
 Player::~Player() = default;
 void Player::open(const std::filesystem::path& path) {
   auto& state = *state_;

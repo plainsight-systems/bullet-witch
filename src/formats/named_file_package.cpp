@@ -1,3 +1,9 @@
+// Memory migration uses one final domain payload copy and directly constructs
+// nested names from checked views. Standard containers retain owner capability;
+// malformed input or allocation failure unwinds every partial allocation.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) keep this
+// explicit boundary. Source basis: memory-package-ownership.md.
 // A1: named-file package decoding (DPK v1). parse owns bytes; views borrow
 // until destruction/move/assignment. Errors identify malformed/unsupported
 // inputs. Exact case-sensitive names; compressed members are identified but not
@@ -20,13 +26,23 @@
 #include "reader.hpp"
 namespace bw::resources {
 NamedFilePackage NamedFilePackage::parse(Bytes bytes) {
+  return parse_owned(memory::Vector<std::uint8_t>(bytes.begin(), bytes.end()));
+}
+NamedFilePackage NamedFilePackage::parse(
+    std::span<const std::uint8_t> bytes,
+    const std::shared_ptr<memory::Domain>& domain) {
+  return parse_owned(memory::Vector<std::uint8_t>(
+      bytes.begin(), bytes.end(), memory::Allocator<std::uint8_t>(domain)));
+}
+NamedFilePackage NamedFilePackage::parse_owned(
+    memory::Vector<std::uint8_t> bytes) {
   constexpr std::uint64_t header_size = 32, stride = 32, fields = 16;
   constexpr std::uint64_t version_field = 8, base_field = 12, count_field = 16;
-  NamedFilePackage out;
+  NamedFilePackage out(bytes.get_allocator());
   out.bytes_ = std::move(bytes);
   detail::Reader r{out.bytes_};
   r.range(0, header_size);
-  if (r.tag(0) != std::string("dpk\0", 4)) {
+  if (r.tag_view(0) != std::string_view("dpk\0", 4)) {
     detail::malformed("Not a DPK");
   }
   if (r.u32(version_field) != 1) {
@@ -50,7 +66,9 @@ NamedFilePackage NamedFilePackage::parse(Bytes bytes) {
       detail::malformed("DPK member location");
     }
     PackageMember member{
-        r.text(names, static_cast<std::uint32_t>(name - names.offset)),
+        memory::String(
+            r.text_view(names, static_cast<std::uint32_t>(name - names.offset)),
+            out.bytes_.get_allocator()),
         {offset, stored},
         size};
     if (member.name.empty() ||

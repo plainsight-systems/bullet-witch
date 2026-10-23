@@ -1,3 +1,14 @@
+// Memory adoption: injected domain owns service State/control and its fixed
+// callback mapping arrays. Prepare acquires before publication; failed native
+// setup joins its owner and releases that state before throwing. Stop joins
+// before the final domain release. Allocator capability remains alive while
+// empty; default construction is explicit legacy test/probe compatibility.
+// No allocation, capability copy or domain lock enters a native callback.
+// AudioQueue buffers/runtime remain external native allocations.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain injected
+// lifetime and callback preallocation; consulted in the media migration phases.
 // Native media audio service; unrelated to startup/game policy. prepare borrows
 // one Decoder PCM source until stop joins the native owner. Main/control thread
 // calls this API; a private service thread owns AudioQueue, runloop callbacks,
@@ -17,7 +28,7 @@
 namespace bw::platform {
 class MediaAudio final : public video::AudioOutput {
  public:
-  MediaAudio();
+  explicit MediaAudio(const std::shared_ptr<memory::Domain>& domain = {});
   ~MediaAudio() override;
   MediaAudio(const MediaAudio&) = delete;
   MediaAudio& operator=(const MediaAudio&) = delete;
@@ -30,6 +41,7 @@ class MediaAudio final : public video::AudioOutput {
 
  private:
   struct State;
-  std::unique_ptr<State> state_;
+  memory::Allocator<std::byte> allocator_;
+  std::shared_ptr<State> state_;
 };
 }  // namespace bw::platform

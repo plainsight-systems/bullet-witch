@@ -1,3 +1,7 @@
+// Memory migration: pass the native media domain into Player; its decoder
+// factory captures the same capability. R.1 (#rr-raii) and MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md), read in
+// design/implementation, preserve operation lifetime and boundary injection.
 // Backend composition: callers supply the decoder factory explicitly. C.129
 // (#rh-kind) separates interface from backend; E.6 (#re-raii) and performance
 // COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
@@ -30,7 +34,8 @@ class StartupPlayback final : public LogoMedia {
  public:
   using OpenDecoder = video::Player::OpenDecoder;
   StartupPlayback(video::Output& output, std::filesystem::path game_directory,
-                  OpenDecoder open_decoder);
+                  OpenDecoder open_decoder,
+                  const std::shared_ptr<memory::Domain>& media_memory = {});
   ~StartupPlayback() override = default;
   StartupPlayback(const StartupPlayback&) = delete;
   StartupPlayback& operator=(const StartupPlayback&) = delete;

@@ -1,3 +1,12 @@
+// Memory extension to this existing provisioned scenario: on Mac inject the
+// actual CPU provider into catalogs/resources, Lua, tasks and surfaces, then
+// verify all charged storage is
+// released after the original-root/menu owners retire. This covers native file
+// reads and parsing plus original-script ownership; media/device observations
+// remain controlled fixtures, not native playback. Design/implementation MCP
+// R.1 (#rr-raii) scopes retained owners; MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// the native allocator at the scenario boundary. No new integration scenario.
 // V1: public runtime contracts, docs/startup-runtime.md. Failures throw and
 // produce nonzero exit; fixtures own their state. Algorithm: drive lifecycle,
 // resume waits and check terminal outcomes. Cost bounded by small
@@ -31,6 +40,9 @@
 #include "game/startup_menu_surface.hpp"
 #include "game/startup_services.hpp"
 #include "game/startup_title_surface.hpp"
+#if BW_TEST_MACOS_MEMORY
+#include "platform/macos/cpu_backing.hpp"
+#endif
 namespace {
 using bw::game::Screen;
 class Screens final : public bw::game::StartupServices {
@@ -133,7 +145,8 @@ void reconstructed_session(bw::resources::ResourceService& resources) {
   ObservedMenu menu(resources, output);
   bw::game::FrontEnd frontend(profile, *storage, media, menu, {});
   {
-    bw::game::StartupSession session(media, &surface, &frontend);
+    bw::game::StartupSession session(media, &surface, &frontend,
+                                     resources.memory_domain());
     session.start_root(resources, 2);
     bw::script::RunResult result{bw::script::RunState::idle, {}};
     for (unsigned frame = 0; frame < 2000; ++frame) {
@@ -217,51 +230,105 @@ int main(int argc, char** argv) {
     const std::filesystem::path game(argv[1]);
     const auto path = game / "data/data/stable/stable.rat";
     bw::platform::HostFiles files;
-    bw::resources::CatalogSet catalogs;
-    catalogs.mount(30, path, bw::content::open_catalog(files, path));
-    for (unsigned index = 1; index <= 5; ++index) {
-      const auto name = std::string("PW") + std::to_string(index);
-      const auto costume_path = game / "data/concept" / name / (name + ".rat");
-      catalogs.mount(static_cast<int>(index), costume_path,
-                     bw::content::open_catalog(files, costume_path));
-    }
-    bw::resources::ResourceService resources(std::move(catalogs), files);
-    Screens screens;
+#if BW_TEST_MACOS_MEMORY
+    const auto resource_memory =
+        bw::memory::Domain::create(bw::platform::macos::make_cpu_backing());
+#else
+    const std::shared_ptr<bw::memory::Domain> resource_memory;
+#endif
     {
-      bw::game::RootDriver root(resources, screens, 1);
-      bw::tasks::TaskLifecycleScheduler scheduler;
-      bw::script::RunResult result{bw::script::RunState::idle, {}};
-      (void)scheduler.add(
-          30, bw::tasks::Hooks{.update = [&] { result = root.advance(); }});
-      for (int tick = 0; tick < 10; ++tick) {
+      auto catalogs = resource_memory
+                          ? bw::resources::CatalogSet(resource_memory)
+                          : bw::resources::CatalogSet();
+      catalogs.mount(30, path,
+                     resource_memory ? bw::content::open_catalog(
+                                           files, path, resource_memory)
+                                     : bw::content::open_catalog(files, path));
+      for (unsigned index = 1; index <= 5; ++index) {
+        const auto name = std::string("PW") + std::to_string(index);
+        const auto costume_path =
+            game / "data/concept" / name / (name + ".rat");
+        catalogs.mount(static_cast<int>(index), costume_path,
+                       resource_memory
+                           ? bw::content::open_catalog(files, costume_path,
+                                                       resource_memory)
+                           : bw::content::open_catalog(files, costume_path));
+      }
+#if BW_TEST_MACOS_MEMORY
+      bw::resources::ResourceService resources(std::move(catalogs), files,
+                                               resource_memory);
+#else
+      bw::resources::ResourceService resources(std::move(catalogs), files);
+#endif
+      Screens screens;
+      {
+        auto root =
+            resource_memory
+                ? bw::game::RootDriver(resources, screens, 1, resource_memory)
+                : bw::game::RootDriver(resources, screens, 1);
+        auto scheduler =
+            resource_memory ? bw::tasks::TaskLifecycleScheduler(resource_memory)
+                            : bw::tasks::TaskLifecycleScheduler();
+        bw::script::RunResult result{bw::script::RunState::idle, {}};
+        (void)scheduler.add(
+            30, bw::tasks::Hooks{.update = [&] { result = root.advance(); }});
+        for (int tick = 0; tick < 10; ++tick) {
+          scheduler.tick();
+          if (result.state == bw::script::RunState::failed) {
+            throw std::runtime_error(result.diagnostic);
+          }
+          if (!screens.started.empty() &&
+              screens.started.back() == Screen::title_menu) {
+            break;
+          }
+        }
+        const std::vector expected{Screen::company_logo,   Screen::memory_card,
+                                   Screen::advertise,      Screen::title,
+                                   Screen::character_load, Screen::title_menu};
+        if (screens.started != expected ||
+            result.state != bw::script::RunState::pending ||
+            std::get<double>(root.global("mode")) != 2) {
+          throw std::runtime_error("Original root title/menu route mismatch");
+        }
+        screens.hold_menu = false;
         scheduler.tick();
-        if (result.state == bw::script::RunState::failed) {
-          throw std::runtime_error(result.diagnostic);
+        if (result.state == bw::script::RunState::failed ||
+            screens.started.back() != Screen::title) {
+          throw std::runtime_error("Menu return did not resume original root");
         }
-        if (!screens.started.empty() &&
-            screens.started.back() == Screen::title_menu) {
-          break;
+        if (resource_memory) {
+          const auto heap = root.memory_snapshot();
+          if (heap.capacity != bw::script::kRootHeapBytes ||
+              heap.rejected_requests != 0 || heap.live_allocations == 0) {
+            throw std::runtime_error(
+                "Original root heap capacity or admission mismatch");
+          }
+          std::cerr << "Root Lua heap: capacity=" << heap.capacity
+                    << ", peak occupied=" << heap.peak_occupied_bytes
+                    << ", free=" << heap.free_bytes
+                    << ", largest free=" << heap.largest_free_bytes
+                    << ", rejected=" << heap.rejected_requests << '\n';
         }
       }
-      const std::vector expected{Screen::company_logo,   Screen::memory_card,
-                                 Screen::advertise,      Screen::title,
-                                 Screen::character_load, Screen::title_menu};
-      if (screens.started != expected ||
-          result.state != bw::script::RunState::pending ||
-          std::get<double>(root.global("mode")) != 2) {
-        throw std::runtime_error("Original root title/menu route mismatch");
+      if (resources.acquire("script.root.dpk")) {
+        throw std::runtime_error(
+            "Root destruction did not release publication");
       }
-      screens.hold_menu = false;
-      scheduler.tick();
-      if (result.state == bw::script::RunState::failed ||
-          screens.started.back() != Screen::title) {
-        throw std::runtime_error("Menu return did not resume original root");
-      }
+      reconstructed_session(resources);
     }
-    if (resources.acquire("script.root.dpk")) {
-      throw std::runtime_error("Root destruction did not release publication");
+#if BW_TEST_MACOS_MEMORY
+    const auto memory = resource_memory->snapshot();
+    if (memory.live_allocations != 0 || memory.live_bytes != 0 ||
+        memory.backing_bytes != 0 || memory.pending_bytes != 0 ||
+        memory.pending_backing_bytes != 0 || memory.pending_allocations != 0 ||
+        memory.peak_live_bytes == 0) {
+      throw std::runtime_error(
+          "Native migrated CPU memory did not retire cleanly");
     }
-    reconstructed_session(resources);
+    std::cerr << "Migrated CPU memory: peak payload=" << memory.peak_live_bytes
+              << ", peak requested backing=" << memory.peak_backing_bytes
+              << ", live after teardown=" << memory.live_bytes << '\n';
+#endif
     std::cout
         << "{\"status\":\"passed\",\"script\":\"original "
            "root.lub\",\"route\":[\"company_logo\",\"memory_card\","

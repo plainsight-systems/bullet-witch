@@ -1,8 +1,20 @@
-// Fixed SPSC PCM transport implementation; see pcm_buffer.hpp for ownership,
-// wrap/copy algorithm and cost. No waits, callbacks or storage ownership
-// changes occur here. Immutable capacity bounds every subspan. Counters are
-// unsigned monotonic frame positions; operation lifetimes must not exceed
-// uint64 range. Design/implementation MCP: CP.43 (#rconc-time), CONC.5
+// Memory migration: native composition injects a reclaiming Domain; allocator-
+// bearing samples and containers retain it through worker shutdown and caller
+// retention. Default construction is the explicit legacy tool/test route, not
+// fallback on domain exhaustion. Callback PCM reads/writes do not allocate,
+// release or enter domain locks. State and queue allocation occurs on control/
+// codec owners. See research/engine/subsystems/memory-media-ownership.md for
+// pinned references, coverage and external codec/bootstrap exclusions.
+// Design MCP R.1 (#rr-raii), implementation E.6 (#re-raii) retain lifetime;
+// both phases apply MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) for injected ownership and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) for callback
+// preallocation. Domain zeroing adds O(bytes) work on allocation, never
+// callback. Fixed SPSC PCM transport implementation; see pcm_buffer.hpp for
+// ownership, wrap/copy algorithm and cost. No waits, callbacks or storage
+// ownership changes occur here. Immutable capacity bounds every subspan.
+// Counters are unsigned monotonic frame positions; operation lifetimes must not
+// exceed uint64 range. Design/implementation MCP: CP.43 (#rconc-time), CONC.5
 // (guidelines/concurrency/ CONC.5-spsc-no-cas-needed.md) keep the callback off
 // shared locks; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // allocates only at init.
@@ -25,10 +37,11 @@ std::size_t valid_frames(std::size_t frames) {
 }
 }  // namespace
 static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
-PcmBuffer::PcmBuffer(std::size_t frames)
+PcmBuffer::PcmBuffer(std::size_t frames,
+                     const memory::Allocator<float>& allocator)
     : capacity_(valid_frames(frames)),
-      samples_(capacity_ * kAudioChannelCount),
-      segments_(kSegmentCapacity) {}
+      samples_(capacity_ * kAudioChannelCount, allocator),
+      segments_(kSegmentCapacity, allocator) {}
 std::size_t PcmBuffer::write(std::span<const float> source,
                              double timestamp_seconds) noexcept {
   const auto segment = segment_written_.load(std::memory_order_relaxed);

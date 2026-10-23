@@ -1,4 +1,16 @@
-// Backend selection: C.129 (#rh-kind) keeps factories off the Decoder
+// Memory migration: native composition injects a reclaiming Domain; allocator-
+// bearing samples and containers retain it through worker shutdown and caller
+// retention. Default construction is the explicit legacy tool/test route, not
+// fallback on domain exhaustion. Callback PCM reads/writes do not allocate,
+// release or enter domain locks. State and queue allocation occurs on control/
+// codec owners. See research/engine/subsystems/memory-media-ownership.md for
+// pinned references, coverage and external codec/bootstrap exclusions.
+// Design MCP R.1 (#rr-raii), implementation E.6 (#re-raii) retain lifetime;
+// both phases apply MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) for injected ownership and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) for callback
+// preallocation. Domain zeroing adds O(bytes) work on allocation, never
+// callback. Backend selection: C.129 (#rh-kind) keeps factories off the Decoder
 // interface; E.6 (#re-raii) and performance COPY.5 (guidelines/copy-move/
 // COPY.5-resource-owning-types-are-move-only.md) retain unique session cleanup.
 // Asynchronous ASF movie backend. One demux owner routes bounded compressed
@@ -143,7 +155,7 @@ Codec open_codec(const AVStream& stream, bool video) {
 
 struct AudioChunk {
   double timestamp_seconds = 0;
-  std::vector<float> samples;
+  memory::Vector<float> samples;
 };
 // ffplay AV_NOSYNC_THRESHOLD: discontinuities larger than ten seconds are not
 // treated as ordinary A/V skew. This non-seeking backend rejects them rather
@@ -153,8 +165,10 @@ constexpr auto kProducerPollInterval = std::chrono::milliseconds(2);
 constexpr std::size_t kPacketReadAhead = 25;
 class CodecStream {
  public:
-  CodecStream(const AVStream& stream, bool video, double origin)
-      : codec_(open_codec(stream, video)),
+  CodecStream(const AVStream& stream, bool video, double origin,
+              memory::Allocator<std::byte> allocator)
+      : allocator_(std::move(allocator)),
+        codec_(open_codec(stream, video)),
         frame_(av_frame_alloc()),
         time_base_(stream.time_base),
         frame_rate_(av_q2d(stream.avg_frame_rate)),
@@ -211,6 +225,7 @@ class CodecStream {
       throw std::runtime_error("movie video pixel format changed");
     }
     VideoFrame output;
+    output.bgra = memory::Vector<std::uint8_t>(allocator_);
     output.width = static_cast<std::uint32_t>(frame_->width);
     output.height = static_cast<std::uint32_t>(frame_->height);
     output.timestamp_seconds = timestamp(false, video_end_seconds_);
@@ -290,7 +305,7 @@ class CodecStream {
       throw std::runtime_error(
           "movie audio conversion exceeds supported bounds");
     }
-    AudioChunk output;
+    AudioChunk output{0, memory::Vector<float>(allocator_)};
     if (start < 0 || !std::isfinite(start)) {
       throw std::runtime_error(
           "unsupported negative or invalid movie audio origin");
@@ -324,6 +339,7 @@ class CodecStream {
   }
 
  private:
+  memory::Allocator<std::byte> allocator_;
   Codec codec_;
   Frame frame_;
   Scale scale_;
@@ -347,8 +363,10 @@ struct PacketEntry {
   std::size_t bytes = 0;
 };
 struct PacketQueue {
-  explicit PacketQueue(std::size_t capacity) : slots(capacity) {}
-  std::vector<PacketEntry> slots;
+  PacketQueue(std::size_t capacity,
+              const memory::Allocator<PacketEntry>& allocator)
+      : slots(capacity, allocator) {}
+  memory::Vector<PacketEntry> slots;
   std::size_t head = 0, count = 0, bytes = 0, in_flight_bytes = 0;
   bool waiting_input = false, waiting_output = false;
 };
@@ -393,14 +411,16 @@ std::size_t packet_bytes(const AVPacket& packet, std::size_t limit) {
   }
   return bytes;
 }
-class FfmpegDecoder final : public Decoder {
+class FfmpegState {
  public:
-  FfmpegDecoder(const std::filesystem::path& path, DecoderLimits limits)
-      : limits_(valid_limits(limits)),
-        pcm_(limits_.audio_frames),
-        video_packets_(limits_.stream_compressed_packets),
-        audio_packets_(limits_.stream_compressed_packets),
-        video_output_(limits_.video_slots) {
+  FfmpegState(const std::filesystem::path& path, DecoderLimits limits,
+              memory::Allocator<std::byte> allocator)
+      : allocator_(std::move(allocator)),
+        limits_(valid_limits(limits)),
+        pcm_(limits_.audio_frames, allocator_),
+        video_packets_(limits_.stream_compressed_packets, allocator_),
+        audio_packets_(limits_.stream_compressed_packets, allocator_),
+        video_output_(limits_.video_slots, allocator_) {
     if (!std::filesystem::is_regular_file(path)) {
       throw std::runtime_error("movie input must be a local regular file");
     }
@@ -435,7 +455,9 @@ class FfmpegDecoder final : public Decoder {
     // av_find_best_stream validates indices into FFmpeg's owned stream table.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const auto& video_stream = *format->streams[video_index_];
-    auto video = std::make_unique<CodecStream>(video_stream, true, origin);
+    auto video = std::allocate_shared<CodecStream>(
+        memory::Allocator<CodecStream>(allocator_), video_stream, true, origin,
+        allocator_);
     metadata_.width = static_cast<std::uint32_t>(video_stream.codecpar->width);
     metadata_.height =
         static_cast<std::uint32_t>(video_stream.codecpar->height);
@@ -446,11 +468,14 @@ class FfmpegDecoder final : public Decoder {
       throw std::runtime_error("movie frame exceeds decoded video byte budget");
     }
     metadata_.has_audio = audio_index_ >= 0;
-    std::unique_ptr<CodecStream> audio;
+    std::shared_ptr<CodecStream> audio;
     if (metadata_.has_audio) {
+      // av_find_best_stream validated this index into the owned table.
       // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-      audio = std::make_unique<CodecStream>(*format->streams[audio_index_],
-                                            false, origin);
+      const auto& audio_stream = *format->streams[audio_index_];
+      audio = std::allocate_shared<CodecStream>(
+          memory::Allocator<CodecStream>(allocator_), audio_stream, false,
+          origin, allocator_);
       metadata_.audio_start_seconds = audio->start();
     } else {
       audio_finished_.store(true, std::memory_order_release);
@@ -476,15 +501,13 @@ class FfmpegDecoder final : public Decoder {
       throw;
     }
   }
-  ~FfmpegDecoder() override { stop(); }
-  FfmpegDecoder(const FfmpegDecoder&) = delete;
-  FfmpegDecoder& operator=(const FfmpegDecoder&) = delete;
-  FfmpegDecoder(FfmpegDecoder&&) = delete;
-  FfmpegDecoder& operator=(FfmpegDecoder&&) = delete;
-  const DecoderMetadata& metadata() const noexcept override {
-    return metadata_;
-  }
-  VideoPoll poll_video() override {
+  ~FfmpegState() { stop(); }
+  FfmpegState(const FfmpegState&) = delete;
+  FfmpegState& operator=(const FfmpegState&) = delete;
+  FfmpegState(FfmpegState&&) = delete;
+  FfmpegState& operator=(FfmpegState&&) = delete;
+  const DecoderMetadata& metadata() const noexcept { return metadata_; }
+  VideoPoll poll_video() {
     VideoPoll result;
     {
       const std::lock_guard lock(mutex_);
@@ -506,7 +529,7 @@ class FfmpegDecoder final : public Decoder {
     changed_.notify_all();
     return result;
   }
-  AudioRead read_audio(std::span<float> destination) noexcept override {
+  AudioRead read_audio(std::span<float> destination) noexcept {
     const auto terminal = terminal_.load(std::memory_order_acquire);
     if (terminal == DecodeState::failed || terminal == DecodeState::stopped) {
       return {terminal, 0, 0};
@@ -522,13 +545,13 @@ class FfmpegDecoder final : public Decoder {
                                            : DecodeState::pending,
             0, 0};
   }
-  std::size_t buffered_audio_frames() const noexcept override {
+  std::size_t buffered_audio_frames() const noexcept {
     return pcm_.available();
   }
-  bool audio_ended() const noexcept override {
+  bool audio_ended() const noexcept {
     return audio_finished_.load(std::memory_order_acquire);
   }
-  void wait_until_ready(std::size_t audio_frames) override {
+  void wait_until_ready(std::size_t audio_frames) {
     if (audio_frames > pcm_.capacity()) {
       throw std::invalid_argument("movie prime target exceeds PCM capacity");
     }
@@ -550,15 +573,15 @@ class FfmpegDecoder final : public Decoder {
       throw std::runtime_error("movie priming was cancelled");
     }
   }
-  std::exception_ptr failure() const override {
+  std::exception_ptr failure() const {
     const std::lock_guard lock(mutex_);
     return failure_;
   }
-  DecoderDiagnostics diagnostics() const override {
+  DecoderDiagnostics diagnostics() const {
     const std::lock_guard lock(mutex_);
     return diagnostics_;
   }
-  void stop() noexcept override {
+  void stop() noexcept {
     stopping_.store(true, std::memory_order_release);
     terminal_.store(DecodeState::stopped, std::memory_order_release);
     changed_.notify_all();
@@ -575,7 +598,7 @@ class FfmpegDecoder final : public Decoder {
 
  private:
   static int interrupt(void* opaque) {
-    const auto* owner = static_cast<FfmpegDecoder*>(opaque);
+    const auto* owner = static_cast<FfmpegState*>(opaque);
     return owner->stopping_.load(std::memory_order_acquire) ? 1 : 0;
   }
   template <typename Work>
@@ -862,11 +885,12 @@ class FfmpegDecoder final : public Decoder {
       }
     }
   }
+  memory::Allocator<std::byte> allocator_;
   const DecoderLimits limits_;
   DecoderMetadata metadata_;
   PcmBuffer pcm_;
   PacketQueue video_packets_, audio_packets_;
-  std::vector<std::optional<VideoFrame>> video_output_;
+  memory::Vector<std::optional<VideoFrame>> video_output_;
   mutable std::mutex mutex_;
   std::condition_variable changed_;
   std::exception_ptr failure_;
@@ -879,6 +903,42 @@ class FfmpegDecoder final : public Decoder {
   int video_index_ = -1, audio_index_ = -1;
   std::thread demux_worker_, video_worker_, audio_worker_;
 };
+// Small legacy unique-owner adapter; all substantive state and engine buffers
+// above use the captured allocator. This shell remains external bootstrap.
+class FfmpegDecoder final : public Decoder {
+ public:
+  explicit FfmpegDecoder(std::shared_ptr<FfmpegState> state)
+      : state_(std::move(state)) {}
+  const DecoderMetadata& metadata() const noexcept override {
+    return state_->metadata();
+  }
+  VideoPoll poll_video() override { return state_->poll_video(); }
+  AudioRead read_audio(std::span<float> destination) noexcept override {
+    return state_->read_audio(destination);
+  }
+  std::size_t buffered_audio_frames() const noexcept override {
+    return state_->buffered_audio_frames();
+  }
+  bool audio_ended() const noexcept override { return state_->audio_ended(); }
+  void wait_until_ready(std::size_t frames) override {
+    state_->wait_until_ready(frames);
+  }
+  std::exception_ptr failure() const override { return state_->failure(); }
+  DecoderDiagnostics diagnostics() const override {
+    return state_->diagnostics();
+  }
+  void stop() noexcept override { state_->stop(); }
+
+ private:
+  std::shared_ptr<FfmpegState> state_;
+};
+std::unique_ptr<Decoder> open_owned_decoder(
+    const std::filesystem::path& path, DecoderLimits limits,
+    const memory::Allocator<std::byte>& allocator) {
+  auto state = std::allocate_shared<FfmpegState>(
+      memory::Allocator<FfmpegState>(allocator), path, limits, allocator);
+  return std::make_unique<FfmpegDecoder>(std::move(state));
+}
 }  // namespace
 std::unique_ptr<Decoder> ffmpeg::open_decoder(
     const std::filesystem::path& path) {
@@ -886,6 +946,12 @@ std::unique_ptr<Decoder> ffmpeg::open_decoder(
 }
 std::unique_ptr<Decoder> ffmpeg::open_decoder_with_limits(
     const std::filesystem::path& path, DecoderLimits limits) {
-  return std::make_unique<FfmpegDecoder>(path, limits);
+  return open_owned_decoder(path, limits, {});
+}
+std::unique_ptr<Decoder> ffmpeg::open_decoder_in_domain(
+    const std::filesystem::path& path, std::shared_ptr<memory::Domain> domain,
+    DecoderLimits limits) {
+  return open_owned_decoder(path, limits,
+                            memory::Allocator<std::byte>(std::move(domain)));
 }
 }  // namespace bw::video

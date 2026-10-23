@@ -1,3 +1,7 @@
+// Memory migration: transfer the selected media capability into Player once.
+// R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md), read in both phases, keep
+// allocation choice outside game fade policy and preserve exception cleanup.
 // Game-relative movie paths and recovered black-overlay fade; transport lives
 // in video::Player. See startup_playback.hpp and docs/native-startup-host.md.
 // Reject absolute/parent traversal paths and nonfinite/negative deltas. One
@@ -14,10 +18,11 @@
 #include <utility>
 
 namespace bw::game {
-StartupPlayback::StartupPlayback(video::Output& output,
-                                 std::filesystem::path game_directory,
-                                 OpenDecoder open_decoder)
-    : player_(output, std::move(open_decoder)),
+StartupPlayback::StartupPlayback(
+    video::Output& output, std::filesystem::path game_directory,
+    OpenDecoder open_decoder,
+    const std::shared_ptr<memory::Domain>& media_memory)
+    : player_(output, std::move(open_decoder), {}, media_memory),
       game_directory_(std::move(game_directory)) {}
 bool StartupPlayback::open_movie(std::string_view path) {
   std::string normalized(path);

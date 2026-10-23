@@ -1,8 +1,16 @@
-// Front-end handoff extension: validate the Lua mission argument, dispatch to
-// the receiving game service, and suspend at its explicit completion gate.
-// Design MCP I.30 (#ri-encapsulate) contains the compatibility boundary;
-// implementation E.6 (#re-raii) preserves VM cleanup on exceptions, and
-// cpp-performance COPY.4
+// Native runtime memory injection: explicit constructor passes its retained
+// Domain and recovered root64KiB capacity to Context; legacy constructor
+// remains for unprovisioned tools/tests. No allocator fallback on native
+// exhaustion. Design R.1 (#rr-raii), SL.C.1 (#rclib-jmp); implementation F.6
+// (#rf-noexcept) keeps Lua callback failure inside Context's C boundary.
+// Performance MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// at this owner boundary. See lua-memory-implementation.md for mode/capacity
+// evidence. Front-end handoff extension: validate the Lua mission argument,
+// dispatch to the receiving game service, and suspend at its explicit
+// completion gate. Design MCP I.30 (#ri-encapsulate) contains the compatibility
+// boundary; implementation E.6 (#re-raii) preserves VM cleanup on exceptions,
+// and cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) retains owning
 // context semantics. The borrowed string lasts through dispatch; the receiver
 // owns any retained request. No world work or success is invented. G1/G2:
@@ -68,6 +76,18 @@ bool StartupServices::mission_pending() {
 RootDriver::RootDriver(resources::ResourceService& resources,
                        StartupServices& services, resources::ResourceTag tag)
     : resources_(resources), services_(services), tag_(tag) {
+  bindings();
+  resources_.get().request("script.root.dpk", tag_);
+}
+RootDriver::RootDriver(resources::ResourceService& resources,
+                       StartupServices& services, resources::ResourceTag tag,
+                       const std::shared_ptr<memory::Domain>& domain,
+                       std::size_t heap_bytes)
+    : resources_(resources),
+      services_(services),
+      tag_(tag),
+      memory_(domain),
+      context_(domain, heap_bytes) {
   bindings();
   resources_.get().request("script.root.dpk", tag_);
 }
@@ -158,8 +178,10 @@ script::RunResult RootDriver::advance() {
         throw Error(ErrorCode::not_found, "Root package unpublished");
       }
       const auto payload = lease->bytes();
-      auto package =
-          resources::NamedFilePackage::parse({payload.begin(), payload.end()});
+      auto package = memory_
+                         ? resources::NamedFilePackage::parse(payload, memory_)
+                         : resources::NamedFilePackage::parse(
+                               {payload.begin(), payload.end()});
       context_.load_binary(package.member("root.lub"));
       context_.start("init");
       loaded_ = true;

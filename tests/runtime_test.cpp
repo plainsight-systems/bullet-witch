@@ -22,6 +22,8 @@
 #include "bw/script/chunk.hpp"
 #include "bw/script/context.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
+void task_memory_contracts();
+void lua_memory_contracts();
 void startup_flow_contracts();
 void startup_session_contracts();
 void advertise_flow_contracts();
@@ -180,6 +182,8 @@ int main() {
     bridge_contract();
     failures();
     scheduling();
+    task_memory_contracts();
+    lua_memory_contracts();
     result_stack_and_wait_error();
     std::cout << "Runtime contract cases passed\n";
   } catch (const std::exception& error) {

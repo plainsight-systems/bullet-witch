@@ -1,3 +1,8 @@
+// Memory migration: native runtime domain owns scheduler storage and the shared
+// root/control block; Lua owns bounded backing from that domain. Legacy tests
+// may omit the domain. Callbacks retire before root/flow destruction.
+// Design/implementation R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) govern ordered ownership.
 // Front-end extension: FrontEnd is borrowed through session destruction. Lua
 // remains the route owner; StartMission validates its identifier against the
 // confirmed menu selection and captures an owned request/checkpoint once.
@@ -55,7 +60,8 @@ class StartupSession final : public StartupServices {
  public:
   explicit StartupSession(LogoMedia& media,
                           TitleSurface* title_surface = nullptr,
-                          FrontEnd* frontend = nullptr);
+                          FrontEnd* frontend = nullptr,
+                          std::shared_ptr<memory::Domain> runtime_memory = {});
   ~StartupSession() override;
   StartupSession(const StartupSession&) = delete;
   StartupSession& operator=(const StartupSession&) = delete;
@@ -106,7 +112,8 @@ class StartupSession final : public StartupServices {
   std::int32_t title_return_request_{};
   bool window_close_enabled_{};
   script::RunResult root_result_{script::RunState::idle, {}};
-  std::unique_ptr<RootDriver> root_;
+  std::shared_ptr<memory::Domain> runtime_memory_;
+  std::shared_ptr<RootDriver> root_;
   // Destroy callbacks before root/flow state. Destruction never ticks them.
   tasks::TaskLifecycleScheduler scheduler_;
 };

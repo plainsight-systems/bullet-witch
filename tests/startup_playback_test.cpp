@@ -16,6 +16,8 @@
 #include <utility>
 #include <vector>
 
+#include "media_memory_fixture.hpp"
+
 namespace {
 void require(bool condition, const char* message) {
   if (!condition) {
@@ -195,6 +197,49 @@ void audio_ends_before_video() {
   require(player.complete() && output.timestamps.size() == 3,
           "Explicit audio EOF/drain permits a long video tail");
 }
+void retained_frame_and_player_domain() {
+  const auto backing = std::make_shared<bw::test::MediaBacking>();
+  std::optional<bw::video::VideoFrame> retained;
+  std::weak_ptr<bw::memory::Domain> owner;
+  {
+    auto domain = bw::memory::Domain::create(backing);
+    owner = domain;
+    auto original = frame(0, 1);
+    original.bgra = bw::memory::Vector<std::uint8_t>(
+        {1, 2, 3, 255}, bw::memory::Allocator<std::uint8_t>(domain));
+    retained = original;
+  }
+  require(!owner.expired() && retained->bgra[2] == 3,
+          "Copied frame survives its source and domain composition owner");
+  retained.reset();
+  require(owner.expired() && backing->acquired == backing->released,
+          "Final retained frame returns its storage to the original owner");
+  Output output;
+  {
+    auto domain = bw::memory::Domain::create(backing);
+    owner = domain;
+    bw::video::Player player(
+        output,
+        [](const auto&) -> std::unique_ptr<bw::video::Decoder> {
+          throw std::runtime_error("Fixture acquisition failure");
+        },
+        {}, domain);
+    require(domain->snapshot().live_bytes > 0, "Player state is domain owned");
+    domain.reset();
+    bool failed = false;
+    try {
+      player.open("unused");
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(
+        failed && !owner.expired(),
+        "Failed open preserves Player's domain until cancellation/destruction");
+    player.stop();
+  }
+  require(owner.expired() && backing->acquired == backing->released,
+          "Failed-open Player cleanup returns domain storage");
+}
 void interrupted_fade() {
   Output output;
   bw::game::StartupPlayback playback(output, "unused", [](const auto&) {
@@ -221,6 +266,7 @@ void interrupted_fade() {
 }
 }  // namespace
 void startup_playback_contracts() {
+  retained_frame_and_player_domain();
   video_start_and_terminal_presentation();
   audio_metadata_and_drain();
   buffering_snapshot_holds_media();

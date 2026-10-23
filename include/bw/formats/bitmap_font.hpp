@@ -1,5 +1,16 @@
-// Owned original FONT metadata decoding; compatibility identifiers stay here.
-// Input is borrowed only during parse. Glyph lookup returns independent values;
+// Memory migration: native owners propagate the ResourceService CPU domain to
+// final pixel/glyph storage and retained presentation state/strings. Owning
+// allocators retain the domain through copies and partial-construction cleanup;
+// defaults are legacy parser/test compatibility, never exhaustion fallback.
+// PNG writes directly to its final owned destination. Fixed draw storage adds
+// no per-frame allocations; native texture lifetime stays with SpriteOutput.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
+// fixed presentation capacity. Pinned source/external libpng exclusions are
+// recorded in research/engine/subsystems/memory-image-presentation.md. Owned
+// original FONT metadata decoding; compatibility identifiers stay here. Input
+// is borrowed only during parse. Glyph lookup returns independent values;
 // immutable owners support concurrent reads. No file, renderer or font
 // fallback. Malformed bounds/order/coordinates throw resources::Error;
 // unsupported flags fail explicitly. Algorithm: validate header,
@@ -16,7 +27,8 @@
 #include <optional>
 #include <span>
 #include <utility>
-#include <vector>
+
+#include "bw/memory/allocator.hpp"
 namespace bw::formats {
 // Canonical PNG channel identity, already converted from original FONT flags.
 // Design/implementation: I.1 (#ri-explicit) makes channel meaning explicit;
@@ -33,7 +45,8 @@ struct FontGlyph {
 };
 class BitmapFont {
  public:
-  static BitmapFont parse(std::span<const std::uint8_t> encoded);
+  static BitmapFont parse(std::span<const std::uint8_t> encoded,
+                          const memory::Allocator<std::byte>& allocator = {});
   std::optional<FontGlyph> glyph(char16_t codepoint) const;
   std::uint32_t pixel_size() const { return pixel_size_; }
   std::uint32_t baseline() const { return baseline_; }
@@ -42,7 +55,7 @@ class BitmapFont {
 
  private:
   std::uint32_t pixel_size_{}, baseline_{}, atlas_width_{}, atlas_height_{};
-  std::vector<FontGlyph> glyphs_;
-  std::vector<std::pair<char16_t, std::uint32_t>> lookup_;
+  memory::Vector<FontGlyph> glyphs_;
+  memory::Vector<std::pair<char16_t, std::uint32_t>> lookup_;
 };
 }  // namespace bw::formats

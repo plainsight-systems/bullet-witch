@@ -1,8 +1,14 @@
-// DPK inspection extension (A1): copy each recognized package once for its
-// owned decoder, serialize bounded metadata; no handlers execute. Cost O(DPK
-// bytes + members). Optimization: no per-member payload copy.
-// Design/implementation consultation: R.20 (#rr-owner), SL.con.3 (#rsl-bounds),
-// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md). Read-only
+// Memory migration compatibility: serialize optional strings through borrowed
+// views regardless of allocator type. Output bytes/JSON are unchanged; no
+// conversion copy or ownership transfer is introduced. R.20 (#rr-owner) keeps
+// parsed owners alive, MEM.8
+// (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md) preserves the
+// explicit allocator boundary. Both phases consulted. DPK inspection extension
+// (A1): copy each recognized package once for its owned decoder, serialize
+// bounded metadata; no handlers execute. Cost O(DPK bytes + members).
+// Optimization: no per-member payload copy. Design/implementation consultation:
+// R.20 (#rr-owner), SL.con.3 (#rsl-bounds), COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md). Read-only
 // resource inspection driver (V1/C1 in the draft file mapping). See
 // docs/resources.md for the implemented commands and JSON contract. Contract:
 // argv selects cpr, rat, inventory or resolve. Files are read only; JSON
@@ -78,7 +84,8 @@ std::string quote(std::string_view text) {
   }
   return out + '"';
 }
-void optional_text(std::ostream& out, const std::optional<std::string>& value) {
+template <class String>
+void optional_text(std::ostream& out, const std::optional<String>& value) {
   out << (value ? quote(*value) : "null");
 }
 template <class T>

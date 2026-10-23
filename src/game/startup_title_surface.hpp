@@ -1,6 +1,17 @@
-// Concrete game title asset composition behind TitleSurface. Borrows the
-// encoded resource service and sprite renderer, both outliving this object;
-// owns exclusive resource tags, retained leases and uploaded texture handles.
+// Memory migration: native owners propagate the ResourceService CPU domain to
+// final pixel/glyph storage and retained presentation state/strings. Owning
+// allocators retain the domain through copies and partial-construction cleanup;
+// defaults are legacy parser/test compatibility, never exhaustion fallback.
+// PNG writes directly to its final owned destination. Fixed draw storage adds
+// no per-frame allocations; native texture lifetime stays with SpriteOutput.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
+// fixed presentation capacity. Pinned source/external libpng exclusions are
+// recorded in research/engine/subsystems/memory-image-presentation.md. Concrete
+// game title asset composition behind TitleSurface. Borrows the encoded
+// resource service and sprite renderer, both outliving this object; owns
+// exclusive resource tags, retained leases and uploaded texture handles.
 // Construction takes a loading-screen selector [0,9], supplied per activation.
 // Main-thread only; parsing/upload failure throws and RAII teardown releases
 // partial construction. Algorithm: request title/font -> decode/upload ->
@@ -39,6 +50,6 @@ class StartupTitleSurface final : public TitleSurface {
 
  private:
   struct State;
-  std::unique_ptr<State> state_;
+  std::shared_ptr<State> state_;
 };
 }  // namespace bw::game

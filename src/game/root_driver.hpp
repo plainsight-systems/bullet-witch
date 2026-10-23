@@ -1,7 +1,15 @@
-// Front-end handoff extension: original Lua submits a mission name and waits
-// on the receiving game service. No synthetic mission completion is returned.
-// Design MCP I.30 (#ri-encapsulate) keeps compatibility arguments at the
-// bridge; implementation E.6 (#re-raii) retains owned VM cleanup on handler
+// Native runtime memory injection: explicit constructor passes its retained
+// Domain and recovered root64KiB capacity to Context; legacy constructor
+// remains for unprovisioned tools/tests. No allocator fallback on native
+// exhaustion. Design R.1 (#rr-raii), SL.C.1 (#rclib-jmp); implementation F.6
+// (#rf-noexcept) keeps Lua callback failure inside Context's C boundary.
+// Performance MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// at this owner boundary. See lua-memory-implementation.md for mode/capacity
+// evidence. Front-end handoff extension: original Lua submits a mission name
+// and waits on the receiving game service. No synthetic mission completion is
+// returned. Design MCP I.30 (#ri-encapsulate) keeps compatibility arguments at
+// the bridge; implementation E.6 (#re-raii) retains owned VM cleanup on handler
 // failure. cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves existing
 // owner semantics; the mission name is borrowed only during start_mission and a
@@ -55,12 +63,19 @@ class RootDriver {
  public:
   RootDriver(resources::ResourceService& resources, StartupServices& services,
              resources::ResourceTag tag);
+  RootDriver(resources::ResourceService& resources, StartupServices& services,
+             resources::ResourceTag tag,
+             const std::shared_ptr<memory::Domain>& domain,
+             std::size_t heap_bytes = script::kRootHeapBytes);
   ~RootDriver();
   RootDriver(const RootDriver&) = delete;
   RootDriver& operator=(const RootDriver&) = delete;
   RootDriver(RootDriver&&) = delete;
   RootDriver& operator=(RootDriver&&) = delete;
   script::RunResult advance();
+  memory::HeapSnapshot memory_snapshot() const {
+    return context_.memory_snapshot();
+  }
   script::Value global(const std::string& name) const {
     return context_.global(name);
   }
@@ -70,6 +85,7 @@ class RootDriver {
   std::reference_wrapper<resources::ResourceService> resources_;
   std::reference_wrapper<StartupServices> services_;
   resources::ResourceTag tag_;
+  std::shared_ptr<memory::Domain> memory_;
   script::Context context_;
   bool loaded_{};
   script::RunResult result_{script::RunState::idle, {}};

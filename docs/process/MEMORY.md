@@ -1,7 +1,25 @@
 # Current engineering decisions
 
+- README order: project purpose, how to get it locally, how to run it, then
+  background, status, development details and other reference material. Keep the
+  top-level `./run` command visible in the running section.
+
 - Source reconstruction is the implementation direction: preserve behavior,
   establish a direct port, then improve the engine and graphics.
+- Memory direction approved October 23, 2026: follow recovered Bullet Witch
+  allocation, ownership and retirement behavior first, with native target
+  backing. Unreal and modern allocators inform the implementation; they do not
+  replace the recovered contracts by default. Preserve verified coalescing;
+  investigate fragmentation and reclamation as callers and teardown paths are
+  reconstructed, then improve from evidence. Do not assume movable live
+  allocations or invent historical budgets. See
+  `research/engine/subsystems/memory-management-research.md`.
+- Memory allocation must support target/silicon-aware implementations behind
+  common headers. Shared code owns lifetime/admission/accounting and reusable
+  algorithms; selected native backends own CPU backing, device placement,
+  visibility and completion. Target-specialized allocation strategies may
+  replace hot paths while preserving the common contract. See the explicit
+  boundaries in `docs/architecture/memory-and-residency.md`.
 - The front-end now loads/persists profiles, presents interactive menus and
   original costume preview sprites, and captures an owned campaign gameplay
   request through original Lua. Steam operation 2300 makes all five supplied
@@ -59,7 +77,9 @@
 - Local game inputs are read-only. Generated research and logs stay organized
   under ignored `research/`; authored tools and reviewed summaries may be tracked.
 - Native macOS and UBSan verification are available. ASan startup hangs before
-  main on the current host; no passing ASan claim is made. Other target builds
+  main on the current host; no passing ASan claim is made. ThreadSanitizer also
+  fails before main with signal 11 in a minimal diagnostic; no TSan pass or
+  race-freedom claim is made. Other target builds
   remain unverified; world rendering/gameplay are unimplemented.
 - Existing integration coverage exceeds the imported five-scenario target;
   the explicit adoption exception now enumerates eleven scenarios, including
@@ -85,14 +105,26 @@
   the common owned-sample header permits another backend without changing game
   policy. Shared decoder source is not evidence of Xbox or Windows deployment.
 
-- A full engine memory subsystem is required: explicit allocation domains,
-  budgets/accounting, persistent storage, arenas, pools, streaming leases and
-  completion-retired CPU/GPU storage. Implicit default-heap allocation is not
-  final policy. Current standard-container allocations remain an explicit gap;
-  reach the launch screen and its launch cinematics first, then implement the
-  foundation and migrate existing owners. A minimal allocation interface may
-  precede that milestone only where concretely useful; the full subsystem is
-  separate substantial work. See `docs/architecture/memory-and-residency.md`.
+- Memory migration now covers current native startup catalogs/archives/services,
+  root Lua, task storage, owned media/image/font buffers, presentation state and
+  Metal texture accounting. Resource/runtime/media domains are explicitly
+  selected at the target entry; default aggregate limits remain uncapped pending
+  measured application policy. The root's recovered mode is reclaiming; its
+  bounded first-fit heap splits/coalesces and never silently grows. Context and
+  sample owners survive yields/decoder teardown. Texture retirement follows the
+  existing GPU completion wait. Legacy tools and external library/native overhead
+  remain explicit boundaries. World pools, AI linear heaps, phase arenas and
+  asynchronous device retirement await concrete consumers. See
+  `research/engine/subsystems/memory-migration-completion.md` for exact coverage
+  and verification; `docs/architecture/memory-and-residency.md` remains the
+  broader subsystem contract.
+
+- CPU domain locks protect reservation/commit/rollback counters, never native
+  allocation/free or zeroing. Pending reservations count against limits and
+  appear separately in snapshots; releasing storage keeps its charge until
+  native free completes. The root Lua coalescer requires exclusive owner access
+  without an internal mutex; synchronized thread handoff is allowed. See
+  `research/engine/subsystems/memory-concurrency-refinement.md`.
 
 - Standard engine subsystems follow established implementations first. Inspect
   concrete mature source, pin references, record adopted algorithms and justified

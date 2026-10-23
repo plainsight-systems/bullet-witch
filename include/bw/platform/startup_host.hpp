@@ -1,3 +1,11 @@
+// Memory ownership: host State/control and path scratch use the injected CPU
+// domain. Native texture owners separately admit/reconcile logical and reported
+// Metal sizes, retain charges through use, and release after synchronous
+// command completion. Existing sprite cap is preserved. Cocoa/pipeline/drawable
+// storage remains external. E.6 (#re-raii), SL.con.3 (#rsl-bounds), GPU.1
+// (guidelines/gpu/GPU.1-keep-data-on-device.md), COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) apply in
+// both consulted phases. See device-memory-ownership.md.
 // Input repeats follow recovered per-bit 0.5s/0.125s arithmetic; pressed
 // actions remain edges. Arrow keys/controller directions map to bits 24-27.
 // Fixed 32-timer storage applies retrieved MEM.9; E.6 preserves native
@@ -23,6 +31,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "bw/memory/device_budget.hpp"
 #include "bw/render/sprites.hpp"
 #include "bw/video/output.hpp"
 
@@ -41,7 +50,9 @@ struct WindowOptions {
 };
 class StartupHost final : public video::Output, public render::SpriteOutput {
  public:
-  explicit StartupHost(WindowOptions options = {});
+  StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
+              std::shared_ptr<memory::DeviceBudget> device_budget,
+              WindowOptions options = {});
   ~StartupHost() override;
   StartupHost(const StartupHost&) = delete;
   StartupHost& operator=(const StartupHost&) = delete;
@@ -61,6 +72,6 @@ class StartupHost final : public video::Output, public render::SpriteOutput {
 
  private:
   struct State;
-  std::unique_ptr<State> state_;
+  std::shared_ptr<State> state_;
 };
 }  // namespace bw::platform

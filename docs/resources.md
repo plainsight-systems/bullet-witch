@@ -13,6 +13,34 @@ is implemented: pure formats, indexed catalogs, content access and an injected
 file capability have separate source owners. The startup USER lifecycle and
 DPK package access are described in [startup runtime](startup-runtime.md).
 
+## Memory ownership
+
+Native `ResourceService` construction now receives an owning memory domain.
+Archive bytes, record and argument metadata (including nested strings), service
+maps/sets, traversal storage and shared archive control blocks use that domain.
+`HostFiles` reads directly into the final allocator-aware archive buffer. Copies
+retain their allocator owner, and a resource lease keeps its archive valid after
+tag removal, service destruction and release of the caller's domain reference.
+Reclamation occurs when the final retained owner releases its storage.
+
+Catalog bytes, nested decoded metadata, lookup/traversal indexes and mount
+storage now carry the same domain. CatalogSet rejects mixed domain identities.
+The native root package parser also owns its payload, member names and lookup
+index through the injected runtime domain. Filesystem paths, stream internals,
+exception storage and returned `LoadReport`
+strings are not
+included in domain accounting. Existing parser/CLI and two-argument service
+construction remain compatibility paths; they use the legacy allocator. The
+legacy `parse(Bytes)` conversion copies the payload, while native
+`parse(ArchiveBytes)` transfers its owned buffer. An injected domain never falls
+back to legacy allocation on exhaustion.
+
+The file capability's default allocator-aware overload also remains a copying
+compatibility adapter for existing implementations; native `HostFiles` overrides
+it. See [resource migration scope](../research/engine/subsystems/resource-memory-migration.md)
+and [memory architecture](architecture/memory-and-residency.md) for boundaries,
+lifetimes and remaining owners.
+
 ## Build and use
 
 From the repository root:

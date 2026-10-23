@@ -1,11 +1,21 @@
-// Encoded sprite payload extension: leases retain the immutable sibling archive
-// (R.20 #rr-owner); native texture readiness belongs to the consuming adapter.
-// E.6 (#re-raii) preserves cleanup on construction failure; cpp-performance
-// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps
-// leases cheap shared owners without payload copies. Design and implementation
-// queried. See research/engine/subsystems/startup-title-integration.md. USER
-// restrictions remain; DDS selected ranges are exposed as encoded bytes, never
-// executed. A3: encoded USER/image-resource lifecycle, docs/startup-runtime.md.
+// Memory adoption: payload/metadata and nested strings retain an owning domain
+// allocator; legacy parser defaults remain compatibility allocations. Copies
+// preserve allocator ownership and leases may outlive their service. Allocation
+// failures unwind without fallback. R.20 (#rr-owner), F.27 (#rf-shared_ptr),
+// E.17 (#re-not-always) govern ownership/unwinding; MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) routes
+// actual storage; MEM.8
+// (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md) motivates
+// retaining the resource instead of borrowing a PMR pointer. Both design and
+// implementation consulted. See resource-memory-migration.md. Encoded sprite
+// payload extension: leases retain the immutable sibling archive (R.20
+// #rr-owner); native texture readiness belongs to the consuming adapter. E.6
+// (#re-raii) preserves cleanup on construction failure; cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps leases cheap
+// shared owners without payload copies. Design and implementation queried. See
+// research/engine/subsystems/startup-title-integration.md. USER restrictions
+// remain; DDS selected ranges are exposed as encoded bytes, never executed. A3:
+// encoded USER/image-resource lifecycle, docs/startup-runtime.md.
 // Single-threaded; the Files capability must outlive this service. Owns
 // catalogs, requested-file interests and publications. Leases retain immutable
 // CPR owners after release. Errors are terminal per file until all tags release
@@ -62,8 +72,11 @@ struct LoadReport {
 };
 class ResourceService {
  public:
-  ResourceService(CatalogSet catalogs, const platform::Files& files)
-      : catalogs_(std::move(catalogs)), files_(files) {}
+  // Compatibility construction for existing tools/tests only.
+  ResourceService(CatalogSet catalogs, const platform::Files& files);
+  ResourceService(CatalogSet catalogs, const platform::Files& files,
+                  std::shared_ptr<memory::Domain> domain);
+  auto memory_domain() const { return allocator_.domain(); }
   void request(std::string_view name, ResourceTag tag);
   LoadReport pump(ResourceTag tag);
   LoadReport status(std::string_view name) const;
@@ -71,12 +84,20 @@ class ResourceService {
   void release(ResourceTag tag);
 
  private:
+  template <class K, class V, class Compare = std::less<>>
+  using Map = std::map<K, V, Compare, memory::Allocator<std::pair<const K, V>>>;
+  template <class T>
+  using Set = std::set<T, std::less<>, memory::Allocator<T>>;
   using Key = std::pair<std::size_t, std::size_t>;
+  ResourceService(CatalogSet catalogs, const platform::Files& files,
+                  memory::Allocator<std::uint8_t> allocator);
   struct File {
-    std::set<ResourceTag> tags;
+    explicit File(const memory::Allocator<std::uint8_t>& allocator)
+        : tags(allocator), diagnostic(allocator) {}
+    Set<ResourceTag> tags;
     LoadState state{LoadState::requested};
     std::shared_ptr<const ResourceArchive> archive;
-    std::string diagnostic;
+    ArchiveString diagnostic;
   };
   struct Publication {
     Key file;
@@ -85,10 +106,11 @@ class ResourceService {
   Key file_key(Resolution resolution) const;
   LoadReport completion(ResourceTag tag) const;
   void publish(const Key& key, File& file);
-  std::map<ResourceTag, std::set<std::string>> requests_;
+  memory::Allocator<std::uint8_t> allocator_;
+  Map<ResourceTag, Set<ArchiveString>> requests_;
   CatalogSet catalogs_;
   std::reference_wrapper<const platform::Files> files_;
-  std::map<Key, File> loaded_;
-  std::map<std::string, Publication, std::less<>> publications_;
+  Map<Key, File> loaded_;
+  Map<ArchiveString, Publication> publications_;
 };
 }  // namespace bw::resources

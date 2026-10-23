@@ -1,3 +1,8 @@
+// Memory migration: share the root through its injected allocator and route
+// scheduler nodes/snapshot through the same runtime domain. Exceptions unwind
+// acquired owners; native paths never retry on the legacy heap. R.1 (#rr-raii)
+// and MEM.6 (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md)
+// were read in design and implementation. Setup ownership adds no tick copies.
 // Front-end extension follows the header lifetime and owned handoff contract.
 // Keep Lua dispatch authoritative, validate native slot values, and retain a
 // pending mission wait after capturing the request. Design MCP I.30
@@ -47,13 +52,18 @@ constexpr unsigned kCampaignStages = 6;
 }
 }  // namespace
 StartupSession::StartupSession(LogoMedia& media, TitleSurface* title_surface,
-                               FrontEnd* frontend)
+                               FrontEnd* frontend,
+                               std::shared_ptr<memory::Domain> runtime_memory)
     : logos_(media,
              {"data/movie/marvelousLogo.ssu", "data/movie/xeedLogo.ssu"}),
       advertise_(media),
       title_(media),
       title_surface_(title_surface),
-      frontend_(frontend) {}
+      frontend_(frontend),
+      runtime_memory_(std::move(runtime_memory)),
+      scheduler_(runtime_memory_
+                     ? tasks::TaskLifecycleScheduler(runtime_memory_)
+                     : tasks::TaskLifecycleScheduler()) {}
 StartupSession::~StartupSession() {
   if (title_surface_ != nullptr) title_surface_->end();
 }
@@ -62,7 +72,11 @@ void StartupSession::start_root(resources::ResourceService& resources,
   if (root_) {
     throw std::logic_error("Startup root already started");
   }
-  auto root = std::make_unique<RootDriver>(resources, *this, tag);
+  auto root = runtime_memory_
+                  ? std::allocate_shared<RootDriver>(
+                        memory::Allocator<RootDriver>(runtime_memory_),
+                        resources, *this, tag, runtime_memory_)
+                  : std::make_shared<RootDriver>(resources, *this, tag);
   (void)scheduler_.add(kRootTaskPriority, tasks::Hooks{.update = [this] {
                          root_result_ = root_->advance();
                        }});

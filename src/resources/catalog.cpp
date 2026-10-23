@@ -1,3 +1,13 @@
+// Catalog memory migration: encoded bytes, decoded nested strings/vectors,
+// traversal scratch and indexes retain the injected allocator owner. Native
+// ingress moves its buffer; legacy Bytes conversion copies. Copies retain the
+// source domain. Failure unwinds owned storage without allocation fallback.
+// R.20 (#rr-owner) preserves ownership; SL.con.3 (#rsl-bounds) preserves
+// checked traversal. MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
+// allocation; MEM.8 (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md)
+// requires explicit nested propagation and owner lifetime. Design and
+// implementation queried separately. See resource-memory-migration.md.
 // A3: indexed catalog ownership and priority resolution. ResourceCatalog owns
 // its immutable decoded ResourceCatalogData; mounts own catalogs. Views borrow
 // from stable owners; mutation requires exclusive access.
@@ -28,18 +38,30 @@ std::string normalize_name(std::string_view name) {
   }
   return result;
 }
+memory::String normalize_name(std::string_view name,
+                              const memory::Allocator<char>& allocator) {
+  memory::String result(name, allocator);
+  for (char& ch : result) {
+    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch + ('a' - 'A'));
+  }
+  return result;
+}
 ResourceCatalog::ResourceCatalog(ResourceCatalogData data)
-    : data_(std::move(data)) {
+    : data_(std::move(data)), index_(data_.allocator()) {
   for (std::size_t i = 0; i < data_.resources().size(); ++i) {
     index_.emplace(data_.resources()[i].full_name, i);
   }
 }
 std::optional<std::size_t> ResourceCatalog::find(std::string_view name) const {
-  auto it = index_.find(normalize_name(name));
+  auto it = index_.find(normalize_name(name, data_.allocator()));
   return it == index_.end() ? std::nullopt : std::optional(it->second);
 }
 void CatalogSet::mount(int priority, std::filesystem::path path,
                        ResourceCatalog catalog) {
+  if (domain() && catalog.domain() != domain()) {
+    throw std::invalid_argument(
+        "Catalog allocation domain does not match mount owner");
+  }
   catalogs_.push_back({priority, std::move(path), std::move(catalog)});
 }
 Resolution CatalogSet::resolve(std::string_view name) const {

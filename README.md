@@ -10,6 +10,54 @@ how it works. The destination is a faithful port to Series X in Developer
 Mode, with improvements built on top of that baseline. Development currently
 runs on an Apple silicon Mac.
 
+## Get it locally
+
+The current native build is verified on macOS with Apple silicon. You need
+Git, Python 3.9+, CMake 3.24+, C/C++ compilers with C99 and C++20 support,
+Xcode’s SDK, the Metal toolchain and `make`.
+[Tooling setup](scripts/README.md) covers those dependencies. The build downloads
+its dependencies from checksum-pinned source archives.
+
+```sh
+git clone https://github.com/plainsight-systems/bullet-witch.git
+cd bullet-witch
+```
+
+You supply your own purchased Steam installation. Game assets are not included
+in this repository.
+
+## Run locally
+
+From the repository root:
+
+```sh
+./run
+```
+
+This builds the current Mac host and launches fullscreen. It uses your purchased
+installation at `~/Games/BulletWitch-Steam`. To use another location, set
+`BULLET_WITCH_GAME_DIR` or run `./run --game /path/to/BulletWitch-Steam`.
+Use `./run --windowed` for a window, or `./run --build-only` to build without
+launching. Native host options pass through; see the
+[host notes](docs/native-startup-host.md) for controls and verification options.
+
+## Where it stands
+
+The resource readers handle the installed game's archives and catalogs, and
+the original startup Lua runs through the reconstructed task and script
+runtime. Its startup tasks connect to shared movie playback and a native Mac
+host using Metal and AudioQueue. Shaders live in separate source files and compile with the build, so the graphics implementation
+can grow and be tuned independently of the host code.
+
+There is no playable build yet. The Mac build runs the logos, opening cinematic
+and animated title screen using the original assets. It loads profile data,
+displays interactive menus and costume previews, and carries the selection
+through the original Lua to a gameplay request. World loading, some menu options
+and extra-mission routing remain open. The [startup notes](docs/startup-runtime.md) and
+[native host notes](docs/native-startup-host.md) describe what runs and what
+remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
+a playable mission, the complete game and the Xbox port.
+
 ## Why this approach
 
 The project started with static recompilation in mind. That could carry the
@@ -38,43 +86,18 @@ harder to tell which one changed the game.
 
 This is R&D under [Plainsight Systems](https://plainsight-systems.com/) LLC.
 
-## Where it stands
+## Development checks
 
-The resource readers handle the installed game's archives and catalogs, and
-the original startup Lua runs through the reconstructed task and script
-runtime. Its startup tasks connect to shared movie
-playback and a native Mac host using Metal and AudioQueue. Shaders live in
-separate source files and compile with the build, so the graphics implementation
-can grow and be tuned independently of the host code.
-
-There is no playable build yet. The Mac build runs the logos, opening cinematic
-and animated title screen using the original assets. It loads profile data,
-displays interactive menus and costume previews, and carries the selection
-through the original Lua to a gameplay request. World loading comes next, after
-the memory subsystem; some menu options and extra-mission routing remain open. The [startup notes](docs/startup-runtime.md) and
-[native host notes](docs/native-startup-host.md) describe what runs and what
-remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
-a playable mission, the complete game and the Xbox port.
-
-## Build locally
-
-The current native build is verified on macOS with Apple silicon. You need
-Git, Python 3.9+, CMake 3.24+ and C/C++ compilers with C99 and C++20 support.
-The build downloads checksum-pinned Lua 5.0.2 and FFmpeg 7.1.1 source archives.
-The Mac host also needs Xcode’s SDK, the Metal toolchain and `make`;
-[tooling setup](scripts/README.md) covers those dependencies.
+To build the libraries, resource inspector, Mac host and tests, then run the
+tests:
 
 ```sh
-git clone https://github.com/plainsight-systems/bullet-witch.git
-cd bullet-witch
 python3 scripts/check.py host
 ```
 
-This builds the libraries, resource inspector, Mac startup host and tests, then
-runs the tests.
-It does not need game data. The inspector is written to
+These checks do not need game data. The inspector is written to
 `build/host-debug/bw-resource`; [resource inspection](docs/resources.md)
-explains how to use it with your own purchased Steam installation.
+explains how to use it with your purchased installation.
 
 For the full development checks, provide clang-format and clang-tidy
 **21.1.8** and run:

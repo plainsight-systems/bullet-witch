@@ -1,3 +1,14 @@
+// Memory adoption: injected domain owns service State/control and its fixed
+// callback mapping arrays. Prepare acquires before publication; failed native
+// setup joins its owner and releases that state before throwing. Stop joins
+// before the final domain release. Allocator capability remains alive while
+// empty; default construction is explicit legacy test/probe compatibility.
+// No allocation, capability copy or domain lock enters a native callback.
+// AudioQueue buffers/runtime remain external native allocations.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain injected
+// lifetime and callback preallocation; consulted in the media migration phases.
 // macOS reusable media audio service; see platform/media_audio.hpp and
 // docs/video-player.md. One joined CFRunLoop owner creates AudioQueue and runs
 // its callbacks. Callbacks pull prepared PCM, or maintenance silence while
@@ -363,18 +374,20 @@ struct MediaAudio::State {
     published.store(current);
   }
 };
-MediaAudio::MediaAudio() = default;
+MediaAudio::MediaAudio(const std::shared_ptr<memory::Domain>& domain)
+    : allocator_(domain ? memory::Allocator<std::byte>(domain) : memory::Allocator<std::byte>{}) {}
 MediaAudio::~MediaAudio() = default;
 void MediaAudio::prepare(video::Decoder& source, std::size_t prime_frames) {
   stop();
   if (prime_frames == 0 || !source.metadata().has_audio) {
     throw std::invalid_argument("Audio preparation requires a source and prime target");
   }
-  state_ = std::make_unique<State>(source, prime_frames);
-  if (state_->published.load().failure_code != 0) {
+  auto prepared = std::allocate_shared<State>(allocator_, source, prime_frames);
+  if (prepared->published.load().failure_code != 0) {
     throw std::runtime_error("Native audio preparation failed: " +
-                             std::to_string(state_->published.load().failure_code));
+                             std::to_string(prepared->published.load().failure_code));
   }
+  state_ = std::move(prepared);
 }
 void MediaAudio::start() {
   if (state_) {

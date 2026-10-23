@@ -1,4 +1,14 @@
-// A1 internal checked byte reader. Span borrows its decoder owner. Rejects
+// Memory adoption: payload/metadata and nested strings retain an owning domain
+// allocator; legacy parser defaults remain compatibility allocations. Copies
+// preserve allocator ownership and leases may outlive their service. Allocation
+// failures unwind without fallback. R.20 (#rr-owner), F.27 (#rf-shared_ptr),
+// E.17 (#re-not-always) govern ownership/unwinding; MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) routes
+// actual storage; MEM.8
+// (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md) motivates
+// retaining the resource instead of borrowing a PMR pointer. Both design and
+// implementation consulted. See resource-memory-migration.md. A1 internal
+// checked byte reader. Span borrows its decoder owner. Rejects
 // out-of-range/unterminated input with Error. Algorithm: subtract bound before
 // slicing, decode little-endian values. O(string length), O(1) scalar access.
 // Optimization: spans avoid copying. No host file operations or
@@ -41,11 +51,20 @@ struct Reader {
            (static_cast<std::uint32_t>(p[3]) << (3 * kByteBits));
   }
   std::string tag(std::uint64_t offset) const {
+    return std::string(tag_view(offset));
+  }
+  std::string_view tag_view(std::uint64_t offset) const {
     range(offset, kWordBytes);
     const auto value = b.subspan(static_cast<std::size_t>(offset), kWordBytes);
-    return {value.begin(), value.end()};
+    // Character alias of a bounded four-byte format tag.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return {reinterpret_cast<const char*>(value.data()), value.size()};
   }
   std::string text(Range pool, std::uint32_t offset) const {
+    return std::string(text_view(pool, offset));
+  }
+  // Borrows the checked byte owner; no allocation or null-terminated access.
+  std::string_view text_view(Range pool, std::uint32_t offset) const {
     range(pool.offset, pool.size);
     if (offset >= pool.size) {
       malformed("String offset exceeds pool");
@@ -57,7 +76,10 @@ struct Reader {
     if (stop == last) {
       malformed("Unterminated pool string");
     }
-    return {first, stop};
+    // Character access may alias bytes; the validated bounds delimit the view.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    const auto* text = reinterpret_cast<const char*>(std::to_address(first));
+    return {text, static_cast<std::size_t>(stop - first)};
   }
   std::optional<std::string> optional_text(Range pool,
                                            std::uint32_t offset) const {

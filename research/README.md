@@ -41,6 +41,15 @@ Generated corpora retain their internal indexes and stable paths.
 ## Current map and evidence
 
 - [Architecture](engine/ARCHITECTURE.md): subsystem inventory and relationship maps.
+- [Memory management research](engine/subsystems/memory-management-research.md):
+  Bullet Witch allocator evidence, pinned Unreal source, modern references and
+  the approved faithful-first implementation direction.
+- [Memory concurrency refinement](engine/subsystems/memory-concurrency-refinement.md):
+  pending CPU admission, unlocked native calls, exclusive Lua heap ownership and verification.
+- [Current runtime memory migration](engine/subsystems/memory-migration-completion.md):
+  catalog, root Lua, task, media, image/font and native device ownership and verification.
+- [Memory foundation implementation](engine/subsystems/memory-foundation-implementation.md):
+  common allocation/domain contracts, native Mac backing and resource ownership migration.
 - [Bootstrap/tasks](engine/subsystems/bootstrap-and-tasks.md),
   [mission lifecycle](engine/subsystems/mission-lifecycle.md),
   [background worker](engine/subsystems/background-resource-worker.md) and

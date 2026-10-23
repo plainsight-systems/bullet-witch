@@ -1,4 +1,17 @@
-// Backend composition: callers supply the decoder factory explicitly. C.129
+// Memory migration: native composition injects a reclaiming Domain; allocator-
+// bearing samples and containers retain it through worker shutdown and caller
+// retention. Default construction is the explicit legacy tool/test route, not
+// fallback on domain exhaustion. Callback PCM reads/writes do not allocate,
+// release or enter domain locks. State and queue allocation occurs on control/
+// codec owners. See research/engine/subsystems/memory-media-ownership.md for
+// pinned references, coverage and external codec/bootstrap exclusions.
+// Design MCP R.1 (#rr-raii), implementation E.6 (#re-raii) retain lifetime;
+// both phases apply MEM.6 (guidelines/memory/
+// MEM.6-inject-allocators-behind-one-interface.md) for injected ownership and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) for callback
+// preallocation. Domain zeroing adds O(bytes) work on allocation, never
+// callback. Backend composition: callers supply the decoder factory explicitly.
+// C.129
 // (#rh-kind) separates interface from backend; E.6 (#re-raii) and performance
 // COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
 // preserve existing owner lifetimes without per-frame selection overhead.
@@ -42,7 +55,8 @@ class Player {
   using OpenDecoder =
       std::function<std::unique_ptr<Decoder>(const std::filesystem::path&)>;
   explicit Player(Output& output, OpenDecoder open_decoder,
-                  PlayerLimits limits = {});
+                  PlayerLimits limits = {},
+                  const std::shared_ptr<memory::Domain>& domain = {});
   ~Player();
   Player(const Player&) = delete;
   Player& operator=(const Player&) = delete;
@@ -59,6 +73,6 @@ class Player {
 
  private:
   struct State;
-  std::unique_ptr<State> state_;
+  std::shared_ptr<State> state_;
 };
 }  // namespace bw::video

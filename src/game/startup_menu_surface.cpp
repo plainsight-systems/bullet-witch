@@ -1,3 +1,19 @@
+// Memory migration: native owners propagate the ResourceService CPU domain to
+// final pixel/glyph storage and retained presentation state/strings. Owning
+// allocators retain the domain through copies and partial-construction cleanup;
+// defaults are legacy parser/test compatibility, never exhaustion fallback.
+// PNG writes directly to its final owned destination. Fixed draw storage adds
+// no per-frame allocations; native texture lifetime stays with SpriteOutput.
+// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
+// fixed presentation capacity. Pinned source/external libpng exclusions are
+// recorded in research/engine/subsystems/memory-image-presentation.md. Resource
+// memory boundary: diagnostics explicitly copy allocator-aware archive names
+// into the standard exception string. This failure-only library storage is
+// outside resource-domain coverage. E.17 (#re-not-always), MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) preserve
+// the existing error boundary; both phases consulted. No menu behavior change.
 // Implementation of the menu asset and draw contract in
 // startup_menu_surface.hpp. Resource leases retain archive bytes through
 // construction. Textures are kept resident until end; temporary PNG decode
@@ -18,6 +34,12 @@
 #include "bw/formats/image.hpp"
 namespace bw::game {
 namespace {
+memory::Allocator<std::byte> storage_for(
+    const resources::ResourceService& resources) {
+  const auto domain = resources.memory_domain();
+  return domain ? memory::Allocator<std::byte>(domain)
+                : memory::Allocator<std::byte>{};
+}
 struct TextPosition {
   float x{}, y{}, size{};
 };
@@ -49,7 +71,8 @@ constexpr std::array<std::string_view, 16> kGroups{
 // The costume label records use full-width Latin UTF-8 text. This narrow
 // compatibility reader selects the unique English costume title from the
 // bounded STMANAGE pool; it is not a general language-table implementation.
-std::string costume_label(std::span<const std::uint8_t> bytes) {
+memory::String costume_label(std::span<const std::uint8_t> bytes,
+                             const memory::Allocator<char>& allocator) {
   constexpr std::size_t pool_field = 28, word_bytes = 4;
   constexpr unsigned byte_shift = 8;
   constexpr std::string_view signature = "STMANAGE";
@@ -65,9 +88,9 @@ std::string costume_label(std::span<const std::uint8_t> bytes) {
   if (pool >= bytes.size()) {
     throw std::runtime_error("Costume text pool exceeds resource");
   }
-  std::string result;
+  memory::String result(allocator);
   for (std::size_t offset = pool; offset < bytes.size();) {
-    std::string candidate;
+    memory::String candidate(allocator);
     while (offset < bytes.size() && bytes[offset] != 0) {
       const auto first = bytes[offset++];
       if (first < kAsciiLimit) {
@@ -149,19 +172,22 @@ struct StartupMenuSurface::State {
     render::TextureHandle texture;
     float width{}, height{};
   };
+  memory::Allocator<std::byte> allocator;
   resources::ResourceService& resources;
   render::SpriteOutput& renderer;
   std::array<std::optional<resources::ResourceLease>, kGroups.size()> leases;
   std::array<Image, render::kMaximumTextures> images{};
   std::size_t image_count{};
   std::optional<formats::BitmapFont> font;
-  std::array<std::string, kCostumeCount> costume_labels;
+  std::array<memory::String, kCostumeCount> costume_labels;
   render::TextureHandle font_texture;
   std::array<render::Sprite, render::kMaximumSprites> commands{};
   std::size_t count{};
   bool requested{}, constructed{};
   State(resources::ResourceService& service, render::SpriteOutput& output)
-      : resources(service), renderer(output) {}
+      : allocator(storage_for(service)), resources(service), renderer(output) {
+    for (auto& label : costume_labels) label = memory::String(allocator);
+  }
   ~State() { end(); }
   State(const State&) = delete;
   State& operator=(const State&) = delete;
@@ -194,11 +220,13 @@ struct StartupMenuSurface::State {
       constexpr std::size_t first_costume_group = 6, first_label_group = 11;
       if (is_label) {
         costume_labels.at(group - first_label_group + 1) =
-            costume_label(lease.bytes());
+            costume_label(lease.bytes(), allocator);
         continue;
       }
       costume_labels.at(0) = "Original";
-      if (is_font) font.emplace(formats::BitmapFont::parse(lease.bytes()));
+      if (is_font) {
+        font.emplace(formats::BitmapFont::parse(lease.bytes(), allocator));
+      }
       const auto& archive = lease.archive();
       std::size_t image_index = 0;
       for (std::size_t record = 0; record < archive.records().size();
@@ -215,11 +243,11 @@ struct StartupMenuSurface::State {
                                   : sprite_id(lease.bytes(), image_index));
         formats::Image decoded;
         try {
-          decoded = formats::decode_png(archive.payload(record));
+          decoded = formats::decode_png(archive.payload(record), {}, allocator);
         } catch (const std::exception& error) {
           throw std::runtime_error(std::string(kGroups.at(group)) + "/" +
-                                   archive.records()[record].name + ": " +
-                                   error.what());
+                                   std::string(archive.records()[record].name) +
+                                   ": " + error.what());
         }
         if (is_font && !font) {
           throw std::logic_error("Missing font metrics");
@@ -301,7 +329,8 @@ struct StartupMenuSurface::State {
 };
 StartupMenuSurface::StartupMenuSurface(resources::ResourceService& resources,
                                        render::SpriteOutput& renderer)
-    : state_(std::make_unique<State>(resources, renderer)) {}
+    : state_(std::allocate_shared<State>(storage_for(resources), resources,
+                                         renderer)) {}
 StartupMenuSurface::~StartupMenuSurface() = default;
 void StartupMenuSurface::begin() {
   state_->end();

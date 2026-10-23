@@ -26,7 +26,7 @@ exception; the target is five repository-wide):
   world execution.
 
 The corpus workflow remains an integration scenario even though it lives under
-research and is excluded from the default local check. Do not count CTest's five
+research and is excluded from the default local check. Do not count CTest's six
 registered commands as individual behavioral cases or the reader's assertions as separate tests.
 Add no integration scenarios until this inventory is reduced or explicitly
 rebudgeted. New parser boundary cases belong in the in-process suite.
@@ -66,7 +66,7 @@ checks title readiness and lifetime, and the fade adapter checks zero-duration
 snap on its next update. These extend in-process coverage; the integration
 scenario inventory remains eleven.
 
-`profile-tests` is the fifth CTest entry. Its in-process tests use synthetic save
+`profile-tests` is an in-process CTest entry. Its tests use synthetic save
 buffers and a controlled storage capability to verify exact-size rejection,
 unknown-byte preservation, defaults, dirty-file error handling, checkpoint bounds,
 and the recovered Steam costume/extra availability refresh. `ProfileLoadFlow`
@@ -87,3 +87,36 @@ volume settings, a Steam achievement provider, extra-mission launch routing,
 world rendering or gameplay. Native costume preview evidence concerns authored
 2D sprite textures, not model rendering. Generated logs and snapshots remain in
 ignored organized research evidence.
+
+`memory-tests` adds four common in-process contract groups: zeroed/aligned
+allocation, rejection/rollback, retained allocator/container ownership, and
+concurrent allocation with cross-thread release. On Mac the same executable
+also exercises native aligned backing and invalid-request handling without files,
+subprocesses or UI. Resource tests add nested allocator propagation, lease survival
+after service destruction and bounded rejection. Counts printed by those suites
+remain assertions, not individual tests.
+
+The existing provisioned original-root scenario now injects the selected Mac
+CPU provider and verifies that resource-domain live payload/backing returns to
+zero after teardown. It reports peak requested storage for that migrated domain;
+this is not total process residency, a gameplay peak or GPU accounting. Both
+debug and UBSan runs cover this path. No additional integration scenario was
+introduced by the memory migration.
+
+The memory executable also exercises portable device admission/reconciliation,
+rollback and moved/retained tokens. On Mac it checks real Metal texture upload,
+reported allocation bytes and completion before retirement without a window.
+These are in-process capability checks, not a rendered-startup acceptance run.
+`lua_memory_test.cpp` and `task_memory_test.cpp` extend the existing runtime
+suite with bounded VM bootstrap/exhaustion/reallocation and retained task
+snapshot/failure recovery. Image/font and media cases cover copied/retained output
+lifetime and rejected allocation. The provisioned original-root scenario now
+covers catalogs, bounded Lua, task and decoded presentation CPU ownership and
+reports the 64 KiB root heap separately from aggregate migrated-domain storage.
+The CTest entry count remains six; assertions are not individual tests.
+
+Memory concurrency cases use a semaphore-gated provider to pause native acquire
+or free while other domain calls progress. They verify provider snapshot access,
+payload and backing admission against pending reservations, isolated failure
+rollback and budget retention through release. No timing-based throughput claim
+is made; these are public correctness contracts within the existing memory suite.

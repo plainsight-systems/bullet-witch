@@ -4,6 +4,16 @@ Run from the repository root with Python 3.9+, CMake 3.24+ and a C++20 compiler.
 CMake uses the host's default generator; Ninja is not required. BUILD_TESTING
 requires Python for the CLI integration tests.
 
+## Launching the game
+
+Use `./run` from the repository root. It configures the debug preset, builds
+`bw-startup` incrementally and launches fullscreen with the local purchased
+installation. `--game PATH` overrides `BULLET_WITCH_GAME_DIR` and the default
+`~/Games/BulletWitch-Steam`. `--build-only` builds without opening a window or
+requiring game data. Other arguments, such as `--windowed`, pass to the host.
+The launcher also works by absolute path from another directory. Build failures
+stop the launch; it never runs a stale executable after a failed build.
+
 ## Formatting and static analysis
 
 Both clang-format and clang-tidy are pinned to **21.1.8**, matching the imported

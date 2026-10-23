@@ -1,3 +1,11 @@
+// Memory ownership: host State/control and path scratch use the injected CPU
+// domain. Native texture owners separately admit/reconcile logical and reported
+// Metal sizes, retain charges through use, and release after synchronous command
+// completion. Existing sprite cap is preserved. Cocoa/pipeline/drawable storage
+// remains external. E.6 (#re-raii), SL.con.3 (#rsl-bounds), GPU.1
+// (guidelines/gpu/GPU.1-keep-data-on-device.md), COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) apply in
+// both consulted phases. See device-memory-ownership.md.
 // Input implementation: original 0x41cfd0 per-bit elapsed-time repeat, fixed
 // 32 timers; focus loss clears held/repeat state. Retrieved SL.con.3 bounds
 // iteration, MEM.9 confines storage to setup. See frontend-presentation.md.
@@ -24,7 +32,9 @@
 // COPY.5-resource-owning-types-are-move-only.md) fixes native owner identity;
 // GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded frames.
 #include "bw/platform/startup_host.hpp"
+#include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
+#include "platform/macos/texture_allocation.hpp"
 
 #import <Cocoa/Cocoa.h>
 #import <GameController/GameController.h>
@@ -147,11 +157,12 @@ struct StartupHost::State {
   id<MTLDevice> device{};
   id<MTLCommandQueue> commands{};
   id<MTLRenderPipelineState> pipeline{};
-  id<MTLTexture> video{};
+  macos::TextureAllocation video;
+  std::shared_ptr<memory::DeviceBudget> device_budget;
   id<MTLRenderPipelineState> sprite_pipeline{};
   struct Texture {
     render::TextureHandle handle;
-    id<MTLTexture> native{};
+    macos::TextureAllocation native;
     std::size_t bytes{};
   };
   struct SubmittedSprite {
@@ -168,7 +179,7 @@ struct StartupHost::State {
   std::uint32_t previous_held{};
   std::array<double, kActionBits> repeat_elapsed{};
   std::chrono::steady_clock::time_point input_time{std::chrono::steady_clock::now()};
-  State() = default;
+  explicit State(const std::shared_ptr<memory::Domain>& cpu_domain) : media_audio(cpu_domain) {}
   ~State() {
     media_audio.stop();
     [window close];
@@ -179,7 +190,11 @@ struct StartupHost::State {
   State& operator=(State&&) = delete;
 };
 
-StartupHost::StartupHost(WindowOptions options) : state_(std::make_unique<State>()) {
+StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
+                         std::shared_ptr<memory::DeviceBudget> device_budget, WindowOptions options)
+    : state_(std::allocate_shared<State>(memory::Allocator<State>(cpu_domain), cpu_domain)) {
+  if (!device_budget) throw std::invalid_argument("Missing device memory budget");
+  state_->device_budget = std::move(device_budget);
   require_main_thread();
   constexpr std::uint32_t maximum_window_dimension = 16384;
   if (options.width == 0 || options.height == 0 || options.width > maximum_window_dimension ||
@@ -198,7 +213,7 @@ StartupHost::StartupHost(WindowOptions options) : state_(std::make_unique<State>
     NSError* error = nil;
     std::uint32_t path_size = 0;
     (void)_NSGetExecutablePath(nullptr, &path_size);
-    std::vector<char> executable_path(path_size);
+    memory::Vector<char> executable_path(path_size, memory::Allocator<char>(cpu_domain));
     if (_NSGetExecutablePath(executable_path.data(), &path_size) != 0) {
       throw std::runtime_error("Could not locate startup executable");
     }
@@ -405,27 +420,18 @@ void StartupHost::upload(const video::VideoFrame& frame) {
   }
   @autoreleasepool {
     auto& state = *state_;
-    if (state.video == nil || state.video.width != frame.width ||
-        state.video.height != frame.height) {
-      MTLTextureDescriptor* descriptor =
-          [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                             width:frame.width
-                                                            height:frame.height
-                                                         mipmapped:NO];
-      descriptor.storageMode = MTLStorageModeShared;
-      descriptor.usage = MTLTextureUsageShaderRead;
-      state.video = [state.device newTextureWithDescriptor:descriptor];
-      if (state.video == nil) {
-        throw std::runtime_error("Could not allocate movie texture");
-      }
+    if (state.video.get() == nil || state.video.get().width != frame.width ||
+        state.video.get().height != frame.height) {
+      auto replacement = macos::TextureAllocation::create(
+          state.device, state.device_budget, frame.width, frame.height, MTLPixelFormatBGRA8Unorm);
+      replacement.upload(frame.bgra);
+      state.video = std::move(replacement);
+    } else {
+      state.video.upload(frame.bgra);
     }
-    [state.video replaceRegion:MTLRegionMake2D(0, 0, frame.width, frame.height)
-                   mipmapLevel:0
-                     withBytes:frame.bgra.data()
-                   bytesPerRow:static_cast<std::size_t>(frame.width) * channels];
   }
 }
-void StartupHost::clear_video() noexcept { state_->video = nil; }
+void StartupHost::clear_video() noexcept { state_->video.reset(); }
 bool StartupHost::draw(float opacity) {
   require_main_thread();
   if (!std::isfinite(opacity) || opacity < 0 || opacity > 1) {
@@ -450,17 +456,17 @@ bool StartupHost::draw(float opacity) {
     if (command == nil || encoder == nil) {
       throw std::runtime_error("Could not encode movie presentation");
     }
-    if (state.video != nil) {
+    if (state.video.get() != nil) {
       const double width = static_cast<double>(drawable.texture.width);
       const double height = static_cast<double>(drawable.texture.height);
-      const double video_width = static_cast<double>(state.video.width);
-      const double video_height = static_cast<double>(state.video.height);
+      const double video_width = static_cast<double>(state.video.get().width);
+      const double video_height = static_cast<double>(state.video.get().height);
       const double fit = std::min(width / video_width, height / video_height);
       [encoder setViewport:MTLViewport{(width - video_width * fit) / 2,
                                        (height - video_height * fit) / 2, video_width * fit,
                                        video_height * fit, 0, 1}];
       [encoder setRenderPipelineState:state.pipeline];
-      [encoder setFragmentTexture:state.video atIndex:0];
+      [encoder setFragmentTexture:state.video.get() atIndex:0];
       [encoder setFragmentBytes:&opacity length:sizeof(opacity) atIndex:0];
       [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     }
@@ -486,7 +492,8 @@ bool StartupHost::draw(float opacity) {
             .sampling = {static_cast<float>(sprite.channel), 0, 0, 0}};
         [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
         [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
-        [encoder setFragmentTexture:state.textures.at(submitted.texture_slot).native atIndex:0];
+        [encoder setFragmentTexture:state.textures.at(submitted.texture_slot).native.get()
+                            atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
       }
     }
@@ -510,30 +517,18 @@ render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint
     throw std::runtime_error("Invalid RGBA sprite texture");
   }
   auto& state = *state_;
-  const auto slot = std::ranges::find_if(state.textures,
-                                         [](const auto& texture) { return texture.native == nil; });
+  const auto slot = std::ranges::find_if(
+      state.textures, [](const auto& texture) { return texture.native.get() == nil; });
   if (slot == state.textures.end() || rgba.size() > kTextureByteBudget - state.texture_bytes ||
       state.next_texture == std::numeric_limits<std::uint64_t>::max()) {
     throw std::runtime_error("Sprite texture residency limit exceeded");
   }
   @autoreleasepool {
-    MTLTextureDescriptor* descriptor =
-        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                           width:width
-                                                          height:height
-                                                       mipmapped:NO];
-    descriptor.storageMode = MTLStorageModeShared;
-    descriptor.usage = MTLTextureUsageShaderRead;
-    id<MTLTexture> texture = [state.device newTextureWithDescriptor:descriptor];
-    if (texture == nil) {
-      throw std::runtime_error("Could not allocate sprite texture");
-    }
-    [texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
-               mipmapLevel:0
-                 withBytes:rgba.data()
-               bytesPerRow:static_cast<std::size_t>(width) * channels];
+    auto texture = macos::TextureAllocation::create(state.device, state.device_budget, width,
+                                                    height, MTLPixelFormatRGBA8Unorm);
+    texture.upload(rgba);
     slot->handle = {state.next_texture++};
-    slot->native = texture;
+    slot->native = std::move(texture);
     slot->bytes = rgba.size();
     state.texture_bytes += rgba.size();
     return slot->handle;
@@ -542,7 +537,7 @@ render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint
 void StartupHost::release_texture(render::TextureHandle texture) noexcept {
   auto& state = *state_;
   const auto slot = std::ranges::find_if(state.textures, [texture](const auto& entry) {
-    return entry.handle == texture && entry.native != nil;
+    return entry.handle == texture && entry.native.get() != nil;
   });
   if (slot == state.textures.end()) {
     return;
@@ -572,7 +567,7 @@ void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
       throw std::runtime_error("Invalid sprite geometry or color");
     }
     const auto texture = std::ranges::find_if(state.textures, [&sprite](const auto& entry) {
-      return entry.handle == sprite.texture && entry.native != nil;
+      return entry.handle == sprite.texture && entry.native.get() != nil;
     });
     if (texture == state.textures.end()) {
       throw std::runtime_error("Unknown sprite texture");

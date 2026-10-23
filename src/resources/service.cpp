@@ -1,11 +1,21 @@
-// Encoded sprite payload extension: leases retain the immutable sibling archive
-// (R.20 #rr-owner); native texture readiness belongs to the consuming adapter.
-// E.6 (#re-raii) preserves cleanup on construction failure; cpp-performance
-// COPY.4 (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps
-// leases cheap shared owners without payload copies. Design and implementation
-// queried. See research/engine/subsystems/startup-title-integration.md. USER
-// restrictions remain; DDS selected ranges are exposed as encoded bytes, never
-// executed. A3: encoded USER/image-resource lifecycle, docs/startup-runtime.md.
+// Memory adoption: payload/metadata and nested strings retain an owning domain
+// allocator; legacy parser defaults remain compatibility allocations. Copies
+// preserve allocator ownership and leases may outlive their service. Allocation
+// failures unwind without fallback. R.20 (#rr-owner), F.27 (#rf-shared_ptr),
+// E.17 (#re-not-always) govern ownership/unwinding; MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) routes
+// actual storage; MEM.8
+// (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md) motivates
+// retaining the resource instead of borrowing a PMR pointer. Both design and
+// implementation consulted. See resource-memory-migration.md. Encoded sprite
+// payload extension: leases retain the immutable sibling archive (R.20
+// #rr-owner); native texture readiness belongs to the consuming adapter. E.6
+// (#re-raii) preserves cleanup on construction failure; cpp-performance COPY.4
+// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) keeps leases cheap
+// shared owners without payload copies. Design and implementation queried. See
+// research/engine/subsystems/startup-title-integration.md. USER restrictions
+// remain; DDS selected ranges are exposed as encoded bytes, never executed. A3:
+// encoded USER/image-resource lifecycle, docs/startup-runtime.md.
 // Single-threaded; the Files capability must outlive this service. Owns
 // catalogs, requested-file interests and publications. Leases retain immutable
 // CPR owners after release. Errors are terminal per file until all tags release
@@ -33,6 +43,35 @@
 #include <algorithm>
 #include <limits>
 namespace bw::resources {
+namespace {
+ArchiveString normalized(std::string_view name,
+                         const memory::Allocator<char>& allocator) {
+  ArchiveString result(name, allocator);
+  for (char& ch : result) {
+    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch + ('a' - 'A'));
+  }
+  return result;
+}
+}  // namespace
+ResourceService::ResourceService(CatalogSet catalogs,
+                                 const platform::Files& files)
+    : ResourceService(std::move(catalogs), files,
+                      memory::Allocator<std::uint8_t>{}) {}
+ResourceService::ResourceService(CatalogSet catalogs,
+                                 const platform::Files& files,
+                                 std::shared_ptr<memory::Domain> domain)
+    : ResourceService(std::move(catalogs), files,
+                      memory::Allocator<std::uint8_t>(std::move(domain))) {}
+ResourceService::ResourceService(CatalogSet catalogs,
+                                 const platform::Files& files,
+                                 memory::Allocator<std::uint8_t> allocator)
+    : allocator_(std::move(allocator)),
+      requests_(allocator_),
+      catalogs_(std::move(catalogs)),
+      files_(files),
+      loaded_(allocator_),
+      publications_(allocator_) {}
+
 ResourceLease::ResourceLease(std::shared_ptr<const ResourceArchive> archive,
                              std::size_t record)
     : archive_(std::move(archive)), record_(record) {
@@ -53,11 +92,12 @@ ResourceService::Key ResourceService::file_key(Resolution r) const {
                                .raw[file_field]};
 }
 void ResourceService::request(std::string_view name, ResourceTag tag) {
-  std::set<std::string> seen;
-  std::set<Key> closure;
-  std::vector<std::string> pending{std::string(name)};
+  Set<ArchiveString> seen(allocator_);
+  Set<Key> closure(allocator_);
+  ArchiveVector<ArchiveString> pending(allocator_);
+  pending.emplace_back(name, allocator_);
   while (!pending.empty()) {
-    auto next = normalize_name(pending.back());
+    auto next = normalized(pending.back(), allocator_);
     pending.pop_back();
     if (!seen.insert(next).second) {
       continue;
@@ -69,17 +109,21 @@ void ResourceService::request(std::string_view name, ResourceTag tag) {
                                .catalog.resources()
                                .at(r.resource_index)
                                .dependencies) {
-      pending.push_back(dep.name);
+      pending.emplace_back(dep.name, allocator_);
     }
   }
-  requests_[tag].insert(seen.begin(), seen.end());
+  auto [request, inserted] = requests_.try_emplace(tag, allocator_);
+  (void)inserted;
+  request->second.insert(seen.begin(), seen.end());
   for (const auto& key : closure) {
-    loaded_[key].tags.insert(tag);
+    auto [file, inserted_file] = loaded_.try_emplace(key, allocator_);
+    (void)inserted_file;
+    file->second.tags.insert(tag);
   }
 }
 void ResourceService::publish(const Key& key, File& file) {
   // Validate the entire supported archive before publishing any record.
-  std::map<std::string, Publication, std::less<>> additions;
+  Map<ArchiveString, Publication> additions(allocator_);
   for (std::size_t i = 0; i < file.archive->records().size(); ++i) {
     const auto& record = file.archive->records()[i];
     const bool user = record.type == "USER";
@@ -92,12 +136,13 @@ void ResourceService::publish(const Key& key, File& file) {
          (!record.selected_payload || record.publication_name))) {
       throw Error(ErrorCode::unsupported,
                   "Runtime record/inline reference unsupported: " +
-                      record.type + ":" + record.name);
+                      std::string(record.type) + ":" +
+                      std::string(record.name));
     }
     if (!record.publication_name) {
       continue;
     }
-    const auto name = normalize_name(*record.publication_name);
+    const auto name = normalized(*record.publication_name, allocator_);
     const auto selected = file_key(catalogs_.resolve(name));
     // A lower-precedence catalog may contain the same publication. It must not
     // replace the selected owner's data or remove it when unloaded.
@@ -105,7 +150,8 @@ void ResourceService::publish(const Key& key, File& file) {
       continue;
     }
     if (!additions.emplace(name, Publication{key, i}).second) {
-      throw Error(ErrorCode::ambiguous, "Duplicate USER publication: " + name);
+      throw Error(ErrorCode::ambiguous,
+                  "Duplicate USER publication: " + std::string(name));
     }
   }
   publications_.merge(additions);
@@ -120,7 +166,7 @@ LoadReport ResourceService::pump(ResourceTag tag) {
     }
     found = true;
     if (file.state == LoadState::failed) {
-      return {file.state, file.diagnostic};
+      return {file.state, std::string(file.diagnostic)};
     }
     phase = std::min(phase, file.state);
   }
@@ -137,9 +183,14 @@ LoadReport ResourceService::pump(ResourceTag tag) {
     try {
       if (phase == LoadState::requested) {
         const auto& mount = catalogs_.catalogs().at(key.first);
-        file.archive = std::make_shared<ResourceArchive>(content::open_archive(
-            files_.get(),
-            content::archive_path(files_.get(), mount, key.second)));
+        const auto path =
+            content::archive_path(files_.get(), mount, key.second);
+        auto archive =
+            allocator_.domain()
+                ? content::open_archive(files_.get(), path, allocator_.domain())
+                : content::open_archive(files_.get(), path);
+        file.archive = std::allocate_shared<ResourceArchive>(
+            memory::Allocator<ResourceArchive>(allocator_), std::move(archive));
         file.state = LoadState::opened;
       } else if (phase == LoadState::opened) {
         publish(key, file);
@@ -157,7 +208,7 @@ LoadReport ResourceService::pump(ResourceTag tag) {
   for (const auto& [key, file] : loaded_) {
     (void)key;
     if (file.tags.contains(tag) && file.state == LoadState::failed) {
-      return {file.state, file.diagnostic};
+      return {file.state, std::string(file.diagnostic)};
     }
   }
   if (phase == LoadState::published) {
@@ -184,14 +235,14 @@ LoadReport ResourceService::status(std::string_view name) const {
     return {LoadState::unrequested, {}};
   }
   if (found->second.state == LoadState::ready &&
-      !publications_.contains(normalize_name(name))) {
+      !publications_.contains(normalized(name, allocator_))) {
     return {LoadState::failed, "Archive did not publish requested name"};
   }
-  return {found->second.state, found->second.diagnostic};
+  return {found->second.state, std::string(found->second.diagnostic)};
 }
 std::optional<ResourceLease> ResourceService::acquire(
     std::string_view name) const {
-  auto found = publications_.find(normalize_name(name));
+  auto found = publications_.find(normalized(name, allocator_));
   if (found == publications_.end()) {
     return std::nullopt;
   }
