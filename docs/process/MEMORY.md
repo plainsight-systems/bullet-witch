@@ -2,6 +2,11 @@
 
 - Source reconstruction is the implementation direction: preserve behavior,
   establish a direct port, then improve the engine and graphics.
+- The approved next front-end sequence is profile persistence, interactive
+  menus, and a typed gameplay handoff, committed per completed slice. The user
+  reports Steam costumes are available by default while extra levels remain
+  gated; trace the PC consumers and defaults against that expected behavior.
+  The memory subsystem follows this front-end milestone before world loading.
 - Platform design follows the agreed DoLittle split: single portable subsystem
   headers, shared behavior/algorithms where target-specific optimization adds no
   value, and native implementations for device/platform work. Startup
@@ -123,3 +128,11 @@
   visually inspected. Late video-frame drops remain observable; original-game
   audiovisual parity is not claimed. Strict checks, UBSan and real-root/asset
   integration pass; character-load/menu and confirmation sound remain gaps.
+
+- Profile persistence now owns original System/Record bytes and a validated opaque
+  checkpoint. Missing files use recovered defaults; failed loads retain prior
+  state, and explicit continue-without-saving disables writes. The portable
+  SaveStorage contract has a POSIX atomic-file implementation and Mac application
+  support directory selection. This is per-file replacement, not a multi-file
+  transaction or checkpoint writer. Steam content-refresh flags are separate
+  from achievement-based menu gates; see profile-persistence.md.
