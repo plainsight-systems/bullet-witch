@@ -311,6 +311,7 @@ void MissionLoading::cancel() noexcept {
   sound_reverb_ = {};
   magic_ = {};
   paths_ = {};
+  background_.reset();
   for (auto& placement : placements_) placement.reset();
   callbacks_.fill({});
   text_table_.reset();

@@ -209,7 +209,9 @@ precedes resource mutation/release. This is the existing conservative synchronou
 retirement model, not a recovered render-worker schedule. Unchanged geometry is
 not copied each frame; setup creates material sampler/depth objects. Texture
 mip count is currently one, matching the recovered initial mip-policy flag;
-full generated mip chains and override policy remain unimplemented.
+the original default and inspected installed setting both disable generated
+mips. The explicit linear mip-filter state is now preserved independently;
+see [sampling and the optional generator](texture-sampling.md).
 
 The existing native scenario inside `memory-tests` executes authored fixtures
 without assets or a window. It verifies nonzero start-index and signed-base-vertex

@@ -1,3 +1,16 @@
+// Both-phase P.9 (#rp-waste), MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md): prepare a sorted texture-update lookup
+// at scene publication. Batch validation precedes writes; duplicate model/draw
+// instances all receive the update. Release rebuilds indices without
+// allocating. Shadow filtering contract (both-phase I.1 #ri-explicit, GPU.1
+// guidelines/gpu/GPU.1-keep-data-on-device.md): projection and submission use
+// the shared radius-derived guard; retain a zero-cleared map border by
+// scissoring caster writes, so point-clamped filter taps remain lit outside
+// covered content. No readback or transient map copies. Source ambiguity and
+// pinned Unreal clear/scissor reference are in shadow-filter-baseline.md.
+// Shadow design/implementation apply I.1 (#ri-explicit) and GPU.1: explicit
+// caster selection and shared receiver matrices, retained accounted map/jitter,
+// and a command-buffer dependency before color without CPU readback.
 // The presentation composition now renders scene-linear HDR, then delegates
 // luminance, bloom and display transfer to the native WorldPostprocess owner.
 // Authored output parameters cross the common WorldOutput interface; no UI
@@ -55,6 +68,8 @@ class WorldRenderer final : public render::WorldOutput {
       render::WorldModelHandle model) const override;
   void release_model(render::WorldModelHandle model) noexcept override;
   void set_world_draws(std::span<const render::WorldColorDraw> draws) override;
+  void update_world_texture_offsets(
+      std::span<const render::WorldTextureOffsetUpdate> updates) override;
   void clear_world_draws() noexcept override;
   bool has_color_draws() const noexcept;
   // Borrowed encoder uses selected BGRA8 or RGBA16Float color and Depth32. The
@@ -73,6 +88,10 @@ class WorldRenderer final : public render::WorldOutput {
   void prepare_presentation(id<MTLCommandBuffer> command,
                             id<MTLLibrary> library, std::uint32_t width,
                             std::uint32_t height);
+  // Encode the selected casters before any color encoder using their shared
+  // light transform. Retained 1024-square attachments retire with scene draws.
+  // Isolated color-pass callers invoke this explicitly when using shadows.
+  void prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary> library);
   void encode_presentation(id<MTLRenderCommandEncoder> encoder,
                            id<MTLLibrary> library, float opacity);
   // Original static depth equations; caller owns pass policy and visible

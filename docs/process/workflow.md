@@ -52,12 +52,30 @@ reviewed findings and source links tracked. Never place references in the game
 installation or silently vendor them into production code. Respect the source's
 terms when incorporating code.
 
+The first pass preserves recovered port behavior. Where implementation is
+ambiguous, choose established algorithms, data layouts and cost models rather
+than the simplest working loop. Fidelity does not justify avoidable repeated
+work. Consider batching, data layout and CPU SIMD (ARM NEON / Intel SSE or AVX)
+for CPU-bound work; this guidance does not mean GPU offload. Measure representative
+native hot paths to select target-specific implementations. Acceptance of a
+scalar routine for one port slice does not prescribe the architecture of larger
+future animation workloads.
+
 Prefer a proven implementation or algorithm behind the project's portable/native
 boundaries over inventing a new framework. Review known limitations as well as
 successful behavior. Reference study supplements the required C++ MCP guidance;
 neither replaces the other. If a reference is unavailable, use another suitable
 primary implementation and record the limitation rather than proceeding from
 assumptions.
+
+When original source behavior remains ambiguous after a bounded trace, use a
+concrete Unreal implementation to guide the unresolved part and continue. The
+user explicitly authorized this reconstruction approach. Preserve verified
+original inputs and contracts, document the inferred algorithm and its evidence
+boundary, and validate the resulting consumer. Do not quietly promote the
+inference to original parity or keep tracing indefinitely without implementing
+a useful, reviewable boundary. A decision that changes the broader fidelity or
+platform plan still needs user direction.
 
 Verification must exercise the behavior that matters in the running subsystem.
 For media, that includes visible final frames, complete audio, clock progression,

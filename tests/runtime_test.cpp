@@ -32,6 +32,7 @@ void pcm_buffer_contracts();
 void startup_playback_contracts();
 void test_menu_flow();
 void initial_camera_tests();
+void stage_shadow_tests();
 void startup_options_tests();
 namespace {
 void check(bool ok, const char* message) {
@@ -182,6 +183,7 @@ int main() {
     startup_playback_contracts();
     test_menu_flow();
     initial_camera_tests();
+    stage_shadow_tests();
     startup_options_tests();
     bridge_contract();
     failures();

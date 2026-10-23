@@ -13,6 +13,9 @@
 // construction cleanup; cpp-performance MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) retains
 // the injected allocator across all owned decoded data.
+// Background placement additions apply both-phase C.32 (#rc-dtor-ptr) to
+// package-borrowed names and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) to load-time metadata.
 #pragma once
 #include <array>
 #include <list>
@@ -20,11 +23,13 @@
 #include "bw/content/character_support.hpp"
 #include "bw/content/stage.hpp"
 #include "bw/formats/audio_bank.hpp"
+#include "bw/formats/background_placement.hpp"
 #include "bw/formats/section_table.hpp"
 #include "bw/formats/text_table.hpp"
 #include "bw/render/world.hpp"
 #include "mission_driver.hpp"
 #include "npc_palette.hpp"
+#include "resident_model.hpp"
 namespace bw::game {
 struct LoadingSceneState {
   unsigned item{};
@@ -99,6 +104,15 @@ class MissionLoading final : public MissionLoadServices {
   std::span<const MissionCallbackDefinition> callbacks() const {
     return callbacks_;
   }
+  // Borrow authored placements through cancellation. This definition does not
+  // execute _SetBgObj or own a simulated destructible actor.
+  const std::optional<formats::BackgroundPlacementDefinition>& background()
+      const {
+    return background_;
+  }
+  // Snapshot stable model/device associations once after loading. Returned
+  // metadata uses the mission domain and borrows until cancellation.
+  memory::Vector<ResidentModelView> resident_dependencies() const;
   std::size_t npc_palette_bindings() const { return palette_.size(); }
   std::size_t character_support_sets() const {
     return character_support_.size();
@@ -162,6 +176,7 @@ class MissionLoading final : public MissionLoadServices {
   std::optional<content::StageDefinition> palette_definition_;
   std::optional<ResidentDefinition> palette_residency_;
   memory::Vector<NpcPaletteBinding> palette_;
+  std::optional<formats::BackgroundPlacementDefinition> background_;
   std::optional<resources::NamedFilePackage> package_;
   std::optional<resources::ResourceArchive> sound_archive_;
   std::optional<formats::AudioBankDefinition> sound_bank_;

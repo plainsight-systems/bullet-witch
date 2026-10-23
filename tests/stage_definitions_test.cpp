@@ -1,14 +1,20 @@
+// Background tests also apply both-phase C.32 (#rc-dtor-ptr) to borrowed
+// names and MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) to
+// one-time metadata lifetime checks.
 // Synthetic load-time records exercise bounded immutable views and failure
 // cleanup inside the existing resource-tests scenario. No game data is used.
 // Native pointer graphs become offsets; tests distinguish absent pointers from
 // invalid targets and verify domain lifetime after successful and failed
 // parses. Design/implementation SL.con.3 (#rsl-bounds), MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md).
+// Fog decoder extension reread R.2 (#rr-use-ptr) and MEM.6 in both phases:
+// fixtures preserve bounded authored bytes without native state or allocation.
 #include "bw/formats/stage_definitions.hpp"
 
 #include <limits>
 #include <memory_resource>
 
+#include "bw/formats/background_placement.hpp"
 #include "bw/formats/stage_environment.hpp"
 #include "model_fixture.hpp"
 
@@ -91,6 +97,25 @@ void physics(const std::shared_ptr<bw::memory::Domain>& domain) {
     require(result.references().size() == 3 &&
                 result.references().back().target_offset == kData,
             "Physics graph preserves nested relative pointer bases");
+  }
+  // Body directory preserves native order and signed joint identifiers.
+  word(bytes, 16, 1);
+  word(bytes, 20, 56);
+  word(bytes, 56, 88);
+  word(bytes, 96, 3);
+  {
+    const auto result =
+        bw::formats::PhysicsCollisionDefinition::parse(bytes, domain);
+    require(
+        result.body_joints().size() == 1 && result.body_joints().front() == 3,
+        "Physics body directory retains joint association");
+  }
+  word(bytes, 56, 0);
+  {
+    const auto result =
+        bw::formats::PhysicsCollisionDefinition::parse(bytes, domain);
+    require(result.body_joints().front() == -1,
+            "Null physics body retains an unresolved joint slot");
   }
   word(bytes, kChild + kChildDataField, kBytes);
   rejects([&] {
@@ -180,6 +205,33 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
   scalar(0xc4, 2.0f);
   scalar(0xc8, 0.5f);
   scalar(0xf8, 1000.0f);
+  bytes.at(kPayload + 0x111) = 1;
+  bytes.at(kPayload + 0x113) = 1;
+  scalar(0xec, .058f);
+  scalar(0x100, 1000);
+  scalar(0x108, -1);
+  scalar(0x10c, 100);
+  scalar(0x124, .85f);
+  scalar(0x128, 100);
+  // Area override and surface fog distance enable are adjacent distinct bytes.
+  bytes.at(kPayload + 0x24) = 1;
+  bytes.at(kPayload + 0x34) = 1;
+  bytes.at(kPayload + 0x40) = 1;
+  scalar(0x28, 1000);
+  scalar(0x2c, 0);
+  scalar(0x30, .125f);
+  scalar(0x38, 10);
+  scalar(0x3c, 20);
+  scalar(0x44, -10);
+  scalar(0x48, 30);
+  scalar(0x4c, .25f);
+  bytes.at(kPayload + 0x50) = 1;
+  scalar(0x54, 2000);
+  scalar(0x58, 100);
+  scalar(0x5c, .5f);
+  scalar(0x7c, .25f);
+  scalar(0x80, .5f);
+  scalar(0x84, .75f);
   bytes.at(kPayload + 0x134) = 1;
   scalar(0x138, 0.18f);
   scalar(0x13c, 2.2f);
@@ -198,6 +250,40 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
               result.tone_mapping.gamma == 2.2f &&
               result.tone_mapping.history_window == -1,
           "Stage settings resolve authored nested payload fields");
+  require(result.shadow.setup_enabled && result.shadow.casters_enabled &&
+              result.shadow.cull_selector == 0 &&
+              result.shadow.receiver_radius == .058f &&
+              result.shadow.raster_depth_bias == 0 &&
+              result.shadow.raster_slope_bias == 0 &&
+              result.shadow.far_distance == 1000 &&
+              result.shadow.minimum_height == -1 &&
+              result.shadow.maximum_height == 100 &&
+              result.shadow.alignment_threshold == .85f &&
+              result.shadow.parallel_near_extension == 100,
+          "Shadow controls preserve independent gates and receiver radius");
+  require(!result.surface_fog.distance_enabled &&
+              result.surface_fog.height_gate_enabled &&
+              result.surface_fog.height_enabled &&
+              result.surface_fog.distance_start == 1000 &&
+              result.surface_fog.distance_end == 0 &&
+              result.surface_fog.density == .125f &&
+              result.surface_fog.height_gate == std::array{10.f, 20.f} &&
+              result.surface_fog.height_range == std::array{-10.f, 30.f} &&
+              result.surface_fog.height_opacity == .25f &&
+              result.sky_fog.distance_enabled &&
+              !result.sky_fog.height_gate_enabled &&
+              result.sky_fog.distance_start == 2000 &&
+              result.sky_fog.distance_end == 100 &&
+              result.sky_fog.density == .5f &&
+              result.fog_color == std::array{.25f, .5f, .75f},
+          "Fog blocks preserve independent controls, signed ranges and shared "
+          "color");
+  bytes.at(kPayload + 0x25) = 1;
+  require(parse().surface_fog.distance_enabled,
+          "Surface fog distance enable is independent of the area override");
+  scalar(0x5c, std::numeric_limits<float>::infinity());
+  rejects([&] { (void)parse(); });
+  scalar(0x5c, .5f);
   rejects([&] {
     (void)bw::formats::StageEnvironment::parse(bytes, "missing", domain);
   });
@@ -216,6 +302,66 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
   bytes.pop_back();
   rejects([&] { (void)parse(); });
 }
+void background(const std::shared_ptr<bw::memory::Domain>& domain) {
+  using model_fixture::word;
+  bw::resources::Bytes bytes(128);
+  signature(bytes, "BGOB");
+  word(bytes, 4, 0x00010001);
+  word(bytes, 8, 1);
+  word(bytes, 12, 24);
+  word(bytes, 16, 1);
+  word(bytes, 20, 28);
+  word(bytes, 24, 32);
+  word(bytes, 28, 40);
+  bytes.at(32) = 'b';
+  word(bytes, 56, 0xffff0000);
+  word(bytes, 60, 1);
+  word(bytes, 64, std::bit_cast<std::uint32_t>(1.0F));
+  word(bytes, 80, std::bit_cast<std::uint32_t>(1.0F));
+  word(bytes, 96, std::bit_cast<std::uint32_t>(1.0F));
+  word(bytes, 100, std::bit_cast<std::uint32_t>(12.0F));
+  const auto parse = [&] {
+    return bw::formats::BackgroundPlacementDefinition::parse(bytes, domain);
+  };
+  {
+    const auto placement = parse();
+    require(
+        placement.names().at(0) == "b" &&
+            placement.placements().at(0).group == -1 &&
+            placement.matrices().at(0).at(3).at(0) == 12 &&
+            placement.matrices().at(0).at(3).at(3) == 1,
+        "Background source transforms retain translation and homogeneous row");
+  }
+  word(bytes, 56, 0xffff0001);
+  rejects([&] { (void)parse(); });
+  word(bytes, 56, 0xffff0000);
+  word(bytes, 100,
+       std::bit_cast<std::uint32_t>(std::numeric_limits<float>::infinity()));
+  rejects([&] { (void)parse(); });
+  word(bytes, 100, 0);
+  word(bytes, 60, 2);
+  rejects([&] { (void)parse(); });
+  word(bytes, 60, 1);
+  word(bytes, 4, 0x00030001);
+  rejects([&] { (void)parse(); });
+  // Version 1.2 carries an additional parameter vector before the name index.
+  word(bytes, 4, 0x00020001);
+  word(bytes, 56, 0xffffffff);
+  word(bytes, 60, 0);
+  word(bytes, 64, 0);
+  word(bytes, 68, 0);
+  word(bytes, 72, 0xffff0000);
+  word(bytes, 76, 1);
+  word(bytes, 80, std::bit_cast<std::uint32_t>(1.0F));
+  word(bytes, 96, std::bit_cast<std::uint32_t>(1.0F));
+  word(bytes, 112, std::bit_cast<std::uint32_t>(1.0F));
+  word(bytes, 116, std::bit_cast<std::uint32_t>(9.0F));
+  const auto placement = parse();
+  require(
+      placement.placements().at(0).secondary_parameters.at(0) == 0xffffffff &&
+          placement.matrices().at(0).at(3).at(0) == 9,
+      "Background version selects the correct prefix and matrix layout");
+}
 }  // namespace
 void stage_definition_tests() {
   const auto domain =
@@ -225,6 +371,7 @@ void stage_definition_tests() {
   animation(domain);
   area(domain);
   environment(domain);
+  background(domain);
   require(domain->snapshot().live_bytes == 0,
           "Auxiliary parse paths release all metadata");
 }

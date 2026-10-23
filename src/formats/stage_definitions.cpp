@@ -1,3 +1,9 @@
+// Material animation refinement applies both-phase R.2 (#rr-use-ptr) to
+// bounded borrowed labels/keys and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) to setup-only metadata allocation.
+// Background body associations apply both-phase C.32 (#rc-dtor-ptr) and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) to load-owned
+// mapping metadata; original body order and missing entries are preserved.
 // Bounded load-time views implement stage_definitions.hpp. The original loaders
 // patch 32-bit pointers in retained data; these constructors instead validate
 // ranges and retain immutable spans. Later physics/sampling policy stays
@@ -177,6 +183,23 @@ PhysicsCollisionDefinition PhysicsCollisionDefinition::parse(
                           }
                         });
             });
+  // Preserve null entries and source order: placement matrix i belongs to
+  // physics body i, whose +8 field selects the model joint.
+  constexpr std::uint64_t kBodyCountOffset = 16, kBodyTableOffset = 20;
+  constexpr std::uint64_t kBodyJointOffset = 8;
+  const auto body_count = reader.u32(kBodyCountOffset);
+  const auto body_table = reader.u32(kBodyTableOffset);
+  if (body_table != 0) {
+    reader.range(body_table, body_count * kWordBytes);
+    result.body_joints_.reserve(body_count);
+    for (std::uint32_t body = 0; body < body_count; ++body) {
+      const auto record = reader.u32(body_table + body * kWordBytes);
+      result.body_joints_.push_back(
+          record == 0 ? -1
+                      : std::bit_cast<std::int32_t>(
+                            reader.u32(record + kBodyJointOffset)));
+    }
+  }
   constexpr std::uint64_t kSecondaryCountWord = 5, kSecondaryTableWord = 6;
   constexpr std::uint64_t kSecondaryDataOffset = 40;
   directory(
@@ -314,5 +337,16 @@ MaterialAnimationLabels MaterialAnimationLabels::parse(
         0);
   }
   return {count, records};
+}
+std::string_view MaterialAnimationLabels::name(std::size_t index) const {
+  if (index >= count) malformed("Material animation label index exceeds table");
+  const Reader reader{records};
+  return reader.text_view(
+      {index * kLabelRecordBytes + kWordBytes, kPartNameBytes}, 0);
+}
+std::uint32_t MaterialAnimationLabels::track(std::size_t index) const {
+  if (index >= count) malformed("Material animation label index exceeds table");
+  const Reader reader{records};
+  return reader.u32(index * kLabelRecordBytes + kWordBytes + kPartNameBytes);
 }
 }  // namespace bw::formats

@@ -5,6 +5,9 @@
 // R.2 (#rr-use-ptr) bounds borrowed arrays; MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
 // all traversal storage. No renderer policy or animation sampling occurs here.
+// Fog fields preserve authored enable bytes and finite scalars independently;
+// view composition owns disabled defaults and coordinate conversion. The fog
+// extension reread R.2 and MEM.6 in both phases and adds no allocation.
 #include "bw/formats/stage_environment.hpp"
 
 #include <bit>
@@ -23,6 +26,14 @@ constexpr std::uint64_t kAmbientColor = 0;
 constexpr std::uint64_t kSkyYaw = 0xc0, kSkyHeight = 0xc4;
 constexpr std::uint64_t kLightDiffuse = 0xc8, kLightSpecular = 0xd8;
 constexpr std::uint64_t kLightVector = 0xf4;
+constexpr std::uint64_t kShadowCull = 0xe8, kShadowRadius = 0xec;
+constexpr std::uint64_t kShadowFar = 0x100, kShadowMinHeight = 0x108;
+constexpr std::uint64_t kShadowMaxHeight = 0x10c, kShadowAlignment = 0x124;
+constexpr std::uint64_t kShadowNearExtension = 0x128;
+constexpr std::uint64_t kShadowSetup = 0x111, kShadowCasters = 0x113;
+constexpr std::uint64_t kShadowDepthBias = 0x12c, kShadowSlopeBias = 0x130;
+constexpr std::uint64_t kSurfaceFog = 0x24, kSkyFog = 0x50;
+constexpr std::uint64_t kFogColor = 0x7c;
 constexpr std::uint64_t kToneEnabled = 0x134, kExposure = 0x138, kGamma = 0x13c;
 constexpr std::uint64_t kBloomEnabled = 0x140, kBloomExposure = 0x144;
 constexpr std::uint64_t kBloomThreshold = 0x148, kBloomSoftKnee = 0x14c;
@@ -34,6 +45,33 @@ float scalar(const Reader& reader, std::uint64_t offset) {
     malformed("Nonfinite stage environment setting");
   }
   return value;
+}
+// Both blocks share their scalar layout; the surface block packs its distance
+// enable after the independent area-override byte, which is not a fog flag.
+struct FogLayout {
+  std::uint64_t base{}, distance_enable_offset{};
+};
+StageFog fog(const Reader& reader, FogLayout layout) {
+  constexpr std::uint64_t kDistanceStart = 4, kDistanceEnd = 8, kDensity = 12;
+  constexpr std::uint64_t kGateEnabled = 16, kGateStart = 20, kGateEnd = 24;
+  constexpr std::uint64_t kHeightEnabled = 28, kHeightStart = 32;
+  constexpr std::uint64_t kHeightEnd = 36, kHeightOpacity = 40;
+  const auto enabled = [&](std::uint64_t offset) {
+    constexpr std::uint32_t kByteMask = 255;
+    return (reader.u32(layout.base + offset) & kByteMask) != 0;
+  };
+  const auto value = [&](std::uint64_t offset) {
+    return scalar(reader, layout.base + offset);
+  };
+  return {.distance_enabled = enabled(layout.distance_enable_offset),
+          .height_gate_enabled = enabled(kGateEnabled),
+          .height_enabled = enabled(kHeightEnabled),
+          .distance_start = value(kDistanceStart),
+          .distance_end = value(kDistanceEnd),
+          .density = value(kDensity),
+          .height_gate = {value(kGateStart), value(kGateEnd)},
+          .height_range = {value(kHeightStart), value(kHeightEnd)},
+          .height_opacity = value(kHeightOpacity)};
 }
 }  // namespace
 StageEnvironment StageEnvironment::parse(
@@ -58,6 +96,24 @@ StageEnvironment StageEnvironment::parse(
   }
   for (std::size_t i = 0; i < result.light_vector.size(); ++i) {
     result.light_vector.at(i) = value(kLightVector + i * kWordBytes);
+  }
+  // Preserve enable gates separately from receiver radius and raster bias.
+  result.shadow = {
+      .setup_enabled = payload[static_cast<std::size_t>(kShadowSetup)] != 0,
+      .casters_enabled = payload[static_cast<std::size_t>(kShadowCasters)] != 0,
+      .cull_selector = reader.u32(kShadowCull),
+      .receiver_radius = value(kShadowRadius),
+      .raster_depth_bias = value(kShadowDepthBias),
+      .raster_slope_bias = value(kShadowSlopeBias),
+      .far_distance = value(kShadowFar),
+      .minimum_height = value(kShadowMinHeight),
+      .maximum_height = value(kShadowMaxHeight),
+      .alignment_threshold = value(kShadowAlignment),
+      .parallel_near_extension = value(kShadowNearExtension)};
+  result.surface_fog = fog(reader, {kSurfaceFog, 1});
+  result.sky_fog = fog(reader, {kSkyFog, 0});
+  for (std::size_t i = 0; i < result.fog_color.size(); ++i) {
+    result.fog_color.at(i) = value(kFogColor + i * kWordBytes);
   }
   auto& tone = result.tone_mapping;
   tone.enabled = payload[static_cast<std::size_t>(kToneEnabled)] != 0;

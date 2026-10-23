@@ -1,3 +1,6 @@
+// Material animation forwards an explicit borrowed constant-update batch
+// (both-phase I.1 #ri-explicit and GPU.1 retained-device-data guidance).
+// The host preserves the native owner and main-thread access boundary.
 // Forward authored display policy to the retained world renderer used by draw.
 // C.128 (#rh-override) makes the adapter override explicit; GPU.9
 // (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md) retains
@@ -666,6 +669,12 @@ void StartupHost::set_world_output_parameters(const render::WorldOutputParameter
 void StartupHost::set_world_draws(std::span<const render::WorldColorDraw> draws) {
   require_main_thread();
   state_->world->set_world_draws(draws);
+}
+// Forward only mutable material constants; retained scene resources stay owned.
+void StartupHost::update_world_texture_offsets(
+    std::span<const render::WorldTextureOffsetUpdate> updates) {
+  require_main_thread();
+  state_->world->update_world_texture_offsets(updates);
 }
 void StartupHost::clear_world_draws() noexcept { state_->world->clear_world_draws(); }
 void StartupHost::release_model(render::WorldModelHandle model) noexcept {

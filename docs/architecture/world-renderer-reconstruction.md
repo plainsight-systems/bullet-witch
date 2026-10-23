@@ -1,6 +1,6 @@
 # World renderer reconstruction
 
-**Faithful reconstruction baseline · October 23, 2026 · static device/material subset implemented; stage acceptance tracked separately.**
+**Faithful reconstruction baseline · October 23, 2026 · initial stage presentation implemented; reconstruction limits explicit.**
 [Rendering and presentation](rendering-and-presentation.md) defines the engine
 owners. This drill-in defines how their implementation follows the original
 renderer, beginning with One Shot Kill (`cm01_00`, stage `st04_c`). The
@@ -136,24 +136,24 @@ upload or selection replacement retains the prior complete owner. Absent texture
 table entries are explicit: partial inspection can draw only materials whose own
 required textures reside, while whole-model readiness remains false.
 
-The implemented family set covers 4,097 draws across the ten ordinary stage
-objects plus the sky material under the explicit inspection contribution policy.
-Three below-stage untextured quads remain unsupported. Most selected draws use original
-cached no-shadow families; 139 use their actual cached shadow/local-light programs
-with authored light contributions explicitly omitted. That restricted policy
-rejects supplied light energy and preserves the remaining material equations.
+The implemented family set covers all 4,100 ordinary draws across the ten stage
+objects, 674 authored prop draws and the sky material. The three untextured
+below-stage quads now consume their source constant/light/SH/fog equations.
+Required material families preserve their directional contribution and sample
+the retained shadow pass; local-light lists remain a separate consumer.
 Alpha-cutout coverage and source-alpha blending are implemented. This census
-describes material support, not native stage-view acceptance or completed lighting.
+establishes required stage material support, not the engine's entire shader set.
 
-Inspection composes a source-derived static initial camera and explicitly selects
-all groups. It consumes authored camera, stage directional light, constant spherical-harmonic
-irradiance and display settings. The view uses the recovered reverse-depth and surface-sampler state.
-It does not claim original visibility, runtime pass selection, complete depth/shadow graph,
-effects or full renderer readiness. The cutout depth program's raw-UV alpha
-threshold is merged into direct inspection shading; original pass ordering is
-still a separate contract. [State evidence](../../research/engine/subsystems/world-renderer-state.md)
-distinguishes defaults from authored state. [Material evidence](../../research/engine/subsystems/world-renderer-foundation.md)
-records each supported family and the precise remaining variants.
+Inspection composes a source-derived static initial camera and applies initial
+source group masks and authored body/joint placement. It consumes camera,
+stage directional light, spherical-harmonic irradiance, fog and display settings.
+The view uses recovered reverse depth and surface sampling. Runtime destruction,
+area-driven visibility/environment changes, effects and full renderer readiness
+remain separate. The cutout depth program retains raw-UV alpha coverage.
+[State evidence](../../research/engine/subsystems/world-renderer-state.md)
+distinguishes defaults from authored state. [Material consumption](../../research/engine/subsystems/stage-presentation-materials.md)
+and the slice-4 ownership section below record current consumers and remaining
+boundaries.
 
 The existing native memory scenario exercises indexed depth and actual surface
 pixels with synthetic data, including layered texture/material modulation, HDR
@@ -226,8 +226,10 @@ The original main stage pass overrides surface minification to anisotropic
 filtering with a maximum of four, retaining linear magnification and mip
 filtering. The portable surface state represents this requirement; Metal maps
 it to a linear filter plus maximum anisotropy. Environment sampling retains its
-separate clamp/linear state and anisotropy one. Original generated mip chains
-remain a separate fidelity boundary. [State and sampling audit](../../research/engine/subsystems/world-output-fidelity-audit.md)
+separate clamp/linear state and anisotropy one. Texture construction now follows the verified default and installed mip-disabled
+setting; linear mip filtering is represented independently of texture level
+count. The optional original generated-chain algorithm remains separate. See
+[texture sampling](../../research/engine/subsystems/texture-sampling.md). [State and sampling audit](../../research/engine/subsystems/world-output-fidelity-audit.md)
 records the exact clear/compare and sampler witnesses, API sample-center
 translation and numerical device checks.
 
@@ -249,7 +251,7 @@ values or normalize the images.
 Generated PNGs, raw HDR readback and pose logs remain under the ignored stage
 reconstruction evidence directory.
 
-The actual `StartupHost` path was independently launched at the diagnostic
+During slice 3, the actual `StartupHost` path was launched at the diagnostic
 checkpoint 10 pose and captured after 60 presented frames. Its 4,097 ordinary
 world draws plus sky show the same coherent scene as offscreen rendering;
 `slice3-host-checkpoint10.png` and its log retain that window verification.
@@ -257,8 +259,8 @@ This closes the earlier black-sky/clipped-ground failure for the first static
 view. It does not claim full original-game image parity, the complete shadow
 pass graph or gameplay camera execution.
 
-Verification includes the existing six CTest entries, original-root corpus,
-and fatal clang-tidy across all 96 compilation entries. Native readback checks
+Slice-3 verification included the existing six CTest entries, original-root
+corpus and fatal clang-tidy across its 96 compilation entries. Native readback checks
 exercise constant irradiance, quadratic normal dependence, transformed normals,
 and additive combination with baked vertex illumination. These supplement the
 real scene/window verification rather than replacing it.
@@ -311,11 +313,12 @@ submission contract; asynchronous rendering remains separate work.
 converts the source light vector to the recovered shader direction and publishes
 the base light plus tone settings once. Ordinary objects publish authored stage RGB through the original constant
 spherical-harmonic constructor; the sky publishes white through that same
-coefficient path. This is separate from material ambient/emission. The 139
-explicitly restricted inspection draws retain this irradiance while omitting
-their unresolved directional/local-light and shadow terms. Fog, visibility,
-area-driven environment changes and full shadow passes remain open. Native
-image acceptance is tracked separately from implementation and scalar tests.
+coefficient path. This is separate from material ambient/emission. Slice 4
+adds the required directional/shadow terms and authored fog; shadow visibility
+attenuates direct diffuse/specular without darkening this irradiance or baked
+lighting. Local-light lists, runtime visibility and area-driven environment
+changes remain open. Native image acceptance is tracked separately from
+implementation and scalar tests.
 
 ## First workload: One Shot Kill
 
@@ -417,3 +420,71 @@ contracts and evidence, distinguish completed stage coverage from remaining
 renderer paths, and document later optimizations as departures from the retained
 baseline. No full world renderer, complete pass graph or visual parity is claimed
 by this design document.
+
+
+## Slice 4 presentation ownership
+
+The stage keeps resource definitions separate from instance presentation. Typed
+background placements and body-to-joint mappings establish initial world poses;
+material continuation packets inherit the previous material state before
+applying their palette bindings. The common draw boundary owns the resulting
+constants and copies its bounded palette into the native submission. No model
+or placement name selects a substitute shader.
+
+```mermaid
+flowchart LR
+    Stage[Stage definitions and environment] --> Scene[Stage presentation owner]
+    Placement[Background placements and body/joint maps] --> Scene
+    Material[Material records and continuation state] --> Scene
+    Clip[Material clip and label mapping] --> Curves[Unique scene-owned borrowed curves]
+    Clock[Elapsed presentation time] --> Curves
+    Curves --> Slots[Prepared curve-to-slot bindings]
+    Slots --> Updates[Small UV constant updates]
+    Scene --> Draws[Ordered draws and owned joint constants]
+    Updates --> Index[Native destination index]
+    Index --> Draws
+    View[Camera frustum, light and runtime warp settings] --> Fit[Portable shadow projection]
+    Fit --> Draws
+    Draws --> Shadow[Metal shadow map]
+    Draws --> Color[Metal scene color]
+    Jitter[Original jitter samples] --> Color
+    Shadow --> Color
+    Color --> Output[Recovered tone and bloom output]
+    Output --> Display[Display and UI composition]
+```
+
+The original stage-node activation initializes perspective-warp controls after
+resource decoding; extracted customization zeros are not the effective runtime
+values. The recovered camera/light warp replaces the provisional bounds fit.
+The same homogeneous transform serves caster rasterization and receiver depth
+comparison. No stabilization or cascade optimization is introduced.
+
+The original depth sampler passes an undocumented D3D9 address value directly to
+the device. A deliberate portable boundary therefore uses the pinned Unreal
+cleared-border mechanism: reserve the complete point-filter footprint, inset the
+projection consistently and prevent casters from writing that guard region.
+Map size, reversed depth, eight point comparisons and separation of directional
+from baked/SH illumination follow recovered consumers. The native map and
+jitter storage are accounted device owners and retire after the existing host
+completion boundary. [Shadow evidence and inference](../../research/engine/subsystems/stage-shadow-presentation.md)
+records the source and validation boundary: six original matrix witnesses,
+native edge coverage and actual camera-pose/movement observations. Projection
+and edge sampling are implemented inside slice 4.
+
+Surface mip filtering is independent from mip storage. The original default and
+installed setting request one resident level. The renderer preserves that
+behavior; optional generated mip chains remain a separate setting-dependent
+path rather than an aesthetic aliasing fix. [Texture sampling](../../research/engine/subsystems/texture-sampling.md)
+and [material consumption](../../research/engine/subsystems/stage-presentation-materials.md)
+record the exact implemented paths and verification.
+
+
+Material animation binds clip labels to the model's named vector channels, then
+maps each draw's texture-animation record to those channels. Validated borrowed
+curves live with the stage presentation owner and their load-owned clip bytes.
+Elapsed presentation time samples each unique authored curve once, then prepared
+slot bindings distribute its value to matching draws. A native publication-time
+index locates retained destinations without full-scene scans. `WorldTextureOffsetUpdate`
+changes only retained constants. The native boundary validates the whole update
+batch before writing any draw and retains geometry, palettes and sampler state.
+This mutable path does not re-create the static scene submission each frame.

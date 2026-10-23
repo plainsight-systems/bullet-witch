@@ -1,3 +1,9 @@
+// Material animation refinement applies both-phase R.2 (#rr-use-ptr) to
+// bounded borrowed labels/keys and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) to setup-only metadata allocation.
+// Matrix-reference additions use both-phase C.32 (#rc-dtor-ptr) for owned
+// material associations and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) for one-time metadata construction.
 // Original model CPU decoder; ownership and algorithm contract in model.hpp.
 // No GPU objects or readiness publication: retained material operations still
 // require an evidenced renderer consumer. Traverse original records in order,
@@ -83,6 +89,18 @@ std::uint32_t element_width(std::uint8_t type) {
   }
   return widths.at(type);
 }
+// Continued command blocks overwrite a semantic while leaving all other
+// device bindings intact. Material snapshots keep one effective value per key.
+template <class Entry, class Key>
+void assign_binding(memory::Vector<Entry>& entries, const Entry& entry,
+                    Key key) {
+  const auto found = std::ranges::find(entries, key(entry), key);
+  if (found == entries.end()) {
+    entries.push_back(entry);
+  } else {
+    *found = entry;
+  }
+}
 }  // namespace
 
 struct ModelDefinition::State {
@@ -92,6 +110,7 @@ struct ModelDefinition::State {
   bool has_stream{};
   std::array<std::uint32_t, 2> shader_selector{};
   std::uint32_t chunk{}, group{}, volume{};
+  std::array<std::optional<std::uint32_t>, 2> texture_animation_slots;
 };
 
 ModelDefinition::ModelDefinition(resources::ResourceArchive archive,
@@ -106,7 +125,8 @@ ModelDefinition::ModelDefinition(resources::ResourceArchive archive,
       materials_(allocator),
       draws_(allocator),
       records_(allocator),
-      texture_names_(allocator) {}
+      texture_names_(allocator),
+      material_animation_names_(allocator) {}
 
 ModelDefinition ModelDefinition::parse(resources::ResourceArchive archive,
                                        std::shared_ptr<memory::Domain> domain) {
@@ -171,7 +191,7 @@ void ModelDefinition::decode() {
       if (skeleton_) malformed("Duplicate model skeleton");
       skeleton_ =
           SkeletonDefinition::parse(archive_.payload(i), allocator_.domain());
-    } else if (record.name == "texlist.bin") {
+    } else if (record.name == "texlist.bin" || record.name == "anim_mat.bin") {
       const Reader names{archive_.payload(i)};
       if (names.tag_view(0) != "TLST") {
         malformed("Invalid model texture table");
@@ -180,7 +200,10 @@ void ModelDefinition::decode() {
       constexpr std::uint64_t kNameStride = 36;
       exact(names.b.size(), kRecordHeaderBytes + kNameStride * count);
       for (std::uint32_t n = 0; n < count; ++n) {
-        texture_names_.emplace_back(
+        auto& destination = record.name == "texlist.bin"
+                                ? texture_names_
+                                : material_animation_names_;
+        destination.emplace_back(
             names.text_view(
                 {kTextureNameOffset + kNameStride * n, kTextureNameBytes}, 0),
             allocator_);
@@ -288,12 +311,46 @@ void ModelDefinition::records(resources::Range range, State& state,
         exact(size, 4);
         state.index_buffer = r.u32(p);
         break;
+      case tag("TANM"): {
+        exact(size, kRecordHeaderBytes);
+        const auto destination = r.u32(p);
+        if (destination >= state.texture_animation_slots.size() ||
+            r.u32(p + 4) >= material_animation_names_.size()) {
+          unsupported("Unresolved model texture animation slot");
+        }
+        state.texture_animation_slots.at(destination) = r.u32(p + 4);
+        break;
+      }
+      case tag("TRST"): {
+        exact(size, sizeof(std::uint32_t));
+        const auto destination = r.u32(p);
+        if (destination >= state.texture_animation_slots.size()) {
+          unsupported("Unresolved model texture animation reset");
+        }
+        state.texture_animation_slots.at(destination).reset();
+        break;
+      }
       case tag("knsS"):
         exact(size, kRecordHeaderBytes);
         state.shader_selector = {r.u32(p), r.u32(p + 4)};
         break;
-      case tag("kns2"):
       case tag("knsC"):
+        // Continuations execute into the same native material/device state.
+        // Capture the inherited bindings before appending (which may relocate
+        // the vector), then replace the per-draw joint palette operations.
+        if (state.material == kUnset) {
+          materials_.emplace_back(allocator_);
+        } else {
+          auto inherited = materials_.at(state.material);
+          inherited.matrices.clear();
+          materials_.push_back(std::move(inherited));
+        }
+        state.material = materials_.size() - 1;
+        materials_.back().shader_selector = state.shader_selector;
+        materials_.back().records = payload;
+        records(payload, state, depth + 1);
+        break;
+      case tag("kns2"):
         materials_.emplace_back(allocator_);
         state.material = materials_.size() - 1;
         materials_.back().shader_selector = state.shader_selector;
@@ -320,7 +377,8 @@ void ModelDefinition::records(resources::Range range, State& state,
           ModelTextureReference ref{{r.u32(q), r.u32(q + 4)},
                                     r.u32(q + kTextureIndexField),
                                     r.u32(q + kTextureSecondaryField)};
-          materials_.at(state.material).textures.push_back(ref);
+          assign_binding(materials_.at(state.material).textures, ref,
+                         [](const auto& value) { return value.semantic[0]; });
         }
         break;
       }
@@ -365,7 +423,8 @@ void ModelDefinition::records(resources::Range range, State& state,
                           state.chunk,
                           state.group,
                           state.volume,
-                          {}});
+                          {},
+                          state.texture_animation_slots});
         if (std::ranges::any_of(
                 declarations_.at(state.declaration).elements,
                 [](const auto& element) { return element.stream == 1; })) {
@@ -394,7 +453,8 @@ void ModelDefinition::records(resources::Range range, State& state,
             constant.value.at(component) = std::bit_cast<float>(
                 r.u32(q + kConstantValueOffset + component * 4));
           }
-          materials_.at(state.material).constants.push_back(constant);
+          assign_binding(materials_.at(state.material).constants, constant,
+                         [](const auto& value) { return value.semantic[0]; });
         }
         break;
       }
@@ -420,18 +480,26 @@ void ModelDefinition::records(resources::Range range, State& state,
         break;
       }
       case tag("CM1R"): {
-        // 547370 resolves JINT to VS matrix register20. Retain the authored
-        // references; a skeletal renderer must bind them before drawing.
-        if (size < kRecordHeaderBytes) {
+        // Preserve source joints and destination shader slots independently;
+        // the scene owner supplies the actual pose before submission.
+        if (state.material == kUnset || size < kRecordHeaderBytes) {
           malformed("Truncated matrix reference record");
         }
         constexpr std::uint64_t kMatrixReferenceBytes = 16;
-        exact(size, kRecordHeaderBytes + r.u32(p + 4) * kMatrixReferenceBytes);
+        const auto count = r.u32(p + 4);
+        exact(size, kRecordHeaderBytes + static_cast<std::uint64_t>(count) *
+                                             kMatrixReferenceBytes);
+        for (std::uint32_t index = 0; index < count; ++index) {
+          const auto entry =
+              p + kRecordHeaderBytes + index * kMatrixReferenceBytes;
+          constexpr std::uint64_t kSourceOffset = 8, kDestinationOffset = 12;
+          materials_.at(state.material)
+              .matrices.push_back({r.u32(entry), r.u32(entry + kSourceOffset),
+                                   r.u32(entry + kDestinationOffset)});
+        }
         break;
       }
       case tag("GENV"):
-      case tag("TANM"):
-      case tag("TRST"):
         break;  // Retained raw; the renderer must interpret or reject its
                 // required semantics.
       default:

@@ -1,3 +1,5 @@
+// Explicit untextured fixture models omit UV/storage dependencies, applying
+// both-phase I.1 (#ri-explicit) and GPU.1 retained geometry guidance.
 // Synthetic original-format model fixtures shared by CPU and native consumers.
 // No game bytes or file/process access. Callers supply float3 vertex positions,
 // 16-bit indices and six D3D draw fields; defaults form one indexed triangle.
@@ -56,7 +58,7 @@ struct Options {
   std::array<std::uint32_t, 2> shader{0x00420882, 1};
   std::uint32_t group{}, volume{};
   bool normal_mapped{}, base_only{}, secondary_base{}, sky{}, environment{},
-      shape{};
+      shape{}, untextured{}, joint_palette{}, material_continuation{};
 };
 inline Bytes archive(const Options& options = {}) {
   Bytes commands;
@@ -75,18 +77,26 @@ inline Bytes archive(const Options& options = {}) {
     record(commands, "VDCL",
            words({0, 0, 2, 0x000c0000, 0x020a0008, 0x00100000, 0x0003000a,
                   0x00180000, 0x0105000f, 255, 17}));
+  } else if (options.joint_palette) {
+    record(commands, "VDCL",
+           words({0, 0, 2, 0x000c0000, 0x0003000a, 0x00140000, 0x0105000f,
+                  0x00180000, 0x00010005, 0x001c0000, 0x01010008, 255, 17}));
   } else if (options.sky) {
     record(commands, "VDCL",
            words({0, 0, 2, 0x000c0000, 0x0003000a, 0x00140000, 0x0105000f, 255,
                   17}));
+  } else if (options.untextured) {
+    record(commands, "VDCL", words({0, 0, 2, 0x000c0000, 0x0003000a, 255, 17}));
   } else {
     record(commands, "VDCL", words({0, options.shape ? 1U : 0U, 2, 255, 17}));
   }
   const auto stride = options.normal_mapped
                           ? (options.secondary_base ? 40U : 36U)
-                      : options.base_only ? 28U
-                      : options.sky       ? 24U
-                                          : 12U;
+                      : options.base_only     ? 28U
+                      : options.joint_palette ? 32U
+                      : options.sky           ? 24U
+                      : options.untextured    ? 20U
+                                              : 12U;
   record(commands, "VTX ", words({0, 0, 0, stride}));
   if (options.shape) {
     record(commands, "VTXS", words({1, 0, 0, 12}));
@@ -100,7 +110,8 @@ inline Bytes archive(const Options& options = {}) {
                 std::bit_cast<std::uint32_t>(0.5F),
                 std::bit_cast<std::uint32_t>(0.25F),
                 std::bit_cast<std::uint32_t>(1.0F)}));
-  if (options.normal_mapped || options.base_only || options.sky) {
+  if (options.normal_mapped || options.base_only || options.sky ||
+      options.joint_palette) {
     auto bindings = words({0,
                            1U + options.normal_mapped + options.secondary_base +
                                options.environment,
@@ -119,6 +130,11 @@ inline Bytes archive(const Options& options = {}) {
     record(material, "TR  ", words({0, 0}));
   }
   record(commands, "kns2", material);
+  if (options.material_continuation) {
+    Bytes continuation;
+    record(continuation, "CM1R", words({0, 1, tag("JINT"), 0, 3, 0}));
+    record(commands, "knsC", continuation);
+  }
   Bytes draw;
   for (auto value : options.draw) {
     append(draw, words({value}));
@@ -147,8 +163,12 @@ inline Bytes archive(const Options& options = {}) {
         }
       } else if (options.base_only) {
         append(vertices, words({0x80ffffff, 0, 0x00007fff, 0}));
+      } else if (options.joint_palette) {
+        append(vertices, words({0, 0x00007fff, 0, 0x00000100, 0x0000bf40}));
       } else if (options.sky) {
         append(vertices, words({0, 0x00007fff, 0}));
+      } else if (options.untextured) {
+        append(vertices, words({0, 0x00007fff}));
       }
     }
   }

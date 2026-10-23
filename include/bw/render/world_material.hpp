@@ -10,6 +10,8 @@
 // classification reused by retained native resources. See
 // world-renderer-foundation.md. I.1 (#ri-explicit) also makes the runtime
 // irradiance feature explicit instead of assuming it from a material record.
+// Both phases also apply I.1/GPU.1 to explicit base-texture consumption:
+// untextured programs read no UV or texture and retain the same device owners.
 #pragma once
 #include <cstdint>
 
@@ -30,6 +32,10 @@ struct WorldMaterialRequirements {
   // Original depth coverage: material alpha * base alpha >= 0.5 at raw UV.
   bool alpha_cutout{};
   bool spherical_harmonics{};
+  // Original untextured programs consume material constants without UV/base.
+  bool base_texture{true};
+  // Exact original vertex families use zero, one or two joint influences.
+  std::uint8_t joint_influences{};
 };
 WorldMaterialRequirements world_material_requirements(
     std::uint32_t effective_flags, std::uint16_t variant,

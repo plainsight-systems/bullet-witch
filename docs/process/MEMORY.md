@@ -21,7 +21,7 @@
   (`cm01_00`, extra mission ID 1), using `st04_c` stage resources. The planned
   breakdown in `IMPLEMENTATION.md` separates mission/content loading, a first
   static stage view, stage presentation, player traversal and mission behavior.
-  Slices 1–3 are authorized. Original concept launch follows native internal
+  Slices 1–4 are authorized. Original concept launch follows native internal
   status 5 to API 6 and selected-package aliasing to cm01_00. Its original load
   now returns naturally after typed stage/collision/material-animation owners,
   text/cover/audio registration and character/weapon dependency construction.
@@ -29,29 +29,53 @@
   not run. Original-root integration verifies 54 dependency model variants,
   11 shared character support sets and 178 NPC palette bindings, with balanced
   teardown. The static view borrows those load-owned GPU resources and selects
-  all ten ordinary stage models: 4,097 selected draws, three untextured-material
-  omissions and one sky draw. This is a
-  bounded static snapshot. Its initial camera now decodes the authored behind-player
+  all ten ordinary stage models. Slice 4 now selects 4,100 ordinary draws,
+  674 placed-prop draws from 276 placements, and one sky draw, with no omitted
+  material draws in the actual corpus. This remains a bounded initial snapshot.
+  Its initial camera decodes the authored behind-player
   preset, applies the recovered fresh script pose/yaw and original static
   triangle-clearance sequence, then supplies the original fixed-aspect reverse-depth
   projection. Generic stage customization and scene collision remain engine
   owners; player camera policy lives under game/camera. Mission start/actor
   simulation has not executed, so this explicit pose bootstrap does not claim a
   live gameplay camera. Slices 1–3 are implemented, verified and accepted for
-  commit on October 23, 2026. Slice 4 remains planned for discussion; its
-  implementation is not yet authorized. Corrected native captures show cave, exterior ground,
-  buildings, mountains and sky. The host now forwards authored output settings;
-  shader selection includes the original runtime SH feature, with white sky
-  coefficients and authored stage ambient RGB. No exposure adjustment was used
-  to fix the black sky or clipped ground. An explicit `--inspect-camera` override
-  supports exterior review while normal launch retains the source camera.
-  Authored visibility, shadows, generated texture mip chains, background
-  placement and complete stage presentation remain separate. Current native
-  evidence is recorded in stage-view-completion.md; earlier rejected captures
-  are historical. The user explicitly removed the concept-menu completion gate:
+  commit on October 23, 2026. Slice 4 is implemented, verified and accepted for
+  commit on the same date. Slice 5 remains planned and awaits authorization.
+  Shadow projection and edge sampling are closed within slice 4:
+  stage activation supplies the recovered perspective-warp controls, six original
+  machine-code witnesses verify the camera-dependent matrix, and caster/receiver
+  consumers share its homogeneous rows. The unsupported original address state
+  uses a deliberate Unreal-informed cleared filter border, with derived guard,
+  matching inset/scissor and native edge/corner checks. No global-AABB fallback,
+  texel stabilization or cascade optimization remains.
+  Corrected native captures show cave, exterior ground, buildings, mountains and
+  sky. The host forwards authored output settings; shader selection includes
+  the original runtime SH feature, with white sky coefficients and authored
+  stage ambient RGB. No exposure adjustment fixed the black sky or clipped
+  ground. An explicit `--inspect-camera` override supports exterior review while
+  normal launch retains the source camera. Slice 4 adds source group masks,
+  body-to-joint prop poses, fog, single-level texture sampling and retained shadow
+  resources. Two unique authored material curves drive six UV updates through
+  prepared slot bindings and a native destination index. The full required gate,
+  resource/startup corpora and native initial/exterior/movement observations pass.
+  Optional generated mips are not requested by the original default/installed
+  setting. Current native evidence is recorded in stage-view-completion.md;
+  earlier rejected captures are historical. The user explicitly removed the concept-menu completion gate:
   fresh profiles can select supplied extra missions, while campaign Stage Select
   and higher difficulties retain their progression gates. This intentional
   departure changes menu access, not content availability or original Lua.
+- When bounded source tracing cannot establish an original algorithm, the user
+  authorized using pinned Unreal source to guide that unresolved part and
+  continuing implementation. Preserve verified facts and label inferred choices
+  explicitly. The cleared shadow-filter border is such a choice. The provisional
+  shadow bounds fit was replaced when the missing source initializer was recovered.
+- The initial port preserves recovered behavior. Ambiguous implementation
+  choices must use established design, data layout and cost reasoning, not a
+  naive loop followed by patches. Consider batching/data layout and CPU SIMD
+  (ARM NEON / Intel SSE or AVX) where CPU work can benefit; this is not GPU
+  offload. Remove redundant work and measure representative native paths to
+  choose target-specific implementations. The current scalar material sampler
+  is accepted for this pass, not prescribed for future animation workloads.
 - Memory direction approved October 23, 2026: follow recovered Bullet Witch
   allocation, ownership and retirement behavior first, with native target
   backing. Unreal and modern allocators inform the implementation; they do not

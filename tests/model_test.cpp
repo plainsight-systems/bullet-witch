@@ -88,6 +88,21 @@ void model_tests() {
   }
   require(domain->snapshot().live_bytes == 0,
           "Model destruction releases domain");
+  {
+    model_fixture::Options options;
+    options.material_continuation = true;
+    options.base_only = true;
+    const auto model = parse(model_fixture::archive(options), domain);
+    const auto& material = model.materials().at(model.draws().front().material);
+    require(
+        material.constants.size() == 1 && material.textures.size() == 1 &&
+            material.matrices.size() == 1 &&
+            material.matrices.front().semantic == model_fixture::tag("JINT") &&
+            material.matrices.front().source_matrix == 3 &&
+            material.matrices.front().destination_matrix == 0,
+        "Continuation inherits material bindings and retains its joint "
+        "palette");
+  }
   model_fixture::Options options;
   options.draw[4] = 1;
   rejects(model_fixture::archive(options), domain);

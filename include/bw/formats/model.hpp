@@ -1,9 +1,13 @@
-// Decode original PC model definitions, independently of device construction.
-// Input archive ownership moves into the result; all spans borrow that result
-// until destruction/mutation. Invalid framing, associations and draw ranges
-// throw resources::Error; unknown rendering semantics are retained, never
-// declared renderable. Caller serializes mutation. See
-// world-renderer-reconstruction.md and
+// Material animation names and ordered per-draw texture-slot snapshots apply
+// both-phase R.2 (#rr-use-ptr) bounded archive views and MEM.9
+// (guidelines/memory/ MEM.9-embedded-allocate-at-init.md) construction-time
+// metadata. TANM updates one slot and TRST clears it; each draw retains its
+// state before later resets. Decode original PC model definitions,
+// independently of device construction. Input archive ownership moves into the
+// result; all spans borrow that result until destruction/mutation. Invalid
+// framing, associations and draw ranges throw resources::Error; unknown
+// rendering semantics are retained, never declared renderable. Caller
+// serializes mutation. See world-renderer-reconstruction.md and
 // research/engine/subsystems/stage-content-decoding.md. Algorithm: retain
 // archive; index buffer records; decode TLST names; traverse bounded
 // CNKH/nested records in original order; snapshot active bindings and material
@@ -19,6 +23,10 @@
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md)
 // propagates the injected memory domain to all nested metadata. Implementation
 // consultation and exact supported-record evidence accompany the source file.
+// Matrix-reference additions apply both-phase C.32 (#rc-dtor-ptr) to owned
+// material metadata and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) to load-time palette binding
+// construction.
 #pragma once
 
 #include "bw/formats/animation_definition.hpp"
@@ -59,18 +67,25 @@ struct ModelConstant {
 struct ModelStateEntry {
   std::uint32_t semantic{}, patch{}, value{}, auxiliary{};
 };
-// Preserve material words and record ranges; decoding is not shader
-// translation.
+// Preserve effective material bindings and each local record range. Native
+// continuation commands inherit prior bindings; new semantic writes replace
+// their previous value. Decoding remains independent of shader translation.
+struct ModelMatrixReference {
+  std::uint32_t semantic{}, source_matrix{}, destination_matrix{};
+};
 struct ModelMaterial {
   explicit ModelMaterial(const memory::Allocator<std::byte>& allocator)
       : textures(allocator),
         constants(allocator),
+        matrices(allocator),
         render_states(allocator),
         sampler_states(allocator) {}
   std::array<std::uint32_t, 2> shader_selector{};
   resources::Range records{};
   memory::Vector<ModelTextureReference> textures;
   memory::Vector<ModelConstant> constants;
+  // Original matrix semantic and source-to-shader-palette slot mapping.
+  memory::Vector<ModelMatrixReference> matrices;
   memory::Vector<ModelStateEntry> render_states, sampler_states;
 };
 struct ModelRecord {
@@ -86,6 +101,8 @@ struct ModelDraw {
   ModelStream stream;
   std::uint32_t chunk{}, group{}, volume{};
   std::optional<ModelStream> shape_stream;
+  // Effective ordered TANM/TRST bindings at this draw, before later resets.
+  std::array<std::optional<std::uint32_t>, 2> texture_animation_slots;
 };
 class ModelDefinition {
  public:
@@ -101,6 +118,10 @@ class ModelDefinition {
   const auto& draws() const { return draws_; }
   const auto& records() const { return records_; }
   const auto& texture_names() const { return texture_names_; }
+  // Original model animation-slot names; clips bind these by label, not index.
+  const auto& material_animation_names() const {
+    return material_animation_names_;
+  }
   std::span<const std::uint8_t> header() const;
   std::span<const std::uint8_t> vertex_bytes(std::size_t buffer) const;
   std::span<const std::uint8_t> index_bytes(std::size_t buffer) const;
@@ -125,5 +146,6 @@ class ModelDefinition {
   memory::Vector<ModelDraw> draws_;
   memory::Vector<ModelRecord> records_;
   memory::Vector<memory::String> texture_names_;
+  memory::Vector<memory::String> material_animation_names_;
 };
 }  // namespace bw::formats

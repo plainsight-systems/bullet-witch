@@ -7,6 +7,9 @@
 // (#rsl-bounds) checks every encoded offset. MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md)
 // propagates the mission domain. These rules were read in both phases.
+// Background placement uses both-phase C.32 (#rc-dtor-ptr) for borrowed
+// package names and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) for load-only metadata.
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -113,25 +116,53 @@ void MissionLoading::preload_model(std::string_view name) {
     dependency_names_.push_back(std::move(model));
   }
 }
+memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
+    const {
+  memory::Vector<ResidentModelView> result{
+      memory::Allocator<ResidentModelView>(memory_)};
+  if (dependency_residencies_.size() != dependency_definitions_.size()) {
+    throw std::logic_error(
+        "Dependency models require complete device residency");
+  }
+  auto resident = dependency_residencies_.begin();
+  for (const auto& definition : dependency_definitions_) {
+    if (resident->models.size() != definition.models.size()) {
+      throw std::logic_error("Dependency model/device associations differ");
+    }
+    for (std::size_t index = 0; index < definition.models.size(); ++index) {
+      const auto& model = definition.models.at(index);
+      std::span<const std::int32_t> body_joints;
+      for (const auto& input : definition.inputs) {
+        constexpr std::string_view kModelPrefix = "model.";
+        std::string_view name = input.name;
+        if (!input.physics_collision || !name.starts_with(kModelPrefix)) {
+          continue;
+        }
+        name.remove_prefix(kModelPrefix.size());
+        if (name.starts_with(model.name) &&
+            name.substr(model.name.size()) == ".phit") {
+          body_joints = input.physics_collision->body_joints();
+          break;
+        }
+      }
+      result.push_back({model.name, model.definition,
+                        resident->models.at(index), body_joints});
+    }
+    ++resident;
+  }
+  return result;
+}
 void MissionLoading::load_background() {
   const auto bytes = optional_member(request_name_ + ".bgb");
   if (bytes.empty()) return;
-  const resources::detail::Reader reader{bytes};
-  constexpr std::uint64_t kHeaderBytes = 24, kNameCount = 8, kNameTable = 12;
-  constexpr std::uint64_t kWordBytes = 4;
-  reader.range(0, kHeaderBytes);
-  if (reader.tag_view(0) != "BGOB") {
-    resources::detail::unsupported(
-        "Legacy background definition schema is unresolved");
-  }
-  const auto count = reader.u32(kNameCount);
-  const auto directory = reader.u32(kNameTable);
-  reader.range(directory, static_cast<std::uint64_t>(count) * kWordBytes);
-  for (std::uint32_t index = 0; index < count; ++index) {
-    const auto name = reader.text_view(
-        {0, bytes.size()}, reader.u32(directory + index * kWordBytes));
+  auto definition =
+      formats::BackgroundPlacementDefinition::parse(bytes, memory_);
+  for (const auto name : definition.names()) {
     if (!name.starts_with("musi")) preload_model(name);
   }
+  // Publish placement metadata only after all requested model dependencies are
+  // constructed. Names borrow the retained package until cancellation.
+  background_ = std::move(definition);
 }
 void MissionLoading::load_sound() {
   if (sound_bank_) {

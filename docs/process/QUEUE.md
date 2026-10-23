@@ -14,24 +14,20 @@
   profile/menu/campaign-request slice. Resolve logo open-failure continuation,
   ordinary media-open rejection versus terminal decoder errors, and startup-wide
   initial fade state at their owning systems.
-- Continue One Shot Kill after its original load now returns: implement actor
-  and world setup before calling gameplay start. Loading-scene animated
-  sprites/text, authored environment/visibility, background placement and
-  complete stage passes remain presentation work. Stage collision/area/material
-  animation, character motion/shape definitions and sound-bank registration have
-  real load owners; runtime simulation, animation and cue playback are separate
-  consumers. Slices 1–3 were accepted for commit on October 23, 2026, after native verification of the
-  recovered initial camera, original static clearance, reverse-depth projection,
-  authored stage ambient SH and camera-centered sky. Carry the remaining three
-  untextured below-stage quads, generated mip chains, visibility and shadow/pass
-  behavior into the proposed slice 4, whose implementation awaits agreement;
-  do not confuse a coherent static view with complete
-  original presentation. The view supplies an explicit recovered script-pose bootstrap;
-  later actor start must become its live pose owner. Camera input, animated
-  anchor transforms, follow transitions and dynamic collision remain separate. Native internal menu 5 to API 6 and selected concept alias are
-  resolved; keep original Lua unchanged. Supply achievement/progression
-  state for IDs 9/10/13 for campaign Stage Select and higher difficulties; the
-  concept-menu completion gate alone is intentionally removed.
+- Plan Alicia traversal as slice 5; implementation awaits authorization.
+  Slice 4 presentation is complete and accepted.
+  Shadow projection and edge sampling are completed within slice 4: recovered
+  source warp, shared caster/receiver depth, derived cleared border and native
+  camera/boundary verification. The current view consumes 4,100 ordinary, 674 prop
+  and one sky draw, initial group masks, body/joint poses, fog, shadows and six
+  animated UV updates from two unique curves. It still uses the recovered
+  script-pose bootstrap. Live actor setup must own that pose before gameplay
+  start. Resolve PhysX/cooked collision before traversal; camera input/follow
+  transitions, destruction-driven visibility, dynamic area changes, local-light
+  lists, gameplay particles and mission outcome remain later consumers.
+  Loading-scene sprites/text remain a distinct front-end gap. Keep original Lua
+  unchanged. The concept-menu completion gate alone is intentionally removed;
+  campaign progression gates remain.
 - Continue memory reconstruction when world/AI/worker consumers are introduced.
   The current startup-owner migration is complete; the recovered AI linear mode
   is distinct from the implemented root reclaiming heap. Establish reset and

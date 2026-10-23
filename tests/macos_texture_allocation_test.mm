@@ -1,3 +1,5 @@
+// Both-phase I.1/GPU.1 also verify optional shader resource consumption with
+// actual device pixels and no dummy texture allocation.
 // Headless native Metal contracts inside the existing memory-tests scenario.
 // Authored geometry/pixels exercise original depth addressing, surface shading,
 // fog and presentation fade; no original game bytes or Cocoa window are used.
@@ -19,6 +21,7 @@
 
 #include "bw/formats/model.hpp"
 #include "bw/formats/world_texture.hpp"
+#include "bw/render/shadow.hpp"
 #include "model_fixture.hpp"
 #include "platform/macos/buffer_allocation.hpp"
 #include "platform/macos/cpu_backing.hpp"
@@ -185,6 +188,7 @@ void world_surface_contract(id<MTLDevice> device) {
                 WorldCull::none,
                 WorldDepthCompare::less_equal,
                 true};
+  draw.state.mip_filter = bw::render::WorldMipFilter::linear;
   const auto surface_parameters = draw.parameters;
   const auto surface_state = draw.state;
   renderer.set_world_draws(std::span(&draw, 1));
@@ -218,7 +222,11 @@ void world_surface_contract(id<MTLDevice> device) {
       pass.depthAttachment.clearDepth = clear_depth;
     }
     id<MTLCommandBuffer> command = [queue commandBuffer];
-    if (present_scene) renderer.prepare_presentation(command, library, extent, extent);
+    if (present_scene) {
+      renderer.prepare_presentation(command, library, extent, extent);
+    } else {
+      renderer.prepare_shadows(command, library);
+    }
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     if (present_scene) {
       renderer.encode_presentation(encoder, library, presentation_opacity);
@@ -275,6 +283,123 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.set_world_draws(std::span(&draw, 1));
   require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
           "Original reciprocal-square-root absolute semantics preserve finite diffuse lighting");
+  // A separate caster removes directional light without darkening baked
+  // vertex illumination. Both passes use the same retained light map.
+  auto receiver = draw;
+  receiver.parameters.shadow_clip_rows = receiver.parameters.clip_rows;
+  receiver.parameters.shadow_clip_rows[2] = {0, 0, 0, .25F};
+  receiver.parameters.shadow_parameters = {1, 0, 0, 0};
+  auto caster = receiver;
+  caster.casts_shadow = true;
+  caster.parameters.clip_rows[0][3] = 4;
+  caster.parameters.shadow_clip_rows[2] = {0, 0, 0, .75F};
+  std::array shadow_draws{receiver, caster};
+  renderer.set_world_draws(shadow_draws);
+  require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
+          "Shadow map removes directional light while retaining baked illumination");
+  shadow_draws[1].casts_shadow = false;
+  renderer.set_world_draws(shadow_draws);
+  require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
+          "Cleared reverse-depth shadow map restores unobstructed directional light");
+  shadow_draws[1].casts_shadow = true;
+  shadow_draws[0].parameters.shadow_clip_rows[0][3] = 4;
+  renderer.set_world_draws(shadow_draws);
+  require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
+          "Original receiver outside the shadow rectangle remains lit");
+  // Cover the whole shadow allocation, then verify the protected ring with
+  // actual GPU samples. A projection inset keeps real scene coverage inside it.
+  shadow_draws[1].parameters.shadow_clip_rows[0] = {4, 0, 0, 0};
+  shadow_draws[1].parameters.shadow_clip_rows[1] = {0, 4, 0, 0};
+  struct ShadowSample {
+    std::array<float, 2> uv;
+    float radius;
+    float receiver_depth;
+  };
+  const auto shadow_sample = [&](const ShadowSample& sample) {
+    const auto& uv = sample.uv;
+    auto& parameters = shadow_draws[0].parameters;
+    parameters.shadow_clip_rows = {{{0, 0, 0, 2 * uv[0] - 1},
+                                    {0, 0, 0, 1 - 2 * uv[1]},
+                                    {0, 0, 0, sample.receiver_depth},
+                                    {0, 0, 0, 1}}};
+    parameters.shadow_parameters[2] = sample.radius;
+    renderer.set_world_draws(shadow_draws);
+    return read_pixel();
+  };
+  constexpr float texel = 1.0F / bw::render::kDirectionalShadowExtent;
+  constexpr std::array<std::uint8_t, 4> shadowed{192, 128, 64, 255};
+  constexpr std::array<std::uint8_t, 4> unshadowed{240, 160, 80, 255};
+  for (const float radius : {0.0F, .058F * texel, 2 * texel}) {
+    const float border = static_cast<float>(bw::render::shadow_guard_texels(radius)) * texel;
+    const std::array<std::array<float, 2>, 8> edge_centers{{{.5F * texel, .5F},
+                                                            {1 - .5F * texel, .5F},
+                                                            {.5F, .5F * texel},
+                                                            {.5F, 1 - .5F * texel},
+                                                            {.5F * texel, .5F * texel},
+                                                            {1 - .5F * texel, .5F * texel},
+                                                            {.5F * texel, 1 - .5F * texel},
+                                                            {1 - .5F * texel, 1 - .5F * texel}}};
+    for (const auto& uv : edge_centers) {
+      require(shadow_sample({uv, radius, .25F}) == unshadowed,
+              "Every edge and corner stays lit when point taps cross the cleared border");
+    }
+    require(shadow_sample({{.5F, .5F}, radius, .25F}) == shadowed,
+            "Protecting shadow borders retains interior caster coverage");
+    require(border > radius, "Guard includes the nearest-sample half-texel footprint");
+  }
+  // Independent expected averages from source seed-1 jitter at screen cell
+  // (16,16): three negative X offsets and four negative Y offsets among eight.
+  // The source eight-tap compare crosses each inner border and corner here.
+  struct FilterCase {
+    std::array<float, 2> uv;
+    std::array<std::uint8_t, 4> expected;
+  };
+  constexpr float inner = 3 * texel;
+  constexpr std::array<FilterCase, 8> filter_cases{{
+      {{inner, .5F}, {210, 140, 70, 255}},
+      {{1 - inner, .5F}, {222, 148, 74, 255}},
+      {{.5F, inner}, {216, 144, 72, 255}},
+      {{.5F, 1 - inner}, {216, 144, 72, 255}},
+      {{inner, inner}, {228, 152, 76, 255}},
+      {{1 - inner, inner}, {228, 152, 76, 255}},
+      {{inner, 1 - inner}, {222, 148, 74, 255}},
+      {{1 - inner, 1 - inner}, {234, 156, 78, 255}},
+  }};
+  for (const auto& sample : filter_cases) {
+    require(shadow_sample({sample.uv, 2 * texel, .25F}) == sample.expected,
+            "Boundary-crossing filter taps average the exact clear/interior comparisons");
+  }
+  require(shadow_sample({{.5F, .5F}, 0, .75F}) == unshadowed &&
+              shadow_sample({{.5F, .5F}, 0, .8F}) == unshadowed &&
+              shadow_sample({{.5F, .5F}, 0, .74F}) == shadowed,
+          "Reverse depth compares receiver greater-or-equal, including exact equality");
+  for (const auto& uv : std::array<std::array<float, 2>, 4>{
+           {{-texel, .5F}, {1 + texel, .5F}, {.5F, -texel}, {.5F, 1 + texel}}}) {
+    require(shadow_sample({uv, 2 * texel, .25F}) == unshadowed,
+            "Receiver centers outside each source rectangle edge remain unshadowed");
+  }
+  require(shadow_sample({{.5F, .5F}, 0, .25F}) == shadowed,
+          "Perspective shadow comparison starts with a covered interior receiver");
+  for (auto& command : shadow_draws) {
+    for (auto& row : command.parameters.shadow_clip_rows) {
+      for (auto& coefficient : row) coefficient *= 2;
+    }
+  }
+  renderer.set_world_draws(shadow_draws);
+  require(read_pixel() == shadowed,
+          "Homogeneous caster and receiver W preserve divided shadow coordinates and depth");
+  shadow_draws[1].casts_shadow = false;
+  renderer.set_world_draws(shadow_draws);
+  require(read_pixel() == unshadowed,
+          "Reverse clear remains unoccluded for homogeneous perspective shadow coordinates");
+  bool rejected_shadow_radius = false;
+  try {
+    static_cast<void>(shadow_sample({{.5F, .5F}, .5F, .25F}));
+  } catch (const std::invalid_argument&) {
+    rejected_shadow_radius = true;
+  }
+  require(rejected_shadow_radius && read_pixel() == unshadowed,
+          "Unrepresentable filter footprint rejects atomically before replacing native draws");
   draw.parameters.fog_color = {1, 0, 0, 1};
   draw.parameters.fog_height = {0, 1, 0, 1};
   renderer.set_world_draws(std::span(&draw, 1));
@@ -292,6 +417,75 @@ void world_surface_contract(id<MTLDevice> device) {
         bw::resources::ResourceArchive::parse(model_fixture::archive(options)), domain);
     return renderer.upload_model(definition);
   };
+  // No UV attribute or texture exists in this original material family.
+  const auto untextured = upload_fixture({.shader = {0, 0}, .untextured = true});
+  draw = {.model = untextured,
+          .effective_shader_flags = 0x00800200,
+          .parameters = surface_parameters,
+          .state = surface_state,
+          .lighting = bw::render::WorldLightingPolicy::without_direct_lighting};
+  draw.parameters.material_color = {.25F, .5F, 1, .75F};
+  draw.parameters.illumination = {.125F, .125F, .125F, 0};
+  for (std::size_t channel = 0; channel < 3; ++channel) {
+    draw.parameters.irradiance_coefficients.at(channel).at(3) = .375F;
+  }
+  renderer.set_world_draws(std::span(&draw, 1));
+  const auto untextured_pixel = read_pixel();
+  require(untextured_pixel[0] >= 127 && untextured_pixel[0] <= 128 && untextured_pixel[1] == 64 &&
+              untextured_pixel[2] == 32 && untextured_pixel[3] == 191,
+          "Untextured material consumes SH and emission without UV or a dummy texture");
+  draw.state.mip_filter = bw::render::WorldMipFilter::unresolved;
+  bool rejected_mip_filter = false;
+  try {
+    renderer.set_world_draws(std::span(&draw, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_mip_filter = true;
+  }
+  require(rejected_mip_filter && read_pixel() == untextured_pixel,
+          "Unresolved mip sampling rejects atomically and retains the prior submission");
+  renderer.release_model(untextured);
+  // One- and two-influence source programs consume the explicit mapped palette.
+  const auto rigid = upload_fixture({.shader = {0xc0000010, 1}, .joint_palette = true});
+  const auto weighted = upload_fixture({.shader = {0x80000010, 1}, .joint_palette = true});
+  renderer.bind_model_textures(rigid, std::span(&base, 1));
+  renderer.bind_model_textures(weighted, std::span(&base, 1));
+  std::array<bw::render::WorldJointMatrix, 2> joints{};
+  for (auto& matrix : joints) {
+    for (std::size_t row = 0; row < 4; ++row) matrix.at(row).at(row) = 1;
+  }
+  draw = {.model = rigid,
+          .effective_shader_flags = 0xc0800210,
+          .parameters = surface_parameters,
+          .state = surface_state,
+          .lighting = bw::render::WorldLightingPolicy::without_direct_lighting,
+          .joint_matrices = joints};
+  for (std::size_t channel = 0; channel < 3; ++channel) {
+    draw.parameters.irradiance_coefficients.at(channel).at(3) = 1;
+  }
+  renderer.set_world_draws(std::span(&draw, 1));
+  joints[0][0][3] = -1.5F;
+  require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
+          "Submission owns the joint palette independently of later caller mutation");
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Rigid joint transformation moves the original geometry before view projection");
+  joints[1][0][3] = .5F;
+  draw.model = weighted;
+  draw.effective_shader_flags = 0x80800210;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
+          "Two-influence program applies authored normalized-byte weights without renormalization");
+  draw.joint_matrices = std::span(joints).first(1);
+  bool rejected_palette = false;
+  try {
+    renderer.set_world_draws(std::span(&draw, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_palette = true;
+  }
+  require(rejected_palette && read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
+          "Out-of-range joint palette rejects before replacing the retained native draw");
+  renderer.release_model(rigid);
+  renderer.release_model(weighted);
   const auto geometric = upload_fixture({.shader = {0x00420802, 1}, .base_only = true});
   renderer.bind_model_textures(geometric, std::span(&base, 1));
   draw = {.model = geometric,
@@ -302,6 +496,72 @@ void world_surface_contract(id<MTLDevice> device) {
   require(
       read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
       "Geometric-normal surface preserves original stride28 and base texture without a normal map");
+  // Animate only retained UV constants: the same resident geometry and sampler
+  // selects another authored texel without replacing the submission.
+  image.width = 2;
+  image.pixels = {255, 0, 0, 255, 0, 255, 0, 255};
+  const auto offset_texture = renderer.upload_world_texture(image);
+  renderer.bind_model_textures(geometric, std::span(&offset_texture, 1));
+  draw.state.min_filter = WorldTextureFilter::nearest;
+  draw.state.mag_filter = WorldTextureFilter::nearest;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 255, 255},
+          "Unchanged UV constants address the first authored texel");
+  bw::render::WorldTextureOffsetUpdate offset_update{.model = geometric};
+  offset_update.texture_offset[0][0] = .5F;
+  const auto before_offset_update = budget->snapshot();
+  renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 255, 0, 255} &&
+              budget->snapshot().live_resources == before_offset_update.live_resources,
+          "Retained UV update changes sampling without acquiring device resources");
+  auto invalid_update = offset_update;
+  invalid_update.draw = model.draws().size();
+  offset_update.texture_offset = {};
+  const std::array invalid_updates{offset_update, invalid_update};
+  bool rejected_offsets = false;
+  try {
+    renderer.update_world_texture_offsets(invalid_updates);
+  } catch (const std::invalid_argument&) {
+    rejected_offsets = true;
+  }
+  require(rejected_offsets && read_pixel() == std::array<std::uint8_t, 4>{0, 255, 0, 255},
+          "Invalid late UV update rejects the entire batch before changing constants");
+  auto blended_offset_draw = draw;
+  blended_offset_draw.state.blend = bw::render::WorldBlend::source_alpha;
+  blended_offset_draw.parameters.material_color[3] = .5F;
+  const std::array duplicate_offsets{blended_offset_draw, blended_offset_draw};
+  renderer.set_world_draws(duplicate_offsets);
+  offset_update.texture_offset[0][0] = .5F;
+  renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  const auto duplicate_pixel = read_pixel();
+  require(duplicate_pixel[0] == 0 && duplicate_pixel[2] == 0 && duplicate_pixel[1] >= 191 &&
+              duplicate_pixel[1] <= 192,
+          "One indexed UV update reaches every retained submission of the model draw");
+  renderer.bind_model_textures(geometric, std::span(&offset_texture, 1));
+  bool rejected_stale_offset = false;
+  try {
+    renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_stale_offset = true;
+  }
+  require(rejected_stale_offset && !renderer.has_color_draws(),
+          "Rebinding textures invalidates all old UV destinations with their submissions");
+  renderer.set_world_draws(std::span(&draw, 1));
+  renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 255, 0, 255},
+          "A new submission rebuilds UV destinations after binding invalidation");
+  renderer.release_world_texture(offset_texture);
+  rejected_stale_offset = false;
+  try {
+    renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_stale_offset = true;
+  }
+  require(rejected_stale_offset && !renderer.has_color_draws(),
+          "Texture release removes stale destinations before subsequent animation updates");
+  image.width = 1;
+  renderer.bind_model_textures(geometric, std::span(&base, 1));
+  draw.state = surface_state;
   draw.effective_shader_flags = 0x00e20a02;
   for (std::size_t channel = 0; channel < 3; ++channel) {
     draw.parameters.irradiance_coefficients.at(channel).at(3) = .25F;
@@ -328,14 +588,9 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.bind_model_textures(shadow_layered, layered_bindings);
   draw.model = shadow_layered;
   draw.effective_shader_flags = 0x00820882;
-  bool rejected_full_lighting = false;
-  try {
-    renderer.set_world_draws(std::span(&draw, 1));
-  } catch (const std::invalid_argument&) {
-    rejected_full_lighting = true;
-  }
-  require(rejected_full_lighting,
-          "Shadow-dependent program requires an explicit omitted-light policy");
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 32, 255},
+          "Layered family accepts supplied lighting with zero directional energy");
   draw.lighting = bw::render::WorldLightingPolicy::without_direct_lighting;
   renderer.set_world_draws(std::span(&draw, 1));
   require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 32, 255},

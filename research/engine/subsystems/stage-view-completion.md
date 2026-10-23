@@ -412,3 +412,119 @@ generated texture mip chains, material animation and placed/dynamic objects
 remain slice-4 presentation or later gameplay work. Distant texture aliasing is
 not represented as finished filtering fidelity. Full original-game image parity
 and user acceptance remain distinct from these implementation checks.
+
+## Slice 4: authored initial presentation
+
+The slice-3 omissions above are historical. Slice 4 now publishes all 4,100
+ordinary stage draws, 674 draws from 276 authored background placements, and
+one sky draw. The actual corpus reports zero omitted material draws. It consumes
+initial group masks, body-to-joint poses, inherited material commands, authored
+fog, directional shadows and animated material offsets. Two named UV channels
+each drive three indexed draws. The existing game clock advances their authored
+30-fps keys; the native output receives six small constant updates, with no
+scene resubmission or new device resource allocation.
+
+The original texture default and installed setting request one mip level.
+Single-level storage plus explicit linear mip sampling is therefore preserved;
+generating mips to reduce visible aliasing would be a separate setting-dependent
+path. Shadow map dimensions, reverse depth, jitter comparisons and directional
+attenuation follow recovered consumers. The captures below used the initial
+Unreal-informed projection and edge policy. They are historical baseline
+observations, not acceptance of the remaining shadow closure. The original
+runtime warp initializer has since been recovered; its replacement and the
+complete filter-border validation remain inside slice 4. See
+[shadow presentation](stage-shadow-presentation.md),
+[scene presentation](stage-scene-presentation.md),
+[material animation](stage-material-animation.md) and
+[texture sampling](texture-sampling.md).
+
+The direct native renderer was observed at the original initial pose and the
+same two script-derived exterior poses used for slice 3. The initial cave,
+doorway and exterior structures remain coherent. At checkpoint 10 the authored
+container stacks and surrounding structures occupy the yard. At checkpoint 20
+near wooden structures and containers coherently occlude parts of the earlier
+empty view. These are scene observations, not comparisons against a running
+original game. Actors are not instantiated.
+
+Ignored evidence under `research/evidence/reconstruction/stage/`:
+
+| Evidence | Scope |
+| --- | --- |
+| `slice4-checkpoint10.png.initial090.png` | Initial camera after retained exposure history |
+| `slice4-checkpoint10.png` | Exterior yard with authored prop placement |
+| `slice4-checkpoint20.png` | Second exterior pose and near-prop occlusion |
+| `slice4-host-checkpoint10.png` and `slice4-host-checkpoint10-retry.log` | Actual Cocoa host window, coherent with the exterior renderer observation |
+| `slice4-all.log` | All-target build, six CTest scenarios, complete fatal clang-tidy and repository content policy |
+| `slice4-resource-corpus.log` | Existing independent resource corpus, including 6,625 CPR archives |
+| `slice4-animation-corpus.log` | Original-root route/load, six authored UV updates, cancellation and zero live CPU bytes after teardown |
+| `slice4-shadow-native.log`, `slice4-material-update-native.log` | Existing native scenarios: caster/receiver attenuation, out-of-map lighting, palette ownership, UV sampling and atomic update rejection |
+
+Synthetic native checks establish specific equations and ownership behavior:
+shadows attenuate directional energy while leaving baked illumination intact;
+clearing casters restores light; outside-map receivers stay lit; a UV constant
+update selects another texel without new device resources. They do not by
+themselves establish whole-scene fidelity. The actual corpus separately verifies
+that the two authored tracks map to six draw records and that advancing them
+preserves the engine's live allocated bytes. The full required check gate and
+resource corpus passed. The actual Cocoa host window also displayed the
+coherent exterior scene with authored containers, surrounding building, terrain
+and sky. The first diagnostic host attempt found a stale shader library beside
+the ignored probe executable; rebuilding its evidence package with the current
+production library resolved that setup failure. The probe helper now copies and
+records the library hash. Production source did not change for this correction. The corrected host ran
+for 60 seconds, presented 1,639 frames, and retired with exit status zero.
+
+Remaining boundaries are explicit: live actors, physics/destruction-driven part
+visibility, dynamic area transitions, local-light lists, gameplay particles and
+the mission outcome loop belong to subsequent consumers. The snapshot has no
+claim of full original-renderer parity or completed gameplay.
+
+### Slice-4 shadow and animation closure
+
+The initial slice-4 shadow fit above is superseded. Source tracing recovered the
+stage activation initializer, then reconstructed the original perspective warp.
+Six initialized x86-function matrix witnesses verify the initial camera, two
+checkpoints, translation, yaw and near-parallel alignment. The same homogeneous
+rows now serve casters and receivers. The unsupported original sampler address
+value is handled by a documented cleared filter border, derived from the complete
+sample footprint and verified on Metal at every edge/corner. These closures are
+part of slice 4, not deferred rendering work.
+
+The new actual offscreen initial/exterior view and camera sweep preserve scene
+coherence through small translations and yaw changes. The foreground dark seam
+pattern also appears in the accepted slice-3 no-shadow image; it was not introduced
+by this shadow projection. This observation does not identify every ground
+material or assert comparison against original-game output.
+
+Material animation now binds/samples two unique curves and distributes their
+values to six retained updates. A sorted native destination index removes
+per-update full-scene scans while preserving duplicate destination behavior,
+whole-batch validation and teardown/rebind invalidation. A sampler-only optimized
+ARM64 measurement is recorded in [material animation](stage-material-animation.md).
+It measures scalar cleanup, not a comparison against CPU SIMD.
+
+The final full check gate passed all targets, six CTest scenarios, fatal
+clang-tidy and repository policy (417 text-only file versions). The existing
+resource and original-root corpora passed again; the latter reports zero live
+CPU bytes after teardown. Logs are `slice4-shadow-closure-all.log`,
+`slice4-shadow-closure-resource-corpus.log` and
+`slice4-shadow-closure-startup-corpus.log` under ignored stage evidence.
+[Projection reconstruction](shadow-projection-baseline.md) and
+[filter boundaries](shadow-filter-baseline.md) distinguish source facts,
+portable policy and their numerical/native verification.
+
+Final actual-native acceptance uses the reconstructed warp and protected border.
+`shadow-closure-sweep.log`/PNG records the initial camera and checkpoint 10,
+followed by .05/.1/.5/1-unit right translations and 5/15-degree yaw changes.
+`shadow-closure-checkpoint20.log`/PNG records the second exterior pose. The cave,
+authored container/building placement, ground and sky remain coherent throughout
+the inspected views. These captures use actual content and production rendering;
+they are not original-game parity captures.
+
+`shadow-closure-host.png` was captured from the actual Cocoa window after 60
+presented frames. The host matches the coherent exterior offscreen view and
+completed its 60-second run with `HOST_DONE frames=1713`, exit status zero.
+`shadow-closure-host.log` retains that completion. Source projection, filter
+boundary and material-update work are complete within slice 4, accepted on
+October 23, 2026.
+The later actor/physics/mission boundaries above remain unchanged.

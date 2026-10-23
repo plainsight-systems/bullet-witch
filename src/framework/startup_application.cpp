@@ -206,6 +206,7 @@ int run_startup(const StartupOptions& configuration,
         session.advance({game_delta, actions},
                         configuration.verify ? 0U : input.repeated_actions);
     if (stage_inspection) {
+      stage_inspection->advance(game_delta);
       // Inspection presents independently while the original mission load and
       // its black fade remain pending; this never advances script completion.
       (void)host.draw(1.0F);
@@ -274,19 +275,23 @@ int run_startup(const StartupOptions& configuration,
           throw std::logic_error(
               "Inspection stage/sky definitions are missing");
         }
+        const auto background_models = mission_loading->resident_dependencies();
+        const auto& background = mission_loading->background();
         stage_inspection.emplace(
             host,
             game::StageViewSource{stage.value(),
                                   mission_loading->resident_models()},
             game::StageViewSource{sky.value(),
                                   mission_loading->sky_resident_models()},
-            memory.resources, configuration.inspection_camera);
+            memory.resources, configuration.inspection_camera,
+            game::StageBackgroundSource{background ? &*background : nullptr,
+                                        background_models});
         inspected_stage = true;
-        std::cerr
-            << "Static inspection: " << stage_inspection->selected_draws()
-            << " selected draws, " << stage_inspection->omitted_draws()
-            << " omitted static-world draws; authored base light/output, "
-               "fog, full visibility and shadow passes remain incomplete\n";
+        std::cerr << "Static inspection: " << stage_inspection->selected_draws()
+                  << " ordinary draws, " << stage_inspection->background_draws()
+                  << " placed-prop draws, " << stage_inspection->omitted_draws()
+                  << " omitted draws; initial poses, authored fog and shadows; "
+                     "actor simulation remains separate\n";
       }
     }
     if (configuration.verify &&

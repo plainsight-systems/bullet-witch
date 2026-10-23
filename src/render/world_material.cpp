@@ -18,23 +18,57 @@ WorldMaterialRequirements world_material_requirements(
   const bool irradiance = (effective_flags & kSphericalHarmonics) != 0;
   const auto flags = effective_flags & ~(kAlphaSelector | kSphericalHarmonics);
   constexpr std::uint16_t kOneBase = 1, kTwoBases = 0x102;
-  // These cached programs contain shadow/local-light work unavailable to the
-  // inspection pass. With those light contributions omitted, their remaining
-  // material, vertex illumination and fog equations are source-traced directly.
+  constexpr std::uint32_t kNormal = 0x80, kEnvironment = 0x2000;
+  constexpr std::uint32_t kVertexColor = 0x20, kVertexIllumination = 0x800;
+  constexpr std::uint32_t kFresnel = 0x20000, kDisableReflection = 0x2000000;
+  constexpr std::uint32_t kDisableDirectional = 0x4000000;
+  constexpr std::uint32_t kSingleJoint = 0x40000000;
+  // These exact families share the retained material equations. Directional
+  // terms now consume the explicit shadow map; the restricted observation
+  // policy still omits direct energy. Local-light lists remain separate.
   constexpr std::uint32_t kLayeredShadowSurface = 0x00820882;
   constexpr std::uint32_t kLocalLightSurface = 0x04a00882;
-  if (lighting == WorldLightingPolicy::without_direct_lighting) {
+  if (lighting == WorldLightingPolicy::without_direct_lighting ||
+      lighting == WorldLightingPolicy::supplied) {
     const bool layered = flags == kLayeredShadowSurface && variant == kTwoBases;
     const bool local = flags == kLocalLightSurface && variant == kOneBase;
-    if (!layered && !local) return {};
-    WorldMaterialRequirements result;
-    result.supported = true;
-    result.secondary_base = layered;
-    result.vertex_illumination = true;
-    result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
-    result.spherical_harmonics = irradiance;
-    result.normal_map = irradiance;
-    return result;
+    const bool untextured = flags == 0x00800000 && variant == 0;
+    constexpr std::array<std::uint32_t, 9> kBackgroundSelectors{
+        0xc0800010, 0x80800010, 0xc0822010, 0xc2800010, 0x80800090,
+        0x82800010, 0xc0802010, 0xc0c22010, 0xc0800090};
+    if (variant == kOneBase && std::ranges::find(kBackgroundSelectors, flags) !=
+                                   kBackgroundSelectors.end()) {
+      WorldMaterialRequirements result;
+      result.supported = true;
+      result.directional_light = lighting == WorldLightingPolicy::supplied;
+      result.normal_map = (flags & kNormal) != 0;
+      result.environment_map = (flags & kEnvironment) != 0;
+      result.reflection =
+          (result.environment_map || result.directional_light) &&
+          (flags & kDisableReflection) == 0;
+      result.fresnel = result.reflection && (flags & kFresnel) != 0;
+      result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
+      result.spherical_harmonics = irradiance;
+      result.joint_influences = (flags & kSingleJoint) != 0 ? 1 : 2;
+      return result;
+    }
+
+    if (layered || local || untextured) {
+      WorldMaterialRequirements result;
+      result.supported = true;
+      result.secondary_base = layered;
+      result.vertex_illumination = !untextured;
+      result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
+      result.spherical_harmonics = irradiance;
+      result.directional_light =
+          lighting == WorldLightingPolicy::supplied && !local;
+      result.normal_map =
+          (irradiance || result.directional_light) && !untextured;
+      result.reflection = result.directional_light;
+      result.fresnel = result.reflection && (flags & kFresnel) != 0;
+      result.base_texture = !untextured;
+      return result;
+    }
   }
   if (lighting != WorldLightingPolicy::supplied) return {};
   constexpr std::array<std::uint32_t, 12> kSingleBaseSelectors{
@@ -49,10 +83,6 @@ WorldMaterialRequirements world_material_requirements(
        std::ranges::find(kLayeredBaseSelectors, flags) !=
            kLayeredBaseSelectors.end());
   if (!supported) return {};
-  constexpr std::uint32_t kNormal = 0x80, kEnvironment = 0x2000;
-  constexpr std::uint32_t kVertexColor = 0x20, kVertexIllumination = 0x800;
-  constexpr std::uint32_t kFresnel = 0x20000, kDisableReflection = 0x2000000;
-  constexpr std::uint32_t kDisableDirectional = 0x4000000;
   // Programs with directional lighting disabled also omit the specular path.
   const bool directional = (flags & kDisableDirectional) == 0;
   const bool reflection = directional && (flags & kDisableReflection) == 0;

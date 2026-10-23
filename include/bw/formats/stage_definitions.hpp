@@ -1,3 +1,6 @@
+// Label name/track accessors apply both-phase R.2 (#rr-use-ptr) to checked
+// borrowed records and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) to allocation-free label lookup.
 // Original load-time collision/area/material-animation definitions. Inputs are
 // immutable borrowed bytes; callers retain their archive throughout every view.
 // Metadata alone uses the injected domain. Constructors validate
@@ -11,6 +14,9 @@
 // for checked spans; MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) for
 // domain ownership. Native constructor evidence: stage-content-decoding.md.
+// Background body associations apply both-phase C.32 (#rc-dtor-ptr) and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md): load-owned
+// integer mappings borrow no physics runtime and allocate only at construction.
 #pragma once
 
 #include "bw/formats/common.hpp"
@@ -51,15 +57,20 @@ class PhysicsCollisionDefinition {
       std::span<const std::uint8_t> bytes,
       const std::shared_ptr<memory::Domain>& domain);
   const auto& references() const { return references_; }
+  // Original physics-body order maps each authored placement matrix to a
+  // skeleton joint. Missing body records retain -1; no physics SDK is needed.
+  const auto& body_joints() const { return body_joints_; }
   std::span<const std::uint8_t> bytes() const { return bytes_; }
 
  private:
   PhysicsCollisionDefinition(std::span<const std::uint8_t> bytes,
                              const std::shared_ptr<memory::Domain>& domain)
       : bytes_(bytes),
-        references_(memory::Allocator<CollisionReference>(domain)) {}
+        references_(memory::Allocator<CollisionReference>(domain)),
+        body_joints_(memory::Allocator<std::int32_t>(domain)) {}
   std::span<const std::uint8_t> bytes_;
   memory::Vector<CollisionReference> references_;
+  memory::Vector<std::int32_t> body_joints_;
 };
 
 class AreaDefinition {
@@ -105,5 +116,7 @@ struct MaterialAnimationLabels {
   std::uint32_t count{};
   std::span<const std::uint8_t> records;
   static MaterialAnimationLabels parse(std::span<const std::uint8_t> bytes);
+  std::string_view name(std::size_t index) const;
+  std::uint32_t track(std::size_t index) const;
 };
 }  // namespace bw::formats

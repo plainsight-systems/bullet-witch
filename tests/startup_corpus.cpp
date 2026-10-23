@@ -161,6 +161,10 @@ class WorldOutput final : public bw::render::WorldOutput {
       }
     }
     submitted = draws.size();
+    posed_draws = static_cast<std::size_t>(std::ranges::count_if(
+        draws, [](const auto& draw) { return !draw.joint_matrices.empty(); }));
+    caster_draws = static_cast<std::size_t>(std::ranges::count_if(
+        draws, [](const auto& draw) { return draw.casts_shadow; }));
     harmonic_draws = static_cast<std::size_t>(
         std::ranges::count_if(draws, [](const auto& draw) {
           return (draw.effective_shader_flags & 0x200U) != 0;
@@ -172,13 +176,26 @@ class WorldOutput final : public bw::render::WorldOutput {
       if (draws.size() > 1) world_parameters = draws[1].parameters;
     }
   }
+  void update_world_texture_offsets(
+      std::span<const bw::render::WorldTextureOffsetUpdate> updates) override {
+    for (const auto& update : updates) {
+      if (update.model.value == 0 ||
+          update.draw >= records.at(update.model.value - 1).draws) {
+        throw std::runtime_error(
+            "Material update refers to an unavailable draw");
+      }
+    }
+    texture_updates.assign(updates.begin(), updates.end());
+  }
+  std::vector<bw::render::WorldTextureOffsetUpdate> texture_updates;
   void clear_world_draws() noexcept override { submitted = 0; }
   bw::render::WorldOutputParameters output_parameters;
   bw::render::WorldColorParameters sky_parameters, world_parameters;
   bw::render::WorldSurfaceState sky_state;
   std::uint32_t sky_shader_flags{};
   std::vector<bw::render::WorldGeometryStatus> records;
-  std::size_t live_models{}, live_textures{}, submitted{}, harmonic_draws{};
+  std::size_t live_models{}, live_textures{}, submitted{}, harmonic_draws{},
+      posed_draws{}, caster_draws{};
   std::uint64_t texture_identity{};
 };
 struct ObservedMenu final : public bw::game::MenuSurface {
@@ -416,14 +433,47 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           throw std::runtime_error(
               "Original ordinary stage model census mismatch");
         }
+        const auto background_models = loading.resident_dependencies();
+        const auto& background = loading.background();
         bw::game::StageInspection inspection(
             world, {stage.value(), loading.resident_models()},
             {sky.value(), loading.sky_resident_models()},
-            resources.memory_domain());
+            resources.memory_domain(), std::nullopt,
+            {background ? &*background : nullptr, background_models});
         std::cerr
             << "Original static inspection: " << inspection.selected_draws()
             << " selected, " << inspection.omitted_draws()
             << " omitted selected-world draws; synthetic device fixture\n";
+        // Actual authored labels bind two independent float2 curves. Advancing
+        // the existing view updates retained constants without rebuilding it.
+        const auto memory_before_animation =
+            resources.memory_domain()->snapshot().live_bytes;
+        inspection.advance(1.0);
+        if (world.texture_updates.size() != 6 ||
+            resources.memory_domain()->snapshot().live_bytes !=
+                memory_before_animation) {
+          throw std::runtime_error(
+              "Stage material animation binding/allocation mismatch");
+        }
+        // Each source TANM encloses three DIP draws before its TRST reset.
+        std::array<float, 6> scrolling{};
+        for (std::size_t i = 0; i < scrolling.size(); ++i) {
+          const auto& offset = world.texture_updates.at(i).texture_offset[0];
+          if (offset[0] != 1 || offset[2] != 0 || offset[3] != 0) {
+            throw std::runtime_error(
+                "Material float2 animation lost its source padding");
+          }
+          scrolling.at(i) = offset[1];
+        }
+        std::ranges::sort(scrolling);
+        for (std::size_t i = 0; i < scrolling.size(); ++i) {
+          const float expected = i < 3 ? -.015F : -.0075F;
+          if (std::abs(scrolling.at(i) - expected) > .000001F) {
+            throw std::runtime_error(
+                "Stage material animation did not sample authored keys at "
+                "30fps");
+          }
+        }
         if (!stage->environment) {
           throw std::runtime_error("Original stage environment is missing");
         }
@@ -478,9 +528,10 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           throw std::runtime_error(
               "Stage inspection dropped authored display policy");
         }
-        if (inspection.selected_draws() != 4097 ||
-            inspection.omitted_draws() != 3 || inspection.sky_draws() != 1 ||
-            world.submitted != 4098) {
+        if (inspection.selected_draws() != 4100 ||
+            inspection.omitted_draws() != 0 || inspection.sky_draws() != 1 ||
+            inspection.background_draws() != 674 || world.posed_draws != 674 ||
+            world.caster_draws != 4100 || world.submitted != 4775) {
           throw std::runtime_error(
               "Original static inspection selection differs from material "
               "census");

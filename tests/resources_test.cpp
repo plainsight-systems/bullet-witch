@@ -65,6 +65,8 @@ void audio_bank_tests();
 void animation_definition_tests();
 void world_output_tests();
 void view_tests();
+void shadow_tests();
+void material_animation_tests();
 void customization_tests();
 void static_collision_tests();
 namespace {
@@ -854,6 +856,8 @@ int main() {
     animation_definition_tests();
     world_output_tests();
     view_tests();
+    shadow_tests();
+    material_animation_tests();
     customization_tests();
     static_collision_tests();
     section_table_tests(checks);

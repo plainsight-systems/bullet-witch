@@ -11,6 +11,10 @@
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
 // metadata allocation. Source algorithms and field provenance are recorded in
 // stage-content-decoding.md; animated area overrides remain a later consumer.
+// Fog decoding retains separate surface/sky controls and shared authored RGB;
+// it does not apply enable fallbacks or camera-relative shader conversion.
+// Fog design/implementation reread R.2 and MEM.6: bounded record reads return
+// owned scalar values, with no additional allocation or borrowed lifetimes.
 #pragma once
 
 #include "bw/formats/common.hpp"
@@ -24,6 +28,26 @@ struct StageToneMapping {
   std::int32_t history_window{};
   float adaptation_slew{}, minimum_luminance{}, maximum_luminance{};
 };
+struct StageFog {
+  bool distance_enabled{}, height_gate_enabled{}, height_enabled{};
+  float distance_start{}, distance_end{}, density{};
+  // Distance fog is multiplied by a descending height gate. The second
+  // descending height ramp adds an independently weighted contribution.
+  std::array<float, 2> height_gate{}, height_range{};
+  float height_opacity{};
+};
+// Original shadow setup/caster gates and authored receiver/raster controls.
+// These retain source values; projection fallback and native state are render
+// policy. I.1 (#ri-explicit) exposes the distinction; MEM.9 fixed scalars add
+// no storage allocation (both shadow design/implementation consultations).
+struct StageShadow {
+  bool setup_enabled{}, casters_enabled{};
+  std::uint32_t cull_selector{};
+  float receiver_radius{}, raster_depth_bias{}, raster_slope_bias{};
+  // Raw authored fit controls; stage activation supplies the warp defaults.
+  float far_distance{}, minimum_height{}, maximum_height{};
+  float alignment_threshold{}, parallel_near_extension{};
+};
 struct StageEnvironment {
   // Uniform ambient RGB supplied to each ordinary static model's harmonic
   // lighting context. Sky supplies its own lighting independently.
@@ -33,7 +57,10 @@ struct StageEnvironment {
   // Authored source vector; conversion to the shader's normalized direction
   // belongs to the render-view composition contract.
   std::array<float, 3> light_vector{};
+  StageFog surface_fog, sky_fog;
+  std::array<float, 3> fog_color{};
   StageToneMapping tone_mapping;
+  StageShadow shadow;
   static StageEnvironment parse(std::span<const std::uint8_t> customization,
                                 std::string_view stage,
                                 const std::shared_ptr<memory::Domain>& domain);

@@ -119,7 +119,7 @@ The arrows describe the chosen development approach, not an already working port
 
 ## SRC-03: One Shot Kill delivery breakdown
 
-**Target selected October 23, 2026; slices 1–3 are authorized, with distinct
+**Target selected October 23, 2026; slices 1–4 are authorized, with distinct
 acceptance boundaries below.**
 The Concept Mission menu unlock, source-backed concept routing and owned mission
 Lua are implemented. The original load returns after genuine resource
@@ -162,10 +162,22 @@ The corrected native host shows the cave, exterior ground, buildings, mountains
 and sky. Runtime shader selection now consumes the original sky and authored
 stage spherical-harmonic inputs, and the host forwards the authored output
 settings. This closes the earlier black sky and clipped ground failures without
-changing exposure values. Complete stage presentation remains slice 4: original
-visibility, shadows, material animation, generated mip chains and background
-placement still need their consumers. Slice 4 is the proposed next scope for
-discussion; implementation is not yet authorized.
+changing exposure values. Slice 4 is implemented, verified and accepted on October 23, 2026.
+Slice 5 remains planned and awaits authorization.
+Projection and shadow edge sampling are completed inside this slice, including
+camera movement and boundary filter footprints. Its actual-corpus selection
+contains 4,100 ordinary surface draws, 674 placed-prop draws and one sky draw,
+with zero material omissions. Initial group masks, body-to-joint palettes,
+inherited material state, fog and the shadow consumer are implemented. Recovered
+stage activation initializes the source perspective warp; the shared matrix is
+verified against original machine code. A derived cleared border supplies the
+explicit portable policy for the original unsupported sampler address state.
+Two unique material curves update six retained draws through prepared bindings
+and indexed native destinations. The required all gate, resource/startup corpora
+and native initial/exterior/movement observations pass. Actor creation and
+mission start remain outside this initial presentation boundary.
+Original default and installed texture settings request one mip level; optional
+mip generation is a separate setting-dependent path, not a slice-4 prerequisite.
 Current native observations belong in [renderer evidence](research/engine/subsystems/stage-view-completion.md);
 load acceptance is recorded in [mission ownership](research/engine/subsystems/mission-launch.md).
 

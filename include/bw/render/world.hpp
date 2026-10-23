@@ -1,3 +1,6 @@
+// Joint palettes apply I.11 (#ri-raw) and GPU.1: submission borrows a bounded
+// span then owns a copy through device completion. The scene owns mapping and
+// pose; the native renderer validates and consumes one/two source influences.
 // Output policy is required for every implementation: C.121 (#rh-abstract)
 // prevents silent default behavior at a host adapter. Forwarding retains the
 // existing device owner/pool; GPU.9 (guidelines/gpu/
@@ -27,6 +30,11 @@
 // polynomial vectors are explicit per draw, independent of material ambience.
 // Raster-state refinement also applies I.5 (#ri-pre): valid filter/anisotropy
 // pairs and explicit depth ordering are checked before publishing submissions.
+// Mip sampling is explicit and independent of texture storage: I.1
+// (#ri-explicit), retrieved for design and implementation, prevents native
+// defaults from overriding authored sampler state. GPU.9 (guidelines/gpu/
+// GPU.9-suballocate-and-alias-transient-gpu-memory.md) keeps sampler creation
+// at submission setup; changing the filter adds no per-frame allocation.
 #pragma once
 
 #include <array>
@@ -84,6 +92,19 @@ struct WorldColorParameters {
   static constexpr std::size_t kIrradianceVectors = 7;
   std::array<std::array<float, 4>, kIrradianceVectors>
       irradiance_coefficients{};
+  // Shared light clip transform of the same post-palette position used by
+  // clip_rows. Shadow rows use reverse depth, near=1/far=0. Parameters are
+  // {enabled 0/1, receiver depth bias, filter radius in UV, reserved zero}.
+  // Projection reserves shadow_guard_texels(max receiver radius) on each edge
+  // of the shared 1024 map. Native casters are scissored to that interior;
+  // the zero-cleared border makes point-clamped external taps unoccluded.
+  // The radius plus its nearest-filter half-texel footprint must leave an
+  // interior. Outside-UV receiver centers remain lit; depth comparison is
+  // unchanged for centers inside the map. See shadow-filter-baseline.md.
+  // I.1 makes caster/receiver agreement explicit; GPU.1 retains the map on
+  // device between its depth and color consumers (both MCP phases).
+  std::array<std::array<float, 4>, 4> shadow_clip_rows{};
+  std::array<float, 4> shadow_parameters{};
 };
 enum class WorldBlend : std::uint8_t { opaque, source_alpha };
 enum class WorldTextureFilter : std::uint8_t {
@@ -93,6 +114,7 @@ enum class WorldTextureFilter : std::uint8_t {
   anisotropic
 };
 enum class WorldTextureAddress : std::uint8_t { unresolved, repeat, clamp };
+enum class WorldMipFilter : std::uint8_t { unresolved, none, nearest, linear };
 enum class WorldCull : std::uint8_t {
   unresolved,
   none,
@@ -111,6 +133,8 @@ enum class WorldDepthCompare : std::uint8_t {
 // Magnification remains nearest/linear. Depth ordering must match clip-space
 // projection and the caller-owned clear value. Native scene presentation uses
 // original reversed depth; isolated caller-owned passes may choose otherwise.
+// Mip filtering selects among resident levels; it never generates levels or
+// implies a mipmapped texture allocation. Unresolved filters reject submission.
 struct WorldSurfaceState {
   WorldTextureFilter min_filter{}, mag_filter{};
   WorldTextureAddress address_u{}, address_v{};
@@ -119,7 +143,13 @@ struct WorldSurfaceState {
   bool depth_write{};
   WorldBlend blend{};
   std::uint32_t maximum_anisotropy{1};
+  WorldMipFilter mip_filter{};
 };
+// Source palette rows perform dot products with a local position/vector.
+// set_world_draws borrows these rows only for the call and retains its own
+// copy. The source programs address at most 32 matrices; static draws pass
+// none.
+using WorldJointMatrix = std::array<std::array<float, 4>, 4>;
 struct WorldColorDraw {
   WorldModelHandle model;
   std::size_t draw{};
@@ -127,6 +157,21 @@ struct WorldColorDraw {
   WorldColorParameters parameters;
   WorldSurfaceState state;
   WorldLightingPolicy lighting{WorldLightingPolicy::supplied};
+  std::span<const WorldJointMatrix> joint_matrices;
+  // Scene ownership selects casters; the renderer does not infer ownership
+  // from material names. Shadow-enabled receivers may omit casting.
+  bool casts_shadow{};
+};
+// Update only retained UV constants. Every matching model/draw instance
+// receives the values; duplicate updates apply in order. The full borrowed
+// batch must resolve to submitted draws and contain finite values before any
+// write. O(updates * submitted draws), no allocation or geometry/sampler
+// recreation. Both-phase I.1/GPU.1 keep identity and small mutable data
+// explicit.
+struct WorldTextureOffsetUpdate {
+  WorldModelHandle model;
+  std::size_t draw{};
+  std::array<std::array<float, 4>, 2> texture_offset{};
 };
 class WorldOutput {
  public:
@@ -156,6 +201,8 @@ class WorldOutput {
   // declare their observation behavior; a host cannot silently drop the call.
   virtual void set_world_output_parameters(const WorldOutputParameters&) = 0;
   virtual void set_world_draws(std::span<const WorldColorDraw> draws) = 0;
+  virtual void update_world_texture_offsets(
+      std::span<const WorldTextureOffsetUpdate> updates) = 0;
   virtual void clear_world_draws() noexcept = 0;
 };
 }  // namespace bw::render
