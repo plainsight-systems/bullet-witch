@@ -380,12 +380,15 @@ unimplemented. Costume previews are the original authored sprite textures,
 independent from the future player-model/resource application.
 
 Steam's recovered content refresh enables costumes 1–5 and the 18 extra-mission
-IDs 0–5, 16–21 and 32–37. Higher difficulties and the main stage/extra entries
-consume separate achievement flags. `MenuUnlocks` supplies those flags, but the
-current framework has no Steam achievement provider and passes fresh defaults:
-Easy/Normal/Hard available, stage/extra/Chaos/Hell gated. Asset presence does not
-silently unlock them. Extra selection policy preserves native result 5, while
-the original root handles result 6; that route remains explicitly unresolved.
+IDs 0–5, 16–21 and 32–37. Campaign Stage Select and higher difficulties consume
+separate achievement flags. `MenuUnlocks` supplies those flags, but the current
+framework has no Steam achievement provider and passes fresh defaults:
+Easy/Normal/Hard available, Stage Select/Chaos/Hell gated. Concept Mission / Extra
+Missions is accessible without completion by explicit user-approved policy, an
+intentional departure from the original achievement-13 check. Its child entries
+still use the recovered content availability; asset presence does not silently
+unlock campaign progression. Extra selection policy preserves native result 5,
+while the original root handles result 6; that route remains explicitly unresolved.
 
 After a supported confirmed selection, the original Lua root calls
 `_StartMission`. `StartupSession` validates the mission identifier, selected stage

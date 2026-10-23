@@ -17,6 +17,16 @@
 
 - Source reconstruction is the implementation direction: preserve behavior,
   establish a direct port, then improve the engine and graphics.
+- First playable mission target selected October 23, 2026: One Shot Kill
+  (`cm01_00`, extra mission ID 1), using `st04_c` stage resources. The planned
+  breakdown in `IMPLEMENTATION.md` separates mission/content loading, a first
+  static stage view, stage presentation, player traversal and mission behavior.
+  These slices are not implemented or separately approved. Original concept
+  launch routing remains evidence work; a development launch path is not faithful
+  menu acceptance. The user explicitly removed the concept-menu completion gate:
+  fresh profiles can select supplied extra missions, while campaign Stage Select
+  and higher difficulties retain their progression gates. This intentional
+  departure changes menu access, not content availability or original Lua.
 - Memory direction approved October 23, 2026: follow recovered Bullet Witch
   allocation, ownership and retirement behavior first, with native target
   backing. Unreal and modern allocators inform the implementation; they do not
@@ -34,10 +44,11 @@
 - The front-end now loads/persists profiles, presents interactive menus and
   original costume preview sprites, and captures an owned campaign gameplay
   request through original Lua. Steam operation 2300 makes all five supplied
-  costumes available; achievement 13 gates stage/extra menus, and 9/10 gate
-  Chaos/Hell. The app currently supplies fresh achievement state. Extra launch
-  status 5 versus root status 6 remains unresolved. The memory subsystem follows
-  this front-end slice before world loading.
+  costumes available; achievement 13 still gates campaign Stage Select, and 9/10
+  gate Chaos/Hell. Concept Mission access is enabled independently by the
+  approved reconstruction policy. The app currently supplies fresh achievement
+  state. Extra launch status 5 versus root status 6 remains unresolved. Current startup memory
+  ownership is implemented; mission/world consumers extend that foundation next.
 - Platform design follows the agreed DoLittle split: single portable subsystem
   headers, shared behavior/algorithms where target-specific optimization adds no
   value, and native implementations for device/platform work. Startup

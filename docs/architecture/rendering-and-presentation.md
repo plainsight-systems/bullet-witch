@@ -16,6 +16,11 @@ owns camera behavior and screen choices; a graphics adapter owns native API call
 The distinction permits a platform port without replacing gameplay or losing
 original draw semantics in an overly small device abstraction.
 
+The [world renderer reconstruction drill-in](world-renderer-reconstruction.md)
+defines the faithful implementation baseline, D3D-to-Metal semantic boundaries,
+first-stage scope and evidence required before later optimization. Its first
+milestone is World renderer foundation, with first visible level as acceptance.
+
 ## Shared contracts and native implementations
 
 The chosen platform split follows DoLittle: one portable contract header for a

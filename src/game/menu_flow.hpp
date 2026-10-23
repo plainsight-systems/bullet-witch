@@ -6,12 +6,17 @@
 // completion publishes a value, never a mission instance or borrowed save.
 // Algorithm: establish page rows from profile availability, apply one pressed
 // action/repeated direction, then publish the selected action after
-// confirmation. Navigation wraps and skips disabled entries as original
+// confirmation. Concept missions are selectable without game completion by
+// project policy; campaign-stage and higher-difficulty gates remain injected.
+// Navigation wraps and skips disabled entries as original
 // 0x4c6570 does. Costs: bounded O(64) row/navigation work, no per-update
 // allocations. Design MCP: cpp-guidelines Enum.3 (#renum-class) keeps
 // pages/actions distinct; cpp-performance COPY.7
 // (guidelines/copy-move/COPY.7-eliminate-hidden-copies.md) uses small explicit
-// value copies and borrows the larger profile.
+// value copies and borrows the larger profile. Concept-menu policy design and
+// implementation consult I.1 (#ri-explicit): expose the intentional departure
+// here instead of coupling it to the campaign-stage flag; COPY.7 retains small
+// value inputs and bounded borrowed presentation without added copies.
 #pragma once
 #include <array>
 #include <cstddef>
@@ -25,8 +30,8 @@ class Profile;
 inline constexpr std::size_t menu_difficulty_count = 5;
 inline constexpr std::size_t menu_row_capacity = 64;
 struct MenuUnlocks {
-  // Progression gates are supplied separately from installed-content
-  // availability.
+  // Campaign progression gates are separate from installed-content
+  // availability. Concept-menu access does not consume a progression gate.
   std::array<bool, menu_difficulty_count> difficulties{true, true, true};
   bool stage_select{};
 };

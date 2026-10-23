@@ -77,7 +77,9 @@ gates. Asset existence alone is not an unlock policy.
 
 The Steam build separates **installed extra content** from **achievement-based
 menu gates**. Earlier research called the 0x470dc0 table generic content
-availability. Its producer identifies it as an achievement snapshot.
+availability. Its producer identifies it as an achievement snapshot. The
+recovered behavior below is unchanged evidence; the reconstruction now
+[intentionally removes only the concept-menu completion gate](front-end-menu-policy.md#reconstruction-policy-concept-access-without-game-completion).
 
 `0x4c2950` handles successful UserStats receipt. The already mapped context
 +0x14 is `SteamUserStats011`; the callback gets the achievement count (slot

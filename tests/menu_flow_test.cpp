@@ -6,7 +6,9 @@
 // (#renum-class), SL.con.3 (#rsl-bounds), performance COPY.7
 // (guidelines/copy-move/COPY.7-eliminate-hidden-copies.md) use explicit values
 // and references. This does not establish visual fidelity or gameplay
-// execution.
+// execution. Concept-menu change design/implementation: I.1 (#ri-explicit)
+// verifies the explicit policy independently from campaign gates; COPY.7
+// retains borrowed presentations and small action values.
 #include "game/menu_flow.hpp"
 
 #include <stdexcept>
@@ -35,8 +37,11 @@ void navigation_and_new_game() {
   require(flow.presentation().selected == 3,
           "Navigation skips unavailable stage select");
   down(flow);
-  require(flow.presentation().selected == 5,
-          "Navigation skips unavailable extra entry");
+  require(flow.presentation().selected == 4 &&
+              flow.presentation().rows.at(4).enabled,
+          "Fresh profiles can enter concept missions without game completion");
+  down(flow);
+  require(flow.presentation().selected == 5, "Quit follows concept missions");
   down(flow);
   accept(flow);
   require(flow.presentation().page == bw::game::MenuPage::difficulty &&
@@ -49,6 +54,32 @@ void navigation_and_new_game() {
   cancel(flow);
   require(flow.selection() && flow.selection()->original_status == 1,
           "Published selection is immutable until restart");
+
+  // Concept selection leaves campaign progression and difficulty gates intact.
+  flow.start();
+  require(!flow.presentation().rows.at(2).enabled,
+          "Concept access does not unlock campaign stage select");
+  down(flow);
+  down(flow);
+  down(flow);
+  accept(flow);
+  require(flow.presentation().page == bw::game::MenuPage::extra &&
+              flow.presentation().count == 18 &&
+              flow.presentation().rows.at(1).compatibility_id == 1 &&
+              flow.presentation().rows.at(6).compatibility_id == 16,
+          "Fresh profile exposes only the original supplied mission groups");
+  down(flow);
+  accept(flow);
+  require(flow.presentation().page == bw::game::MenuPage::difficulty &&
+              flow.presentation().count == 3,
+          "Concept access does not unlock Chaos or Hell");
+  accept(flow);
+  require(
+      flow.selection() &&
+          flow.selection()->action == bw::game::MenuAction::concept_mission &&
+          flow.selection()->stage == 1 &&
+          flow.selection()->original_status == 5,
+      "One Shot Kill is selectable without inventing a working Lua handoff");
 }
 void continue_and_back() {
   bw::game::Profile profile;

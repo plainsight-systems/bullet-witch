@@ -34,16 +34,35 @@ The subsequent save-service trace resolves an important distinction. Runtime
 IDs 9, 10 and 13 are populated by Steam UserStats achievement callback
 `0x4c2950`, not by checking whether DLC archives exist. The corresponding
 interface context contains `STEAMUSERSTATS_INTERFACE_VERSION011`. The portable
-menu therefore takes an explicit achievement snapshot (`MenuUnlocks`); a local
-asset catalog must not silently enable those choices.
+menu therefore takes an explicit achievement snapshot (`MenuUnlocks`). The
+reconstruction departure below removes only concept-menu access from that
+gating; a local asset catalog must not silently enable campaign progression.
 
 `0x4c31b0` unconditionally writes value 2 for costume IDs 1–5, and for extra
 mission IDs 0–5, 16–21 and 32–37. Save-service operation 2300, requested by
 `0x471aa0`, invokes this updater before the relevant menu children. This is the
 Steam content policy the user expected: costume selection is not tied to the
-ending bonus unlock. Availability of the extra-mission main entry remains a
-separate achievement gate. See the profile persistence research for exact
-initialization and serialization handling.
+ending bonus unlock. In the original, availability of the extra-mission main
+entry is a separate achievement gate. See the profile persistence research for
+exact initialization and serialization handling.
+
+## Reconstruction policy: concept access without game completion
+
+On October 23, 2026, the user requested removing the completion lock so the
+concept missions can be used for reconstruction, starting with One Shot Kill.
+`MenuFlow` now enables the Concept Mission / Extra Missions main-menu entry
+independently of `MenuUnlocks::stage_select`. This is an intentional departure
+from the original achievement-13 gate, not a claim that Steam supplies an
+unlocked achievement or that the native game lacked this check.
+
+Campaign Stage Select and Chaos/Hell retain their existing progression gates.
+The child list still uses the recovered content refresh and availability bytes;
+no extra IDs are fabricated and no original assets, Lua or save achievements
+are patched. In-process tests navigate a fresh profile into the 18 supplied
+mission choices, select One Shot Kill (ID 1), and verify the other gates remain
+closed. Selection still publishes native status 5: the unresolved root-status-6
+route and mission loading are separate work. Menu access does not establish a
+working mission handoff or native visual acceptance.
 
 ## Costume preview: sprites, independently from applying the costume
 
@@ -64,8 +83,8 @@ handoff; it does not claim to instantiate or animate the player model.
 ## Implemented ownership and limits
 
 `MenuFlow` is native game policy under `src/game/`. It borrows `Profile`, takes
-achievement availability, builds bounded presentation values, and emits
-an immutable `MenuSelection`. Storage, rendering, audio and Lua remain owned by
+campaign achievement availability, always permits concept-menu access, builds
+bounded presentation values, and emits an immutable `MenuSelection`. Storage, rendering, audio and Lua remain owned by
 their respective services. Up to 64 rows cover the original extra-mission bound.
 Profile changes set a persistence notification; callers acknowledge only after
 successful saving. Navigation and page changes allocate no heap storage.
@@ -118,7 +137,9 @@ python3 research/tools/engine_slice.py pass-menu-preview-recheck \
 
 The algorithm follows the original game code, rather than substituting a generic
 engine menu framework. Required C++ MCP design consultation retrieved Enum.3
-and COPY.7; implementation consultation additionally retrieved SL.con.3.
+and COPY.7; implementation consultation additionally retrieved SL.con.3. The
+concept-access change consulted I.1 and COPY.7 in both design and implementation:
+keep this policy explicit and retain the bounded borrowed/value representation.
 In-process contract tests verify navigation, missing checkpoint rejection,
 profile edits and selection outputs. Those tests do not establish native visual
 fidelity or mission execution; native acceptance is recorded by the parent

@@ -21,6 +21,7 @@ owner names are Cavia's original source classes.
 | [Runtime objects and ownership](runtime-model.md) | What exists at runtime, who owns it, and what survives a transition? |
 | [World, scene and simulation](world-and-simulation.md) | What is authoritative state, and how do actors, AI, animation, physics and effects cooperate? |
 | [Rendering and presentation](rendering-and-presentation.md) | How do scene/view/material/pass systems produce submitted graphics and media output? |
+| [World renderer reconstruction](world-renderer-reconstruction.md) | How does the native world renderer preserve the recovered design before measured optimization and graphics upgrades? |
 | [Movie playback redesign](../video-player-redesign.md) | How do independent media streams, consumption clocks and presentation replace the failed prototype? |
 | [Memory and residency](memory-and-residency.md) | How are allocations routed, budgeted, retained and reclaimed across CPU/GPU owners? |
 | [Execution, lifetime and memory contracts](execution-contracts.md) | Who can mutate/read state, how does work cross domains, and when can memory be reused? |
@@ -69,9 +70,12 @@ gameplay remain unimplemented.
 
 The current menu options are volumes and costume selection. Volumes persist but
 do not yet control audio gain; menu background music and cues are absent.
-Achievement-gated entries remain disabled on a fresh profile because no Steam
-achievement provider is connected. Extra-mission native status 5 versus Lua
-status 6 remains unresolved. These limits are distinct from the verified new-game
+Campaign Stage Select and Chaos/Hell difficulty remain achievement-gated on a
+fresh profile because no Steam achievement provider is connected. Concept Mission
+now bypasses its game-completion gate by explicit user decision; this is an
+intentional menu-policy departure, not fabricated completion or achievement state.
+Extra-mission native status 5 versus Lua status 6 and selected-concept resource
+routing remain unresolved. These limits are distinct from the verified new-game
 handoff and costume save/reload path. See the
 [front-end contract](../startup-runtime.md#profile-menu-and-gameplay-handoff).
 

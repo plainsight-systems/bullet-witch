@@ -1,6 +1,8 @@
 // G2: bounded native game menu selection reconstruction.
 // Inputs/ownership: MenuFlow's header contract; Profile supplies saved
-// decisions and injected unlocks supply achievement availability. All
+// decisions and injected unlocks supply campaign achievement availability.
+// Concept-menu access intentionally omits the original completion gate; child
+// mission availability still comes from the original content refresh. All
 // state is single-threaded. Failures from profile validation propagate to the
 // session. Algorithm: construct page rows, wrap/skip navigation, dispatch one
 // edge and publish an immutable original-status selection. Costume selection
@@ -11,7 +13,9 @@
 // heap allocation. MCP design: Enum.3 (#renum-class); implementation SL.con.3
 // (#rsl-bounds) checks indices via at(); performance COPY.7
 // (guidelines/copy-move/COPY.7-eliminate- hidden-copies.md) borrows profile and
-// copies only small presentation values.
+// copies only small presentation values. Concept-menu change design and
+// implementation consult I.1 (#ri-explicit) for the documented independent
+// policy and COPY.7 for retaining small inputs and borrowed profile storage.
 #include "menu_flow.hpp"
 
 #include <algorithm>
@@ -80,7 +84,9 @@ void MenuFlow::populate(MenuPage page) {
       add("Continue");
       add("Stage Select", {}, unlocks_.stage_select);
       add("Options");
-      add("Extra Missions", {}, unlocks_.stage_select);
+      // Intentional policy departure: concept access needs no campaign clear.
+      // The child page still enumerates only content marked available.
+      add("Extra Missions");
       add("Quit");
       break;
     case MenuPage::difficulty:

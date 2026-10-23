@@ -1,5 +1,13 @@
 # Remaining work
 
+- Use the selected One Shot Kill target (`cm01_00`, extra ID 1, stage `st04_c`)
+  for SRC-03. Follow the planned breakdown in `IMPLEMENTATION.md`: concept
+  launch/mission ownership, required content loading, first static stage view,
+  stage presentation, Alicia traversal, mission behavior and full outcome loop.
+  Census actual stage/placement dependencies; do not infer an enemy-free level
+  from the short Lua script. Resolve PhysX 2.6.4/cooked-collision treatment before
+  traversal, without blocking static presentation. Each slice includes its own
+  failure/cancellation/release paths and architecture updates.
 - Complete remaining front-end fidelity: wire persisted volume settings into the
   audio owner, add menu BGM/confirmation cues, reconstruct other options and
   submenu animations/localization. Keep these gaps separate from the delivered
@@ -7,9 +15,13 @@
   ordinary media-open rejection versus terminal decoder errors, and startup-wide
   initial fade state at their owning systems.
 - Resolve extra-mission native status 5 versus original root status 6 before
-  claiming a concept mission handoff. Supply achievement/progression state for
-  IDs 9/10/13; the current native app uses fresh locked state. Installed content
-  flags alone must not unlock progression gates.
+  claiming a concept mission handoff. Trace original `_StartMission("concept")`
+  through selected-extra mounting/alias resolution to `cm01_00`; do not change
+  Lua or guess a remapping. Supply achievement/progression state for
+  IDs 9/10/13 for campaign Stage Select and higher difficulties; those gates
+  still use fresh locked state. The concept-menu completion gate is intentionally
+  removed, but mission content availability and the unresolved handoff remain
+  separate. Installed content flags alone must not unlock campaign progression.
 - Continue memory reconstruction when world/AI/worker consumers are introduced.
   The current startup-owner migration is complete; the recovered AI linear mode
   is distinct from the implemented root reclaiming heap. Establish reset and

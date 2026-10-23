@@ -269,8 +269,11 @@ are distinct evidence, not additional unit-test counts. See
 [front-end integration](../research/engine/subsystems/frontend-integration.md).
 
 The current framework has no Steam achievement provider. Fresh achievement flags
-leave stage/extra and Chaos/Hell entries gated; installed archives do not unlock
-them. The recovered Steam refresh makes all five extra costumes available and
+leave campaign Stage Select and Chaos/Hell entries gated; installed archives
+do not unlock them. Concept Mission access is enabled independently under the
+[user-approved reconstruction policy](../research/engine/subsystems/front-end-menu-policy.md#reconstruction-policy-concept-access-without-game-completion).
+That menu-policy change has in-process coverage, not a new native acceptance
+run. The recovered Steam refresh makes all five extra costumes available and
 supplies the 18 extra-mission availability entries, but native extra result 5
 versus original Lua result 6 remains unresolved. Neither automatic verification
 nor this native run claims extra-mission launch or gameplay execution.
