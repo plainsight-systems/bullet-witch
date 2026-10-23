@@ -49,10 +49,12 @@ class PcmBuffer {
   static constexpr std::size_t kSegmentCapacity = 1024;
   explicit PcmBuffer(std::size_t frames,
                      const memory::Allocator<float>& allocator = {});
+  // One producer publishes timestamped spans; one consumer releases them.
   std::size_t write(std::span<const float> source,
                     double timestamp_seconds) noexcept;
   PcmRead read(std::span<float> destination) noexcept;
   bool writable() const noexcept;
+  // Observers see a bounded estimate, not a coherent playback snapshot.
   std::size_t available() const noexcept;
   std::uint64_t consumed_frames() const noexcept;
   std::size_t capacity() const noexcept;

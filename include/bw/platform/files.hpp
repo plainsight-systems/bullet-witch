@@ -33,6 +33,7 @@ class Files {
   Files& operator=(const Files&) = delete;
   Files(Files&&) = delete;
   Files& operator=(Files&&) = delete;
+  // Returned bytes are owned; no file or borrowed buffer escapes the call.
   virtual resources::Bytes read(const std::filesystem::path& path) const = 0;
   // Compatibility adapters may copy legacy read results. HostFiles overrides
   // this entry to read directly into the final domain-owned buffer.
@@ -43,6 +44,7 @@ class Files {
     return {source.begin(), source.end(),
             memory::Allocator<std::uint8_t>(std::move(domain))};
   }
+  // Resolve a location for containment checks; this does not lock the path.
   virtual std::filesystem::path canonical(
       const std::filesystem::path& path) const = 0;
 };

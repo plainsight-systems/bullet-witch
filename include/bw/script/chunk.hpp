@@ -20,6 +20,7 @@
 #include "bw/formats/common.hpp"
 #include "bw/memory/allocator.hpp"
 namespace bw::script {
+// Convert serialized ABI widths only; loading and execution belong to Context.
 std::string host_chunk(std::span<const std::uint8_t> bytes);
 memory::String host_chunk(std::span<const std::uint8_t> bytes,
                           const std::shared_ptr<memory::Domain>& domain);

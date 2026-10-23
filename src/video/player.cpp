@@ -67,6 +67,7 @@ struct Player::State {
   State(State&&) = delete;
   State& operator=(State&&) = delete;
   void stop() noexcept {
+    // Retire the borrowing audio consumer before destroying its decoder.
     output.audio().stop();
     if (decoder) {
       decoder->stop();
@@ -81,6 +82,7 @@ struct Player::State {
     audio = {};
   }
   void select() {
+    // Keep the newest due frame and retain at most one future frame.
     std::optional<VideoFrame> due;
     while (!video_ended) {
       if (!pending) {
@@ -122,6 +124,7 @@ struct Player::State {
     }
   }
   void finish() {
+    // Decoded EOF alone is insufficient: the last upload must remain visible.
     const bool final_presented =
         stats.uploaded_frames != 0 && drawn_upload == stats.uploaded_frames &&
         wall_time - last_presented_at >= selected_duration;
@@ -165,6 +168,7 @@ void Player::open(const std::filesystem::path& path) {
   if (!state.decoder) {
     throw std::runtime_error("Movie factory returned no decoder");
   }
+  // Prime both streams before preparing output; the first draw starts audio.
   state.decoder->wait_until_ready(state.limits.prime_audio_frames);
   state.stats.prebuffer_seconds = elapsed(prime_started);
   state.opened = Clock::now();
@@ -189,6 +193,8 @@ void Player::advance(float wall_delta) {
   const auto previous = state.media_time;
   if (state.started) {
     state.wall_time += wall_delta;
+    // Played audio owns the clock until drain; wall time carries any video
+    // tail.
     if (state.decoder->metadata().has_audio && !state.audio_drained) {
       const auto snapshot = state.output.audio().snapshot();
       if (snapshot.failure_code != 0) {
@@ -213,6 +219,7 @@ void Player::advance(float wall_delta) {
 void Player::draw(float opacity) {
   auto& state = *state_;
   const auto before = Clock::now();
+  // A rejected draw cannot start playback or satisfy final-frame presentation.
   if (state.output.draw(opacity) && state.decoder) {
     if (state.drawn_upload != state.stats.uploaded_frames) {
       state.drawn_upload = state.stats.uploaded_frames;

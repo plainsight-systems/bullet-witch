@@ -21,6 +21,7 @@ class TitleSurface {
   TitleSurface& operator=(const TitleSurface&) = delete;
   TitleSurface(TitleSurface&&) = delete;
   TitleSurface& operator=(TitleSurface&&) = delete;
+  // Readiness includes decoded/device assets, not just encoded publication.
   virtual void begin() = 0;
   virtual bool ready() = 0;
   virtual void show(bool visible, TitlePresentation presentation) = 0;

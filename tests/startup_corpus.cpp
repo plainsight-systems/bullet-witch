@@ -149,6 +149,8 @@ void reconstructed_session(bw::resources::ResourceService& resources) {
                                      resources.memory_domain());
     session.start_root(resources, 2);
     bw::script::RunResult result{bw::script::RunState::idle, {}};
+    // Navigate the real menu policy to costume selection and an owned mission
+    // request.
     for (unsigned frame = 0; frame < 2000; ++frame) {
       std::uint32_t pressed = 0x1010;
       std::uint32_t repeated = 0;
@@ -317,6 +319,8 @@ int main(int argc, char** argv) {
       reconstructed_session(resources);
     }
 #if BW_TEST_MACOS_MEMORY
+    // Inspect charges only after catalogs, sessions and retained publications
+    // retire.
     const auto memory = resource_memory->snapshot();
     if (memory.live_allocations != 0 || memory.live_bytes != 0 ||
         memory.backing_bytes != 0 || memory.pending_bytes != 0 ||

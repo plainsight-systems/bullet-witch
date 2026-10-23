@@ -49,6 +49,7 @@ Image decode_png(std::span<const std::uint8_t> encoded, ImageLimits limits,
                                                   13,  10, 26, 10};
   constexpr std::array<std::uint8_t, 4> header{'I', 'H', 'D', 'R'};
   constexpr std::size_t minimum_header = 33;
+  // Reject encoded and decoded budget violations before entering libpng.
   if (encoded.size() < minimum_header ||
       encoded.size() > limits.maximum_encoded_bytes ||
       !std::ranges::equal(encoded.first(signature.size()), signature) ||
@@ -77,6 +78,7 @@ Image decode_png(std::span<const std::uint8_t> encoded, ImageLimits limits,
                            std::string("PNG header decode failed: ") +
                                std::span(state.message).data());
   }
+  // Decode into the final owned RGBA buffer shared by all rendering backends.
   state.format = PNG_FORMAT_RGBA;
   Image output{width, height,
                memory::Vector<std::uint8_t>(

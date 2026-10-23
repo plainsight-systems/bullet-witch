@@ -18,6 +18,8 @@ class MenuSurface {
   MenuSurface& operator=(const MenuSurface&) = delete;
   MenuSurface(MenuSurface&&) = delete;
   MenuSurface& operator=(MenuSurface&&) = delete;
+  // Acquire/pump presentation assets before show; end releases this surface's
+  // use.
   virtual void begin() = 0;
   virtual bool ready() = 0;
   virtual void show(const MenuPresentation& presentation) = 0;

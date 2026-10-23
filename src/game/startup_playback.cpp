@@ -59,6 +59,8 @@ void StartupPlayback::advance(PlaybackUpdate input) {
     throw std::runtime_error("Game delta must be finite and nonnegative");
   }
   if (fade_pending()) {
+    // Recovered fades use game time; media transport advances on wall time
+    // below.
     fade_remaining_ -= game_delta;
     overlay_alpha_ =
         std::clamp(overlay_alpha_ + fade_rate_ * game_delta, 0.0F, 1.0F);

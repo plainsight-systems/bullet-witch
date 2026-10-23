@@ -25,6 +25,7 @@
 #include "bw/video/decoder.hpp"
 
 namespace bw::video::ffmpeg {
+// Capture the domain for worker storage and samples retained by the caller.
 std::unique_ptr<Decoder> open_decoder_in_domain(
     const std::filesystem::path& path, std::shared_ptr<memory::Domain> domain,
     DecoderLimits limits = {});

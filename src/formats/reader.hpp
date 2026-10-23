@@ -37,6 +37,7 @@ constexpr std::uint32_t kNoIndex = 0xffffffff;
 }
 struct Reader {
   std::span<const std::uint8_t> b;
+  // Subtract before comparing extents so malformed sizes cannot wrap the bound.
   void range(std::uint64_t offset, std::uint64_t size) const {
     if (offset > b.size() || size > b.size() - offset) {
       malformed("Range exceeds file at offset " + std::to_string(offset));
@@ -85,6 +86,7 @@ struct Reader {
                                            std::uint32_t offset) const {
     return offset ? std::optional(text(pool, offset)) : std::nullopt;
   }
+  // A section-relative reference must fit both its section and the byte owner.
   void within(Range section, std::uint64_t offset, std::uint64_t size) const {
     if (offset > section.size || size > section.size - offset) {
       malformed("Range exceeds section at offset " +

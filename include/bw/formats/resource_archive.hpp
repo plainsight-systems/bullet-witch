@@ -74,6 +74,7 @@ class ResourceArchive {
   const auto& records() const { return records_; }
   const auto& argument_table() const { return arguments_; }
   std::span<const std::uint8_t> bytes() const { return bytes_; }
+  // Borrow the selected checked range; an absent payload yields an empty span.
   std::span<const std::uint8_t> payload(std::size_t record_index) const;
 
  private:

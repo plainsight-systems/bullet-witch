@@ -67,6 +67,8 @@ void MenuFlow::add(std::string_view label, std::string_view value,
   ++presentation_.count;
 }
 void MenuFlow::populate(MenuPage page) {
+  // Rows describe policy choices; asset lookup and drawing belong to the
+  // surface.
   presentation_ = {};
   presentation_.page = page;
   switch (page) {
@@ -157,6 +159,7 @@ void MenuFlow::navigate(int direction) {
   if (count == 0 || direction == 0) {
     return;
   }
+  // Bound wraparound even when every row is disabled.
   for (std::size_t attempts = 0; attempts < count; ++attempts) {
     if (direction < 0) {
       presentation_.selected =
@@ -296,6 +299,7 @@ void MenuFlow::update(MenuInput input) {
   if (selection_) {
     return;
   }
+  // Apply one action per update; cancellation takes precedence over acceptance.
   if ((input.pressed & cancel_mask) != 0) {
     cancel();
   } else if ((input.pressed & confirm_mask) != 0) {

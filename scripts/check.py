@@ -59,6 +59,7 @@ def main():
     build = args.build_dir.resolve()
     if not build.is_relative_to(ROOT / 'build'):
         parser.error('--build-dir must be under this repository\'s ignored build/')
+    # Run gates in dependency order; a failed command stops the remaining checks.
     if args.action in ('format', 'all'):
         format_sources(args.fix)
     if args.action in ('host', 'all', 'corpus'):

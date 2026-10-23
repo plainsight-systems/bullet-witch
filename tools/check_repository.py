@@ -31,6 +31,7 @@ def check(entries):
         elif mode not in (b'100644', b'100755'):
             reason = 'link or embedded repository'
         else:
+            # Content is shared by object ID; path policy still applies to every entry.
             if oid not in checked:
                 size = int(git('cat-file', '-s', oid.decode()))
                 if size > MAX_BYTES:

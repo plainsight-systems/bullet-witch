@@ -77,9 +77,13 @@ class ResourceService {
   ResourceService(CatalogSet catalogs, const platform::Files& files,
                   std::shared_ptr<memory::Domain> domain);
   auto memory_domain() const { return allocator_.domain(); }
+  // Register dependency interests, then advance encoded readiness one phase at
+  // a time.
   void request(std::string_view name, ResourceTag tag);
   LoadReport pump(ResourceTag tag);
   LoadReport status(std::string_view name) const;
+  // Leases retain encoded storage independently of the requesting tag's
+  // lifetime.
   std::optional<ResourceLease> acquire(std::string_view name) const;
   void release(ResourceTag tag);
 

@@ -45,6 +45,7 @@ struct FontGlyph {
 };
 class BitmapFont {
  public:
+  // Decode owned metadata once; glyph lookup returns an independent value.
   static BitmapFont parse(std::span<const std::uint8_t> encoded,
                           const memory::Allocator<std::byte>& allocator = {});
   std::optional<FontGlyph> glyph(char16_t codepoint) const;

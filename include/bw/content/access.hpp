@@ -51,6 +51,8 @@ resources::ResourceCatalog open_catalog(const platform::Files& files,
 resources::ResourceCatalog open_catalog(const platform::Files& files,
                                         const std::filesystem::path& path,
                                         std::shared_ptr<memory::Domain> domain);
+// Resolve beneath the catalog directory; canonicalization is not a race-proof
+// sandbox.
 std::filesystem::path archive_path(const platform::Files& files,
                                    const resources::MountedCatalog& catalog,
                                    std::size_t index);

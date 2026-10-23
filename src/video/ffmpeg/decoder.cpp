@@ -206,6 +206,7 @@ class CodecStream {
                      origin_seconds_;
   }
   VideoFrame convert_video() {
+    // Keep stream dimensions fixed; the first frame establishes pixel format.
     validate_video(frame_->width, frame_->height);
     if (frame_->width != video_width_ || frame_->height != video_height_) {
       throw std::runtime_error("movie video dimensions changed");
@@ -224,6 +225,8 @@ class CodecStream {
     if (frame_->format != video_format_) {
       throw std::runtime_error("movie video pixel format changed");
     }
+    // Build a caller-owned frame with its source timestamp and display
+    // interval.
     VideoFrame output;
     output.bgra = memory::Vector<std::uint8_t>(allocator_);
     output.width = static_cast<std::uint32_t>(frame_->width);
@@ -278,6 +281,7 @@ class CodecStream {
     if (frame_->format != audio_format_) {
       throw std::runtime_error("movie audio sample format changed");
     }
+    // Anchor PCM to explicit PTS while accounting for converter-held samples.
     const auto delay = swr_get_delay(resample_.get(), frame_->sample_rate);
     const double input_start = timestamp(true, audio_input_end_seconds_);
     if (frame_->pts != AV_NOPTS_VALUE) {
@@ -327,6 +331,7 @@ class CodecStream {
     return output;
   }
   std::optional<AudioChunk> drain_audio() {
+    // Codec EOF still leaves resampler output to publish on the same timeline.
     if (!resample_ || resampler_eof_) {
       return std::nullopt;
     }
@@ -391,6 +396,7 @@ DecoderLimits valid_limits(DecoderLimits limits) {
   return limits;
 }
 std::size_t packet_bytes(const AVPacket& packet, std::size_t limit) {
+  // Charge packet descriptors, retained payload and side data together.
   if (packet.size < 0 || packet.side_data_elems < 0) {
     throw std::runtime_error("invalid compressed movie packet");
   }
@@ -421,6 +427,7 @@ class FfmpegState {
         video_packets_(limits_.stream_compressed_packets, allocator_),
         audio_packets_(limits_.stream_compressed_packets, allocator_),
         video_output_(limits_.video_slots, allocator_) {
+    // Probe and acquire immutable stream metadata before starting workers.
     if (!std::filesystem::is_regular_file(path)) {
       throw std::runtime_error("movie input must be a local regular file");
     }
@@ -480,6 +487,7 @@ class FfmpegState {
     } else {
       audio_finished_.store(true, std::memory_order_release);
     }
+    // Transfer each codec/input owner to its worker; unwind partial startup.
     try {
       video_worker_ = std::thread([this, stream = std::move(video)]() mutable {
         guarded([&] { run_video(*stream); });
@@ -508,6 +516,7 @@ class FfmpegState {
   FfmpegState& operator=(FfmpegState&&) = delete;
   const DecoderMetadata& metadata() const noexcept { return metadata_; }
   VideoPoll poll_video() {
+    // Move ownership out of the bounded queue before waking blocked producers.
     VideoPoll result;
     {
       const std::lock_guard lock(mutex_);
@@ -552,6 +561,7 @@ class FfmpegState {
     return audio_finished_.load(std::memory_order_acquire);
   }
   void wait_until_ready(std::size_t audio_frames) {
+    // Prime video and PCM together; true stream end also satisfies readiness.
     if (audio_frames > pcm_.capacity()) {
       throw std::invalid_argument("movie prime target exceeds PCM capacity");
     }
@@ -582,6 +592,7 @@ class FfmpegState {
     return diagnostics_;
   }
   void stop() noexcept {
+    // Wake capacity/input waits and interrupt demux before joining every owner.
     stopping_.store(true, std::memory_order_release);
     terminal_.store(DecodeState::stopped, std::memory_order_release);
     changed_.notify_all();
@@ -603,6 +614,7 @@ class FfmpegState {
   }
   template <typename Work>
   void guarded(Work&& work) noexcept {
+    // Contain worker exceptions, publish failure to consumers and cancel peers.
     try {
       std::forward<Work>(work)();
     } catch (...) {
@@ -627,6 +639,7 @@ class FfmpegState {
            (audio_packets_.in_flight_bytes != 0 ? 1U : 0U);
   }
   void reject_stall() const {
+    // Detect interleaving that cannot progress within the compressed budget.
     const auto audio_needed = priming_ ? prime_target_ : std::size_t{1};
     const bool video_full =
         video_count_ == video_output_.size() ||
@@ -723,6 +736,8 @@ class FfmpegState {
     }
   }
   Packet next_packet(PacketQueue& queue) {
+    // Dequeued packets remain charged while their codec submission is in
+    // flight.
     PacketEntry entry;
     {
       std::unique_lock lock(mutex_);
@@ -748,6 +763,8 @@ class FfmpegState {
   }
   bool advance_codec(CodecStream& stream, PacketQueue& queue,
                      CodecProgress& progress) {
+    // Exhausted input sends the null drain packet once; bound no-output
+    // progress.
     if (progress.draining) {
       throw std::runtime_error("movie codec failed to drain");
     }
@@ -789,6 +806,7 @@ class FfmpegState {
       }
       checked(received, "decode movie video");
       progress.without_output = 0;
+      // Admit the next frame under the queue budget before allocating pixels.
       {
         std::unique_lock lock(mutex_);
         video_packets_.waiting_output = true;
@@ -806,6 +824,7 @@ class FfmpegState {
         diagnostics_.video_peak_bytes = std::max(
             diagnostics_.video_peak_bytes, (video_count_ + 1) * frame_bytes_);
       }
+      // Codec conversion runs outside the bookkeeping lock.
       auto frame = stream.convert_video();
       stream.release_frame();
       {
@@ -819,6 +838,7 @@ class FfmpegState {
     }
   }
   bool publish_audio(const AudioChunk& chunk) {
+    // Backpressure may split a chunk; each published span keeps its own PTS.
     std::size_t offset = 0;
     const auto samples = std::span<const float>(chunk.samples);
     while (offset < samples.size()) {
@@ -852,6 +872,7 @@ class FfmpegState {
     while (!stopping_.load(std::memory_order_acquire)) {
       const int received = stream.receive();
       if (received == AVERROR_EOF) {
+        // Publish converter-held tail samples before exposing audio completion.
         while (auto tail = stream.drain_audio()) {
           if (!publish_audio(*tail)) {
             return;

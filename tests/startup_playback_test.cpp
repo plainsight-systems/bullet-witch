@@ -138,6 +138,7 @@ void audio_metadata_and_drain() {
   player.advance(1);
   require(!player.complete(),
           "Consumed time alone does not replace actual output drain");
+  // Device drain is a separate completion gate from the consumed-frame clock.
   output.device.value.drained = true;
   player.advance(0);
   require(player.complete() && player.statistics().played_audio_frames == 48000,

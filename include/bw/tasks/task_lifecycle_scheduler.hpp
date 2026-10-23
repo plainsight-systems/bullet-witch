@@ -56,10 +56,12 @@ class TaskLifecycleScheduler {
       : tasks_(memory::Allocator<std::pair<const Key, Task>>(domain)),
         order_(memory::Allocator<Key>(std::move(domain))) {}
   TaskId add(int priority, Hooks hooks);
+  // Queue a lifecycle target; callbacks run when the owning thread next ticks.
   void request(TaskId id, State target);
   void enable(TaskId id, bool enabled);
   State state(TaskId id) const;
   bool contains(TaskId id) const;
+  // Settle lifecycle transitions, then run active and optional late passes.
   void tick(bool late_pass = true);
 
  private:

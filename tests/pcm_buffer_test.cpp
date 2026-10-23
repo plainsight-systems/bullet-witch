@@ -33,6 +33,8 @@ void domain_storage_lifetime_and_callback_gate() {
     require(domain->snapshot().live_bytes > 0, "PCM storage is domain charged");
     domain.reset();
     require(!owner.expired(), "PCM ring retains its original domain");
+    // Deny all further allocation after setup to expose callback-time storage
+    // use.
     const auto attempts = backing->attempts.load();
     backing->reject.store(true);
     const std::array<float, 4> input{1, -1, 2, -2};
@@ -132,6 +134,7 @@ void concurrent_handoff() {
             1e-12;
     ++count;
   }
+  // Release a producer stalled on capacity before asserting a timeout failure.
   stop.store(true);
   producer.join();
   require(valid && count == total,

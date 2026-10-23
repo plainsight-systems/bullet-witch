@@ -27,6 +27,7 @@
 
 namespace bw::game {
 struct PlaybackUpdate {
+  // Separate transport time from game-controlled fade progression.
   float wall_delta{};
   float game_delta{};
 };

@@ -117,6 +117,8 @@ Profile::Profile() {
   }
 }
 ProfileResult Profile::load(platform::SaveStorage& storage) {
+  // Validate a complete candidate so failed reads leave the active profile
+  // intact.
   Profile candidate;
   auto system = storage.read(kSystem, candidate.system_.size());
   if (system.status == platform::SaveStatus::ok) {
@@ -157,6 +159,8 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
   return {};
 }
 ProfileResult Profile::save(platform::SaveStorage& storage) {
+  // Clear dirtiness per successful file replacement, not as a multi-file
+  // commit.
   if (system_dirty_) {
     const auto status = storage.write(kSystem, system_);
     if (status != platform::SaveStatus::ok) {

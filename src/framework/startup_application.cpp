@@ -110,6 +110,8 @@ int run_startup(const StartupOptions& configuration,
     throw std::invalid_argument(
         "Startup requires resource, runtime and media domains");
   }
+  // Mount read-only catalogs before constructing the owners that request from
+  // them.
   bw::resources::CatalogSet catalogs(memory.resources);
   const auto catalog_path = configuration.game / "data/data/stable/stable.rat";
   constexpr int kStableCatalogPriority = 30;
@@ -128,6 +130,8 @@ int run_startup(const StartupOptions& configuration,
   }
   bw::resources::ResourceService resources(std::move(catalogs), files,
                                            memory.resources);
+  // Declaration order keeps services alive through reverse-order session
+  // teardown.
   bw::game::StartupPlayback playback(host, configuration.game,
                                      std::move(open_decoder), memory.media);
   // Original selector seeds MSVCRT rand with platform milliseconds per title
@@ -172,6 +176,8 @@ int run_startup(const StartupOptions& configuration,
     longest_tick = std::max(longest_tick, wall_delta);
     previous_tick = tick;
     next_tick += target_period;
+    // Rebase after a missed deadline instead of running a burst of catch-up
+    // ticks.
     if (next_tick <= tick) {
       next_tick = tick + target_period;
     }
@@ -188,6 +194,8 @@ int run_startup(const StartupOptions& configuration,
       }
       return 0;
     }
+    // Advance transport before game policy observes completion and selects
+    // draws.
     playback.advance({.wall_delta = wall_delta, .game_delta = game_delta});
     if (configuration.verify &&
         playback.completed_movies() != reported_movies) {
@@ -234,6 +242,8 @@ int run_startup(const StartupOptions& configuration,
     }
     if (session.quit_requested()) return 0;
     if (session.gameplay_request()) {
+      // Stop at the owned handoff boundary until a world-loading consumer
+      // exists.
       const auto& request = *session.gameplay_request();
       std::cout << "{\"status\":\"gameplay_request_ready\",\"mission\":\""
                 << request.mission << "\",\"stage\":" << request.selection.stage

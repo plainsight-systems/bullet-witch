@@ -107,6 +107,8 @@ struct StartupTitleSurface::State {
   State(State&&) = delete;
   State& operator=(State&&) = delete;
   void end() noexcept {
+    // Withdraw draws before releasing textures, then drop encoded resource
+    // interests.
     renderer.clear_sprites();
     while (texture_count > 0) {
       renderer.release_texture(textures.at(--texture_count));
@@ -228,6 +230,8 @@ bool StartupTitleSurface::ready() {
     throw std::logic_error("Title resources not requested");
   }
   if (state.phase == State::Phase::title && state.pump(kTitleTag)) {
+    // Construct title assets before requesting the separately selected loading
+    // image.
     state.construct_title();
     const auto selected = state.choose_loading();
     constexpr unsigned loading_count = 10;
@@ -293,6 +297,8 @@ void StartupTitleSurface::show(bool visible, TitlePresentation presentation) {
       static_cast<float>(state.metrics.value().atlas_width());
   const auto atlas_height =
       static_cast<float>(state.metrics.value().atlas_height());
+  // Convert original glyph metrics/channel coverage into the shared sprite
+  // commands.
   auto cursor = text_left;
   for (const auto codepoint : kVersion) {
     const auto glyph = state.metrics->glyph(codepoint);

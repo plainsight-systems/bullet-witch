@@ -30,7 +30,10 @@ struct ProfileResult {
 class Profile {
  public:
   Profile();
+  // Replace the active profile only after all available files validate.
   ProfileResult load(platform::SaveStorage& storage);
+  // Persist dirty System/Record files independently; checkpoints remain
+  // read-only.
   ProfileResult save(platform::SaveStorage& storage);
   unsigned current_difficulty() const;
   void set_current_difficulty(unsigned value);

@@ -60,6 +60,7 @@ struct Range {
   std::uint64_t pcm_begin{};
   RangeKind kind{};
 };
+// Version atomic fields together so readers reject overlapping publications.
 struct Published {
   std::atomic<std::uint64_t> sequence{}, submitted{}, played{}, initial{}, maintenance{},
       underruns{};
@@ -126,6 +127,7 @@ struct MediaAudio::State {
     worker = std::thread([this] { run(); });
     initialized.wait(false);
   }
+  // Join the sole native owner before releasing its borrowed PCM source.
   ~State() {
     stop_requested.store(true);
     if (worker.joinable()) {
@@ -150,6 +152,7 @@ struct MediaAudio::State {
       state.fill(buffer);
     }
   }
+  // Device progress advances media only through scheduled non-maintenance ranges.
   void retire(double device_time) noexcept {
     while (range_count != 0) {
       const auto& range = std::span{ranges}[range_head];
@@ -175,6 +178,7 @@ struct MediaAudio::State {
     if (!started || current.failure_code != 0) {
       return;
     }
+    // Native sample time is authoritative; reject discontinuities and regressions.
     AudioTimeStamp stamp{};
     Boolean discontinuity = false;
     const auto result = AudioQueueGetCurrentTime(queue, timeline, &stamp, &discontinuity);
@@ -232,6 +236,7 @@ struct MediaAudio::State {
       leading_frames -= count;
       add(count, RangeKind::initial);
     }
+    // Resume PCM only after reprime or EOF, keeping starvation out of media time.
     if (current.buffering &&
         (source.buffered_audio_frames() >= prime_frames || source.audio_ended())) {
       current.buffering = false;
@@ -266,6 +271,7 @@ struct MediaAudio::State {
         return;
       }
     }
+    // Maintenance silence keeps the device fed without advancing the media clock.
     if (filled < kBlockFrames && !ending) {
       if (piece_count == pieces.size()) {
         current.failure_code = kMappingFailure;
@@ -298,6 +304,7 @@ struct MediaAudio::State {
       current.failure_code = kNativeGap;
       return;
     }
+    // Anchor each segment to the actual enqueue time, not callback arrival time.
     for (std::size_t index = 0; index < piece_count; ++index) {
       auto piece = std::span{pieces}[index];
       piece.device_begin += actual.mSampleTime;
@@ -311,6 +318,7 @@ struct MediaAudio::State {
       current.failure_code = kSourceFailure;
       return false;
     }
+    // Preserve a positive stream origin with scheduled initial silence.
     leading_frames = static_cast<std::size_t>(std::llround(origin * kRate));
     AudioStreamBasicDescription format{};
     format.mSampleRate = kRate;
@@ -348,6 +356,7 @@ struct MediaAudio::State {
         }
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, kServicePeriod, true);
         observe();
+        // EOF requests a native drain; completion waits for queued sound to finish.
         if (ending && started && !drain_requested) {
           drain_requested = status(AudioQueueStop(queue, false));
         }
@@ -365,6 +374,7 @@ struct MediaAudio::State {
         published.store(current);
       }
     }
+    // Retire callbacks on their owner before publishing its final snapshot.
     if (queue != nullptr) {
       (void)AudioQueueStop(queue, true);
       // AudioQueueDispose also disposes its associated timeline (Apple contract).
@@ -382,6 +392,7 @@ void MediaAudio::prepare(video::Decoder& source, std::size_t prime_frames) {
   if (prime_frames == 0 || !source.metadata().has_audio) {
     throw std::invalid_argument("Audio preparation requires a source and prime target");
   }
+  // Publish only a prepared owner; failure joins and releases the temporary state.
   auto prepared = std::allocate_shared<State>(allocator_, source, prime_frames);
   if (prepared->published.load().failure_code != 0) {
     throw std::runtime_error("Native audio preparation failed: " +

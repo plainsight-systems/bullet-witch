@@ -77,6 +77,7 @@ DeviceCharge DeviceBudget::reserve(std::size_t logical_bytes,
   auto owner = shared_from_this();
   const std::lock_guard lock(mutex_);
   const auto count = stats_.pending_resources + stats_.live_resources;
+  // Pending native acquisitions consume admission capacity alongside live ones.
   if (logical_bytes > limits_.max_logical_bytes - stats_.pending_logical_bytes -
                           stats_.live_logical_bytes ||
       estimated_native_bytes > limits_.max_native_bytes -
@@ -96,6 +97,8 @@ DeviceCharge DeviceBudget::reserve(std::size_t logical_bytes,
 void DeviceBudget::commit(DeviceCharge& charge, std::size_t reported) {
   const std::lock_guard lock(mutex_);
   const auto other_pending = stats_.pending_native_bytes - charge.native_;
+  // Replace this estimate only if the reported size fits with all other
+  // charges.
   if (reported >
       limits_.max_native_bytes - stats_.live_native_bytes - other_pending) {
     rejected(stats_);
@@ -113,6 +116,7 @@ void DeviceBudget::commit(DeviceCharge& charge, std::size_t reported) {
 }
 void DeviceBudget::release(const DeviceCharge& charge) noexcept {
   const std::lock_guard lock(mutex_);
+  // The same token handles acquisition rollback and post-retirement release.
   if (charge.committed_) {
     stats_.live_logical_bytes -= charge.logical_;
     stats_.live_native_bytes -= charge.native_;

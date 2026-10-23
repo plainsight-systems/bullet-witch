@@ -9,6 +9,7 @@ while u32(a):
  name=string(u32(a));ids=struct.unpack('<4H',raw(a+4,8));row={'name':name,'record':hex(a),'S':{'vs':ids[0],'ps':ids[1]},'T':{'vs':ids[2],'ps':ids[3]}}
  rows.append(row);used.update(ids);a+=12
  assert len(rows)<2000
+# Registry pointers bound discovery; instruction lengths delimit each shader body.
 shaders=[]
 for i in range((registry-cache)//8):
  p=u32(cache+i*8);version=u32(p);assert version in (0xfffe0300,0xffff0300)

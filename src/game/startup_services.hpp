@@ -52,6 +52,7 @@
 
 namespace bw::game {
 struct GameplayRequest {
+  // Owned handoff data; capturing this request does not yet load a world.
   std::string mission;
   MenuSelection selection;
   std::vector<std::byte> checkpoint;
@@ -76,6 +77,7 @@ class StartupSession final : public StartupServices {
   bool window_close_enabled() const { return window_close_enabled_; }
   double global(int slot) const override;
   void set_global(int slot, double value) override;
+  // Register screen work; pending waits for activation and eventual idle state.
   void execute(Screen screen) override;
   bool pending(Screen screen) override;
   double status(Screen screen) const override;

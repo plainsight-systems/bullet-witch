@@ -38,6 +38,7 @@ class Allocator {
   using propagate_on_container_swap = std::true_type;
   using is_always_equal = std::false_type;
 
+  // Default construction selects the legacy path; domain exhaustion never does.
   Allocator() noexcept = default;
   explicit Allocator(std::shared_ptr<Domain> domain)
       : domain_(std::move(domain)) {
@@ -51,6 +52,7 @@ class Allocator {
   Allocator(const Allocator<U>& other) noexcept : domain_(other.domain()) {}
 
   [[nodiscard]] T* allocate(std::size_t count) {
+    // Check the element-to-byte conversion before entering either storage path.
     if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_array_new_length();
     }

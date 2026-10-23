@@ -58,11 +58,15 @@ class StartupHost final : public video::Output, public render::SpriteOutput {
   StartupHost& operator=(const StartupHost&) = delete;
   StartupHost(StartupHost&&) = delete;
   StartupHost& operator=(StartupHost&&) = delete;
+  // Consume input edges once per pump and derive repeats from held actions.
   StartupInput pump(bool window_close_enabled);
+  // Retain uploaded pixels independently of the caller's decoded frame.
   void upload(const video::VideoFrame& frame) override;
   void clear_video() noexcept override;
+  // Present video then ordered sprites; retire GPU use before returning.
   bool draw(float opacity) override;
   video::AudioOutput& audio() noexcept override;
+  // Sprite resources and commands share the portable SpriteOutput contract.
   render::TextureHandle upload_texture(
       std::uint32_t width, std::uint32_t height,
       std::span<const std::uint8_t> rgba) override;

@@ -30,6 +30,7 @@ class ProfileLoadFlow {
   bool error_pending() const;
   ProfileResult error() const { return error_; }
   unsigned error_choice() const { return error_choice_; }
+  // Carry the user's continue-without-saving decision into the menu session.
   bool saving_enabled() const { return saving_enabled_; }
 
  private:

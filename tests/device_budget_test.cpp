@@ -47,6 +47,8 @@ void device_budget_tests() {
     require(stats.pending_resources == 0 && stats.live_resources == 1 &&
                 stats.live_logical_bytes == 40 && stats.live_native_bytes == 80,
             "Reported native size replaces estimate at commit");
+    // Exceed the actual-size limit after admission to exercise rollback
+    // ownership.
     auto pending = budget->reserve(30, 100);
     bool failed = false;
     try {
@@ -100,6 +102,8 @@ void device_budget_tests() {
   huge.reset();
   auto retained = uncapped->reserve(1, 2);
   retained.commit(3);
+  // The final charge must keep its accounting owner alive without external
+  // handles.
   std::weak_ptr<DeviceBudget> observed = uncapped;
   uncapped.reset();
   require(!observed.expired(), "Charge retains its accounting owner");

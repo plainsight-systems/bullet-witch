@@ -96,6 +96,7 @@ BitmapFont BitmapFont::parse(std::span<const std::uint8_t> encoded,
       glyph_count > kCodepointCount) {
     malformed("FONT counts exceed format bounds");
   }
+  // Bound all variable sections before constructing decoded glyph storage.
   const auto pages =
       header_bytes + static_cast<std::size_t>(faces) * face_bytes;
   const auto glyphs = pages + page_count * page_bytes;
@@ -146,6 +147,7 @@ BitmapFont BitmapFont::parse(std::span<const std::uint8_t> encoded,
     }
     output.glyphs_.push_back(glyph);
   }
+  // Flatten page-relative glyph indices into one ordered Unicode lookup.
   output.lookup_.reserve(mappings);
   std::size_t mapped{};
   for (std::size_t page = 0; page < page_count; ++page) {

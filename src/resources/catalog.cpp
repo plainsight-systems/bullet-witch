@@ -65,6 +65,7 @@ void CatalogSet::mount(int priority, std::filesystem::path path,
   catalogs_.push_back({priority, std::move(path), std::move(catalog)});
 }
 Resolution CatalogSet::resolve(std::string_view name) const {
+  // The smallest priority wins; ties at that winning priority remain ambiguous.
   std::optional<Resolution> best;
   int priority = 0;
   bool ambiguous = false;

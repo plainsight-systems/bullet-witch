@@ -51,6 +51,7 @@ int main(int argc, char** argv) {
     if (configuration.profile.empty()) {
       configuration.profile = bw::platform::default_save_directory();
     }
+    // Keep writable profile storage outside the read-only game installation.
     const auto game = std::filesystem::weakly_canonical(configuration.game);
     const auto profile =
         std::filesystem::weakly_canonical(configuration.profile);
@@ -60,6 +61,8 @@ int main(int argc, char** argv) {
       throw std::runtime_error(
           "Writable profile directory must be outside the game installation");
     }
+    // Select target storage once, then retain separate subsystem domain
+    // lifetimes.
     const auto backing = bw::platform::macos::make_cpu_backing();
     const bw::framework::StartupMemory memory{
         .resources = bw::memory::Domain::create(backing),
@@ -70,6 +73,7 @@ int main(int argc, char** argv) {
     bw::platform::HostFiles files;
     bw::platform::StartupHost host(memory.runtime, device_memory,
                                    configuration.window);
+    // The shared loop borrows services owned by this composition scope.
     return bw::framework::run_startup(
         configuration, host, files, *saves,
         [domain = memory.media](const std::filesystem::path& path) {

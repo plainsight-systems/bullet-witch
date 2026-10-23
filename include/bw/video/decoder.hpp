@@ -63,6 +63,7 @@ inline constexpr std::size_t kStreamCompressedPackets = 6144;
 inline constexpr std::size_t kSinglePacketBytes = 4 * kMebibyte;
 inline constexpr std::size_t kVideoSlots = 3;
 inline constexpr std::size_t kDecodedVideoBytes = 128 * kMebibyte;
+// Bound session queues; samples moved to callers leave these reservations.
 struct DecoderLimits {
   std::size_t compressed_bytes = kCompressedBytes;
   std::size_t stream_compressed_bytes = kStreamCompressedBytes;
@@ -116,7 +117,9 @@ class Decoder {
   Decoder& operator=(const Decoder&) = delete;
   Decoder(Decoder&&) = delete;
   Decoder& operator=(Decoder&&) = delete;
+  // Metadata is fixed at acquisition, before any stream consumption begins.
   virtual const DecoderMetadata& metadata() const noexcept = 0;
+  // Transfer one owned frame; an empty queue remains pending until stream end.
   virtual VideoPoll poll_video() = 0;
   // Destination contains interleaved stereo floats; an odd trailing float is
   // unused. End is returned only on a later empty read after the final PCM.
@@ -129,6 +132,7 @@ class Decoder {
   virtual void wait_until_ready(std::size_t audio_frames) = 0;
   virtual std::exception_ptr failure() const = 0;
   virtual DecoderDiagnostics diagnostics() const = 0;
+  // Cancel waits and join workers after the native audio consumer has retired.
   virtual void stop() noexcept = 0;
 
  protected:

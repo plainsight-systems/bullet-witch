@@ -100,6 +100,7 @@ void checkpoint_owned_bytes() {
   bytes.back() = std::byte{0};
   require(profile.checkpoint().back() == std::byte{0xab},
           "checkpoint owns bytes independently of storage");
+  // Invalid replacements must preserve the previously accepted checkpoint.
   word(20, 0x100);
   require(profile.load(storage).status == bw::platform::SaveStatus::invalid &&
               profile.checkpoint_stage() == 4,

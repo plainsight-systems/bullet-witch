@@ -50,7 +50,9 @@ class DeviceCharge {
   DeviceCharge& operator=(const DeviceCharge&) = delete;
   DeviceCharge(DeviceCharge&& other) noexcept;
   DeviceCharge& operator=(DeviceCharge&& other) noexcept;
+  // Reconcile native size before publishing the resource to consumers.
   void commit(std::size_t reported_native_bytes);
+  // Release native resources first; this returns accounting capacity only.
   void reset() noexcept;
   explicit operator bool() const noexcept { return owner_ != nullptr; }
 
@@ -76,6 +78,7 @@ class DeviceBudget final : public std::enable_shared_from_this<DeviceBudget> {
   static std::shared_ptr<DeviceBudget> create(
       const std::shared_ptr<Domain>& cpu_domain, DeviceLimits limits = {});
   DeviceBudget(ConstructionKey, DeviceLimits limits);
+  // Admit the estimate before native acquisition; the token owns rollback.
   [[nodiscard]] DeviceCharge reserve(std::size_t logical_bytes,
                                      std::size_t estimated_native_bytes);
   [[nodiscard]] DeviceSnapshot snapshot() const;

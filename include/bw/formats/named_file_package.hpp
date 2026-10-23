@@ -41,6 +41,8 @@ class NamedFilePackage {
   static NamedFilePackage parse(std::span<const std::uint8_t> bytes,
                                 const std::shared_ptr<memory::Domain>& domain);
   const auto& members() const { return members_; }
+  // Exact-name lookup returns a borrowed slice; compressed members are
+  // rejected.
   std::span<const std::uint8_t> member(std::string_view name) const;
 
  private:

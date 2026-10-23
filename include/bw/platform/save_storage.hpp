@@ -30,7 +30,9 @@ class SaveStorage {
   SaveStorage& operator=(const SaveStorage&) = delete;
   SaveStorage(SaveStorage&&) = delete;
   SaveStorage& operator=(SaveStorage&&) = delete;
+  // Read only the exact expected size; ordinary storage failures are outcomes.
   virtual SaveRead read(std::string_view name, std::size_t expected_size) = 0;
+  // Borrow bytes for this call and replace the named save only after writing.
   virtual SaveStatus write(std::string_view name,
                            std::span<const std::byte> bytes) = 0;
 };

@@ -30,6 +30,7 @@ class CpuBacking {
   CpuBacking(CpuBacking&&) = delete;
   CpuBacking& operator=(CpuBacking&&) = delete;
   virtual ~CpuBacking() = default;
+  // Concurrent native storage calls; domains hold no accounting lock here.
   virtual void* allocate(std::size_t bytes, std::size_t alignment) noexcept = 0;
   virtual void deallocate(void* pointer, std::size_t bytes,
                           std::size_t alignment) noexcept = 0;

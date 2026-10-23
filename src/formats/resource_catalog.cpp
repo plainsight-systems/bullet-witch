@@ -115,6 +115,7 @@ ResourceCatalogData ResourceCatalogData::parse(CatalogBytes bytes) {
     }
     out.sections_.at(i) = section;
   }
+  // Validate section disjointness before interpreting their internal tables.
   std::sort(occupied.begin(), occupied.end(),
             [](auto a, auto b) { return a.offset < b.offset; });
   for (std::size_t i = 1; i < occupied.size(); ++i) {
@@ -241,6 +242,8 @@ ResourceCatalogData ResourceCatalogData::parse(CatalogBytes bytes) {
       membership.end()) {
     malformed("Unreachable RAT resource");
   }
+  // Namespace traversal has supplied full names for local dependency
+  // references.
   for (auto& resource : out.resources_) {
     auto offset = resource.raw[4];
     if (offset & kNoDependencies) {

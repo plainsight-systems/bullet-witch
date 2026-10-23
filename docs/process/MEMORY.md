@@ -1,5 +1,16 @@
 # Current engineering decisions
 
+- Use subagents by default for task execution, keeping
+  the main conversation available for planning and parallel exploration. Assign
+  clear ownership and integrate/check their results; independent agent review
+  remains on request.
+
+- Preserve header-first contracts and algorithm design. When implementing bodies
+  or filling out headers, put brief intent and invariant comments above the
+  relevant code or declarations. Keep full design in opening contracts; local
+  comments identify meaningful pieces without narrating obvious code. See
+  `docs/process/workflow.md`, Comments beside implementation.
+
 - README order: project purpose, how to get it locally, how to run it, then
   background, status, development details and other reference material. Keep the
   top-level `./run` command visible in the running section.

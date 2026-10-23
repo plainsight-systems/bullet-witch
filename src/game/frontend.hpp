@@ -27,6 +27,8 @@ class FrontEnd {
   FrontEnd& operator=(const FrontEnd&) = delete;
   FrontEnd(FrontEnd&&) = delete;
   FrontEnd& operator=(FrontEnd&&) = delete;
+  // Profile loading precedes menu activation; this owner coordinates
+  // fades/saves.
   void start(Screen screen);
   void update(Screen screen, LogoUpdate input, std::uint32_t repeated);
   ScreenProgress progress(Screen screen) const;

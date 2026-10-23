@@ -92,6 +92,8 @@ script::RunResult StartupSession::advance(LogoUpdate input,
   }
   input_ = input;
   repeated_ = repeated;
+  // Screen priority precedes root priority, so Lua observes this tick's screen
+  // work.
   scheduler_.tick(false);
   return root_result_;
 }
@@ -270,6 +272,8 @@ bool StartupSession::pending(Screen screen) {
   }
   if (entry.id && scheduler_.contains(*entry.id)) {
     const auto state = scheduler_.state(*entry.id);
+    // Wait for deactivation before scheduling destruction and releasing Lua's
+    // wait.
     if (state != tasks::State::idle) {
       return true;
     }
@@ -312,6 +316,7 @@ void StartupSession::start_mission(std::string_view mission) {
     throw std::runtime_error("Lua mission route disagrees with menu selection");
   }
   GameplayRequest request{std::string(mission), selection, {}};
+  // Own checkpoint bytes at handoff so the request can outlive front-end state.
   if (selection.action == MenuAction::continue_game) {
     const auto checkpoint = frontend_->profile().checkpoint();
     if (checkpoint.empty()) {
@@ -325,6 +330,7 @@ bool StartupSession::mission_pending() {
   if (!gameplay_request_) {
     throw std::logic_error("Mission Wait precedes StartMission");
   }
+  // World loading is not implemented; keep the captured request suspended.
   return true;
 }
 bool StartupSession::quit_requested() const {

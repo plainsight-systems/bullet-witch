@@ -90,6 +90,7 @@ def verify_rat(path, native, saved, counts, archive_refs):
         archive_refs.add(target.resolve())
     require(len(native['resources']) == len(saved['resources']), 'RAT resource count')
     tree, depbase, strings = (saved['sections'][i][0] for i in (0, 3, 5))
+    # Rebuild names by parent chains independently of the native tree traversal.
     full_names = []
     for entry in saved['resources']:
         components = [entry['name']]
@@ -163,6 +164,7 @@ def main():
                     verify_rat(game / relative, row['data'], saved_rats[relative], counts, archive_refs)
             except (ValueError, KeyError, IndexError) as e:
                 errors.append({'path': relative, 'message': str(e)})
+    # Field agreement is insufficient if whole files or catalog references were missed.
     expected = set(saved_cprs) | set(saved_rats)
     if seen != expected:
         errors.append({'message': 'Inventory path mismatch', 'missing': sorted(expected - seen), 'extra': sorted(seen - expected)})

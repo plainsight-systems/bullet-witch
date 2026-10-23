@@ -63,6 +63,8 @@ struct StartupMemory {
   std::shared_ptr<memory::Domain> runtime;
   std::shared_ptr<memory::Domain> media;
 };
+// Parse before creating the native window/audio host so invalid input has no UI
+// effects.
 StartupOptions parse_startup_options(std::span<char*> arguments);
 // Requires validated options, a live main-thread host and a nonempty factory.
 int run_startup(const StartupOptions& configuration,

@@ -57,6 +57,7 @@ NamedFilePackage NamedFilePackage::parse_owned(
     detail::malformed("DPK table/data overlap");
   }
   const Range names{table + table_size, base - (table + table_size)};
+  // Validate and index each member while retaining one shared payload owner.
   for (std::uint64_t i = 0; i < count; ++i) {
     const auto at = table + i * stride + fields;
     const auto stored = r.u32(at), size = r.u32(at + 4), offset = r.u32(at + 8),
@@ -86,6 +87,7 @@ std::span<const std::uint8_t> NamedFilePackage::member(
     throw Error(ErrorCode::not_found, "DPK member: " + std::string(name));
   }
   const auto& entry = members_.at(found->second);
+  // Stored compressed bytes must never masquerade as decoded member contents.
   if (entry.stored.size != entry.declared_size) {
     detail::unsupported("Compressed DPK member");
   }

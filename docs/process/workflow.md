@@ -19,6 +19,11 @@ and implemented behavior.
    querying separately for every function.
 4. Check correctness and cost, then update memory and the queue.
 
+Delegate task execution to subagents by default.
+Keep the main conversation available for planning and parallel exploration,
+assign clear file ownership, and integrate the results before verification and
+delivery. This does not authorize an independent review agent unless requested.
+
 Use responsibility-based names for engine types, functions and files. Do not
 carry opaque original-engine terms into the source architecture. Keep exact disk
 signatures, extensions, record tags and script binding strings at compatibility
@@ -104,6 +109,20 @@ performance-sensitive. Derive costs in bytes, records, dependencies, entities
 or frames as appropriate. Avoid repeated setup work in hot paths. Measure
 before claiming a performance improvement. Python tools are reviewed for their
 own correctness; C++ corpus requirements do not apply to Python-only changes.
+
+## Comments beside implementation
+
+Keep the header-first contracts and algorithm design. As bodies are implemented,
+carry the relevant intent into short comments immediately above meaningful
+functions or blocks: for example, reserve pending budget, acquire native storage,
+then commit or roll back. Explain the piece's purpose or a consequential ordering,
+ownership or failure invariant. Apply the same approach when filling out headers,
+including declaration groups and inline or template implementations.
+
+Keep the full design in the opening contract. Local comments should be brief
+signposts, not copied paragraphs, repeated rule citations or a narration of every
+statement. There is no requirement to comment every function or branch. Update
+or remove each comment when the corresponding behavior changes.
 
 ## Verification
 

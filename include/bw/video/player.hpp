@@ -62,10 +62,13 @@ class Player {
   Player& operator=(const Player&) = delete;
   Player(Player&&) = delete;
   Player& operator=(Player&&) = delete;
+  // Prime the session; playback starts only after an accepted draw.
   void open(const std::filesystem::path& path);
   void stop() noexcept;
+  // Select due video from the audio timeline or the video-only/tail wall clock.
   void advance(float wall_delta);
   void draw(float opacity);
+  // Completion includes device drain and the terminal frame's visible interval.
   bool complete() const;
   const PlaybackStatistics& statistics() const;
   std::size_t presented_frames() const;

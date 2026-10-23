@@ -25,6 +25,7 @@
 namespace bw::platform {
 namespace {
 constexpr std::size_t kMaximumSaveBytes = 1024UL * 1024UL;
+// Keep every request within one directory entry, never a relative path.
 bool valid_name(std::string_view name) {
   return !name.empty() && name != "." && name != ".." &&
          name.find_first_of("/\\\0", 0, 3) == std::string_view::npos;
@@ -62,6 +63,7 @@ class DirectorySaveStorage final : public SaveStorage {
     if (std::fseek(file.get(), 0, SEEK_END) != 0) {
       return {SaveStatus::io_error, {}};
     }
+    // Reject incompatible save lengths before allocating their byte owner.
     const auto size = std::ftell(file.get());
     if (size < 0) {
       return {SaveStatus::io_error, {}};
@@ -89,6 +91,7 @@ class DirectorySaveStorage final : public SaveStorage {
     if (error) {
       return SaveStatus::io_error;
     }
+    // Acquire an exclusive sibling temporary; cleanup owns only this attempt.
     auto pattern = (directory_ / (std::string(name) + ".tmp.XXXXXX")).string();
     const int descriptor = mkstemp(pattern.data());
     if (descriptor < 0) {
@@ -100,6 +103,7 @@ class DirectorySaveStorage final : public SaveStorage {
       close(descriptor);
       return SaveStatus::io_error;
     }
+    // Finish and flush the replacement before exposing it under the save name.
     if (std::fwrite(bytes.data(), 1, bytes.size(), file.get()) !=
             bytes.size() ||
         std::fflush(file.get()) != 0 || fsync(descriptor) != 0) {
@@ -108,6 +112,8 @@ class DirectorySaveStorage final : public SaveStorage {
     if (std::fclose(file.release()) != 0) {
       return SaveStatus::io_error;
     }
+    // Atomic replacement is the publication point; earlier failures keep the
+    // old save.
     std::filesystem::rename(cleanup.value, directory_ / name, error);
     return error ? SaveStatus::io_error : SaveStatus::ok;
   }

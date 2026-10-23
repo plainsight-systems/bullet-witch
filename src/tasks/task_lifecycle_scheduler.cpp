@@ -86,6 +86,7 @@ void TaskLifecycleScheduler::tick(bool late_pass) {
   }
   ticking_ = true;
   try {
+    // Freeze this tick's membership; callback-created tasks join the next tick.
     order_.clear();
     order_.reserve(tasks_.size());
     for (const auto& [key, value] : tasks_) {
@@ -134,6 +135,7 @@ void TaskLifecycleScheduler::tick(bool late_pass) {
         throw;
       }
     }
+    // Complete the ordinary update pass before any eligible late callbacks.
     for (const bool late : {false, true}) {
       if (late && !late_pass) {
         break;
@@ -157,6 +159,8 @@ void TaskLifecycleScheduler::tick(bool late_pass) {
         }
       }
     }
+    // Retain snapshot capacity, but never carry tick membership into another
+    // pass.
     order_.clear();
     ticking_ = false;
   } catch (...) {

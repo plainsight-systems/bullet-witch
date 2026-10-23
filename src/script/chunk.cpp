@@ -54,6 +54,7 @@ class Converter {
       fail("Lua number representation");
     }
     copy(kHeader);
+    // Adapt host field widths while preserving the original instruction bits.
     constexpr std::size_t size_field = 7, instruction_field = 8;
     output_[size_field] = static_cast<char>(sizeof(std::size_t));
     output_[instruction_field] = static_cast<char>(kInstructionBytes);
@@ -115,6 +116,8 @@ class Converter {
     copy(n);
   }
   void function(std::size_t depth) {
+    // Traverse nested prototypes with an explicit depth bound on input
+    // recursion.
     if (depth > kMaxDepth) {
       fail("Lua prototype nesting");
     }

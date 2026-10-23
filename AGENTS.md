@@ -36,6 +36,9 @@ source. `CLAUDE.md` points to the same instructions.
 - Unit tests exercise public contracts in process. Integration tests launch
   processes or use real files/components. See the explicit existing integration
   inventory and adoption exception; do not hide scenarios by relabeling them.
-- Independent agent review is on request. Do not start rendering or new engine
+- Delegate task execution to subagents by default so
+  the main conversation remains available for planning. Integrate their work
+  and run the required checks before delivery. Independent agent review is on
+  request. Do not start rendering or new engine
   features as incidental tooling work. Commit, publish or message externally
   only within the user's instructions.

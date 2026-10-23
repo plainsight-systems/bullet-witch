@@ -164,6 +164,7 @@ void write_archive(std::ostream& out, const ResourceArchive& archive) {
     range(out, record.selected_payload);
     out << ",\"payload_prefix_hex\":\"";
     constexpr std::string_view hex = "0123456789abcdef";
+    // Preview borrowed bytes without copying each record's complete payload.
     auto payload = archive.payload(i);
     for (std::size_t j = 0;
          j < std::min<std::size_t>(kPayloadPreviewBytes, payload.size()); ++j) {
@@ -284,6 +285,7 @@ int main(int argc, char** argv) {
           paths.push_back(entry.path());
         }
       }
+      // Stable path order makes inventories comparable across filesystem walks.
       std::sort(paths.begin(), paths.end());
       bool failed = false;
       for (const auto& path : paths) {
@@ -295,6 +297,7 @@ int main(int argc, char** argv) {
                            label)
                     << '\n';
         } catch (const Error& e) {
+          // Preserve this file's failure while continuing the corpus inventory.
           std::cout << "{\"path\":" << quote(label)
                     << ",\"error\":" << quote(error_name(e.code))
                     << ",\"message\":" << quote(e.what()) << "}\n";
@@ -325,6 +328,8 @@ int main(int argc, char** argv) {
                   bw::content::open_catalog(bw::platform::HostFiles{},
                                             arguments[i + 2]));
       }
+      // Resolve priority first, then inspect the selected archive's
+      // publications.
       auto hit = set.resolve(arguments[2]);
       const auto& mount = set.catalogs()[hit.catalog_index];
       const auto& r = mount.catalog.resources()[hit.resource_index];

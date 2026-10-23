@@ -76,6 +76,7 @@ void* CoalescingHeap::allocate(std::size_t bytes) noexcept {
     return nullptr;
   }
   const auto needed = sizeof(Block) + payload;
+  // Select the first free physical block that can satisfy the aligned request.
   for (std::size_t offset = 0; offset < storage_.size();
        offset = block(offset).next) {
     auto& selected = block(offset);
@@ -83,6 +84,7 @@ void* CoalescingHeap::allocate(std::size_t bytes) noexcept {
       continue;
     }
     const auto remainder = selected.extent - needed;
+    // Split only when the tail can hold its own header and usable payload.
     if (remainder >= sizeof(Block) + kAlignment) {
       const auto next = offset + needed;
       // The remainder has checked header/payload space and 16-byte alignment.
@@ -146,6 +148,8 @@ bool CoalescingHeap::release(void* pointer) noexcept {
   --stats_.live_allocations;
   current.occupied = false;
   current.requested = 0;
+  // Coalesce both physical neighbors so adjacent frees become reusable
+  // together.
   const auto previous = current.previous;
   if (previous < storage_.size() && !block(previous).occupied) {
     merge_next(previous);
@@ -168,6 +172,7 @@ void* CoalescingHeap::reallocate(void* pointer, std::size_t bytes) noexcept {
     return nullptr;
   }
   const auto copied = std::min(bytes, block(offset).requested);
+  // Preserve the old allocation unless replacement storage was acquired.
   auto* replacement = allocate(bytes);
   if (replacement != nullptr) {
     std::memcpy(replacement, pointer, copied);
@@ -177,6 +182,8 @@ void* CoalescingHeap::reallocate(void* pointer, std::size_t bytes) noexcept {
 }
 HeapSnapshot CoalescingHeap::snapshot() const {
   auto result = stats_;
+  // Distinguish total free capacity from the largest satisfiable contiguous
+  // span.
   for (std::size_t offset = 0; offset < storage_.size();
        offset = block(offset).next) {
     const auto& current = block(offset);

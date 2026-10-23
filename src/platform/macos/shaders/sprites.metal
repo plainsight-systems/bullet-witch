@@ -19,6 +19,7 @@ vertex SpriteVertex sprite_vertex(uint index [[vertex_id]],
                              float2(1, 1)};
   const float2 corner = corners[index];
   const float2 point = sprite.rectangle.xy + corner * sprite.rectangle.zw;
+  // Convert the top-left canvas convention to Metal clip coordinates.
   return {float4(point.x * 2 - 1, 1 - point.y * 2, 0, 1),
           sprite.uv.xy + corner * sprite.uv.zw};
 }
@@ -29,6 +30,7 @@ fragment float4 sprite_fragment(SpriteVertex value [[stage_in]],
   constexpr sampler linear_sampler(coord::normalized, address::clamp_to_edge,
                                    filter::linear);
   const float4 sample = image.sample(linear_sampler, value.uv);
+  // Packed font channels supply white coverage; ordinary sprites retain RGBA.
   const float4 source =
       sprite.sampling.x > 0
           ? float4(1, 1, 1, sample[uint(sprite.sampling.x) - 1])

@@ -50,6 +50,7 @@ def run(build, jobs):
         arguments = entry.get('arguments') or shlex.split(entry['command'])
         arguments += macos_arguments(arguments)
         commands.append({'directory': str(directory), 'file': str(source), 'arguments': arguments})
+    # Missing authored translation units must fail coverage, not disappear from lint.
     expected = {str(p.resolve()) for p in source_files() if p.suffix in TRANSLATION_SUFFIXES}
     found = {entry['file'] for entry in commands}
     if not commands or expected - found:
@@ -61,6 +62,7 @@ def run(build, jobs):
             index, entry = item
             directory = Path(temporary) / str(index)
             directory.mkdir()
+            # Isolate duplicate source entries so each uses its own compilation flags.
             (directory / 'compile_commands.json').write_text(json.dumps([entry]))
             result = subprocess.run([binary, entry['file'], '-p', str(directory), '--quiet'], cwd=ROOT, capture_output=True, text=True)
             log = report / f'{index:03d}-{Path(entry["file"]).name}.log'

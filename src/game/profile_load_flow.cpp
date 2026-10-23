@@ -60,6 +60,8 @@ void ProfileLoadFlow::update(LogoUpdate input, bool resources_ready) {
         if (error_choice_ == 0) {
           phase_ = Phase::load;
         } else {
+          // Continuing after failure disables subsequent writes for this
+          // session.
           saving_enabled_ = false;
           phase_ = Phase::conceal;
         }

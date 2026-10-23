@@ -75,6 +75,8 @@ void AdvertiseFlow::update(LogoUpdate input) {
         }
         break;
       case Phase::playing:
+        // Use the fallback timer only when opening failed, never to truncate
+        // playback.
         if ((input.pressed_actions & skip_actions) != 0 ||
             (movie_available_ ? media_.get().movie_complete()
                               : elapsed_ >= fallback_duration)) {

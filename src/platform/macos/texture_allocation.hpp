@@ -32,11 +32,14 @@ class TextureAllocation {
   TextureAllocation& operator=(const TextureAllocation&) = delete;
   TextureAllocation(TextureAllocation&& other) noexcept;
   TextureAllocation& operator=(TextureAllocation&& other) noexcept;
+  // Admit estimated storage, then reconcile the native size before publication.
   static TextureAllocation create(
       id<MTLDevice> device, const std::shared_ptr<memory::DeviceBudget>& budget,
       std::uint32_t width, std::uint32_t height, MTLPixelFormat format);
   void upload(std::span<const std::uint8_t> bytes);
+  // Caller retires GPU consumers first; release returns the charge afterward.
   void reset() noexcept;
+  // Borrowed native access does not transfer ownership or extend its lifetime.
   id<MTLTexture> get() const noexcept { return texture_; }
 
  private:

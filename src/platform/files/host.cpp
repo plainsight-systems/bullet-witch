@@ -36,6 +36,7 @@ Buffer read_buffer(const std::filesystem::path& path,
   if (!input) {
     throw Error(ErrorCode::io, "Cannot open " + path.string());
   }
+  // Establish representable size before acquiring the final byte owner.
   const auto end = input.tellg();
   if (end < 0 ||
       static_cast<std::uint64_t>(end) >
@@ -45,6 +46,7 @@ Buffer read_buffer(const std::filesystem::path& path,
               std::numeric_limits<std::streamsize>::max())) {
     throw Error(ErrorCode::io, "Invalid file size: " + path.string());
   }
+  // Read directly into the selected allocator's storage without a staging copy.
   Buffer result(static_cast<std::size_t>(end), allocator);
   input.seekg(0);
   // Character access may alias any object representation; the read below is

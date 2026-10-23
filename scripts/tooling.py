@@ -22,6 +22,7 @@ def find_tool(name):
             result = subprocess.run(['brew', '--prefix', formula], capture_output=True, text=True)
             if result.returncode == 0:
                 candidates.append(str(Path(result.stdout.strip()) / 'bin' / name))
+    # Accept only the pinned version and never recurse through the editor wrapper.
     for candidate in candidates:
         binary = shutil.which(candidate)
         if not binary or Path(binary).resolve() == ROOT / 'scripts' / name:

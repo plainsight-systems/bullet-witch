@@ -30,6 +30,7 @@ TextureAllocation& TextureAllocation::operator=(TextureAllocation&& other) noexc
   }
   return *this;
 }
+// Release the native resource before returning its accounting charge.
 void TextureAllocation::reset() noexcept {
   texture_ = nil;
   charge_.reset();
@@ -53,11 +54,13 @@ TextureAllocation TextureAllocation::create(id<MTLDevice> device,
                                                        mipmapped:NO];
     descriptor.storageMode = MTLStorageModeShared;
     descriptor.usage = MTLTextureUsageShaderRead;
+    // Reserve before native acquisition so failure unwinds both storage and charge.
     const auto estimate = [device heapTextureSizeAndAlignWithDescriptor:descriptor];
     const auto logical = static_cast<std::size_t>(width) * height * channels;
     auto charge = budget->reserve(logical, estimate.size);
     id<MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
     if (texture == nil) throw std::bad_alloc();
+    // Replace the estimate with the driver-reported size before returning ownership.
     charge.commit(texture.allocatedSize);
     return TextureAllocation(std::move(charge), texture);
   }

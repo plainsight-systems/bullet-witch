@@ -54,9 +54,12 @@ class CoalescingHeap final {
   CoalescingHeap& operator=(const CoalescingHeap&) = delete;
   CoalescingHeap(CoalescingHeap&&) = delete;
   CoalescingHeap& operator=(CoalescingHeap&&) = delete;
+  // Exclusive-owner operations; the fixed backing never grows or relocates.
   [[nodiscard]] void* allocate(std::size_t bytes) noexcept;
+  // Failure preserves the old allocation; a zero size releases it.
   [[nodiscard]] void* reallocate(void* pointer, std::size_t bytes) noexcept;
   bool release(void* pointer) noexcept;
+  // Scans free blocks; requires the same exclusive access as allocation.
   [[nodiscard]] HeapSnapshot snapshot() const;
 
  private:

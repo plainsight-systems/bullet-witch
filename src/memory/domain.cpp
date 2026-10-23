@@ -83,6 +83,7 @@ void* Domain::try_allocate_zeroed(std::size_t bytes,
     return nullptr;
   }
   const auto total = prefix + body;
+  // Reserve both budgets before another caller can admit competing storage.
   {
     const std::lock_guard lock(mutex_);
     if (bytes >
@@ -97,8 +98,10 @@ void* Domain::try_allocate_zeroed(std::size_t bytes,
     stats_.pending_backing_bytes += total;
     ++stats_.pending_allocations;
   }
+  // Native acquisition and initialization run outside the accounting lock.
   void* raw = backing_->allocate(total, alignment);
   if (raw == nullptr) {
+    // Roll back only this reservation; successful-allocation peaks stay intact.
     const std::lock_guard lock(mutex_);
     stats_.pending_bytes -= bytes;
     stats_.pending_backing_bytes -= total;
@@ -115,6 +118,7 @@ void* Domain::try_allocate_zeroed(std::size_t bytes,
                     Header{std::move(owner), raw, total, alignment, bytes});
   void* result = storage.subspan(prefix).data();
   std::memset(result, 0, body);
+  // Publish initialized storage by moving its pending charge into live totals.
   {
     const std::lock_guard lock(mutex_);
     stats_.pending_bytes -= bytes;
@@ -147,12 +151,14 @@ void Domain::release(void* pointer) noexcept {
   // header; no arbitrary-pointer or double-free validation is claimed.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   auto* metadata = static_cast<Header*>(pointer) - 1;
+  // Retain the original domain even when this is its last allocation.
   auto owner = std::move(metadata->owner);
   void* raw = metadata->raw;
   const auto total = metadata->backing_bytes;
   const auto alignment = metadata->alignment;
   const auto payload = metadata->payload_bytes;
   std::destroy_at(metadata);
+  // Keep the live charge until native free completes, without holding the lock.
   owner->backing_->deallocate(raw, total, alignment);
   const std::lock_guard lock(owner->mutex_);
   owner->stats_.live_bytes -= payload;

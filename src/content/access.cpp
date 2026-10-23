@@ -69,6 +69,7 @@ std::filesystem::path archive_path(const platform::Files& files,
       files.canonical(parent.empty() ? std::filesystem::path(".") : parent);
   auto candidate =
       files.canonical(base / mount.catalog.files().at(index).relative_path);
+  // Compare canonical path components, not textual prefixes, to reject escapes.
   auto b = base.begin(), c = candidate.begin();
   for (; b != base.end(); ++b, ++c) {
     if (c == candidate.end() || *b != *c) {

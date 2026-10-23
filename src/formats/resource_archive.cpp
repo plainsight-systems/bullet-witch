@@ -136,6 +136,7 @@ ResourceArchive ResourceArchive::parse(ArchiveBytes bytes) {
       r.u32(kArchiveSecondCompressionOffset)) {
     unsupported("Compressed CPR sections are not implemented");
   }
+  // Establish checked section ranges before following any record references.
   std::uint64_t cursor = kArchiveHeaderBytes;
   for (std::size_t i = 0; i < out.sections_.size(); ++i) {
     out.sections_.at(i) = {cursor, r.u32(kArchiveSectionsOffset + i * 4)};
@@ -201,6 +202,7 @@ ResourceArchive ResourceArchive::parse(ArchiveBytes bytes) {
         record.selected_payload = record.second_payload;
       }
     }
+    // Inline replacements override section selection but retain raw metadata.
     if (f[2] != kNoIndex) {
       record.selected_payload =
           Range{kArchivePointerBase + f[2],

@@ -68,6 +68,8 @@ void CompanyLogoFlow::update(LogoUpdate input) {
   try {
     constexpr std::uint32_t skip_actions = 0x1010U | 0x2020U;
     constexpr float fade_duration = 0.25F;  // native 0x3e800000
+    // Preserve one recovered phase per update, including conceal between
+    // movies.
     switch (phase_) {
       case Phase::initialize:
         transition(Phase::open);
@@ -144,6 +146,7 @@ void StartupCheckFlow::update(float delta) {
   if (progress_.status != FlowStatus::pending) {
     return;
   }
+  // These phases reproduce screen sequencing; they perform no storage I/O.
   switch (phase_) {
     case Phase::show:
       progress_.visible = true;

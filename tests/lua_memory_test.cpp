@@ -54,6 +54,7 @@ void coalescing_contract() {
     require(heap.snapshot().largest_free_bytes == initial.largest_free_bytes &&
                 heap.snapshot().live_bytes == 0,
             "both adjacent free regions coalesce into full backing");
+    // Failed replacement must leave the old allocation readable and owned.
     auto* retained = heap.allocate(64);
     std::span bytes(static_cast<std::byte*>(retained), 64);
     std::ranges::fill(bytes, std::byte{0x5a});
@@ -144,6 +145,8 @@ void protected_host_exhaustion() {
 }
 void independent_contexts() {
   auto domain = bw::memory::Domain::create(std::make_shared<Backing>());
+  // Workers share the domain but create and retire separate exclusive Lua
+  // heaps.
   std::array<std::exception_ptr, 2> failures{};
   std::array<std::jthread, 2> threads;
   for (std::size_t index = 0; index < threads.size(); ++index) {

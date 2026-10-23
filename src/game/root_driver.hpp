@@ -72,6 +72,7 @@ class RootDriver {
   RootDriver& operator=(const RootDriver&) = delete;
   RootDriver(RootDriver&&) = delete;
   RootDriver& operator=(RootDriver&&) = delete;
+  // Pump initial resources, then run init/main through resumable native waits.
   script::RunResult advance();
   memory::HeapSnapshot memory_snapshot() const {
     return context_.memory_snapshot();

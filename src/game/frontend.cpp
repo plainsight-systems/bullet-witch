@@ -64,6 +64,8 @@ void FrontEnd::show_error(ProfileResult result, unsigned choice) {
   surface_.show(view);
 }
 void FrontEnd::persist() {
+  // A failed save holds the menu at retry/continue before selection can leave
+  // it.
   if (!saving_enabled_ || !profile_.dirty()) {
     menu_.acknowledge_settings();
     return;
@@ -137,6 +139,7 @@ void FrontEnd::update(Screen screen, LogoUpdate input, std::uint32_t repeated) {
       if (!media_.fade_pending()) phase_ = Phase::finish;
       break;
     case Phase::finish: {
+      // Publish the original status only after conceal and surface retirement.
       const auto selection = menu_.selection();
       if (!selection) {
         throw std::logic_error("Menu finished without a selection");

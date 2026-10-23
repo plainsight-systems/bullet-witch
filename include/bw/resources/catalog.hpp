@@ -74,6 +74,7 @@ class CatalogSet {
       : catalogs_(memory::Allocator<MountedCatalog>(std::move(domain))) {}
   auto domain() const { return catalogs_.get_allocator().domain(); }
   void mount(int priority, std::filesystem::path path, ResourceCatalog catalog);
+  // Resolve across mounts by priority; equal winning priorities are an error.
   Resolution resolve(std::string_view name) const;
   const auto& catalogs() const { return catalogs_; }
 

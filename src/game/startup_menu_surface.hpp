@@ -37,6 +37,7 @@ class StartupMenuSurface final : public MenuSurface {
   StartupMenuSurface(StartupMenuSurface&&) = delete;
   StartupMenuSurface& operator=(StartupMenuSurface&&) = delete;
   void begin() override;
+  // Pump encoded resources and construct textures before reporting readiness.
   bool ready() override;
   void show(const MenuPresentation& presentation) override;
   void end() noexcept override;

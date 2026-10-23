@@ -55,6 +55,7 @@ void task_memory_contracts() {
     backing->reject = false;
     scheduler.tick();
     require(updates == 1, "Snapshot admission failure leaves scheduler usable");
+    // Once primed, the same task set must tick with allocation disabled.
     backing->reject = true;
     scheduler.tick();
     require(updates == 2, "Stable task snapshot reuses owned capacity");

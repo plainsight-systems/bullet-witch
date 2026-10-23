@@ -44,6 +44,7 @@ PcmBuffer::PcmBuffer(std::size_t frames,
       segments_(kSegmentCapacity, allocator) {}
 std::size_t PcmBuffer::write(std::span<const float> source,
                              double timestamp_seconds) noexcept {
+  // Both sample storage and timestamp descriptors must have room.
   const auto segment = segment_written_.load(std::memory_order_relaxed);
   if (segment - segment_read_.load(std::memory_order_acquire) ==
       kSegmentCapacity) {
@@ -56,6 +57,7 @@ std::size_t PcmBuffer::write(std::span<const float> source,
   if (frames == 0) {
     return 0;
   }
+  // Copy across at most one wrap before publishing the completed segment.
   const auto offset = static_cast<std::size_t>(written % capacity_);
   const auto first = std::min(frames, capacity_ - offset);
   auto storage = std::span(samples_);
@@ -71,6 +73,7 @@ std::size_t PcmBuffer::write(std::span<const float> source,
   return frames;
 }
 PcmRead PcmBuffer::read(std::span<float> destination) noexcept {
+  // Acquiring the descriptor also exposes its producer's completed PCM writes.
   const auto segment_index = segment_read_.load(std::memory_order_relaxed);
   if (segment_index == segment_written_.load(std::memory_order_acquire)) {
     return {};
@@ -89,6 +92,7 @@ PcmRead PcmBuffer::read(std::span<float> destination) noexcept {
       destination.begin());
   std::ranges::copy(storage.first((frames - first) * kAudioChannelCount),
                     destination.subspan(first * kAudioChannelCount).begin());
+  // Release sample space now; retain the descriptor until its final frame.
   read_.store(read + frames, std::memory_order_release);
   if (read + frames == segment.end) {
     segment_read_.store(segment_index + 1, std::memory_order_release);

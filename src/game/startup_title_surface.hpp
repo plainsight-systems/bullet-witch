@@ -44,6 +44,7 @@ class StartupTitleSurface final : public TitleSurface {
   StartupTitleSurface(StartupTitleSurface&&) = delete;
   StartupTitleSurface& operator=(StartupTitleSurface&&) = delete;
   void begin() override;
+  // Gate presentation on both title construction and selected loading assets.
   bool ready() override;
   void show(bool visible, TitlePresentation presentation) override;
   void end() noexcept override;

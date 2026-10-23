@@ -92,6 +92,7 @@ ResourceService::Key ResourceService::file_key(Resolution r) const {
                                .raw[file_field]};
 }
 void ResourceService::request(std::string_view name, ResourceTag tag) {
+  // Resolve the cycle-safe dependency closure before adding any tag interests.
   Set<ArchiveString> seen(allocator_);
   Set<Key> closure(allocator_);
   ArchiveVector<ArchiveString> pending(allocator_);
@@ -157,6 +158,7 @@ void ResourceService::publish(const Key& key, File& file) {
   publications_.merge(additions);
 }
 LoadReport ResourceService::pump(ResourceTag tag) {
+  // Advance only the earliest outstanding phase for this tag on each pump.
   auto phase = LoadState::ready;
   bool found = false;
   for (const auto& [key, file] : loaded_) {
@@ -253,6 +255,7 @@ std::optional<ResourceLease> ResourceService::acquire(
   return ResourceLease(file.archive, found->second.record);
 }
 void ResourceService::release(ResourceTag tag) {
+  // Drop unshared publications; outstanding leases still retain their archives.
   requests_.erase(tag);
   for (auto it = loaded_.begin(); it != loaded_.end();) {
     it->second.tags.erase(tag);

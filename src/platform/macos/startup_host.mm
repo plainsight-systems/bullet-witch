@@ -54,6 +54,7 @@
 
 #include <mach-o/dyld.h>
 
+// Native transitions publish window state without calling game objects.
 @interface BWStartupWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic) BOOL closeEnabled;
 @property(nonatomic) BOOL fullscreen;
@@ -211,6 +212,7 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
     }
     state.commands = [state.device newCommandQueue];
     NSError* error = nil;
+    // Resolve compiled shaders beside the executable, independent of working directory.
     std::uint32_t path_size = 0;
     (void)_NSGetExecutablePath(nullptr, &path_size);
     memory::Vector<char> executable_path(path_size, memory::Allocator<char>(cpu_domain));
@@ -237,6 +239,7 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
     if (state.commands == nil || state.pipeline == nil) {
       throw std::runtime_error("Could not initialize Metal movie pipeline");
     }
+    // Sprites composite straight-alpha color after the opaque movie pass.
     descriptor.vertexFunction = [library newFunctionWithName:@"sprite_vertex"];
     descriptor.fragmentFunction = [library newFunctionWithName:@"sprite_fragment"];
     descriptor.colorAttachments[0].blendingEnabled = YES;
@@ -251,6 +254,7 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
     }
     const NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                     NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+    // Clamp requested content points to the display before native fullscreen transition.
     const auto visible = [NSWindow contentRectForFrameRect:NSScreen.mainScreen.visibleFrame
                                                  styleMask:style];
     const CGFloat fit =
@@ -349,6 +353,7 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
       }
     }
     [NSApp updateWindows];
+    // Merge keyboard and controller holds into the recovered action bit layout.
     std::uint32_t held = ((state.keyboard_keys & 3U) != 0 ? kConfirmAction : 0U) |
                          ((state.keyboard_keys & 4U) != 0 ? kCancelAction : 0U) |
                          (state.keyboard_keys & kDirections);
@@ -378,10 +383,12 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
         }
       }
     } else {
+      // Focus loss retires held input rather than carrying it into the next activation.
       state.keyboard_keys = 0;
       held = 0;
       key_edges = 0;
     }
+    // Keep press edges distinct from the recovered per-bit repeat timing.
     const auto pressed = key_edges | (held & ~state.previous_held);
     const auto now = std::chrono::steady_clock::now();
     const auto elapsed = std::chrono::duration<double>(now - state.input_time).count();
@@ -422,6 +429,7 @@ void StartupHost::upload(const video::VideoFrame& frame) {
     auto& state = *state_;
     if (state.video.get() == nil || state.video.get().width != frame.width ||
         state.video.get().height != frame.height) {
+      // Publish resized storage only after its upload succeeds.
       auto replacement = macos::TextureAllocation::create(
           state.device, state.device_budget, frame.width, frame.height, MTLPixelFormatBGRA8Unorm);
       replacement.upload(frame.bgra);
@@ -456,6 +464,7 @@ bool StartupHost::draw(float opacity) {
     if (command == nil || encoder == nil) {
       throw std::runtime_error("Could not encode movie presentation");
     }
+    // Aspect-fit the movie into the cleared drawable, preserving black bars.
     if (state.video.get() != nil) {
       const double width = static_cast<double>(drawable.texture.width);
       const double height = static_cast<double>(drawable.texture.height);
@@ -470,6 +479,7 @@ bool StartupHost::draw(float opacity) {
       [encoder setFragmentBytes:&opacity length:sizeof(opacity) atIndex:0];
       [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     }
+    // Overlay ordered quads in the shared logical canvas with the same fade.
     if (state.sprite_count != 0) {
       const double width = static_cast<double>(drawable.texture.width);
       const double height = static_cast<double>(drawable.texture.height);
@@ -500,6 +510,7 @@ bool StartupHost::draw(float opacity) {
     [encoder endEncoding];
     [command presentDrawable:drawable];
     [command commit];
+    // Retire all GPU consumers before uploads, releases or frame reuse can follow.
     [command waitUntilCompleted];
     if (command.status == MTLCommandBufferStatusError) {
       throw std::runtime_error("Metal movie command failed");
@@ -527,6 +538,7 @@ render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint
     auto texture = macos::TextureAllocation::create(state.device, state.device_budget, width,
                                                     height, MTLPixelFormatRGBA8Unorm);
     texture.upload(rgba);
+    // Publish the identity and residency counters only after acquisition and upload.
     slot->handle = {state.next_texture++};
     slot->native = std::move(texture);
     slot->bytes = rgba.size();
@@ -544,6 +556,7 @@ void StartupHost::release_texture(render::TextureHandle texture) noexcept {
   }
   state.texture_bytes -= slot->bytes;
   *slot = {};
+  // Remove queued users of the retired identity before the next draw.
   auto commands = std::span(state.sprites).first(state.sprite_count);
   const auto removed = std::ranges::remove_if(
       commands, [texture](const auto& entry) { return entry.sprite.texture == texture; });
@@ -555,6 +568,7 @@ void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
     throw std::runtime_error("Sprite command limit exceeded");
   }
   auto& state = *state_;
+  // Validate and resolve every texture before mutating the previous submission.
   std::array<std::size_t, render::kMaximumSprites> slots{};
   std::size_t index = 0;
   for (const auto& sprite : sprites) {
@@ -574,6 +588,7 @@ void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
     }
     slots.at(index++) = static_cast<std::size_t>(texture - state.textures.begin());
   }
+  // Commit the complete command list into fixed storage after validation succeeds.
   index = 0;
   for (const auto& sprite : sprites) {
     state.sprites.at(index) = {.sprite = sprite, .texture_slot = slots.at(index)};

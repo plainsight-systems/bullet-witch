@@ -27,12 +27,16 @@ class MacCpuBacking final : public memory::CpuBacking {
         !std::has_single_bit(alignment)) {
       return nullptr;
     }
+    // Native storage stays uninitialized; domain accounting and zeroing are
+    // above us.
     return malloc_zone_memalign(malloc_default_zone(), alignment, bytes);
   }
 
   void deallocate(void* pointer, std::size_t /*bytes*/,
                   std::size_t /*alignment*/) noexcept override {
     if (pointer != nullptr) {
+      // Return storage to its originating zone, even if the default zone
+      // changed.
       malloc_zone_free(malloc_zone_from_ptr(pointer), pointer);
     }
   }

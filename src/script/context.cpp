@@ -134,6 +134,8 @@ struct Context::Impl {
     }
   }
   ~Impl() {
+    // Cancel captured work and close the VM while its backing heap is still
+    // alive.
     pending = {};
     reply = {};
     state.reset();
@@ -158,6 +160,7 @@ struct Context::Impl {
     bool found;
   };
   static void protected_start(lua_State* active, void* userdata) {
+    // Anchor the new coroutine before any execution can yield or trigger GC.
     auto* request = static_cast<StartRequest*>(userdata);
     auto* owner = request->owner;
     if (owner->thread_ref != LUA_NOREF) {
@@ -310,6 +313,7 @@ RunResult Context::pump() {
   }
   try {
     for (std::size_t i = 0; i < kResumeBudget; ++i) {
+      // A waiting bridge owns continuation; resume Lua only after it clears.
       if (impl_->pending) {
         if (impl_->pending()) {
           impl_->phase = RunState::pending;
@@ -331,6 +335,7 @@ RunResult Context::pump() {
         return {impl_->phase, {}};
       }
     }
+    // Bound host work without treating an unfinished coroutine as complete.
     impl_->phase = RunState::running;
     return {impl_->phase, "Host resume budget reached"};
   } catch (const std::exception& failure) {

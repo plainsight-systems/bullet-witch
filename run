@@ -34,6 +34,7 @@ def main():
                      'Use --game PATH or set BULLET_WITCH_GAME_DIR.')
     if shutil.which('cmake') is None:
         parser.error('CMake is required. See scripts/README.md for build setup.')
+    # Both build steps must succeed before replacing this process with the host.
     subprocess.run(['cmake', '--preset', 'host-debug'], cwd=ROOT, check=True)
     subprocess.run(['cmake', '--build', '--preset', 'host-debug',
                     '--target', 'bw-startup', '--parallel', '4'], cwd=ROOT, check=True)

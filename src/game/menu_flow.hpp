@@ -25,6 +25,8 @@ class Profile;
 inline constexpr std::size_t menu_difficulty_count = 5;
 inline constexpr std::size_t menu_row_capacity = 64;
 struct MenuUnlocks {
+  // Progression gates are supplied separately from installed-content
+  // availability.
   std::array<bool, menu_difficulty_count> difficulties{true, true, true};
   bool stage_select{};
 };
@@ -76,6 +78,8 @@ class MenuFlow {
   explicit MenuFlow(Profile& profile, MenuUnlocks unlocks = {});
   void start();
   void update(MenuInput input);
+  // Presentation is borrowed until the next mutation; it carries no render
+  // assets.
   const MenuPresentation& presentation() const { return presentation_; }
   const std::optional<MenuSelection>& selection() const { return selection_; }
   bool settings_changed() const { return settings_changed_; }

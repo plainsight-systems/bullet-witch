@@ -23,6 +23,7 @@ def nativeparse(data):
  if r.pos!=len(data):raise ValueError('Trailing compiler bytes')
  return f
 
+# Compare executable structure across compiler ABIs, excluding only debug metadata.
 def normalize(f):return {'params':f['parameter_count'],'upvalues':f['upvalue_count'],'vararg':f['vararg'],'stack':f['stack_size'],'constants':f['constants'],'instructions':[i['word'] for i in f['code']],'children':[normalize(c) for c in f['children']]}
 rows=[];seen={}
 for item in inventory:
@@ -54,6 +55,7 @@ for item in inventory:
    comparison={'equal':a==b,'original':a,'recompiled':b}
    if a!=b:(E/'comparisons'/(ident+'.json')).write_text(json.dumps(comparison,indent=2)+'\n')
  except Exception as e:row.update(status='unresolved',error=str(e))
+ # Preserve unresolved entries and checkpoint progress before advancing the corpus.
  row['seconds']=round(time.monotonic()-t,3);rows.append(row);seen[ident]={k:v for k,v in row.items() if k not in ('origin',)};save('decompilation-status.json',rows)
  print(ident,row['status'],flush=True)
 summary={'occurrences':len(rows),'unique_scripts':len(seen),'status_occurrences':dict(Counter(r['status'] for r in rows)),'status_unique':dict(Counter(r['status'] for r in seen.values())),'validation':'unmodified Lua 5.0.3 compiler on arm64; its native 8-byte size_t and Instruction serialization decoded separately. Normalized comparison excludes debug/source/line data but includes all instructions, constants, stack/parameter/upvalue/vararg metadata and nested prototypes. Syntax checks alone do not prove equivalence.'}

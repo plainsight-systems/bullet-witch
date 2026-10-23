@@ -114,6 +114,8 @@ void TitleFlow::update(LogoUpdate input, bool resources_ready) {
     constexpr float accept_fade_time = 0.9F;     // 0x6c1d88
     switch (phase_) {
       case Phase::initialize:
+        // Encoded publication alone is insufficient; wait for presentation
+        // assets.
         if (!resources_ready) {
           return;
         }
@@ -176,6 +178,8 @@ void TitleFlow::update(LogoUpdate input, bool resources_ready) {
         transition(Phase::timeout_movie);
         break;
       case Phase::timeout_movie:
+        // A title timeout requests exit; available media must still finish
+        // draining.
         if (!movie_available_ || media_.get().movie_complete()) {
           media_.get().begin_fade(FadeDirection::conceal,
                                   movie_available_ ? 0.0F : conceal_duration);

@@ -34,9 +34,12 @@ class MediaAudio final : public video::AudioOutput {
   MediaAudio& operator=(const MediaAudio&) = delete;
   MediaAudio(MediaAudio&&) = delete;
   MediaAudio& operator=(MediaAudio&&) = delete;
+  // Borrow the decoder through stop; prepare primes without starting playback.
   void prepare(video::Decoder& source, std::size_t prime_frames) override;
   void start() override;
+  // Observe the native playback clock through coherent atomic publication.
   video::AudioSnapshot snapshot() const override;
+  // Join callbacks before the borrowed decoder may be destroyed.
   void stop() noexcept override;
 
  private:

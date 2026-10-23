@@ -143,6 +143,7 @@ void RootDriver::bindings() {
           count(args, 0);
           return Reply{
               {}, [this, screen, first = screen == Screen::title]() mutable {
+                // Title Wait yields once before polling the screen lifecycle.
                 if (first) {
                   first = false;
                   return true;
@@ -166,6 +167,8 @@ script::RunResult RootDriver::advance() {
   }
   try {
     if (!loaded_) {
+      // Keep resource publication, package decoding and VM startup in that
+      // order.
       const auto load = resources_.get().pump(tag_);
       if (load.state == resources::LoadState::failed) {
         throw Error(ErrorCode::unsupported, load.diagnostic);
@@ -187,6 +190,8 @@ script::RunResult RootDriver::advance() {
       loaded_ = true;
     }
     constexpr unsigned main_budget = 64;
+    // Re-enter main only after completion; pending bridges retain their
+    // coroutine.
     for (unsigned n = 0; n < main_budget; ++n) {
       result_ = context_.pump();
       if (result_.state != RunState::complete) {

@@ -194,6 +194,8 @@ struct StartupMenuSurface::State {
   State(State&&) = delete;
   State& operator=(State&&) = delete;
   void end() noexcept {
+    // Clear retained draws before releasing their texture handles and archive
+    // leases.
     renderer.clear_sprites();
     while (image_count > 0) {
       renderer.release_texture(images.at(--image_count).texture);
@@ -206,6 +208,8 @@ struct StartupMenuSurface::State {
     count = 0;
   }
   void construct() {
+    // Build device assets once from the published groups; draws reuse those
+    // handles.
     for (std::size_t group = 0; group < kGroups.size(); ++group) {
       auto acquired = resources.acquire(kGroups.at(group));
       if (!acquired) {
@@ -353,6 +357,8 @@ bool StartupMenuSurface::ready() {
   }
   if (report.state != resources::LoadState::ready) return false;
   state.construct();
+  // Observe construction completion on the next update, as with the title
+  // surface.
   return false;
 }
 void StartupMenuSurface::show(const MenuPresentation& presentation) {
@@ -388,6 +394,7 @@ void StartupMenuSurface::show(const MenuPresentation& presentation) {
     }
   } else if (presentation.page == MenuPage::costume &&
              presentation.count != 0) {
+    // Costume selection uses original 2D preview images, not a character scene.
     state.image(kCustomBackground, {0, 0, 0, 0});
     state.image(kCustomPanel, kPreviewPanel);
     const auto selected_id =

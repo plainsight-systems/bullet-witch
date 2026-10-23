@@ -16,5 +16,6 @@
 #include "bw/memory/cpu_backing.hpp"
 
 namespace bw::platform::macos {
+// Bootstrap outside any domain; domains retain the provider for later releases.
 [[nodiscard]] std::shared_ptr<memory::CpuBacking> make_cpu_backing();
 }  // namespace bw::platform::macos

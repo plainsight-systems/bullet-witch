@@ -45,6 +45,8 @@ inline constexpr std::size_t kRootHeapBytes = std::size_t{64} * 1024;
 using Value = std::variant<std::monostate, double, bool, std::string>;
 struct Reply {
   std::vector<Value> values;
+  // True keeps Lua suspended; a retained callback must own any needed
+  // arguments.
   std::function<bool()> pending;
 };
 using Native = std::function<Reply(std::span<const Value>)>;
@@ -68,6 +70,7 @@ class Context {
   void load_binary(std::span<const std::uint8_t> bytes);
   void load_source(std::string_view source);
   void start(const std::string& function);
+  // Poll pending native work, then resume within the per-call safety budget.
   RunResult pump();
   Value global(const std::string& name) const;
 

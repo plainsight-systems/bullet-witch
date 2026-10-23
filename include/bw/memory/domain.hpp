@@ -66,12 +66,15 @@ class Domain final : public std::pmr::memory_resource,
   static std::shared_ptr<Domain> create(std::shared_ptr<CpuBacking> backing,
                                         Limits limits = {});
   Domain(ConstructionKey, std::shared_ptr<CpuBacking> backing, Limits limits);
+  // Both entry points admit pending storage before calling the native provider.
   [[nodiscard]] void* try_allocate_zeroed(
       std::size_t bytes,
       std::size_t alignment = alignof(std::max_align_t)) noexcept;
   [[nodiscard]] void* allocate_zeroed(
       std::size_t bytes, std::size_t alignment = alignof(std::max_align_t));
+  // Route release through the allocation's retained owner, after consumer use.
   static void release(void* pointer) noexcept;
+  // Observe pending and live accounting, including native operations in flight.
   [[nodiscard]] Snapshot snapshot() const;
 
  private:

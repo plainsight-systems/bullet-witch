@@ -55,6 +55,7 @@ class Reader:
                 ins['constant']=constants[bx]
             if ins['op']=='CLOSURE' and bx>=len(f['children']):raise ValueError('Child prototype index out of range')
             code.append(ins)
+        # Validate branch destinations after the complete instruction count is known.
         for ins in code:
             if ins['op'] in ['JMP','FORLOOP','TFORPREP']:
                 target=ins['pc']+1+ins['sBx']

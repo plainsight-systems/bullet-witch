@@ -17,6 +17,7 @@ std::filesystem::path default_save_directory() {
     if (location == nil) {
       throw std::runtime_error("Application Support directory unavailable");
     }
+    // Copy the native path before the autorelease scope ends.
     return std::filesystem::path([[location path] fileSystemRepresentation]) /
            "Plainsight Systems" / "Bullet Witch";
   }

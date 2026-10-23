@@ -61,6 +61,7 @@ struct NamespaceNode {
 };
 class ResourceCatalogData {
  public:
+  // Validate namespace membership and resolve names before exposing metadata.
   static ResourceCatalogData parse(Bytes bytes);
   static ResourceCatalogData parse(CatalogBytes bytes);
   auto allocator() const { return bytes_.get_allocator(); }

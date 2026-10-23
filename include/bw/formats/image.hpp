@@ -39,6 +39,7 @@ struct ImageLimits {
   std::size_t maximum_decoded_bytes{kImageByteBudget};
   std::size_t maximum_encoded_bytes{kImageByteBudget};
 };
+// Borrow encoded input for this call; return independent straight-alpha pixels.
 Image decode_png(std::span<const std::uint8_t> encoded, ImageLimits limits = {},
                  const memory::Allocator<std::uint8_t>& allocator = {});
 }  // namespace bw::formats

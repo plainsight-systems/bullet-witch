@@ -6,6 +6,7 @@ struct Vertex {
   float4 position [[position]];
   float2 uv;
 };
+// The host viewport supplies aspect fit; this quad spans that viewport.
 vertex Vertex movie_vertex(uint index [[vertex_id]]) {
   const float2 points[4] = {float2(-1, 1), float2(-1, -1), float2(1, 1),
                             float2(1, -1)};
@@ -16,5 +17,6 @@ fragment float4 movie_fragment(Vertex value [[stage_in]],
                                texture2d<float> frame [[texture(0)]],
                                constant float& opacity [[buffer(0)]]) {
   constexpr sampler linear_sampler(coord::normalized, filter::linear);
+  // Fade RGB toward black while keeping the movie surface opaque.
   return float4(frame.sample(linear_sampler, value.uv).rgb * opacity, 1);
 }

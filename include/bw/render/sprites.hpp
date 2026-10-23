@@ -42,6 +42,7 @@ struct Color {
   float alpha{1};
 };
 enum class TextureChannel : std::uint8_t { rgba, red, green, blue, alpha };
+// Destination uses the logical canvas; UVs address the selected texture.
 struct Sprite {
   TextureHandle texture;
   Rect destination;
@@ -57,10 +58,13 @@ class SpriteOutput {
   SpriteOutput& operator=(const SpriteOutput&) = delete;
   SpriteOutput(SpriteOutput&&) = delete;
   SpriteOutput& operator=(SpriteOutput&&) = delete;
+  // Copy borrowed RGBA pixels into a resource owned by this output.
   virtual TextureHandle upload_texture(std::uint32_t width,
                                        std::uint32_t height,
                                        std::span<const std::uint8_t> rgba) = 0;
+  // Release also removes submitted quads that reference this identity.
   virtual void release_texture(TextureHandle texture) noexcept = 0;
+  // Validate the whole submission before replacing the ordered command list.
   virtual void set_sprites(std::span<const Sprite> sprites) = 0;
   virtual void clear_sprites() noexcept = 0;
 };
