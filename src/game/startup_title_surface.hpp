@@ -48,6 +48,9 @@ class StartupTitleSurface final : public TitleSurface {
   bool ready() override;
   void show(bool visible, TitlePresentation presentation) override;
   void end() noexcept override;
+  // Retain the original random choice after title assets retire. Mission
+  // loading admits that same group rather than choosing a different image.
+  std::string_view selected_loading_background() const;
 
  private:
   struct State;

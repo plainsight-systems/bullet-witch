@@ -7,6 +7,7 @@ struct SpriteParameters {
   float4 uv;
   float4 color;
   float4 sampling;
+  float4 transform;
 };
 struct SpriteVertex {
   float4 position [[position]];
@@ -18,7 +19,12 @@ vertex SpriteVertex sprite_vertex(uint index [[vertex_id]],
   const float2 corners[4] = {float2(0, 0), float2(0, 1), float2(1, 0),
                              float2(1, 1)};
   const float2 corner = corners[index];
-  const float2 point = sprite.rectangle.xy + corner * sprite.rectangle.zw;
+  const float2 local = corner * sprite.rectangle.zw - sprite.transform.zw;
+  const float2 rotated =
+      float2(local.x * sprite.transform.x - local.y * sprite.transform.y,
+             local.x * sprite.transform.y + local.y * sprite.transform.x);
+  const float2 point =
+      (sprite.rectangle.xy + sprite.transform.zw + rotated) / float2(1280, 720);
   // Convert the top-left canvas convention to Metal clip coordinates.
   return {float4(point.x * 2 - 1, 1 - point.y * 2, 0, 1),
           sprite.uv.xy + corner * sprite.uv.zw};

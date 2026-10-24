@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include "bw/memory/allocator.hpp"
@@ -33,6 +34,7 @@ enum class Target : std::uint8_t {
   count
 };
 enum class Pass : std::uint8_t {
+  scale_rgb,
   log,
   down,
   down_luminance,
@@ -52,6 +54,8 @@ struct OutputUniforms {
       log_luminance{};
   std::uint32_t adapted{}, bloom{}, enabled{};
   float opacity{1};
+  std::array<float, 4> global_color{1, 1, 1, 1};
+  std::array<float, 4> first_measurement_bounds{};
 };
 constexpr std::array<std::uint32_t, kTargets> kDimensions{512, 256, 256, 64,  16,  4,  1,
                                                           256, 256, 128, 128, 128, 128};
@@ -66,7 +70,7 @@ struct WorldPostprocess::State {
       : device(native_device), budget(std::move(native_budget)) {}
   id<MTLDevice> device;
   std::shared_ptr<memory::DeviceBudget> budget;
-  TextureAllocation scene, depth;
+  TextureAllocation scene, depth, filtered_scene;
   std::array<TextureAllocation, kTargets> targets;
   std::array<id<MTLRenderPipelineState>, kPasses> pipelines{};
   render::WorldOutputParameters parameters;
@@ -83,9 +87,11 @@ struct WorldPostprocess::State {
     auto& result = pipelines.at(index(pass));
     if (result != nil) return result;
     const std::array<NSString*, kPasses> names{
-        @"world_log_luminance",    @"world_downsample",     @"world_downsample_luminance",
-        @"world_reduce_luminance", @"world_bloom_extract",  @"world_bloom_radial",
-        @"world_bloom_horizontal", @"world_bloom_vertical", @"world_display_output"};
+        @"world_scale_rgb",        @"world_log_luminance",
+        @"world_downsample",       @"world_downsample_luminance",
+        @"world_reduce_luminance", @"world_bloom_extract",
+        @"world_bloom_radial",     @"world_bloom_horizontal",
+        @"world_bloom_vertical",   @"world_display_output"};
     auto* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
     descriptor.vertexFunction = [library newFunctionWithName:@"world_output_vertex"];
     descriptor.fragmentFunction = [library newFunctionWithName:names.at(index(pass))];
@@ -114,9 +120,8 @@ struct WorldPostprocess::State {
     [encoder setFragmentBytes:&values length:sizeof(values) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
   }
-  void run(id<MTLCommandBuffer> command, id<MTLLibrary> library, Pass pass, id<MTLTexture> input,
-           Target output) {
-    auto target = texture(output);
+  void run(id<MTLCommandBuffer> command, id<MTLLibrary> library, id<MTLTexture> input, Pass pass,
+           id<MTLTexture> target) {
     auto* descriptor = [MTLRenderPassDescriptor renderPassDescriptor];
     descriptor.colorAttachments[0].texture = target;
     descriptor.colorAttachments[0].loadAction = MTLLoadActionDontCare;
@@ -129,6 +134,13 @@ struct WorldPostprocess::State {
     bind(encoder, pass, library, input, values);
     [encoder endEncoding];
   }
+  void run(id<MTLCommandBuffer> command, id<MTLLibrary> library, Pass pass, id<MTLTexture> input,
+           Target output) {
+    run(command, library, input, pass, texture(output));
+  }
+  id<MTLTexture> color_input() const {
+    return parameters.global_color_mode == 2 ? filtered_scene.get() : scene.get();
+  }
 };
 WorldPostprocess::WorldPostprocess(id<MTLDevice> device, const std::shared_ptr<memory::Domain>& cpu,
                                    std::shared_ptr<memory::DeviceBudget> budget)
@@ -140,6 +152,11 @@ WorldPostprocess::WorldPostprocess(id<MTLDevice> device, const std::shared_ptr<m
 }
 WorldPostprocess::~WorldPostprocess() = default;
 void WorldPostprocess::configure(const render::WorldOutputParameters& parameters) {
+  if ((parameters.global_color_mode != 0 && parameters.global_color_mode != 2) ||
+      !std::ranges::all_of(parameters.global_color,
+                           [](float value) { return std::isfinite(value); })) {
+    throw std::invalid_argument("Unsupported or invalid world color filter");
+  }
   if (parameters.tone_mapping_enabled) {
     const std::array values{parameters.exposure_key, parameters.gamma,
                             parameters.bloom_exposure_key, parameters.bloom_threshold,
@@ -163,6 +180,7 @@ void WorldPostprocess::reset() noexcept {
   auto& state = *state_;
   state.scene.reset();
   state.depth.reset();
+  state.filtered_scene.reset();
   for (auto& target : state.targets) target.reset();
   state.previous = nil;
   state.exposure.reset();
@@ -211,6 +229,20 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
   u = {};
   u.opacity = 1;
   u.enabled = static_cast<std::uint32_t>(p.tone_mapping_enabled);
+  // The original ScalingRGB executor writes a half-float scene before any
+  // luminance or bloom work. It preserves alpha, clamps only the authored RGB
+  // multipliers, and never saturates the resulting HDR pixels.
+  if (p.global_color_mode == 2) {
+    for (std::size_t i = 0; i < 3; ++i) u.global_color.at(i) = std::max(p.global_color.at(i), 0.0F);
+    const auto scene = state.scene.get();
+    if (state.filtered_scene.get() == nil || state.filtered_scene.get().width != scene.width ||
+        state.filtered_scene.get().height != scene.height) {
+      state.filtered_scene =
+          state.make_target(static_cast<std::uint32_t>(scene.width),
+                            static_cast<std::uint32_t>(scene.height), MTLPixelFormatRGBA16Float);
+    }
+    state.run(command, library, scene, Pass::scale_rgb, state.filtered_scene.get());
+  }
   if (p.tone_mapping_enabled) {
     constexpr float minimum_parameter = .01F, maximum_parameter = 64;
     u.exposure_key = std::clamp(p.exposure_key, minimum_parameter, maximum_parameter);
@@ -220,6 +252,11 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
     u.bloom_threshold = std::clamp(p.bloom_threshold, minimum_parameter, maximum_threshold);
     u.bloom_soft_knee = std::clamp(p.bloom_soft_knee, minimum_parameter, maximum_parameter);
     u.bloom = static_cast<std::uint32_t>(p.bloom_enabled);
+    const auto bounds = render::exposure_output_bounds(p.exposure);
+    u.first_measurement_bounds = {
+        bounds.minimum_luminance.value_or(0),
+        bounds.maximum_luminance.value_or(std::numeric_limits<float>::max()),
+        bounds.measurement_floor, p.exposure.history_window > 0 ? 1.0F : 0.0F};
     if (state.previous != nil && state.texture(Target::reduce1) != nil) {
       float measured{};
       [state.texture(Target::reduce1) getBytes:&measured
@@ -238,7 +275,7 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
             luminance_target(i) ? MTLPixelFormatR32Float : MTLPixelFormatRGBA16Float);
       }
     }
-    state.run(command, library, Pass::log, state.scene.get(), Target::log_color);
+    state.run(command, library, Pass::log, state.color_input(), Target::log_color);
     state.run(command, library, Pass::down, state.texture(Target::log_color), Target::down_color);
     state.run(command, library, Pass::down_luminance, state.texture(Target::log_color),
               Target::down_luminance);
@@ -274,6 +311,6 @@ void WorldPostprocess::encode_display(id<MTLRenderCommandEncoder> encoder, id<MT
   values.opacity = opacity;
   values.inverse_extent = {1.0F / static_cast<float>(state.scene.get().width),
                            1.0F / static_cast<float>(state.scene.get().height)};
-  state.bind(encoder, Pass::display, library, state.scene.get(), values);
+  state.bind(encoder, Pass::display, library, state.color_input(), values);
 }
 }  // namespace bw::platform::macos

@@ -242,3 +242,223 @@ exit status zero. The second exterior observation is retained in
 `shadow-closure-checkpoint20.log` and PNG. These native observations complete the
 slice's projection/filter acceptance alongside the source witnesses and boundary
 checks; they do not establish full original-game image parity.
+
+## Traversal floor-band investigation and caster correction
+
+This records the uncorrected baseline. The later native footprint correction
+below addresses the reproduced floor and character self-shadow artifacts.
+
+The moving traversal view exposed fine floor bands that static captures had not
+resolved. A bounded offscreen GPU probe now reproduces them with no actor and no
+material animation. This isolates shadowing from actor movement, normal animation
+and exposure adaptation; it does not establish the original game's appearance.
+The diagnostic consumes the real retained `st04_c`/sky/background resources,
+uses the production native renderer, and reads the direct RGBA16F color pass.
+It saves display-clamped PNGs only for inspection. Tone mapping is bypassed for
+measurement, so these PNGs are not final application output.
+
+The source static shadow method `0x56b5a0 -> 0x56a4a0` submits selectors **0 and
+1**. `0x421ff0` stores the selector at command +0x28; `0x427220` forwards it to
+draw-context +0x84 with outer group zero at +0x80. `0x430310 -> 0x430b10` selects
+the corresponding original chunk. The reconstruction previously marked all
+4,100 static color draws as casters, including 571 chunk-3 draws. Admission now
+retains only the 3,529 chunk-0/1 casters (3,053 opaque and 476 cutout); chunk-3
+surfaces still render and receive shadows. This is a recovered selection rule,
+not a floor-specific exclusion. The existing provisioned `startup_corpus`
+scenario checks the new census and independently rejects any admitted caster
+whose original retained chunk is outside 0/1.
+
+The ownership trace does not justify excluding every `_background` model.
+`0x4427a0` enumerates matching namespaces; `0x45bdb0` constructs ordinary models
+through `0x5e0eb0`, which registers in the caster list unconditionally. The static
+size/intersection methods pass caster selection. This differs from separately
+placed BGOB props. No background-suffix exception was found in this bounded path.
+
+### What the actual GPU isolation establishes
+
+The exterior witness uses checkpoint-10 eye (-7.98534, 1.35, 54.8025), horizontal
+yaw -0.28 degrees, plus separate +0.2-unit forward and +0.02-radian yaw poses.
+The initial doorway pose was also tested. These are independent fixed captures,
+not an assumption about which user input originally exposed the effect.
+
+For the exterior image's lower-floor rectangle x=150..899, y=330..575:
+
+| Diagnostic change | Mean shadow visibility |
+| --- | ---: |
+| Original reconstructed all-static admission | 0.504 |
+| Recovered chunk-0/1 admission | 0.667 |
+| Only three near-horizontal floor draws cast | 0.508 |
+| Those three floor draws excluded diagnostically | 0.997 |
+
+The three isolated draws are `st04_c` draw 740, chunk 3, at Y=.01, and
+`st04_c_background` draws 168/169, chunk 0, at Y approximately .000004.
+The chunk-3 correction removes the first from casting; the source-admitted
+background plane still produces visible self-shadow bands. The floor-only and
+no-floor alternatives are **diagnostics only**, not production policies.
+Disabling only receiver shadowing removes the fine bands while retaining normal
+mapping, textures and fixed lighting. An independent analytic nearest-depth
+plane calculation using the recovered matrix also produces alternating lit/dark
+samples with zero comparison bias; that calculation is a mechanism witness,
+not original-game or GPU execution.
+
+The original receiver compares `receiverNumerator - sampledDepth * W >= 0`.
+The reconstruction divides first. Testing the original expression in an ignored
+shader variant changed 1,822 of 589,824 visibility pixels at the exterior pose;
+it did not remove the bands. At the nearby forward/yaw poses the changed counts
+were 2,757 and 2,539. This rules out that algebraic precision difference as the
+main cure for this reproduction. Caster and receiver use the same live matrix;
+no stale-view mismatch was demonstrated.
+
+### Source settings checked; remaining uncertainty
+
+Original caster pixel programs 0/1 compute depth plus
+`c68.x + c68.y * max(abs(ddx(depth)), abs(ddy(depth)))`. The native caster currently
+omits these shader bias terms. `0x457620` publishes scene +0x12c/+0x130 to c68
+and also to D3D depth/slope-bias states. The actual retained scene bytes contain
+zero for both, and `0x5f9c00` does not change them. Therefore this unsupported
+nonzero behavior is not an established cause for the current scene. A search of
+recovered mission/script listings found no explicit shadow/depth-bias writes;
+that negative search does not prove absence of every later native customization.
+
+The original shadow cull selector at scene +0xe8 is zero. `0x457620` maps it to
+D3DCULL_NONE (1); the native no-culling mode agrees. `0x451fa0` uses the exact
+texture remap (.5, -.5, .5, .5), with no additional half-texel constant. Original
+D3D9 raster/sample conventions and the complete later runtime policy remain
+separate investigation boundaries. Neither texel snapping, an arbitrary bias,
+nor dropping all floor casters has been introduced as a purported source fix.
+The demonstrated admission error is corrected; the remaining floor self-shadow
+artifact is **unresolved**, not accepted as final visual parity.
+
+### Reproduction and files
+
+Ignored evidence lives in `research/evidence/reconstruction/shadow-motion/`:
+`probe.mm`, `build-command.json`, shader snapshots/variants, per-run logs,
+RGBA16F `.hdr.bin` captures, PNGs and `metrics.json`. The executable links the
+current application libraries; the command JSON preserves the exact build.
+Run from the repository root, supplying the readonly game root:
+
+```sh
+research/evidence/reconstruction/shadow-motion/probe "$GAME_ROOT" \
+  research/evidence/reconstruction/shadow-motion/visibility.metal \
+  research/evidence/reconstruction/shadow-motion/visibility-3.png 3
+```
+
+Pose IDs 0/1/2 are initial/forward/yaw; 3/4/5 are exterior/forward/yaw.
+`baseline.metal` is the production shader snapshot. `unshadowed.metal` returns
+visibility one; `source-compare.metal` changes only the comparison expression;
+`visibility.metal` and `visibility-source.metal` publish the corresponding
+visibility directly. `PROBE_CAST_MODE=only01`, `floor-only` or `no-floor` controls
+only diagnostic caster admission through a forwarding output adapter. Baseline
+captures preceded the production chunk correction and are retained rather than
+silently overwritten. The analytic script/results are adjacent under
+`research/evidence/reconstruction/stage/self-shadow-plane-probe.*`.
+
+The narrow production correction queried and read both MCP corpora in design
+and implementation: I.1 makes admission explicit, GPU.1 keeps it a setup-time
+retained decision without production readback. Pinned formatting and fatal tidy
+cover the changed translation units; the integration owner runs the coherent
+full gate and original-content corpus after parallel edits finish.
+
+
+## Native receiver-footprint correction
+
+User review found remaining character shadow artifacts after the caster-selector
+correction. A separate costume-5 probe uses the original checkpoint-10 actor
+placement, original stage resources, retained skin palettes and the native GPU
+renderer. Both character and weapon **do cast**: they have no placed-prop record,
+so the current admission predicate selects their opaque/cutout chunks too. The
+static-only diagnostic above did not establish their behavior.
+
+The character probe compares the same pose with all casters, only actor/weapon
+casters, and actor/weapon casters removed. Across 20,904 body pixels at this
+exterior view, baseline average visibility is 0.26131. Removing only actor/weapon
+casters makes all body pixels lit; the actor-only map reproduces the baseline
+body visibility. This demonstrates an actor self-shadow contribution. It does
+not imply all of that contribution is erroneous: clothing, limbs and the weapon
+must retain their real mutual occlusion. Source vertex programs 453 and 3 confirm
+the same four-influence accumulation and homogeneous position path for color and
+shadow geometry. No separate stale skin-palette or double-world transform was
+found.
+
+Two exact-source arithmetic probes are insufficient: changing the receiver to
+`numerator - sampledDepth * W` changes only 22 body pixels, and publishing the
+original interpolated caster `z/w` instead of raster depth changes only nine.
+Neither removes the reproduced pattern. A separate D3D9 integer-pixel-center
+conversion also does not cure it; it reduces average body visibility to 0.17622.
+That experiment remains diagnostic, not a production compensation. Microsoft's
+[Direct3D coordinate-system documentation](https://learn.microsoft.com/en-us/windows/win32/direct3d10/d3d10-graphics-programming-guide-resources-coordinates)
+and [texel-to-pixel mapping](https://learn.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels)
+establish the API convention difference, not an original-game fix.
+
+### Explicit inference from a mature implementation
+
+The original zero-bias configuration does not resolve self-shadowing after the
+bounded source trace. Following the authorized reconstruction policy, inspect
+Unreal revision `f45729c0b6f097038e72b52d366a62baeca3275b`:
+
+- `Engine/Shaders/Private/VirtualShadowMaps/VirtualShadowMapProjectionDirectional.ush`,
+  `ComputeDepthSlopeDirectionalUV`, `ComputeOptimalSlopeBiasDirectional`, and
+  the ray-start correction: derive a geometric depth slope, bound it to
+  ±0.05 in normalized shadow coordinates, and apply
+  `2 * max(0, dot(depthSlopeUV, sampleOffsetUV))` in reversed depth.
+- `Engine/Shaders/Private/ShadowFilteringCommon.ush`, `Manual3x3PCF` and related
+  samplers: identify the actual texel centers and retain the sampling footprint.
+- `Engine/Shaders/Private/ShadowDepthVertexShader.usf`,
+  `ComputeDepthBiasDirectionalSpot`: separate constant and slope contributions.
+  Its configurable caster bias is not adopted here.
+
+The native adaptation derives the receiver triangle's depth plane from screen
+space derivatives of projected shadow UV/depth, because this game's recovered
+light projection is perspective warped. It evaluates derivatives before alpha
+cutout discard or divergent shadow rejection. A common derivative scale avoids
+cross-product overflow/underflow; nonfinite derivatives or a zero Jacobian produce zero slope. A zero homogeneous W is
+unshadowed. The same bounded Unreal slope rule
+handles near-degenerate projections. Each of the original eight jitter taps uses
+its actual nearest texel center, including clamp-to-edge address resolution,
+to calculate the conservative positive-depth
+correction. A flat plane receives no correction. The correction scales with
+sample displacement and map resolution; no scene-specific constant depth offset
+or normal displacement is introduced.
+
+This is an **inferred native algorithm**, not recovered Bullet Witch shader
+parity. It retains the source projection, 1024-square map, original jitter bytes,
+eight comparisons, filter radius, material lighting equations, caster admission
+and cleared border. It adds arithmetic and fragment derivatives without adding
+texture samples, buffers, allocations or synchronization. No performance claim
+is based on these diagnostic captures. Core I.1 and performance GPU.10 were
+queried and read in both phases: explicit projection/sample contracts and
+completed GPU correctness measurements, not CPU submission-time claims.
+
+### Verification and limits
+
+The existing native surface fixture now checks a sloped plane at three subtexel
+phases, a separate thin occluder and adjacent lit contact edge, a singular UV
+projection, and a steep slope whose result stays within the lighting endpoints.
+Near-zero uniform homogeneous scale and zero W are also exercised. The old
+shader fails the new tilted-plane test, while the corrected shader passes.
+Existing reverse-depth equality, homogeneous W, original eight-tap averages,
+cleared-border and outside-map contracts remain in the same fixture. The final
+scoped check passed pinned formatting, fatal clang-tidy, Metal compilation with
+`-Wall -Wextra -Werror`, and the native surface fixture, including a thin
+occluder only 0.0000475 normalized depth ahead of its receiver at the measured
+contact sample. This separation exceeds the local derived texel correction.
+The coherent application build and live review remain the parent integration gate.
+
+For the real checkpoint-10 scene, the sampled lower-floor region's average
+visibility changes from 0.69748 to 0.99877. Body visibility changes from 0.26131
+to 0.33400 and weapon visibility from 0.40088 to 0.69119: occlusion remains,
+rather than making the actor globally unshadowed. With the camera translated
+0.2 along Z, floor visibility is 0.99931; with yaw advanced 0.02 radians it is
+0.99977. The direct HDR results are finite. Fine horizontal floor bands are
+visibly removed in these captures; the larger diagonal floor pattern remains
+authored surface detail. These fixed-pose checks do not establish all-animation,
+all-view original image parity or replace subsequent user review of the native
+application. Conservative slope correction can still trade very close-contact
+precision for stability, particularly at the bounded steep-slope limit.
+
+Evidence is organized under `research/evidence/reconstruction/character-shadow/`:
+`probe.mm`, `build-command.json`, baseline/caster-isolation images,
+`production-{0,3,4,5}.png`, visibility/mask images, `production-metrics.json`, and
+`surface-contract-production.log`. The probe leaves game files read-only and
+opens no window. The original-source and Unreal excerpts are ignored evidence;
+only this reviewed account and authored code/tests are tracked.

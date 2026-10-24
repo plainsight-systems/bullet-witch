@@ -1,10 +1,13 @@
 # Authored stage fog
 
 The selected `st04_c` environment supplies separate surface and sky fog blocks,
-with a shared RGB color. Both blocks have zero distance density and zero height
-opacity. Their enable bytes are set, but the authored contributions are still
-zero. The current clear appearance does not establish a missing visible fog
-effect, and adding atmospheric haze would change this stage's settings.
+with a shared RGB color. Its raw customization record has zero density and
+opacity, but these are not the live values. Original stage activation enables
+AREA updates, which select camera-dependent environment channels before fog
+publication. The inspected cave target has surface density `0.0003` and height
+opacity `0.0004`; the exterior target has `0.0007` and `0.004`. The corresponding
+sky terms also change. Fog therefore participates in the live reconstructed
+scene; the raw record alone cannot establish its visible contribution.
 
 ## Field mapping
 
@@ -12,7 +15,7 @@ Offsets below are relative to the selected `witch/stage/<name>` customization
 payload. The immutable `StageEnvironment` decoder retains finite authored values
 and enable bytes. View composition owns disabled fallbacks and shader packing.
 
-| Meaning | Surface offset | Sky offset | Inspected `st04_c` value |
+| Meaning | Surface offset | Sky offset | Raw `st04_c` value |
 |---|---:|---:|---|
 | Distance enabled | `0x25` | `0x50` | true |
 | Distance start | `0x28` | `0x54` | 1000 |
@@ -25,8 +28,8 @@ and enable bytes. View composition owns disabled fallbacks and shader packing.
 | Height opacity | `0x4c` | `0x78` | 0 |
 
 Shared color at `0x7c / 0x80 / 0x84` is black. Byte `0x24` is the separate
-area-environment override gate, not the surface distance enable; it is false in
-this stage. The decoded fixture distinguishes these adjacent fields. Descending
+area-environment override gate, not the surface distance enable. It is zero in
+the raw record, then original initializer `5f9c00` sets it to one. The decoded fixture distinguishes these adjacent fields. Descending
 or reversed distance ranges are retained, rather than rejected as if they were
 near/far projection planes. No extra allocation is introduced by fog decoding.
 
@@ -63,7 +66,9 @@ fog therefore consumes camera-relative positions with world axes, not rotated
 view-space height. The translated mode-1 shader combines exponential distance
 fog with the descending height gate and the independent height contribution.
 Its exponential path uses density, not the first two linear-distance entries.
-With the inspected zero density and opacity, both contributions remain zero.
+The live AREA values replace the raw zero density and opacity. The camera-owned
+selection and channel transitions are documented in
+[scene lighting producers](lighting-scene-producer-contract.md).
 
 Source witnesses are under `research/evidence/engine/pass-44-stage-area-context/`
 (`0x460300`, `0x422280`), `pass-06l/` (`0x4276d0`, `0x425160`),
@@ -76,11 +81,48 @@ and -1 independently of inferred decompiler types.
 The existing resource test scenario now exercises separate sky/surface fields,
 independent enable bytes, reversed distance endpoints, shared RGB and rejection
 of a nonfinite fog scalar. Runtime coefficient packing and native visual
-verification belong to the integrating slice's checks. This decoder does not
-claim area interpolation, fog-mode 2, or active nonzero fog visual parity.
+verification belong to the integrating slice's checks. The decoder alone does not
+claim area interpolation, fog-mode 2, or active nonzero fog visual parity. The
+scene environment owner now supplies AREA interpolation separately.
 
 Design and implementation each queried both C++ MCP corpora and read `R.2`
 (`#rr-use-ptr`) and `MEM.6`
 (`guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md`): checked
 borrowed records return owned scalar values, with hierarchy metadata using the
 existing injected domain.
+
+
+## Live AREA activation correction
+
+The raw zero-density observation above is not the live environment. Stage
+activation enables AREA, which updates mode-1 fog fields from the spatial
+channel target. Actual cave targets have equal surface distance endpoints zero.
+Original `425160` consequently writes infinity/NaN into the unused linear
+PS40.xy lanes; mode-1 programs read only PS40.zw and PS42.xy. Production now
+sets those unused linear lanes to zero rather than rejecting a valid exponential
+fog state. Active height-gate, height-opacity and exponential-density equations
+are unchanged. This is a typed representation of the admitted mode-1 consumer,
+not an epsilon or a claim that linear mode-2 fog is implemented.
+
+### Source execution and admitted consumers
+
+Literal original `425160` execution with the cave and exterior AREA snapshots
+confirms `PS40.xy = (+Infinity, NaN)` when both distance endpoints are zero.
+Only the D3D constant-upload call was intercepted; the coefficient arithmetic
+was executed unchanged. `PS40.zw`, `PS41`, and `PS42` remain finite at those
+points. These unused linear coefficients are nonfinite results of the original
+arithmetic, not an omitted clamp or an epsilon-based transition.
+
+The current admitted material selectors were matched against the original
+registry: 130 variants use 61 distinct color programs. Every inspected `c40`
+read uses only `.z/.w`; none consumes the linear `.x/.y` lanes. The native
+`world_color.metal` has the same exponential-distance and height consumers.
+The adapter therefore publishes canonical zero in its unused linear lanes and
+validates the active coefficients. It does not reject a valid exponential fog
+state because a linear-distance interval is zero. Future linear-fog admission
+requires its own producer/consumer contract.
+
+Ignored local evidence: `research/evidence/reconstruction/character-light/`
+`output-contract/fog-area-consumer.json`, `fog_area_consumer.py`, and
+`fog-admitted-consumers.json`. This evidence verifies coefficient publication
+and admitted shader consumption, not complete native visual parity.

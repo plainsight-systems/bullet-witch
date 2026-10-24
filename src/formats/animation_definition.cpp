@@ -1,11 +1,23 @@
+// Authored per-bone channel masks are retained during bounded parsing for
+// prepared pose layers. Both phases Core I.1/E.4 and performance MEM.9/CDSA.32
+// keep membership explicit and avoid archive access during evaluation. See
+// alicia-animation-layers.md.
+// Shared math retains each caller's scalar/accumulator precision; tolerance
+// and failure policy remain here. Both-phase I.9/MEM.9 contracts are in
+// bw/math/vector.hpp and matrix.hpp.
 // Load-time bounded relocation and bind-transform construction; contracts and
 // both-phase I.11/MEM.6 guidance are in animation_definition.hpp. Source bytes
 // remain immutable; metadata replaces native pointer mutation. No sampling.
+// Cancellation validates the authored channel once and reduces its latch to
+// the earliest frame. E.4/MEM.9 from the header apply to this fixed-size
+// result.
 #include "bw/formats/animation_definition.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 
+#include "bw/math/matrix.hpp"
 #include "reader.hpp"
 
 namespace bw::formats {
@@ -66,44 +78,49 @@ SkeletonTransform transform(const Reader& r, std::uint64_t offset) {
 }
 using Matrix = std::array<std::array<float, 3>, 4>;
 Matrix matrix(const SkeletonTransform& transform) {
-  const auto [x, y, z, w] = transform.rotation;
-  Matrix result{{{w * w + x * x - y * y - z * z, 2 * (x * y + w * z),
-                  2 * (x * z - w * y)},
-                 {2 * (x * y - w * z), w * w - x * x + y * y - z * z,
-                  2 * (w * x + y * z)},
-                 {2 * (w * y + x * z), 2 * (y * z - w * x),
-                  w * w - x * x - y * y + z * z},
-                 transform.translation}};
-  for (std::size_t row = 0; row < 3; ++row) {
-    for (auto& value : result.at(row)) value *= transform.scale.at(row);
-  }
-  return result;
+  return math::affine_transform(math::TransformComponents<float>{
+      transform.rotation, transform.translation, transform.scale});
 }
 Matrix inverse(const Matrix& matrix) {
-  const auto [a, b, c] = matrix.at(0);
-  const auto [d, e, f] = matrix.at(1);
-  const auto [g, h, i] = matrix.at(2);
-  const float determinant =
-      a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-  if (!std::isfinite(determinant) || determinant == 0) {
-    malformed("Singular skeleton bind transform");
+  const auto result = math::inverse_affine(matrix);
+  if (!result) malformed("Singular skeleton bind transform");
+  return *result;
+}
+}  // namespace
+MotionCancellation MotionCancellation::parse(
+    std::span<const std::uint8_t> bytes) {
+  constexpr std::uint64_t kParameterHeader = 44, kCancelOffset = 20;
+  constexpr std::uint32_t kParameterMagic = 0x30415046;
+  constexpr std::uint32_t kCancelMagic = 0x43414e30;
+  constexpr std::uint64_t kSectionHeader = 12, kRecordBytes = 36;
+  constexpr std::uint64_t kFrameOffset = 32;
+  const Reader reader{bytes};
+  reader.range(0, kParameterHeader);
+  if (reader.u32(0) != kParameterMagic) {
+    unsupported("Unsupported motion parameter encoding");
   }
-  Matrix result{{{e * i - f * h, c * h - b * i, b * f - c * e},
-                 {f * g - d * i, a * i - c * g, c * d - a * f},
-                 {d * h - e * g, b * g - a * h, a * e - b * d},
-                 {0, 0, 0}}};
-  for (std::size_t row = 0; row < 3; ++row) {
-    for (auto& value : result.at(row)) value /= determinant;
+  MotionCancellation result;
+  const auto section = reader.u32(kCancelOffset);
+  if (section == 0) return result;
+  reader.range(section, kSectionHeader);
+  if (reader.u32(section) != kCancelMagic) {
+    unsupported("Unsupported motion cancellation channel");
   }
-  for (std::size_t column = 0; column < 3; ++column) {
-    for (std::size_t row = 0; row < 3; ++row) {
-      result.at(3).at(column) -=
-          matrix.at(3).at(row) * result.at(row).at(column);
-    }
+  const auto count = reader.u32(section + 4);
+  const auto records = reader.u32(section + 8);
+  reader.range(records, static_cast<std::uint64_t>(count) * kRecordBytes);
+  // Every record is checked, even after finding the first cancellation frame.
+  for (std::uint64_t index = 0; index < count; ++index) {
+    const auto frame = std::bit_cast<std::int32_t>(
+        reader.u32(records + index * kRecordBytes + kFrameOffset));
+    if (frame < 0) malformed("Negative motion cancellation frame");
+    const auto unsigned_frame = static_cast<std::uint32_t>(frame);
+    result.first_frame = result.first_frame
+                             ? std::min(*result.first_frame, unsigned_frame)
+                             : unsigned_frame;
   }
   return result;
 }
-}  // namespace
 MotionDefinition MotionDefinition::parse(
     std::span<const std::uint8_t> bytes,
     const std::shared_ptr<memory::Domain>& domain) {
@@ -111,6 +128,7 @@ MotionDefinition MotionDefinition::parse(
   r.range(0, kMotionHeader);
   constexpr std::uint32_t kBoneTransformBytes = 40;
   MotionDefinition result(domain);
+  result.header_ = bytes.first(kMotionHeader);
   const auto magic = r.u32(0);
   if (magic != kWholeTransformMagic && magic != kSeparateChannelsMagic) {
     unsupported("Unsupported motion encoding");
@@ -122,6 +140,8 @@ MotionDefinition MotionDefinition::parse(
   result.tracks_.reserve(count);
   for (std::uint64_t n = 0; n < count; ++n) {
     MotionTrack track;
+    track.channel_mask =
+        r.u32(kMotionHeader + static_cast<std::uint64_t>(count) * 4 + n * 4);
     track.source_index =
         std::bit_cast<std::int32_t>(r.u32(kMotionHeader + n * 4));
     if (track.source_index < -1 ||
@@ -165,6 +185,7 @@ ShapeAnimationDefinition ShapeAnimationDefinition::parse(
   constexpr std::uint64_t kNameBytes = 32;
   r.range(kMotionHeader, static_cast<std::uint64_t>(count) * (kNameBytes + 4));
   ShapeAnimationDefinition result(domain);
+  result.header_ = bytes;
   result.channels_.reserve(count);
   for (std::uint64_t index = 0; index < count; ++index) {
     ShapeChannel item;
@@ -173,7 +194,11 @@ ShapeAnimationDefinition ShapeAnimationDefinition::parse(
     const auto offset =
         r.u32(kMotionHeader + static_cast<std::uint64_t>(count) * kNameBytes +
               index * 4);
-    if (offset != 0) item.channel = channel(r, offset, true, sizeof(float));
+    if (offset != 0) {
+      item.channel = channel(r, offset, true, sizeof(float));
+      constexpr std::uint64_t kShapeEndFrameOffset = 16;
+      item.end_frame = scalar(r, offset + kShapeEndFrameOffset);
+    }
     result.channels_.push_back(item);
   }
   return result;

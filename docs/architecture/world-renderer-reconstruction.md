@@ -20,6 +20,71 @@ Neither its API objects nor its 32-bit pointer layout become portable engine
 contracts. Preserve consequential behavior while representing it in maintainable
 source with descriptive names.
 
+## Baseline work placement and later performance design
+
+The current split follows the recovered Steam path: CPU clip sampling, local
+pose composition, hierarchy and secondary-bone constraints produce palettes;
+the native GPU path consumes those palettes for skinning and performs the
+implemented material/shading passes. This is a reconstruction baseline, not a
+recommendation for how a new engine should divide work on modern hardware.
+[Skeletal animation](../../research/engine/subsystems/skeletal-animation-baseline.md),
+[secondary motion](../../research/engine/subsystems/costume-secondary-motion.md)
+and [animation layers](../../research/engine/subsystems/alicia-animation-layers.md)
+state the evidence and current consumer limits. Unreconstructed morph, effect,
+visibility and action paths do not inherit a claimed CPU/GPU policy by analogy.
+
+A working direct port is the reference for the later improvement pass. Moving
+animation/deformation work between CPU and GPU, batching it differently or
+introducing target-specific SIMD/compute paths belongs to that explicit design
+pass, with native measurements and equivalent observable behavior. A measured
+performance blocker or demonstrated reconstruction defect can justify a focused
+exception before then; document its evidence, preserved contract and validation.
+Do not treat source fidelity as a reason to ignore a known bottleneck, or present
+an architectural repartition as established original behavior.
+
+The [Steam performance baseline](../../research/engine/subsystems/steam-performance-baseline.md)
+records the official 60 fps aim and configurable caps, explicit 720p30 minimum,
+and the limits of contemporary reviewer observations. Stable 60 fps is now the adopted
+faithful-port acceptance target; the document distinguishes it from measured
+Mac acceptance, which has not yet been established.
+
+## Scene lighting ownership
+
+The [lighting drill-in](lighting.md) defines the subsystem contract.
+`scene::SceneLighting` owns decoded irradiance fields, authored emitter values,
+directional lighting, scene parameters and prepared view-light admission. Fields
+have generic scene-local identities; game composition maps the original names
+to those identities. Receiver snapshots supply explicit policy, local model bounds
+and final transforms. Spatial receivers query the selected field and model-light
+list; static receivers use stage ambient and the global view packet; sky retains
+its white policy. Unknown policy rejects. Controllers own none of these algorithms.
+
+Stage composes the engine owner and publishes fixed results to retained renderer
+destinations. Body and weapon observe separately because original callbacks use
+each model's bounds. Camera changes refresh scene light admission once. Runtime
+publication performs no field decoding, geometry upload or draw-list replacement.
+
+Color draws carry an explicit scene phase, separate from material blend state.
+The backend prepares stable phase order when draws change: background, opaque,
+masked and the two later source lists. Opaque/masked establish depth; later lists
+test without writes. Original chunk identifiers stay in the game format adapter.
+
+```mermaid
+flowchart LR
+  Assets[Authored fields and lights] --> Scene[Engine SceneLighting]
+  View[Camera view] --> Scene
+  Model[Renderable bounds and transform] --> Scene
+  Scene --> Packet[Resolved lighting]
+  Packet --> Draw[Retained draw bindings]
+  Draw --> Phase[Scene phase ordering]
+  Phase --> Native[Native renderer]
+```
+
+See the [source contract](../../research/engine/subsystems/scene-lighting-pass-contract.md)
+and [lighting owner reference](../../research/engine/subsystems/lighting-reference-boundaries.md).
+These ownership/pass corrections are distinct from the open whole-frame
+character brightness comparison.
+
 ## Recovered baseline and remaining questions
 
 The facts below are static or corpus-derived at the scope stated by the linked
@@ -488,3 +553,29 @@ index locates retained destinations without full-scene scans. `WorldTextureOffse
 changes only retained constants. The native boundary validates the whole update
 batch before writing any draw and retains geometry, palettes and sampler state.
 This mutable path does not re-create the static scene submission each frame.
+
+
+### Character spatial irradiance
+
+Admitted player body and attached weapon sample the original character SH field
+at their model-group center in world space. The prepared field owns decoded
+ordered zones, grids and exclusions; each model samples once per publication.
+Seven packed shader vectors update retained draws without geometry uploads or
+scene replacement. Costume/weapon transactions prepare their own initial sample.
+The character field is required for player admission; stage ambient remains the
+separate static-object policy. See [source and numerical/native evidence](../../research/engine/subsystems/character-light-sampling.md).
+Dynamic local-light augmentation remains a separately audited source consumer;
+spatial sampling alone does not establish that runtime effect path.
+
+
+The character lighting owner now combines spatial SH sampling with the original
+bounded direct-light selection. PHIT-enabled placed emitters retain source joint
+positions, diffuse/specular RGB and attenuation; each body/weapon model selects
+lights at its own group bounds. A single retained packet updates both SH and up
+to four direct lights, including clearing when none affect the model. Material
+programs retain their original local diffuse/specular loop and threshold, without
+normalizing authored intensities or adding shadow factors. See
+[character light sampling](../../research/engine/subsystems/character-light-sampling.md)
+and [placed local lights](../../research/engine/subsystems/placed-local-lights.md)
+for source equations, lifetime, numerical/native witnesses and the separate
+future full-shot muzzle-emitter capability.

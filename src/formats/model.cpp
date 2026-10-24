@@ -1,3 +1,7 @@
+// Actor preparation: both-phase I.11 (#ri-raw) bounds mission asset borrowing;
+// CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
+// resolves names/attachments once before frame-time pose and palette updates.
 // Material animation refinement applies both-phase R.2 (#rr-use-ptr) to
 // bounded borrowed labels/keys and MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md) to setup-only metadata allocation.
@@ -122,6 +126,7 @@ ModelDefinition::ModelDefinition(resources::ResourceArchive archive,
       index_buffers_(allocator),
       shape_buffers_(allocator),
       shape_offsets_(allocator),
+      bone_names_(allocator),
       materials_(allocator),
       draws_(allocator),
       records_(allocator),
@@ -191,6 +196,23 @@ void ModelDefinition::decode() {
       if (skeleton_) malformed("Duplicate model skeleton");
       skeleton_ =
           SkeletonDefinition::parse(archive_.payload(i), allocator_.domain());
+    } else if (record.name == "motion.bil") {
+      // Bind named attachments to the original numeric bone identities once.
+      if (!bone_names_.empty()) malformed("Duplicate model bone names");
+      const Reader names{archive_.payload(i)};
+      if (names.tag_view(0) != "MBDB") malformed("Invalid model bone names");
+      const auto count = names.u32(4);
+      constexpr std::uint64_t kHeaderBytes = 8, kBoneNameStride = 40;
+      constexpr std::uint64_t kNameOffset = 4, kBoneIndexOffset = 36;
+      names.range(kHeaderBytes,
+                  static_cast<std::uint64_t>(count) * kBoneNameStride);
+      bone_names_.reserve(count);
+      for (std::uint64_t bone = 0; bone < count; ++bone) {
+        const auto offset = kHeaderBytes + bone * kBoneNameStride;
+        const auto name =
+            names.text_view({offset + kNameOffset, kTextureNameBytes}, 0);
+        bone_names_.push_back({name, names.u32(offset + kBoneIndexOffset)});
+      }
     } else if (record.name == "texlist.bin" || record.name == "anim_mat.bin") {
       const Reader names{archive_.payload(i)};
       if (names.tag_view(0) != "TLST") {
@@ -212,6 +234,15 @@ void ModelDefinition::decode() {
   }
   if (!found_header) {
     malformed("Missing model header.bin");
+  }
+  std::ranges::sort(bone_names_, {}, &ModelBoneName::bone);
+  std::optional<std::uint32_t> previous_bone;
+  for (const auto& name : bone_names_) {
+    if (!skeleton_ || name.bone >= skeleton_->bones().size() ||
+        (previous_bone && *previous_bone == name.bone) || name.name.empty()) {
+      malformed("Invalid or duplicate named bone identity");
+    }
+    previous_bone = name.bone;
   }
   const Reader r{header()};
   r.range(0, kHeaderSize);

@@ -1,9 +1,26 @@
+// Color phases apply both-phase I.1 (#ri-explicit) and GPU.6
+// (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md): publish explicit scene-wide
+// order once, retain within-phase submission order, and reuse the native plan
+// across pose/light/view updates. See scene-lighting-pass-contract.md.
+// Component draw replacement applies I.1 (#ri-explicit), C.85
+// (#rc-swap-noexcept), and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md):
+// prepare discrete changes before nonthrowing publication, retaining unrelated
+// state and resident resources. See model-draw-replacement.md; both MCP phases.
+// View publication applies I.1/C.121 and GPU.1 (both phases): publish finite
+// world/sky constants atomically, independently of resident geometry/materials.
+// Native consumers retain one packet and compose it during their existing draw
+// walk, without rebuilding scene bindings or allocating per camera update.
+// The exclusive owner retires prior device work before publication. See
+// research/engine/subsystems/live-view-publication.md for the reference design.
+// Pose updates apply both-phase I.1/E.6 and GPU.1/MEM.9: explicit borrowed
+// palettes update retained setup-sized storage transactionally, without mesh
+// copies or allocation. Shape-position stream admission is explicit.
 // Joint palettes apply I.11 (#ri-raw) and GPU.1: submission borrows a bounded
 // span then owns a copy through device completion. The scene owns mapping and
-// pose; the native renderer validates and consumes one/two source influences.
-// Output policy is required for every implementation: C.121 (#rh-abstract)
-// prevents silent default behavior at a host adapter. Forwarding retains the
-// existing device owner/pool; GPU.9 (guidelines/gpu/
+// pose; the native renderer validates and consumes one/two/four source
+// influences. Output policy is required for every implementation: C.121
+// (#rh-abstract) prevents silent default behavior at a host adapter. Forwarding
+// retains the existing device owner/pool; GPU.9 (guidelines/gpu/
 // GPU.9-suballocate-and-alias-transient-gpu-memory.md) adds no per-frame
 // storage. Portable ownership and submission boundary for immutable world
 // geometry, decoded textures and ordered draws using explicit original material
@@ -40,6 +57,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "bw/render/world_material.hpp"
@@ -76,6 +94,12 @@ struct WorldDepthParameters {
 // Recovered static surface-family inputs. Values must come from recovered
 // material/instance/environment owners; zero initialization is not a stage
 // preset.
+inline constexpr std::size_t kMaximumWorldLocalLights = 4;
+// Original point-light packet: world position, RGB diffuse/specular (alpha1),
+// and {distance exponent, scale, bias, diffuse contribution cutoff}.
+struct WorldLocalLight {
+  std::array<float, 4> position{}, diffuse{}, specular{}, attenuation{};
+};
 struct WorldColorParameters {
   std::array<float, 4> position_scale{}, position_offset{};
   std::array<std::array<float, 4>, 4> clip_rows{};
@@ -105,6 +129,9 @@ struct WorldColorParameters {
   // device between its depth and color consumers (both MCP phases).
   std::array<std::array<float, 4>, 4> shadow_clip_rows{};
   std::array<float, 4> shadow_parameters{};
+  std::array<WorldLocalLight, kMaximumWorldLocalLights> local_lights{};
+  std::array<std::uint32_t, 4>
+      local_light_meta{};  // count, three reserved zeros
 };
 enum class WorldBlend : std::uint8_t { opaque, source_alpha };
 enum class WorldTextureFilter : std::uint8_t {
@@ -150,6 +177,37 @@ struct WorldSurfaceState {
 // copy. The source programs address at most 32 matrices; static draws pass
 // none.
 using WorldJointMatrix = std::array<std::array<float, 4>, 4>;
+// Fixed draws keep their submitted constants. World and sky draws opt in to
+// camera publication; sky has its authored camera-centered transform and fog.
+enum class WorldViewSpace : std::uint8_t { fixed, world, sky };
+// Background precedes ordinary surfaces. Opaque and masked phases establish
+// depth; subsequent translucent and material-controlled phases only test it.
+// Blend state remains explicit because the final phase permits material SRS
+// overrides. Equal-phase commands preserve caller submission order.
+enum class WorldColorPhase : std::uint8_t {
+  background,
+  opaque,
+  masked,
+  translucent,
+  material_blended
+};
+struct WorldViewParameters {
+  std::array<std::array<float, 4>, 4> clip_rows{};
+  std::array<std::array<float, 4>, 3> world_rows{};
+  std::array<float, 4> fog_color{}, fog_distance{}, fog_height{}, fog_density{};
+  std::array<std::array<float, 4>, 4> shadow_clip_rows{};
+};
+struct WorldViewUpdate {
+  WorldViewParameters world, sky;
+  // Shared scene light state is independent of receiver coefficients. Omitted
+  // state preserves draw-authored values for fixed diagnostic submissions.
+  struct Lighting {
+    std::array<float, 4> direction{}, diffuse{}, specular{};
+    float shadow_radius{};
+    bool shadow_casters_enabled{};
+  };
+  std::optional<Lighting> lighting{};
+};
 struct WorldColorDraw {
   WorldModelHandle model;
   std::size_t draw{};
@@ -161,6 +219,12 @@ struct WorldColorDraw {
   // Scene ownership selects casters; the renderer does not infer ownership
   // from material names. Shadow-enabled receivers may omit casting.
   bool casts_shadow{};
+  // Admit the separately retained position stream. It starts at authored rest
+  // and may receive CPU-deformed updates; absent opt-in rejects shape draws.
+  bool use_shape_positions{};
+  WorldViewSpace view_space{WorldViewSpace::fixed};
+  bool visible{true};
+  WorldColorPhase color_phase{WorldColorPhase::opaque};
 };
 // Update only retained UV constants. Every matching model/draw instance
 // receives the values; duplicate updates apply in order. The full borrowed
@@ -172,6 +236,50 @@ struct WorldTextureOffsetUpdate {
   WorldModelHandle model;
   std::size_t draw{};
   std::array<std::array<float, 4>, 2> texture_offset{};
+};
+// Replace palettes of all submitted instances matching model/draw. The full
+// batch must resolve, retain each published palette size, and contain only
+// finite rows before any write. Duplicate updates apply in order. Complexity
+// O(updates * log(draws) + copied matrices), no steady-state allocation. The
+// owner must retire prior GPU work before updates, as for scene submission.
+struct WorldPoseUpdate {
+  WorldModelHandle model;
+  std::size_t draw{};
+  std::span<const WorldJointMatrix> joint_matrices;
+};
+// Publish sampled world-space irradiance and up to four source direct lights
+// together, without replacing geometry/materials. A zero direct count clears
+// the previous selection; complete packets retain no stale active slots.
+// Validate the entire finite batch and every retained destination before
+// writes. Duplicate destinations apply in order. O(updates * log(draws) +
+// matches), no allocation. Both-phase I.1/SL.con.3 and MEM.9 preserve explicit
+// ownership, atomic validation and prepared storage; see
+// character-light-sampling.md.
+struct WorldLightingUpdate {
+  WorldModelHandle model;
+  std::size_t draw{};
+  std::array<std::array<float, 4>, WorldColorParameters::kIrradianceVectors>
+      irradiance_coefficients{};
+  std::array<WorldLocalLight, kMaximumWorldLocalLights> local_lights{};
+  std::uint32_t local_light_count{};
+};
+// Change source-selected draw visibility without rebuilding retained geometry,
+// palettes or materials. Validate every model/draw destination before mutation;
+// duplicate updates apply in order to all matching instances. Both shadow and
+// color passes honor the value. O(updates * log(draws) + matches), no
+// allocation. I.1 (#ri-explicit)/E.4 (#re-design-invariants) define atomic
+// batch behavior; GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains
+// resident assets.
+struct WorldVisibilityUpdate {
+  WorldModelHandle model;
+  std::size_t draw{};
+  bool visible{true};
+};
+// Complete CPU-deformed position stream; borrowed only for synchronous upload.
+struct WorldShapePositionUpdate {
+  WorldModelHandle model;
+  std::size_t buffer{};
+  std::span<const std::array<float, 3>> positions;
 };
 class WorldOutput {
  public:
@@ -201,8 +309,34 @@ class WorldOutput {
   // declare their observation behavior; a host cannot silently drop the call.
   virtual void set_world_output_parameters(const WorldOutputParameters&) = 0;
   virtual void set_world_draws(std::span<const WorldColorDraw> draws) = 0;
+  // Discrete component replacement; prior GPU work must have retired. Replace
+  // every submitted previous-model draw at its first position, preserving all
+  // unrelated order, latest UV/palettes, view and output state. Nonempty inputs
+  // must name one distinct resident model not already submitted. Validate and
+  // allocate before atomic publication; failure retains the old scene. No
+  // geometry/texture upload or release; required fallback textures must already
+  // be resident. O(scene + palettes + scene log scene), setup allocation only.
+  virtual void replace_world_model_draws(
+      WorldModelHandle previous,
+      std::span<const WorldColorDraw> replacement) = 0;
   virtual void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate> updates) = 0;
+  virtual void update_world_lighting(
+      std::span<const WorldLightingUpdate> updates) = 0;
+  virtual void update_world_poses(std::span<const WorldPoseUpdate> updates) = 0;
+  // Caller retires prior GPU work. Validate the entire batch (resident model,
+  // exact float3 extent, finite values) before copying retained shared storage.
+  // Both color and shadow passes consume the same snapshot; no allocation or
+  // skinning occurs here. Duplicate destinations apply in supplied order.
+  virtual void update_shape_positions(
+      std::span<const WorldShapePositionUpdate> updates) = 0;
+  virtual void update_world_visibility(
+      std::span<const WorldVisibilityUpdate> updates) = 0;
+  // Validate both spaces before publishing either. Only the listed view/fog/
+  // shadow rows change; per-draw shadow enable/bias/filter and material/pose
+  // state stay intact. Successful publication allocates nothing. Replacing or
+  // clearing the draw list resets the override to its submitted constants.
+  virtual void update_world_view(const WorldViewUpdate& update) = 0;
   virtual void clear_world_draws() noexcept = 0;
 };
 }  // namespace bw::render

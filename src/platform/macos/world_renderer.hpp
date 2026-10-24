@@ -1,3 +1,11 @@
+// Component draw replacement applies I.1 (#ri-explicit), C.85
+// (#rc-swap-noexcept), and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md):
+// prepare discrete changes before nonthrowing publication, retaining unrelated
+// state and resident resources. See model-draw-replacement.md; both MCP phases.
+// View publication: both-phase I.1/C.121 and GPU.1 retain one finite world/sky
+// packet; compose constants only during the existing encode walk. Publication
+// is atomic, allocation-free and invalidates the prior shadow pass. Scene
+// replacement clears it; geometry, samplers and palette indices stay retained.
 // Both-phase P.9 (#rp-waste), MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md): prepare a sorted texture-update lookup
 // at scene publication. Batch validation precedes writes; duplicate model/draw
@@ -68,8 +76,20 @@ class WorldRenderer final : public render::WorldOutput {
       render::WorldModelHandle model) const override;
   void release_model(render::WorldModelHandle model) noexcept override;
   void set_world_draws(std::span<const render::WorldColorDraw> draws) override;
+  void replace_world_model_draws(
+      render::WorldModelHandle previous,
+      std::span<const render::WorldColorDraw> replacement) override;
   void update_world_texture_offsets(
       std::span<const render::WorldTextureOffsetUpdate> updates) override;
+  void update_world_lighting(
+      std::span<const render::WorldLightingUpdate> updates) override;
+  void update_world_poses(
+      std::span<const render::WorldPoseUpdate> updates) override;
+  void update_shape_positions(
+      std::span<const render::WorldShapePositionUpdate> updates) override;
+  void update_world_visibility(
+      std::span<const render::WorldVisibilityUpdate> updates) override;
+  void update_world_view(const render::WorldViewUpdate& update) override;
   void clear_world_draws() noexcept override;
   bool has_color_draws() const noexcept;
   // Borrowed encoder uses selected BGRA8 or RGBA16Float color and Depth32. The

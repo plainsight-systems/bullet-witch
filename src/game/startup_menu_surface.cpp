@@ -1,10 +1,15 @@
-// Memory migration: native owners propagate the ResourceService CPU domain to
-// final pixel/glyph storage and retained presentation state/strings. Owning
-// allocators retain the domain through copies and partial-construction cleanup;
-// defaults are legacy parser/test compatibility, never exhaustion fallback.
-// PNG writes directly to its final owned destination. Fixed draw storage adds
-// no per-frame allocations; native texture lifetime stays with SpriteOutput.
-// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// Review status reuses the prepared font and fixed sprite array. I.1
+// (#ri-explicit) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md), consulted in both
+// phases, keep this a bounded sprite publication with no menu background,
+// game-state mutation or new texture ownership. Memory migration: native owners
+// propagate the ResourceService CPU domain to final pixel/glyph storage and
+// retained presentation state/strings. Owning allocators retain the domain
+// through copies and partial-construction cleanup; defaults are legacy
+// parser/test compatibility, never exhaustion fallback. PNG writes directly to
+// its final owned destination. Fixed draw storage adds no per-frame
+// allocations; native texture lifetime stays with SpriteOutput. Design R.1
+// (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
 // fixed presentation capacity. Pinned source/external libpng exclusions are
@@ -447,6 +452,19 @@ void StartupMenuSurface::show(const MenuPresentation& presentation) {
   if (!presentation.message.empty()) {
     state.text(presentation.message, kMessage, kTextColor);
   }
+  state.renderer.set_sprites(std::span(state.commands).first(state.count));
+}
+// Status is a separate sprite publication over the retained live world.
+void StartupMenuSurface::show_status(std::string_view text) {
+  auto& state = *state_;
+  if (!state.constructed || !state.font) {
+    throw std::logic_error("Menu cannot draw status before construction");
+  }
+  constexpr std::size_t kStatusLimit = 120;
+  constexpr TextPosition kStatusPosition{20, 680, 18};
+  constexpr render::Color kStatusColor{1, 1, 1, 1};
+  state.count = 0;
+  state.text(text.substr(0, kStatusLimit), kStatusPosition, kStatusColor);
   state.renderer.set_sprites(std::span(state.commands).first(state.count));
 }
 void StartupMenuSurface::end() noexcept { state_->end(); }

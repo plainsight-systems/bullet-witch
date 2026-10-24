@@ -138,7 +138,7 @@ only concrete shared contracts; they are not miscellaneous utility buckets.
 | Input service | `input/` and selected device sampler | Engine interpretation above raw platform observations | E10/P1 |
 | Game camera | `src/game/camera/` | Gameplay policy producing view requests | G6 |
 | Persistence/progression | `src/game/persistence/`, `progression/` | Snapshot/restore and advancement/unlock policy remain separate | G4/G5 |
-| Shared math | `math/` or subsystem-local operations | Only genuinely shared numerical contracts | E17 |
+| Shared math | `include/bw/math/vector.hpp`, `matrix.hpp` (`bw_math`) | Precision-preserving fixed vectors and row-vector matrices; caller-owned tolerances and policies | E17 |
 | Inspection/verification | `tools/`, `tests/`, authored `research/tools/` | Consumers of production contracts and independent evidence | V1 |
 
 ## Dependency rules
@@ -431,13 +431,17 @@ providers, omitted option screens and game/menu audio remain explicit gaps in th
 | File | Responsibility |
 |---|---|
 | `src/game/mission_driver.hpp/.cpp` | Original mission/default-callback Lua context, serial native waits and cancellation |
-| `src/game/mission_loading.hpp/.cpp` | Serial native load requests, CPU definition and device residency ownership, readiness and cancellation |
+| `src/game/mission_loading.hpp/.cpp` | Serial native load requests, CPU definition and device residency ownership, readiness and cancellation; safe loading-presentation pulses and the authored concept-mission checkpoint placement boundary |
+| `src/game/startup_loading_surface.hpp/.cpp` | Title-selected portrait, original repeated sliding artwork, localized loading tip and default Xbox icon presentation; resident textures and bounded draw commands |
 | `src/game/mission_package_inputs.cpp` | Package text/cover/placement consumers, sound-bank registration and model dependency preloads |
 | `src/game/npc_palette.hpp/.cpp` | Compatible NPC material-variation registry linked to resident textures |
 | `include/bw/formats/section_table.hpp`, `src/formats/section_table.cpp` | Shared bounded placement, cover and score table access |
 | `include/bw/formats/text_table.hpp`, `src/formats/text_table.cpp` | Text-tree construction and registration data without pointer relocation |
 | `include/bw/formats/audio_bank.hpp`, `src/formats/audio_bank.cpp` | Typed sound/wave bank metadata; no audio voices or playback |
-| `src/game/stage_inspection.hpp/.cpp` | Static material selection, explicit near-spawn camera and borrowed-device view submission |
+| `src/game/stage_inspection.hpp/.cpp` | Retained stage/player presentation, original custom traversal, live camera and borrowed device publication |
+| `src/game/player_targeting.hpp/.cpp` | Original two-mode targeting selection and camera request, independent of raised posture lifetime |
+| `src/platform/macos/gamepad_actions.hpp/.mm` | Native GameController action sampling and fixed press-edge history |
+| `src/game/animation_review.hpp`, `stage_animation_review.cpp` | Explicit in-scene presentation previews, hardware action intent routing and paused weapon candidate publication; no combat outcomes |
 
 ```mermaid
 flowchart LR
@@ -466,9 +470,18 @@ load-service captures and tagged scripts. See
 |---|---|
 | `include/bw/formats/animation_definition.hpp`, `src/formats/animation_definition.cpp` | Bounded motion/shape relocation and skeleton bind-transform construction; no sampling |
 | `include/bw/content/character_support.hpp`, `src/content/character_support.cpp` | Native support-name aliases, ordered lists and retained archive/USER ownership |
+| `include/bw/animation/pose.hpp`, `src/animation/pose.cpp` | Prepared immutable channels, explicit-time sampling, reusable local/world/skin poses |
+| `src/game/player_actor.hpp/.cpp` | Selected costume, original locomotion/jump clip bindings, actor/model basis and bone-attached weapon |
+| `src/game/mission_loading.hpp/.cpp` | Mission-owned body/weapon definitions, support and device residency |
 
-Model definitions retain ordinary and shape streams separately. Device residency
-can complete while deformation-dependent drawing remains unavailable. See
+See [actors and animation](actors-and-animation.md). The actor presentation is
+fixed at the recovered script placement until the movement owner is implemented.
+Skin palettes and unskinned attachment transforms are separate outputs; motion
+selection never substitutes for floor contact or jump trajectory.
+
+Model definitions retain ordinary and shape streams separately. Skeletal draws
+consume rest-shape positions explicitly; animated shape deformation remains a
+separate unimplemented consumer. See
 [character load constructors](../../research/engine/subsystems/character-load-constructors.md).
 
 
@@ -494,3 +507,94 @@ optional inspection pose crosses into `StageInspection` only during view setup.
 It adds no input controller or replacement gameplay-camera owner. Keeping the
 parser independent of the native loop permits in-process configuration checks
 without launching a window or reading game files.
+
+The bounded traversal lifetime connects `src/game/player_controller.*`
+(authoritative position/velocity and action phases), `src/game/camera/player_camera.*`
+(live look/follow/clearance), `src/game/placed_collision.*` (authored prop shape
+preparation), and `src/scene/spatial/character_collision.cpp` (shared custom
+capsule contact). `StageInspection` retains those owners with the mission scene.
+`WorldOutput::update_world_view` publishes world/sky constants over retained draws;
+`StartupInput` exposes movement/look axes and jump/pause edges separately from
+front-end action masks. This entry does not complete the original mission start.
+
+### Shared CPU math implementation
+
+`bw_math` is a header-only engine target used by resources/formats, scene,
+rendering and animation. `include/bw/math/vector.hpp` owns typed fixed-vector
+arithmetic; `matrix.hpp` owns row-vector composition, affine construction and
+explicitly promoted point transformation. No virtual dispatch or runtime
+allocator enters numerical operations. Format decoding retains malformed-input
+errors; animation retains source interpolation policy; camera/collision/rendering
+retain their own thresholds and fallback directions.
+
+The common numerical contract and pinned Unreal reference inspection are in
+[shared math](../../research/engine/subsystems/shared-math.md). CPU target
+specialization can replace these implementations later without duplicating
+algorithms among consumers or changing public storage. Such substitutions must
+preserve declared precision/order or explicitly revise and verify that contract.
+
+### Character animation runtime
+
+`animation/clip_catalog`, `playback_ring`, `pose`, `event_timeline` and
+`shape_pose` own reusable prepared resources, clocks, layered pose composition,
+ordered event dispatch and CPU shape deformation. `formats/motion_events` and
+`model_shape_offsets` retain exact FPA0/TS2V compatibility layouts.
+`game/character_animations` maps publications/aliases, while
+`character_motion_player` binds current-only game receivers to retained rings.
+`game/alicia_action_policy`, `motion_presentation` and `facial_animation` own
+original selection, typed event meaning and facial bank policy. PlayerActor
+composes these owners with secondary motion and native palette/shape publication;
+it does not make the engine evaluator depend on Alicia action names. See
+[actors and animation](actors-and-animation.md).
+
+
+`game/alicia_action_owner` arbitrates exclusive base families over the stable
+player lifetime. `alicia_reaction_policy`, `scripted_jump_policy` and
+`spell_presentation_policy` retain family-specific completion, contact and
+external-observation contracts. `game/aim_posture` owns raised target/lifetime
+policy; the engine `animation/pose` owns its pre-hierarchy chain operation.
+The source parent/model interval boundary is documented in
+[clock order](../../research/engine/subsystems/actor-model-clock-order.md).
+
+`include/bw/audio/output.hpp` defines game cue output independently of movie
+media audio. `audio/fact` owns the pinned original-bank scheduler and native
+output; prepared wave decoding uses the existing shared FFmpeg dependency.
+`game/mission_audio` owns bank preparation, `character_audio` owns source
+SE/VO policy, and `source_random` supplies a session-owned random stream.
+`PlayerActor` supplies emitter/contact observations; framework injects the
+target factory and preserves teardown order. See [game audio](../game-audio.md).
+
+### Explicit initial-placement exception
+
+`src/game/initial_placement_shim.hpp/.cpp` is the sole temporary shim authorized
+for the animation slice: fresh `cm01_00` / `st04_c` only, with checkpoint requests
+rejected. The framework injects its owned pose into the actor; reusable Stage
+inspection requires explicit placement when no actor is supplied. Replace this
+boundary with genuine mission Lua placement after the startup gates described
+in `research/engine/subsystems/mission-start-admission.md` are implemented.
+
+### Source local-light producers and character publication
+
+`PhysicsCollisionDefinition::local_light` decodes the original flagged PHIT
+emitter record. `src/game/placed_lighting.hpp/.cpp` resolves its authored joint
+against actual placed body-world matrices, rejecting an unavailable fallback
+rather than inventing an object transform. `scene::LocalLights` prepares source
+selection storage inside `scene::SceneLighting`, which owns scene fields,
+emitters, shared directional values and view admission. Stage supplies
+body/weapon group bounds and model transforms, then publishes the resulting
+`WorldLightingUpdate`. Controllers do not own lighting. The original supported material loop
+consumes up to four direct lights separately from sampled spatial SH.
+See `research/engine/subsystems/placed-local-lights.md` and
+`research/engine/subsystems/character-light-sampling.md` for source admission,
+settings and producer boundaries.
+
+
+`include/bw/scene/environment.hpp` and `src/scene/environment.cpp` own spatial
+region selection, scalar-track bindings and retained environment transitions.
+`scene/spatial/area_regions` and `animation/scalar_animation` prepare reusable
+region queries and curve sampling. `src/game/stage_environment.hpp/.cpp` maps
+original AREA/STBL/FLAN channel semantics into typed stage values, supplying the
+source transition policy without moving engine state into a controller.
+`scene/lighting/scene_lighting` receives resulting light definitions/intensities;
+portable world-view/output packets carry fog, sky, shadow and pre-tone color
+state to the native renderer. See [scene lighting](lighting.md).

@@ -1,12 +1,48 @@
 # Remaining work
 
+- Retain the accepted lighting baseline. On October 24, 2026, the user accepted
+  this slice for commit while noting it may be slightly too dark. Do not tune
+  brightness from that observation alone. Original initial texture contents and
+  timing, exact outdoor appearance and the historical specific controller/visual
+  comparisons below remain fidelity questions, not blockers to this accepted
+  slice. Missing AREA activation/live environment publication, source pre-tone
+  RGB composition and first-output luminance bounds are implemented and checked.
+  See `research/engine/subsystems/character-material-brightness-audit.md` and
+  `docs/architecture/lighting.md`.
+
+- Preserve the sole authorized initial-placement shim for exact fresh
+  `cm01_00`/`st04_c`, with no checkpoint restoration or hidden Stage fallback.
+  Genuine mission startup remains incomplete and replaces that shim once its
+  real dependencies are implemented. See the current table in
+  `research/engine/subsystems/overfitting-and-shim-review.md`.
+
+- Before the next implementation slice, reconcile the playable-level dependencies
+  around the concrete next priority: real in-level pause/resume and a HUD bound
+  to authoritative player/weapon state. With this slice accepted, this also
+  includes source-backed authoritative world tick and pause ownership before more
+  gameplay entities. Current Stage-local orchestration, discarded host time and
+  differing surrounding time domains are recorded in
+  `docs/architecture/actors-and-animation.md`; do not assume a fixed-step design
+  before recovering the original schedule. The current animation review UI does not
+  establish gameplay input ownership, lifecycle or action feedback. Record each
+  dependency's implemented behavior, missing behavior, prerequisites and
+  observable acceptance, separating required gameplay from fidelity/upgrades.
+  Include mission load/start/pause/death/retry/exit; animation-only versus
+  world-affecting actions; enemies, hits, damage and required static/dynamic
+  physics; and objectives, checkpoints, audio/effects and completion. Missing
+  underlying state must be implemented explicitly, not represented by a mock
+  HUD. This planning checkpoint follows the accepted animation slice; it does not
+  expand the completed slice. Use the ownership inventory in
+  `research/engine/subsystems/runtime-subsystem-inventory.md` alongside
+  `IMPLEMENTATION.md`.
+
 - Use the selected One Shot Kill target (`cm01_00`, extra ID 1, stage `st04_c`)
   for SRC-03. Follow the planned breakdown in `IMPLEMENTATION.md`: concept
   launch/mission ownership, required content loading, first static stage view,
   stage presentation, Alicia traversal, mission behavior and full outcome loop.
   Census actual stage/placement dependencies; do not infer an enemy-free level
-  from the short Lua script. Resolve PhysX 2.6.4/cooked-collision treatment before
-  traversal, without blocking static presentation. Each slice includes its own
+  from the short Lua script. Preserve the recovered custom character collision boundary for traversal;
+  dynamic-body provider and cooked-data treatment remain separate. Each slice includes its own
   failure/cancellation/release paths and architecture updates.
 - Complete remaining front-end fidelity: wire persisted volume settings into the
   audio owner, add menu BGM/confirmation cues, reconstruct other options and
@@ -14,20 +50,58 @@
   profile/menu/campaign-request slice. Resolve logo open-failure continuation,
   ordinary media-open rejection versus terminal decoder errors, and startup-wide
   initial fade state at their owning systems.
-- Plan Alicia traversal as slice 5; implementation awaits authorization.
-  Slice 4 presentation is complete and accepted.
-  Shadow projection and edge sampling are completed within slice 4: recovered
-  source warp, shared caster/receiver depth, derived cleared border and native
-  camera/boundary verification. The current view consumes 4,100 ordinary, 674 prop
-  and one sky draw, initial group masks, body/joint poses, fog, shadows and six
-  animated UV updates from two unique curves. It still uses the recovered
-  script-pose bootstrap. Live actor setup must own that pose before gameplay
-  start. Resolve PhysX/cooked collision before traversal; camera input/follow
-  transitions, destruction-driven visibility, dynamic area changes, local-light
-  lists, gameplay particles and mission outcome remain later consumers.
-  Loading-scene sprites/text remain a distinct front-end gap. Keep original Lua
-  unchanged. The concept-menu completion gate alone is intentionally removed;
-  campaign progression gates remain.
+- Confirm the corrected right-thumbstick targeting path on the physical controller.
+  Native GameController snapshot input through production Stage/Metal verifies
+  second-click target exit and20°→44° camera transition independently from raised
+  posture. Inactive Stop now preserves ordinary player state; unknown pose
+  consumers remain visible but disabled. Keep the user's unidentified geometry
+  selection separate from the demonstrated wrong-bank collapse. Scoped adversarial
+  re-review covers these ownership/admission contracts, not all remaining shims.
+  See `research/engine/subsystems/player-targeting.md` and
+  `research/engine/subsystems/animation-review-lifecycle.md`.
+- Retain the unresolved original-game comparisons from earlier animation
+  review after the overall slice acceptance. The user accepted evasive timing,
+  floor alignment and the shadow correction; forward/back evade facing had
+  been rejected and has no separately recorded final retest. The bounded source audit and rendered four-direction witnesses
+  match the recovered target/pose pipeline; obtain original-game visual comparison
+  before changing directional policy again. The proven near-antipodal turning-side
+  discrepancy is corrected; it does not remove the source-prescribed target turn.
+  The inspected original footage supplies a raised-weapon backward flip but no
+  matching neutral-run transition. The parent/model phase audit now proves preceding raw root consumption;
+  the integration and native traversal recheck are complete. Review the integrated secondary
+  bone/body-contact pass through in-session costumes. Expanded Alicia catalog,
+  layer/event/facial/audio and accepted family presentation mechanisms are verified,
+  with live action input, explicit external-event presentation review and
+  transactional weapon-class selection connected. The reported movement rejection, missing live switch
+  animation and aiming failures have source-backed corrections with the exact
+  native sequences exercised. Grounded root motion now selects grounded contact
+  explicitly, preventing the false airborne transition during stationary
+  turn/fire. Overall slice acceptance does not imply each historical sequence
+  was separately retested; evidence and remaining dispositions are in
+  `research/engine/subsystems/alicia-animation-acceptance.md`. Combat outcomes
+  remain separate unless explicitly added. Retain the earlier numerical sole-dip witness as a
+  diagnostic limitation, not a claim that the user-reported floor bug persists. The subsequent planned slice
+  is original mission behavior: start prerequisites, placement-driven
+  enemies and AI/combat/damage, objective/trap/checkpoint callbacks, HUD/messages,
+  gameplay audio and effects. Preserve the explicit boundary between bounded
+  traversal and full mission start. Dynamic-body provider choice, impulses and
+  destruction remain separate physics work; current placed props retain authored
+  initial poses. Destruction-driven visibility, dynamic area changes and local-light
+  lists need their owning consumers. Loading now presents the original portrait,
+  sliding art, localized tip and default Xbox control icons during asset work.
+  Full original loading-task exit and input-device-specific tip variants follow
+  their future mission/input owners. Keep original Lua unchanged. The concept-menu completion gate
+  alone is intentionally removed; campaign progression gates remain.
+- Retain Alicia-shadow pixelation and slight distant mountain-shadow movement
+  as original-game comparison points after the user-accepted receiver-footprint
+  correction. Do not tune map resolution or stabilize projection without a
+  demonstrated source/fidelity discrepancy. See
+  `research/engine/subsystems/stage-shadow-presentation.md`.
+- Hardware traversal now uses original LT evade, source directional root bases,
+  radial input normalization and nonfiring walk/dash selection. Live attack/fire presentation and weapon-dependent locomotion scaling are
+  connected; configurable trigger swapping, persisted look options and true
+  ammunition/resource admission remain with their game/input owners. Keep these distinct from current
+  traversal acceptance; see `research/engine/subsystems/player-evasive-leap.md`.
 - Continue memory reconstruction when world/AI/worker consumers are introduced.
   The current startup-owner migration is complete; the recovered AI linear mode
   is distinct from the implemented root reclaiming heap. Establish reset and
@@ -43,9 +117,9 @@
   explicit development choices; backend execution does not prove full fidelity.
 - Extend root/mission native bindings as their owning game systems are implemented;
   missing bindings and unsupported resource/CALL handlers remain explicit failures.
-- Extend the bounded initial game camera and static spatial query into live
-  actor camera/follow and dynamic-scene ownership; preserve the source clearance
-  contract and measured query cost when replacing linear broad-phase traversal.
+- Extend the live game camera and prepared static spatial queries into
+  dynamic-scene ownership; preserve the source clearance
+  contract and measured query cost of the prepared broad phase.
   Close scene/visibility, lighting/pass, all-mode schedule and
   auxiliary-worker contracts at their owning boundaries as source reconstruction
   reaches them. Structural ownership is established; behavior remains explicit.
@@ -59,3 +133,9 @@
   before claiming allocator throughput or latency improvements.
 - Establish platform-specific verification when those backends are implemented;
   do not infer Xbox or Windows support from a passing Mac build.
+- Compare remaining outfit/body intersections with original-game behavior;
+  physical-controller review confirms the pause menu works.
+  Actual-content native replacements across all six costumes preserve a frozen
+  walking pose/camera and resume successfully, with balanced device teardown.
+  Resume consumes its input frame and held evade requires release. Full original pause task animations,
+  power-up, restart and mission-exit actions remain separate reconstruction work.

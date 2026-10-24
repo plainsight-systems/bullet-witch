@@ -67,7 +67,7 @@ constexpr std::uint8_t kRepeatPitch = 16, kRepeatVolume = 17,
 }  // namespace
 AudioBankDefinition::AudioBankDefinition(
     const std::shared_ptr<memory::Domain>& domain)
-    : waves_(memory::Allocator<AudioWave>(domain)),
+    : wave_bank_(domain),
       cues_(memory::Allocator<AudioCue>(domain)),
       sounds_(memory::Allocator<AudioSound>(domain)),
       tracks_(memory::Allocator<AudioTrack>(domain)),
@@ -93,7 +93,7 @@ AudioBankDefinition AudioBankDefinition::parse(
   const auto sound_start = kHeader + static_cast<std::uint64_t>(count) * stride;
   wrapper.range(kHeader, sound_start - kHeader);
   AudioBankDefinition result(domain);
-  result.read_waves(inputs.wave_bank);
+  result.wave_bank_ = WaveBankDefinition::parse(inputs.wave_bank, domain);
   result.read_sounds(
       wrapped_sound.subspan(static_cast<std::size_t>(sound_start)));
   if (result.cues_.size() != count) {
@@ -116,7 +116,17 @@ AudioBankDefinition AudioBankDefinition::parse(
 }
 
 // Resolve wave byte ranges and per-wave seek tables without decoding samples.
-void AudioBankDefinition::read_waves(std::span<const std::uint8_t> bytes) {
+WaveBankDefinition::WaveBankDefinition(
+    const std::shared_ptr<memory::Domain>& domain)
+    : waves_(memory::Allocator<AudioWave>(domain)) {}
+WaveBankDefinition WaveBankDefinition::parse(
+    std::span<const std::uint8_t> bytes,
+    const std::shared_ptr<memory::Domain>& domain) {
+  WaveBankDefinition result(domain);
+  result.read(bytes);
+  return result;
+}
+void WaveBankDefinition::read(std::span<const std::uint8_t> bytes) {
   const Reader reader{bytes};
   constexpr std::uint64_t kSegmentDirectory = 12, kSegmentCount = 5;
   constexpr std::uint32_t kStreaming = 1, kCompact = 0x20000;
@@ -135,10 +145,13 @@ void AudioBankDefinition::read_waves(std::span<const std::uint8_t> bytes) {
   const Reader info{slice(reader, segments.at(0))};
   info.range(0, kInfoSize);
   const auto flags = info.u32(0), count = info.u32(kWord);
-  if ((flags & (kStreaming | kCompact)) != 0) {
-    unsupported("Streaming/compact wave bank construction is unresolved");
+  if ((flags & kCompact) != 0) {
+    unsupported("Compact wave bank construction is unresolved");
   }
-  wave_name_ = info.text_view({2 * kWord, kName}, 0);
+  // Streaming is an I/O policy, not a different full-entry metadata layout.
+  // Retain the flag so the backend selects the matching native constructor.
+  streaming_ = (flags & kStreaming) != 0;
+  name_ = info.text_view({2 * kWord, kName}, 0);
   if (info.u32(kInfoLayout) != kEntrySize) {
     unsupported("Unsupported wave entry stride");
   }
@@ -311,7 +324,8 @@ void AudioBankDefinition::read_sounds(std::span<const std::uint8_t> bytes) {
   for (std::size_t index = 0; index < offsets.size(); ++index) {
     offsets.at(index) = reader.u32(kDirectory + index * kWord);
   }
-  if (reader.text_view({offsets.at(kWaveNames), kName}, 0) != wave_name_) {
+  if (reader.text_view({offsets.at(kWaveNames), kName}, 0) !=
+      wave_bank_.name()) {
     malformed("Sound bank references a different wave bank");
   }
   Cursor input{reader, offsets.at(kSounds)};
@@ -397,7 +411,7 @@ void AudioBankDefinition::read_sounds(std::span<const std::uint8_t> bytes) {
   }
   // Close event references before cues can expose these definitions by name.
   for (const auto& choice : choices_) {
-    if (choice.bank != 0 || choice.wave >= waves_.size() ||
+    if (choice.bank != 0 || choice.wave >= wave_bank_.waves().size() ||
         choice.minimum_weight > choice.maximum_weight) {
       malformed("Invalid audio wave choice");
     }

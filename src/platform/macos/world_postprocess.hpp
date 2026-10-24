@@ -4,14 +4,15 @@
 // returns a borrowed encoder. Scene depth uses the original reversed-depth
 // contract: clear zero, near one, far zero; scene submissions must match. The
 // caller draws scene-linear color, ends it, then prepare_output schedules
-// original luminance/bloom passes. encode_display writes exposure and gamma
-// into a borrowed BGRA8 encoder/viewport; display overlays follow it. Resources
-// and pipelines persist across frames. Failure throws without claiming a
-// completed image; no hidden submission or synchronization. CPU adaptation is
-// the common ExposureController; readback occurs only after the preceding
-// buffer completes. Geometry, UI and material policy are outside this owner.
-// Both MCP phases: I.11 (#ri-raw) separates borrowed encoders from retained
-// texture ownership; GPU.9
+// original whole-scene RGB filtering followed by luminance/bloom passes.
+// encode_display writes exposure and gamma into a borrowed BGRA8
+// encoder/viewport; display overlays follow it. Resources and pipelines persist
+// across frames. Failure throws without claiming a completed image; no hidden
+// submission or synchronization. CPU adaptation is the common
+// ExposureController; readback occurs only after the preceding buffer
+// completes. Geometry, UI and material policy are outside this owner. Both MCP
+// phases: I.11 (#ri-raw) separates borrowed encoders from retained texture
+// ownership; GPU.9
 // (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md) retains
 // a bounded target pool rather than allocating every frame. Source and pinned
 // production reference: world-display-output.md. Fullscreen quad interpolation

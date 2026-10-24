@@ -43,6 +43,15 @@ struct Reader {
       malformed("Range exceeds file at offset " + std::to_string(offset));
     }
   }
+  std::uint8_t u8(std::uint64_t offset) const {
+    range(offset, 1);
+    return b[static_cast<std::size_t>(offset)];
+  }
+  std::uint16_t u16(std::uint64_t offset) const {
+    range(offset, 2);
+    const auto bytes = b.subspan(static_cast<std::size_t>(offset), 2);
+    return static_cast<std::uint16_t>(bytes[0] | (bytes[1] << kByteBits));
+  }
   std::uint32_t u32(std::uint64_t offset) const {
     range(offset, 4);
     auto p = b.subspan(static_cast<std::size_t>(offset), sizeof(std::uint32_t));

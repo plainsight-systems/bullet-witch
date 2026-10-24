@@ -20,9 +20,12 @@ owner names are Cavia's original source classes.
 | [Engine architecture](logical-overview.md) | What are the engine's structural units and their boundaries? |
 | [Runtime objects and ownership](runtime-model.md) | What exists at runtime, who owns it, and what survives a transition? |
 | [World, scene and simulation](world-and-simulation.md) | What is authoritative state, and how do actors, AI, animation, physics and effects cooperate? |
+| [Actors, poses and animation](actors-and-animation.md) | How do game movement, clip evaluation, skinning and weapon attachment share one actor transform? |
 | [Rendering and presentation](rendering-and-presentation.md) | How do scene/view/material/pass systems produce submitted graphics and media output? |
+| [Scene lighting](lighting.md) | Who owns authored fields and emitters, prepares view/receiver lighting, and publishes values to the renderer? |
 | [World renderer reconstruction](world-renderer-reconstruction.md) | How does the native world renderer preserve the recovered design before measured optimization and graphics upgrades? |
 | [Movie playback redesign](../video-player-redesign.md) | How do independent media streams, consumption clocks and presentation replace the failed prototype? |
+| [Shared math](shared-math.md) | Where do reusable CPU calculations live, and how are precision and target implementations separated? |
 | [Memory and residency](memory-and-residency.md) | How are allocations routed, budgeted, retained and reclaimed across CPU/GPU owners? |
 | [Execution, lifetime and memory contracts](execution-contracts.md) | Who can mutate/read state, how does work cross domains, and when can memory be reused? |
 | [Runtime scenarios](runtime-scenarios.md) | How do startup, mission execution, saves and shutdown traverse those systems? |
@@ -65,8 +68,11 @@ and a Mac host using native Metal presentation and AudioQueue output. The
 Original title/menu sprites, font text, authored costume previews and input
 outcomes are implemented. `FrontEnd` owns profile-load and menu policies while
 borrowing profile, writable storage, media/fades and presentation. The original
-Lua root produces an owned `GameplayRequest`; world loading, rendering and
-gameplay remain unimplemented.
+Lua root produces an owned `GameplayRequest`. One Shot Kill consumes that request
+into mission-owned resources, stage rendering and bounded Alicia traversal with
+root-driven animation, static contact and a live camera. Full mission start,
+combat and dynamic world behavior remain unimplemented; see
+[actors and animation](actors-and-animation.md).
 
 The current menu options are volumes and costume selection. Volumes persist but
 do not yet control audio gain; menu background music and cues are absent.

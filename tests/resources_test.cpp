@@ -69,6 +69,9 @@ void shadow_tests();
 void material_animation_tests();
 void customization_tests();
 void static_collision_tests();
+void irradiance_field_tests();
+void local_light_view_tests();
+void scalar_area_tests();
 namespace {
 class Checks {
  public:
@@ -847,6 +850,11 @@ void package_tests(Checks& checks) {
                "Moved package owns payload");
 }
 }  // namespace
+void skeletal_pose_tests();
+void math_tests();
+void secondary_motion_tests();
+void motion_event_tests();
+void shape_pose_tests();
 int main() {
   Checks checks;
   try {
@@ -854,12 +862,20 @@ int main() {
     stage_definition_tests();
     audio_bank_tests();
     animation_definition_tests();
+    skeletal_pose_tests();
+    math_tests();
+    secondary_motion_tests();
+    motion_event_tests();
+    shape_pose_tests();
     world_output_tests();
     view_tests();
     shadow_tests();
     material_animation_tests();
     customization_tests();
     static_collision_tests();
+    irradiance_field_tests();
+    local_light_view_tests();
+    scalar_area_tests();
     section_table_tests(checks);
     text_table_tests(checks);
     archive_tests(checks);

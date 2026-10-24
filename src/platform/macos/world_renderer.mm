@@ -1,3 +1,20 @@
+// Scene-wide color phases apply both-phase I.1 (#ri-explicit) and GPU.6
+// (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md): prepare an index plan at
+// publication, preserve within-phase order, and stream it without per-frame
+// allocation or moving retained palettes. See scene-lighting-pass-contract.md.
+// Retained visibility applies design I.1/E.4/GPU.1 and implementation E.4/MEM.9:
+// validate indexed destinations, publish booleans, then omit hidden color and
+// shadow draws. No geometry or pipeline recreation; see motion-event-timeline.md.
+// Component replacement applies I.1 (#ri-explicit), C.85 (#rc-swap-noexcept),
+// and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md): validate/prepare before
+// nonthrowing publication, keeping GPU assets resident. Both MCP phases read.
+// Live view publication follows both-phase I.1/C.121 and GPU.1: validate
+// a complete packet, retain it once, and compose constants during existing
+// encoding. Geometry, material bindings and palettes remain resident.
+// Skinning extension follows the explicit I.1/E.6 and GPU.1/MEM.9 contracts
+// retrieved in both phases: immutable rest streams stay resident; palette
+// updates validate first and reuse their published allocation. Source and
+// pinned production comparison are in alicia-animation-bindings.md.
 // Both-phase P.9 (#rp-waste) replaces full draw scans with a sorted destination
 // index. MEM.9 allocates its O(draws) storage at publication; updates are
 // O(updates * log draws + destinations), allocation-free and transactional.
@@ -30,12 +47,14 @@
 // validate the supplied filter, build retained sampler state during submission,
 // and preserve resident texture levels without hidden generation or frame work.
 #include "platform/macos/world_renderer.hpp"
+#include <cstring>
 #include "platform/macos/world_postprocess.hpp"
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -60,6 +79,30 @@ constexpr std::uint32_t kTriangleList = 4, kTriangleStrip = 5;
 constexpr std::uint8_t kNormalUsage = 3, kTangentUsage = 6, kUvUsage = 5, kColorUsage = 10;
 constexpr std::uint8_t kNormalizedShort4 = 10, kHalf2 = 15, kNormalizedByte4 = 8;
 constexpr std::size_t kPositionBytes = 3 * sizeof(float);
+// The direct-light packet is bounded by the original four-light material loop.
+// Validate every slot, including unused entries, before either submission or
+// an atomic retained update; stale/nonfinite inactive data cannot leak later.
+bool valid_local_lights(
+    const std::array<render::WorldLocalLight, render::kMaximumWorldLocalLights>& lights,
+    std::uint32_t count) {
+  if (count > lights.size()) return false;
+  for (std::size_t i = 0; i < lights.size(); ++i) {
+    const auto values =
+        std::bit_cast<std::array<float, sizeof(render::WorldLocalLight) / sizeof(float)>>(
+            lights.at(i));
+    if (!std::ranges::all_of(values, [](float value) { return std::isfinite(value); })) {
+      return false;
+    }
+    if (i < count) {
+      const auto& attenuation = lights.at(i).attenuation;
+      if (!std::ranges::all_of(attenuation, [](float value) { return value >= 0; }) ||
+          (attenuation[1] == 0 && attenuation[2] == 0)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 struct ColorStream {
   std::uint32_t stride{}, position{}, normal{}, tangent{}, uv{}, color{};
   std::uint32_t secondary_uv{}, modulation_color{};
@@ -67,6 +110,9 @@ struct ColorStream {
   std::uint32_t vertex_illumination{}, reflection{}, fresnel{}, directional_light{};
   std::uint32_t alpha_cutout{}, spherical_harmonics{}, base_texture{};
   std::uint32_t joint_indices{}, joint_weights{}, joint_influences{};
+  std::uint32_t position_stride{}, ambient_occlusion{};
+  std::uint32_t secondary_alpha_blend{}, alpha_fresnel{}, local_lights{};
+  std::uint32_t environment_shadow{};
 };
 struct NativeDraw {
   formats::ModelDraw source;
@@ -76,7 +122,7 @@ struct NativeDraw {
   bool requires_deformation{};
   bool shape_deformation{};
   bool joint_indices_present{}, joint_weights_present{};
-  std::array<std::uint8_t, 2> maximum_joint_indices{};
+  std::array<std::uint8_t, 4> maximum_joint_indices{};
   ColorStream color_layout;
   bool normal_present{}, tangent_present{}, uv_present{}, color_present{};
   bool secondary_uv_present{}, modulation_color_present{};
@@ -84,6 +130,8 @@ struct NativeDraw {
   std::uint16_t source_variant{};
   std::size_t base_texture{}, normal_texture{}, secondary_texture{}, environment_texture{};
   bool base_bound{}, normal_bound{}, secondary_bound{}, environment_bound{};
+  std::size_t occlusion_texture{};
+  bool occlusion_bound{};
 };
 struct StreamParameters {
   std::uint32_t stride;
@@ -128,6 +176,12 @@ struct WorldRenderer::State {
     id<MTLSamplerState> environment_sampler{};
     memory::Vector<render::WorldJointMatrix> joint_matrices;
   };
+  struct PreparedDraws {
+    memory::Vector<SubmittedDraw> draws;
+    std::size_t shadow_guard{};
+    bool needs_default_environment{};
+  };
+  PreparedDraws prepare_draws(std::span<const render::WorldColorDraw> draws);
   struct TextureDestination {
     std::pair<std::uint64_t, std::size_t> key;
     std::size_t submitted_index{};
@@ -141,11 +195,22 @@ struct WorldRenderer::State {
     }
     std::ranges::sort(destinations, {}, &TextureDestination::key);
   }
+  static void index_color_order(std::span<const SubmittedDraw> draws,
+                                std::span<std::size_t> order) {
+    for (std::size_t index = 0; index < order.size(); ++index) order[index] = index;
+    std::ranges::sort(order, [&](std::size_t left, std::size_t right) {
+      return std::pair{draws[left].command.color_phase, left} <
+             std::pair{draws[right].command.color_phase, right};
+    });
+  }
   void refresh_destinations() noexcept {
     texture_destinations.erase(
         texture_destinations.begin() + static_cast<std::ptrdiff_t>(submitted.size()),
         texture_destinations.end());
     index_destinations(submitted, texture_destinations);
+    color_order.erase(color_order.begin() + static_cast<std::ptrdiff_t>(submitted.size()),
+                      color_order.end());
+    index_color_order(submitted, color_order);
   }
   struct Texture {
     render::WorldTextureHandle handle;
@@ -161,6 +226,7 @@ struct WorldRenderer::State {
         textures(memory::Allocator<Texture>(cpu_domain)),
         submitted(memory::Allocator<SubmittedDraw>(cpu_domain)),
         texture_destinations(memory::Allocator<TextureDestination>(cpu_domain)),
+        color_order(memory::Allocator<std::size_t>(cpu_domain)),
         output(native_device, cpu_domain, device_budget) {}
   id<MTLDevice> device;
   id<MTLCommandQueue> queue;
@@ -178,11 +244,38 @@ struct WorldRenderer::State {
   bool shadows_prepared{};
   std::size_t shadow_guard{};
   std::uint64_t next_texture{1};
+  std::optional<render::WorldViewUpdate> view;
   memory::Vector<SubmittedDraw> submitted;
   memory::Vector<TextureDestination> texture_destinations;
+  memory::Vector<std::size_t> color_order;
   std::array<std::array<id<MTLRenderPipelineState>, 2>, 2> color_pipelines{};
   WorldPostprocess output;
   std::uint64_t next_identity{1};
+  // Merge camera-dependent constants without changing retained material state.
+  render::WorldColorParameters parameters(const render::WorldColorDraw& draw) const {
+    auto result = draw.parameters;
+    if (view && draw.view_space != render::WorldViewSpace::fixed) {
+      const auto& selected =
+          draw.view_space == render::WorldViewSpace::world ? view->world : view->sky;
+      result.clip_rows = selected.clip_rows;
+      result.world_rows = selected.world_rows;
+      result.fog_color = selected.fog_color;
+      result.fog_distance = selected.fog_distance;
+      result.fog_height = selected.fog_height;
+      result.fog_density = selected.fog_density;
+      result.shadow_clip_rows = selected.shadow_clip_rows;
+      if (view->lighting) {
+        const auto& light = *view->lighting;
+        result.light_direction = light.direction;
+        result.light_diffuse = light.diffuse;
+        result.light_specular = light.specular;
+        if (result.shadow_parameters[0] != 0) {
+          result.shadow_parameters[2] = light.shadow_radius;
+        }
+      }
+    }
+    return result;
+  }
   const Model& model(render::WorldModelHandle identity) const {
     const auto found = std::ranges::find(models, identity, &Model::handle);
     if (found == models.end()) {
@@ -238,6 +331,7 @@ render::WorldModelHandle WorldRenderer::upload_model(const formats::ModelDefinit
         .shape_deformation = draw.shape_stream.has_value()};
     native.color_layout.stride = draw.stream.stride;
     native.color_layout.position = position->offset;
+    native.color_layout.position_stride = position_stream.stride;
     const auto attribute = [&](std::uint8_t usage, std::uint8_t index, std::uint8_t type,
                                std::uint32_t& offset) {
       const auto found = std::ranges::find_if(elements, [&](const auto& element) {
@@ -295,6 +389,7 @@ render::WorldModelHandle WorldRenderer::upload_model(const formats::ModelDefinit
     native.source_variant =
         static_cast<std::uint16_t>(material.shader_selector[1] & kShaderVariantMask);
     constexpr std::uint32_t kSecondaryTexture = 0x42545831, kEnvironmentTexture = 0x4c454e56;
+    constexpr std::uint32_t kOcclusionTexture = 0x414d4f43;
     for (const auto& texture : material.textures) {
       if (texture.semantic[0] == kBaseTextureSemantic) {
         native.base_texture = texture.texture;
@@ -305,6 +400,9 @@ render::WorldModelHandle WorldRenderer::upload_model(const formats::ModelDefinit
       } else if (texture.semantic[0] == kSecondaryTexture) {
         native.secondary_texture = texture.texture;
         native.secondary_bound = true;
+      } else if (texture.semantic[0] == kOcclusionTexture) {
+        native.occlusion_texture = texture.texture;
+        native.occlusion_bound = true;
       } else if (texture.semantic[0] == kEnvironmentTexture) {
         native.environment_texture = texture.texture;
         native.environment_bound = true;
@@ -321,7 +419,7 @@ render::WorldModelHandle WorldRenderer::upload_model(const formats::ModelDefinit
     pending.vertices.push_back(BufferAllocation::create(state.device, state.device_budget, bytes));
     pending.status.vertex_bytes += bytes.size();
   }
-  // Keep shape-position storage resident without presenting its undeformed pose.
+  // Retain initial rest positions; CPU deformation later updates this same stream.
   for (std::size_t index = 0; index < model.shape_buffers().size(); ++index) {
     const auto bytes = model.shape_bytes(index);
     pending.shapes.push_back(BufferAllocation::create(state.device, state.device_budget, bytes));
@@ -374,12 +472,17 @@ render::WorldTextureHandle WorldRenderer::upload_world_texture(
   return handle;
 }
 void WorldRenderer::release_world_texture(render::WorldTextureHandle texture) noexcept {
-  // Invalidate submitted work before removing any of its texture bindings.
-  state_->submitted.clear();
-  state_->texture_destinations.clear();
+  if (texture.value == 0 || std::ranges::find(state_->textures, texture, &State::Texture::handle) ==
+                                state_->textures.end()) {
+    return;
+  }
+  // Retiring a component's private textures must not invalidate the surviving
+  // scene. Remove only consumers of this handle before clearing their bindings.
   state_->shadows_prepared = false;
-  // Invalidate each retained table binding before the native owner retires.
   for (auto& model : state_->models) {
+    if (std::ranges::find(model.textures, texture) == model.textures.end()) continue;
+    std::erase_if(state_->submitted,
+                  [&](const auto& draw) { return draw.command.model == model.handle; });
     for (auto& binding : model.textures) {
       if (binding == texture) {
         binding = {};
@@ -387,6 +490,7 @@ void WorldRenderer::release_world_texture(render::WorldTextureHandle texture) no
       }
     }
   }
+  state_->refresh_destinations();
   std::erase_if(state_->textures, [texture](const auto& entry) { return entry.handle == texture; });
 }
 void WorldRenderer::bind_model_textures(render::WorldModelHandle model,
@@ -433,8 +537,9 @@ void WorldRenderer::release_model(render::WorldModelHandle model) noexcept {
     state_->shadows_prepared = false;
   }
 }
-void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draws) {
-  auto& state = *state_;
+WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
+    std::span<const render::WorldColorDraw> draws) {
+  auto& state = *this;
   memory::Vector<State::SubmittedDraw> pending(
       memory::Allocator<State::SubmittedDraw>(state.cpu_domain));
   std::size_t shadow_guard = 0;
@@ -442,6 +547,9 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
   bool needs_default_environment = false;
   // Resolve the complete ordered submission before replacing the previous frame.
   for (const auto& draw : draws) {
+    if (draw.color_phase > render::WorldColorPhase::material_blended) {
+      throw std::invalid_argument("Unresolved world color phase");
+    }
     const auto& model = state.model(draw.model);
     if (draw.draw >= model.draws.size()) {
       throw std::invalid_argument("Unknown world draw identity");
@@ -473,18 +581,16 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
             ? draw.joint_matrices.empty() && !native.requires_deformation
             : native.joint_indices_present && !draw.joint_matrices.empty() &&
                   draw.joint_matrices.size() <= kMaximumJoints &&
-                  native.maximum_joint_indices[0] < draw.joint_matrices.size() &&
-                  (requirements.joint_influences != 2 ||
-                   (native.joint_weights_present &&
-                    native.maximum_joint_indices[1] < draw.joint_matrices.size())) &&
+                  (requirements.joint_influences == 1 || native.joint_weights_present) &&
                   std::ranges::all_of(
-                      draw.joint_matrices,
-                      [](const auto& matrix) {
-                        return std::ranges::all_of(matrix, [](const auto& row) {
-                          return std::ranges::all_of(
-                              row, [](float value) { return std::isfinite(value); });
-                        });
-                      });
+                      std::span(native.maximum_joint_indices).first(requirements.joint_influences),
+                      [&](auto index) { return index < draw.joint_matrices.size(); }) &&
+                  std::ranges::all_of(draw.joint_matrices, [](const auto& matrix) {
+                    return std::ranges::all_of(matrix, [](const auto& row) {
+                      return std::ranges::all_of(row,
+                                                 [](float value) { return std::isfinite(value); });
+                    });
+                  });
     const auto& shadow = draw.parameters.shadow_parameters;
     if (shadow[0] == 1.0F) {
       shadow_guard = std::max(shadow_guard, render::shadow_guard_texels(shadow[2]));
@@ -492,7 +598,11 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
     const bool shadow_valid = (shadow[0] == 0.0F || shadow[0] == 1.0F) && shadow[1] >= 0 &&
                               shadow[2] >= 0 && shadow[3] == 0 &&
                               (!draw.casts_shadow || shadow[0] == 1.0F);
-    if (!shadow_valid || native.shape_deformation || !joint_palette_valid ||
+    if (!valid_local_lights(draw.parameters.local_lights, draw.parameters.local_light_meta[0]) ||
+        !std::ranges::all_of(std::span(draw.parameters.local_light_meta).subspan(1),
+                             [](auto value) { return value == 0; }) ||
+        draw.view_space > render::WorldViewSpace::sky || !shadow_valid ||
+        (native.shape_deformation && !draw.use_shape_positions) || !joint_palette_valid ||
         !requirements.supported ||
         (draw.effective_shader_flags | kInspectionPassBits) !=
             (native.source_flags | kInspectionPassBits) ||
@@ -504,6 +614,8 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
          !native.normal_present) ||
         (requirements.normal_map && (!native.normal_bound || !native.tangent_present ||
                                      !resident(native.normal_texture, MTLTextureType2D))) ||
+        (requirements.ambient_occlusion &&
+         (!native.occlusion_bound || !resident(native.occlusion_texture, MTLTextureType2D))) ||
         (requirements.secondary_base && (!native.secondary_uv_present || !native.secondary_bound ||
                                          !resident(native.secondary_texture, MTLTextureType2D))) ||
         (requirements.environment_map && native.environment_bound &&
@@ -570,6 +682,11 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
     }
     auto stream = native.color_layout;
     stream.joint_influences = requirements.joint_influences;
+    stream.ambient_occlusion = requirements.ambient_occlusion;
+    stream.secondary_alpha_blend = requirements.secondary_alpha_blend;
+    stream.alpha_fresnel = requirements.alpha_fresnel;
+    stream.local_lights = requirements.local_lights;
+    stream.environment_shadow = requirements.environment_shadow;
     stream.base_texture = requirements.base_texture;
     stream.normal_map = requirements.normal_map;
     stream.secondary_base = requirements.secondary_base;
@@ -603,6 +720,14 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
     command.joint_matrices = {};  // Never retain the caller's borrowed storage.
     pending.push_back({command, stream, sampler, depth, environment_sampler, std::move(palette)});
   }
+  return {std::move(pending), shadow_guard, needs_default_environment};
+}
+void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draws) {
+  auto& state = *state_;
+  auto prepared = state.prepare_draws(draws);
+  auto& pending = prepared.draws;
+  const auto shadow_guard = prepared.shadow_guard;
+  const auto needs_default_environment = prepared.needs_default_environment;
   if (needs_default_environment && state.default_environment.get() == nil) {
     // Create the original opaque-black environment fallback before applying
     // authored material textures. Keep one accounted
@@ -618,8 +743,72 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
   memory::Vector<State::TextureDestination> destinations(
       pending.size(), memory::Allocator<State::TextureDestination>(state.cpu_domain));
   State::index_destinations(pending, destinations);
+  memory::Vector<std::size_t> color_order(pending.size(),
+                                          memory::Allocator<std::size_t>(state.cpu_domain));
+  State::index_color_order(pending, color_order);
   state.submitted = std::move(pending);
   state.texture_destinations = std::move(destinations);
+  state.color_order = std::move(color_order);
+  state.shadow_guard = shadow_guard;
+  state.view.reset();
+  state.shadows_prepared = false;
+}
+// Prepare the complete component change before touching published scene state.
+// Unrelated native states and latest constants survive; no GPU assets move.
+void WorldRenderer::replace_world_model_draws(render::WorldModelHandle previous,
+                                              std::span<const render::WorldColorDraw> replacement) {
+  auto& state = *state_;
+  if (replacement.empty() || previous.value == 0) {
+    throw std::invalid_argument("World model replacement requires a submitted model and draws");
+  }
+  const auto next = replacement.front().model;
+  const auto is_previous = [&](const auto& draw) { return draw.command.model == previous; };
+  if (next.value == 0 || next == previous ||
+      !std::ranges::all_of(replacement, [&](const auto& draw) { return draw.model == next; }) ||
+      !std::ranges::any_of(state.submitted, is_previous) ||
+      std::ranges::any_of(state.submitted,
+                          [&](const auto& draw) { return draw.command.model == next; })) {
+    throw std::invalid_argument("World model replacement identities are not distinct and valid");
+  }
+  auto prepared = state.prepare_draws(replacement);
+  if (prepared.needs_default_environment && state.default_environment.get() == nil) {
+    throw std::invalid_argument("World model replacement requires a resident environment fallback");
+  }
+  memory::Vector<State::SubmittedDraw> pending(
+      memory::Allocator<State::SubmittedDraw>(state.cpu_domain));
+  const auto removed =
+      static_cast<std::size_t>(std::ranges::count_if(state.submitted, is_previous));
+  pending.reserve(state.submitted.size() - removed + prepared.draws.size());
+  bool inserted = false;
+  for (const auto& draw : state.submitted) {
+    if (is_previous(draw)) {
+      if (!inserted) {
+        for (auto& candidate : prepared.draws) {
+          pending.push_back(std::move(candidate));
+        }
+        inserted = true;
+      }
+    } else {
+      pending.push_back(draw);
+    }
+  }
+  memory::Vector<State::TextureDestination> destinations(
+      pending.size(), memory::Allocator<State::TextureDestination>(state.cpu_domain));
+  State::index_destinations(pending, destinations);
+  memory::Vector<std::size_t> color_order(pending.size(),
+                                          memory::Allocator<std::size_t>(state.cpu_domain));
+  State::index_color_order(pending, color_order);
+  std::size_t shadow_guard = 0;
+  for (const auto& draw : pending) {
+    const auto& shadow = draw.command.parameters.shadow_parameters;
+    if (shadow[0] == 1.0F) {
+      shadow_guard = std::max(shadow_guard, render::shadow_guard_texels(shadow[2]));
+    }
+  }
+  // No operation after this point can fail; view and output remain untouched.
+  state.submitted.swap(pending);
+  state.texture_destinations.swap(destinations);
+  state.color_order.swap(color_order);
   state.shadow_guard = shadow_guard;
   state.shadows_prepared = false;
 }
@@ -648,9 +837,144 @@ void WorldRenderer::update_world_texture_offsets(
     }
   }
 }
+// Sampled character irradiance changes constants only; validate the whole
+// batch before touching any retained draw, preserving its current pose/view.
+void WorldRenderer::update_world_lighting(std::span<const render::WorldLightingUpdate> updates) {
+  auto& state = *state_;
+  const auto destinations = [&](const auto& update) {
+    return std::ranges::equal_range(state.texture_destinations,
+                                    std::pair{update.model.value, update.draw}, std::ranges::less{},
+                                    &State::TextureDestination::key);
+  };
+  for (const auto& update : updates) {
+    const bool finite = std::ranges::all_of(update.irradiance_coefficients, [](const auto& row) {
+      return std::ranges::all_of(row, [](float value) { return std::isfinite(value); });
+    });
+    if (!finite || !valid_local_lights(update.local_lights, update.local_light_count) ||
+        destinations(update).empty()) {
+      throw std::invalid_argument("Invalid retained irradiance/direct-light update");
+    }
+  }
+  for (const auto& update : updates) {
+    for (const auto& destination : destinations(update)) {
+      state.submitted[destination.submitted_index].command.parameters.irradiance_coefficients =
+          update.irradiance_coefficients;
+      auto& parameters = state.submitted[destination.submitted_index].command.parameters;
+      parameters.local_lights = update.local_lights;
+      parameters.local_light_meta = {update.local_light_count, 0, 0, 0};
+    }
+  }
+}
+// Validate every destination before copying any pose. Palette sizes are fixed
+// at publication; retained command indices avoid scanning unrelated stage draws.
+void WorldRenderer::update_world_poses(std::span<const render::WorldPoseUpdate> updates) {
+  auto& state = *state_;
+  const auto destinations = [&](const auto& update) {
+    return std::ranges::equal_range(state.texture_destinations,
+                                    std::pair{update.model.value, update.draw}, std::ranges::less{},
+                                    &State::TextureDestination::key);
+  };
+  for (const auto& update : updates) {
+    const auto selected = destinations(update);
+    const bool finite = std::ranges::all_of(update.joint_matrices, [](const auto& matrix) {
+      return std::ranges::all_of(matrix, [](const auto& row) {
+        return std::ranges::all_of(row, [](float value) { return std::isfinite(value); });
+      });
+    });
+    if (!finite || update.joint_matrices.empty() || selected.empty() ||
+        !std::ranges::all_of(selected, [&](const auto& destination) {
+          return state.submitted[destination.submitted_index].joint_matrices.size() ==
+                 update.joint_matrices.size();
+        })) {
+      throw std::invalid_argument("Invalid retained world pose update");
+    }
+  }
+  for (const auto& update : updates) {
+    for (const auto& destination : destinations(update)) {
+      std::ranges::copy(update.joint_matrices,
+                        state.submitted[destination.submitted_index].joint_matrices.begin());
+    }
+  }
+  if (!updates.empty()) state.shadows_prepared = false;
+}
+// Shape positions publish once after CPU deformation; both render passes use
+// this retained stream. Validation finishes before the first native write.
+void WorldRenderer::update_shape_positions(
+    std::span<const render::WorldShapePositionUpdate> updates) {
+  auto& state = *state_;
+  for (const auto& update : updates) {
+    const auto& model = state.model(update.model);
+    const bool packed_positions = std::ranges::all_of(model.draws, [&](const auto& draw) {
+      return !draw.source.shape_stream || draw.source.shape_stream->buffer != update.buffer ||
+             (draw.source.shape_stream->stride == sizeof(std::array<float, 3>) &&
+              draw.position_offset == 0);
+    });
+    if (!packed_positions || update.buffer >= model.shapes.size() || update.positions.empty() ||
+        update.positions.size_bytes() != model.shapes.at(update.buffer).get().length ||
+        !std::ranges::all_of(update.positions, [](const auto& position) {
+          return std::ranges::all_of(position, [](float value) { return std::isfinite(value); });
+        })) {
+      throw std::invalid_argument("Invalid model shape position publication");
+    }
+  }
+  for (const auto& update : updates) {
+    const auto& buffer = state.model(update.model).shapes.at(update.buffer);
+    std::memcpy(buffer.get().contents, update.positions.data(), update.positions.size_bytes());
+  }
+  if (!updates.empty()) state.shadows_prepared = false;
+}
+// Preserve the submitted order and resources while changing source visibility.
+void WorldRenderer::update_world_visibility(
+    std::span<const render::WorldVisibilityUpdate> updates) {
+  auto& state = *state_;
+  const auto destinations = [&](const auto& update) {
+    return std::ranges::equal_range(state.texture_destinations,
+                                    std::pair{update.model.value, update.draw}, std::ranges::less{},
+                                    &State::TextureDestination::key);
+  };
+  for (const auto& update : updates) {
+    if (destinations(update).empty()) {
+      throw std::invalid_argument("Invalid retained visibility destination");
+    }
+  }
+  for (const auto& update : updates) {
+    for (const auto& destination : destinations(update)) {
+      state.submitted[destination.submitted_index].command.visible = update.visible;
+    }
+  }
+  if (!updates.empty()) state.shadows_prepared = false;
+}
+// Validate both spaces before publishing either; the retained packet allocates nothing.
+void WorldRenderer::update_world_view(const render::WorldViewUpdate& update) {
+  const auto finite = [](const render::WorldViewParameters& parameters) {
+    const auto values =
+        std::bit_cast<std::array<float, sizeof(render::WorldViewParameters) / sizeof(float)>>(
+            parameters);
+    return std::ranges::all_of(values, [](float value) { return std::isfinite(value); });
+  };
+  if (!finite(update.world) || !finite(update.sky)) {
+    throw std::invalid_argument("Invalid retained world view update");
+  }
+  if (update.lighting) {
+    const auto& light = *update.lighting;
+    const auto finite_color = [](const auto& values) {
+      return std::ranges::all_of(values, [](float value) { return std::isfinite(value); });
+    };
+    if (!finite_color(light.direction) || !finite_color(light.diffuse) ||
+        !finite_color(light.specular)) {
+      throw std::invalid_argument("Invalid shared scene lighting update");
+    }
+    const auto guard = render::shadow_guard_texels(light.shadow_radius);
+    state_->shadow_guard = guard;
+  }
+  state_->view = update;
+  state_->shadows_prepared = false;
+}
 void WorldRenderer::clear_world_draws() noexcept {
+  state_->view.reset();
   state_->submitted.clear();
   state_->texture_destinations.clear();
+  state_->color_order.clear();
   state_->output.reset();
   state_->shadow_color.reset();
   state_->shadow_depth.reset();
@@ -682,7 +1006,7 @@ void WorldRenderer::prepare_presentation(id<MTLCommandBuffer> command, id<MTLLib
 void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary> library) {
   auto& state = *state_;
   const bool enabled = std::ranges::any_of(state.submitted, [](const auto& draw) {
-    return draw.command.parameters.shadow_parameters[0] != 0;
+    return draw.command.visible && draw.command.parameters.shadow_parameters[0] != 0;
   });
   if (!enabled) return;
   if (command == nil || library == nil) {
@@ -742,14 +1066,25 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
                                          kShadowExtent - 2 * guard}];
   for (const auto& submitted : state.submitted) {
     const auto& request = submitted.command;
-    if (!request.casts_shadow) continue;
+    const auto parameters = state.parameters(request);
+    if (!request.visible || !request.casts_shadow ||
+        (state.view && state.view->lighting && !state.view->lighting->shadow_casters_enabled)) {
+      continue;
+    }
     const auto& model = state.model(request.model);
     const auto& native = model.draws.at(request.draw);
     const auto& draw = native.source;
     [encoder setVertexBuffer:model.vertices.at(draw.stream.buffer).get()
                       offset:draw.stream.offset
                      atIndex:0];
-    [encoder setVertexBytes:&request.parameters length:sizeof(request.parameters) atIndex:1];
+    // Shape declarations store original rest positions in their own stream;
+    // other attributes and immutable skin weights stay in the ordinary stream.
+    const auto& positions = draw.shape_stream ? *draw.shape_stream : draw.stream;
+    [encoder setVertexBuffer:draw.shape_stream ? model.shapes.at(positions.buffer).get()
+                                               : model.vertices.at(positions.buffer).get()
+                      offset:positions.offset
+                     atIndex:4];
+    [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:1];
     [encoder setVertexBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
     constexpr render::WorldJointMatrix kUnusedPalette{};
     [encoder setVertexBytes:submitted.joint_matrices.empty() ? &kUnusedPalette
@@ -758,7 +1093,7 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
                                 ? sizeof(kUnusedPalette)
                                 : submitted.joint_matrices.size() * sizeof(render::WorldJointMatrix)
                     atIndex:3];
-    [encoder setFragmentBytes:&request.parameters length:sizeof(request.parameters) atIndex:1];
+    [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:1];
     [encoder setFragmentBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
     id<MTLTexture> base = nil;
     if (submitted.stream.base_texture) {
@@ -832,7 +1167,7 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     }
   }
   if (!state.shadows_prepared && std::ranges::any_of(state.submitted, [](const auto& draw) {
-        return draw.command.parameters.shadow_parameters[0] != 0;
+        return draw.command.visible && draw.command.parameters.shadow_parameters[0] != 0;
       })) {
     throw std::logic_error("Shadow receivers require their prepared map");
   }
@@ -845,9 +1180,13 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     [encoder setFragmentBytes:kUnusedJitter.data() length:kUnusedJitter.size() atIndex:4];
   }
   [encoder setFragmentBytes:&presentation_opacity length:sizeof(presentation_opacity) atIndex:0];
-  // Preserve caller-selected draw order, shader constants and native index ranges.
-  for (const auto& submitted : state.submitted) {
+  // Consume the prepared scene phase order, preserving original order within
+  // each phase and leaving pose/material destination indices unchanged.
+  for (const auto submitted_index : state.color_order) {
+    const auto& submitted = state.submitted[submitted_index];
     const auto& request = submitted.command;
+    if (!request.visible) continue;
+    const auto parameters = state.parameters(request);
     const auto& model = state.model(request.model);
     const auto& native = model.draws.at(request.draw);
     const auto& draw = native.source;
@@ -870,7 +1209,14 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     [encoder setVertexBuffer:model.vertices.at(draw.stream.buffer).get()
                       offset:draw.stream.offset
                      atIndex:0];
-    [encoder setVertexBytes:&request.parameters length:sizeof(request.parameters) atIndex:1];
+    // Shape declarations store original rest positions in their own stream;
+    // other attributes and immutable skin weights stay in the ordinary stream.
+    const auto& positions = draw.shape_stream ? *draw.shape_stream : draw.stream;
+    [encoder setVertexBuffer:draw.shape_stream ? model.shapes.at(positions.buffer).get()
+                                               : model.vertices.at(positions.buffer).get()
+                      offset:positions.offset
+                     atIndex:4];
+    [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:1];
     [encoder setVertexBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
     if (!submitted.joint_matrices.empty()) {
       [encoder setVertexBytes:submitted.joint_matrices.data()
@@ -881,9 +1227,17 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
       [encoder setVertexBytes:&kUnusedPalette length:sizeof(kUnusedPalette) atIndex:3];
     }
     [encoder setFragmentBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
-    [encoder setFragmentBytes:&request.parameters length:sizeof(request.parameters) atIndex:1];
+    [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:1];
     [encoder setFragmentTexture:submitted.stream.base_texture ? base->native.get() : nil atIndex:0];
     [encoder setFragmentTexture:submitted.stream.normal_map ? normal->native.get() : nil atIndex:3];
+    id<MTLTexture> occlusion = nil;
+    if (submitted.stream.ambient_occlusion) {
+      occlusion = std::ranges::find(state.textures, model.textures.at(native.occlusion_texture),
+                                    &State::Texture::handle)
+                      ->native.get();
+    }
+    constexpr NSUInteger kOcclusionSlot = 5;
+    [encoder setFragmentTexture:occlusion atIndex:kOcclusionSlot];
     if (submitted.stream.secondary_base) {
       const auto secondary = std::ranges::find(
           state.textures, model.textures.at(native.secondary_texture), &State::Texture::handle);

@@ -19,6 +19,8 @@
 // evidence.
 #pragma once
 
+#include <functional>
+
 #include "bw/content/access.hpp"
 #include "bw/formats/model.hpp"
 #include "bw/formats/section_table.hpp"
@@ -26,6 +28,12 @@
 #include "bw/formats/stage_environment.hpp"
 
 namespace bw::content {
+// Main-thread loading presentation pulse, called only between completed asset
+// operations. May draw/pump platform events; must not reenter loading, mutate
+// catalogs or inspect partially constructed definitions. Throws unwind the
+// provisional owner. Core I.1 (#ri-explicit) exposes this scheduling boundary;
+// performance GPU.1 retains immutable uploads rather than redrawing the world.
+using LoadProgress = std::function<void()>;
 struct StageRecordLocation {
   std::size_t archive{}, record{};
 };
@@ -110,7 +118,8 @@ struct StageDefinition {
 // Original stage-prefix enumeration, including all selected model definitions.
 StageDefinition load_stage_definition(
     const platform::Files& files, const resources::CatalogSet& catalogs,
-    std::string_view stage, const std::shared_ptr<memory::Domain>& domain);
+    std::string_view stage, const std::shared_ptr<memory::Domain>& domain,
+    const LoadProgress& progress = {});
 // Original sky request matches an exact model name, not a stage prefix.
 StageDefinition load_model_definition(
     const platform::Files& files, const resources::CatalogSet& catalogs,

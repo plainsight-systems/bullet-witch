@@ -10,7 +10,7 @@
 // cpp-guidelines R.2 (#rr-use-ptr) carries bounded spans; cpp-performance MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
 // metadata allocation. Source algorithms and field provenance are recorded in
-// stage-content-decoding.md; animated area overrides remain a later consumer.
+// stage-content-decoding.md; game/stage_environment maps live area overrides.
 // Fog decoding retains separate surface/sky controls and shared authored RGB;
 // it does not apply enable fallbacks or camera-relative shader conversion.
 // Fog design/implementation reread R.2 and MEM.6: bounded record reads return
@@ -27,6 +27,8 @@ struct StageToneMapping {
       bloom_soft_knee{};
   std::int32_t history_window{};
   float adaptation_slew{}, minimum_luminance{}, maximum_luminance{};
+  std::int32_t color_filter_mode{};
+  std::array<float, 3> color_filter{};
 };
 struct StageFog {
   bool distance_enabled{}, height_gate_enabled{}, height_enabled{};
@@ -52,6 +54,11 @@ struct StageEnvironment {
   // Uniform ambient RGB supplied to each ordinary static model's harmonic
   // lighting context. Sky supplies its own lighting independently.
   std::array<float, 3> ambient_color{};
+  // Each world-pass build overwrites the separate SHLT owners' multipliers from
+  // these fields. They are independent of file intensity and static ambient.
+  // I.1 (#ri-explicit)/MEM.9: decode once, pass explicit allocation-free
+  // values.
+  float character_light_intensity{}, enemy_light_intensity{};
   float sky_yaw_degrees{}, sky_height{};
   std::array<float, 4> light_diffuse{}, light_specular{};
   // Authored source vector; conversion to the shader's normalized direction

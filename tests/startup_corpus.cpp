@@ -1,3 +1,6 @@
+// Caster regression: both-phase I.1 (#ri-explicit) checks source pass admission
+// against retained original chunk metadata; GPU.1 (guidelines/gpu/
+// GPU.1-keep-data-on-device.md) adds no production readback or frame-time work.
 // Required output-policy observation applies C.128 (#rh-override): the fixture
 // explicitly retains authored settings and checks publication. GPU.9
 // (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md) adds no
@@ -40,11 +43,15 @@
 #include <stdexcept>
 #include <vector>
 
+#include "bw/audio/wave.hpp"
 #include "bw/formats/world_texture.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
+#include "game/mission_audio.hpp"
 #include "game/mission_loading.hpp"
 #include "game/root_driver.hpp"
+#include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
+#include "game/startup_loading_surface.hpp"
 #include "game/startup_menu_surface.hpp"
 #include "game/startup_services.hpp"
 #include "game/startup_title_surface.hpp"
@@ -52,6 +59,10 @@
 #include "platform/macos/cpu_backing.hpp"
 #endif
 namespace {
+// Independent authored fixture: production placement is an explicitly named
+// shim.
+constexpr bw::game::ScriptedPlayerPose kFixtureInitialPose{
+    {-61.91F, .65F, -97.57F}, -.28F};
 using bw::game::Screen;
 class Screens final : public bw::game::StartupServices {
  public:
@@ -103,6 +114,7 @@ class SpriteOutput final : public bw::render::SpriteOutput {
   }
   void release_texture(bw::render::TextureHandle) noexcept override { --live; }
   void set_sprites(std::span<const bw::render::Sprite> commands) override {
+    latest.assign(commands.begin(), commands.end());
     if (!commands.empty()) {
       presented = true;
     }
@@ -111,6 +123,31 @@ class SpriteOutput final : public bw::render::SpriteOutput {
   std::size_t live{};
   std::uint64_t identity{};
   bool presented{};
+  std::vector<bw::render::Sprite> latest;
+};
+// Count only reads through this capability; selection must reuse admission.
+class ObservedFiles final : public bw::platform::Files {
+ public:
+  explicit ObservedFiles(const bw::platform::Files& source) : source_(source) {}
+  bw::resources::Bytes read(const std::filesystem::path& path) const override {
+    ++reads_;
+    return source_.read(path);
+  }
+  bw::resources::ArchiveBytes read(
+      const std::filesystem::path& path,
+      std::shared_ptr<bw::memory::Domain> domain) const override {
+    ++reads_;
+    return source_.read(path, std::move(domain));
+  }
+  std::filesystem::path canonical(
+      const std::filesystem::path& path) const override {
+    return source_.canonical(path);
+  }
+  std::size_t reads() const { return reads_; }
+
+ private:
+  mutable std::size_t reads_{};
+  const bw::platform::Files& source_;
 };
 // CPU fixture observes actual asset/selection ownership; it does not render or
 // establish native color equivalence. Device shader tests remain separate.
@@ -118,7 +155,13 @@ class WorldOutput final : public bw::render::WorldOutput {
  public:
   bw::render::WorldModelHandle upload_model(
       const bw::formats::ModelDefinition& model) override {
+    if (reject_next_model) {
+      reject_next_model = false;
+      throw std::runtime_error("Injected model upload failure");
+    }
     ++live_models;
+    auto& chunks = model_chunks.emplace_back();
+    for (const auto& draw : model.draws()) chunks.push_back(draw.chunk);
     records.push_back(
         {0, 0, model.draws().size(), model.materials().size(), false, false});
     return {records.size()};
@@ -159,7 +202,14 @@ class WorldOutput final : public bw::render::WorldOutput {
         throw std::runtime_error(
             "Inspection refers to an unavailable original draw");
       }
+      if (draw.casts_shadow &&
+          model_chunks.at(draw.model.value - 1).at(draw.draw) > 1) {
+        throw std::runtime_error(
+            "Static caster includes a pass outside original opaque/cutout "
+            "selection");
+      }
     }
+    draw_commands.assign(draws.begin(), draws.end());
     submitted = draws.size();
     posed_draws = static_cast<std::size_t>(std::ranges::count_if(
         draws, [](const auto& draw) { return !draw.joint_matrices.empty(); }));
@@ -176,6 +226,28 @@ class WorldOutput final : public bw::render::WorldOutput {
       if (draws.size() > 1) world_parameters = draws[1].parameters;
     }
   }
+  void replace_world_model_draws(
+      bw::render::WorldModelHandle previous,
+      std::span<const bw::render::WorldColorDraw> replacement) override {
+    if (std::exchange(reject_next_replacement, false)) {
+      throw std::runtime_error("Injected appearance publication failure");
+    }
+    std::vector<bw::render::WorldColorDraw> pending;
+    bool replaced = false;
+    for (const auto& draw : draw_commands) {
+      if (draw.model == previous) {
+        if (!replaced) {
+          pending.insert(pending.end(), replacement.begin(), replacement.end());
+        }
+        replaced = true;
+      } else {
+        pending.push_back(draw);
+      }
+    }
+    if (!replaced) throw std::runtime_error("Previous model was not submitted");
+    set_world_draws(pending);
+  }
+  std::vector<bw::render::WorldColorDraw> draw_commands;
   void update_world_texture_offsets(
       std::span<const bw::render::WorldTextureOffsetUpdate> updates) override {
     for (const auto& update : updates) {
@@ -188,15 +260,107 @@ class WorldOutput final : public bw::render::WorldOutput {
     texture_updates.assign(updates.begin(), updates.end());
   }
   std::vector<bw::render::WorldTextureOffsetUpdate> texture_updates;
-  void clear_world_draws() noexcept override { submitted = 0; }
+  void update_world_poses(
+      std::span<const bw::render::WorldPoseUpdate> updates) override {
+    ++pose_publications;
+    for (const auto& update : updates) {
+      if (update.model.value == 0 ||
+          update.draw >= records.at(update.model.value - 1).draws ||
+          update.joint_matrices.empty()) {
+        throw std::runtime_error("Pose update refers to an unavailable draw");
+      }
+    }
+  }
+  void update_world_lighting(
+      std::span<const bw::render::WorldLightingUpdate> updates) override {
+    for (const auto& update : updates) {
+      const auto destination =
+          std::ranges::find_if(draw_commands, [&](const auto& draw) {
+            return draw.model == update.model && draw.draw == update.draw;
+          });
+      if (destination == draw_commands.end()) {
+        throw std::runtime_error(
+            "Lighting update refers to an unavailable draw");
+      }
+      if (update.local_light_count > update.local_lights.size()) {
+        throw std::runtime_error("Too many local lights");
+      }
+      for (const auto& light : update.local_lights) {
+        for (const auto& row : {light.position, light.diffuse, light.specular,
+                                light.attenuation}) {
+          for (float value : row) {
+            if (!std::isfinite(value)) {
+              throw std::runtime_error("Nonfinite sampled local light");
+            }
+          }
+        }
+      }
+      for (const auto& row : update.irradiance_coefficients) {
+        for (float value : row) {
+          if (!std::isfinite(value)) {
+            throw std::runtime_error("Nonfinite sampled light");
+          }
+        }
+      }
+    }
+    for (const auto& update : updates) {
+      for (auto& draw : draw_commands) {
+        if (draw.model == update.model && draw.draw == update.draw) {
+          draw.parameters.irradiance_coefficients =
+              update.irradiance_coefficients;
+          draw.parameters.local_lights = update.local_lights;
+          draw.parameters.local_light_meta[0] = update.local_light_count;
+        }
+      }
+    }
+  }
+  void clear_world_draws() noexcept override {
+    submitted = 0;
+    draw_commands.clear();
+  }
+  void update_shape_positions(
+      std::span<const bw::render::WorldShapePositionUpdate> updates) override {
+    for (const auto& update : updates) {
+      if (update.model.value == 0 || update.model.value > records.size() ||
+          update.positions.empty()) {
+        throw std::runtime_error("Shape update refers to unavailable geometry");
+      }
+    }
+  }
+  void update_world_visibility(
+      std::span<const bw::render::WorldVisibilityUpdate> updates) override {
+    for (const auto& update : updates) {
+      const auto matches = [&](const auto& draw) {
+        return draw.model == update.model && draw.draw == update.draw;
+      };
+      if (!std::ranges::any_of(draw_commands, matches)) {
+        throw std::runtime_error(
+            "Visibility update refers to an unavailable draw");
+      }
+    }
+    for (const auto& update : updates) {
+      for (auto& draw : draw_commands) {
+        if (draw.model == update.model && draw.draw == update.draw) {
+          draw.visible = update.visible;
+        }
+      }
+    }
+  }
+  void update_world_view(const bw::render::WorldViewUpdate& update) override {
+    view_update = update;
+  }
+  std::optional<bw::render::WorldViewUpdate> view_update;
   bw::render::WorldOutputParameters output_parameters;
   bw::render::WorldColorParameters sky_parameters, world_parameters;
   bw::render::WorldSurfaceState sky_state;
   std::uint32_t sky_shader_flags{};
+  bool reject_next_model{}, reject_next_replacement{};
   std::vector<bw::render::WorldGeometryStatus> records;
+  std::vector<std::vector<std::uint32_t>> model_chunks;
   std::size_t live_models{}, live_textures{}, submitted{}, harmonic_draws{},
       posed_draws{}, caster_draws{};
   std::uint64_t texture_identity{};
+  std::size_t pose_publications{};
 };
 struct ObservedMenu final : public bw::game::MenuSurface {
  public:
@@ -221,6 +385,1083 @@ struct ObservedMenu final : public bw::game::MenuSurface {
 
   bw::game::StartupMenuSurface surface_;
 };
+class CorpusAudioOutput final : public bw::audio::CueOutput {
+ public:
+  struct Slot {
+    bw::audio::CueRequest request;
+    std::uint32_t generation{};
+    bool active{};
+  };
+  std::array<Slot, 128> slots{};
+  std::array<std::size_t, 51> bank_plays{};
+  std::size_t registrations{}, plays{}, stops{}, positions{}, updates{},
+      listener_updates{}, pause_calls{};
+  bool sealed{}, paused{};
+  bool trace_cues{};
+  std::array<std::array<std::uint16_t, 2>, 512> cue_trace{};
+  std::size_t cue_trace_size{};
+  void register_bank(std::uint16_t, std::span<const std::uint8_t> sound,
+                     std::span<const std::uint8_t> waves,
+                     std::span<const std::uint16_t>) override {
+    if (sound.empty() || waves.empty() || sealed) {
+      throw std::runtime_error("Invalid corpus bank");
+    }
+    ++registrations;
+  }
+  void seal() override { sealed = true; }
+  std::optional<bw::audio::CueHandle> play(
+      const bw::audio::CueRequest& request) override {
+    if (!sealed) throw std::runtime_error("Unsealed corpus output");
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+      auto& slot = slots.at(i);
+      if (slot.active) continue;
+      slot.request = request;
+      slot.active = true;
+      ++slot.generation;
+      ++plays;
+      ++bank_plays.at(request.bank);
+      if (trace_cues) {
+        cue_trace.at(cue_trace_size++) = {request.bank, request.cue};
+      }
+      return bw::audio::CueHandle{static_cast<std::uint32_t>(i),
+                                  slot.generation};
+    }
+    return {};
+  }
+  bool active(bw::audio::CueHandle handle) const override {
+    return handle.slot < slots.size() && slots.at(handle.slot).active &&
+           slots.at(handle.slot).generation == handle.generation;
+  }
+  bool stop(bw::audio::CueHandle handle) override {
+    if (!active(handle)) return false;
+    slots.at(handle.slot).active = false;
+    ++stops;
+    return true;
+  }
+  bool set_position(bw::audio::CueHandle handle,
+                    const bw::math::Vector3<float>& position) override {
+    if (!active(handle)) return false;
+    slots.at(handle.slot).request.position = position;
+    ++positions;
+    return true;
+  }
+  void set_listener(const bw::audio::Listener&) override { ++listener_updates; }
+  void pause(bool value) override {
+    paused = value;
+    ++pause_calls;
+  }
+  void update() override { ++updates; }
+};
+// A known slot or a familiar filename cannot grant semantics to another
+// actor or an unrelated publication. Reuse one actual decoded track here;
+// this tests admission identity, independently of pose/render appearance.
+// The fresh pose lies outside the source lamp influence sphere (radius5.5924).
+// A complete empty packet must clear all retained direct-light slots.
+void require_initial_local_light_clear(const WorldOutput& world,
+                                       bw::render::WorldModelHandle body) {
+  const auto draw = std::ranges::find_if(
+      world.draw_commands,
+      [&](const auto& candidate) { return candidate.model == body; });
+  if (draw == world.draw_commands.end() ||
+      draw->parameters.local_light_meta[0] != 0) {
+    throw std::runtime_error("Initial source light selection should be empty");
+  }
+  for (const auto& light : draw->parameters.local_lights) {
+    for (const auto& row :
+         {light.position, light.diffuse, light.specular, light.attenuation}) {
+      if (!std::ranges::all_of(row, [](float value) { return value == 0; })) {
+        throw std::runtime_error(
+            "Empty source selection retained a local light");
+      }
+    }
+  }
+}
+
+void unknown_pose_admission(const bw::content::CharacterSupport& original,
+                            const bw::formats::SkeletonDefinition& skeleton,
+                            const std::shared_ptr<bw::memory::Domain>& domain) {
+  struct PublicationIdentity {
+    std::string_view owner;
+    std::string_view publication;
+    std::string_view name;
+  };
+  const auto verify = [&](PublicationIdentity identity) {
+    bw::content::CharacterSupport support(domain);
+    support.motions.push_back({bw::content::CharacterPublication(
+                                   identity.publication, {},
+                                   bw::memory::Allocator<std::byte>(domain)),
+                               original.motions.front().definition});
+    const std::array aliases{
+        bw::animation::ClipAliasRequest{1, identity.name, true}};
+    const bw::game::CharacterAnimations prepared(
+        support, skeleton, identity.owner, 2, aliases, domain);
+    if (prepared.pose_semantics(0) != bw::game::MotionPoseSemantics::unknown) {
+      throw std::runtime_error("Unverified publication gained pose admission");
+    }
+  };
+  verify({"npc", "test.npc_stand_l", "stand_l"});
+  verify({"pw0", "test.pw0_dm_ear", "dm_ear"});
+  verify({"wa0", "test.wa0_unclassified", "unclassified"});
+}
+
+void model_cancellation_substeps(bw::game::StageInspection& inspection) {
+  // Enter a second actual evade, then cross its frame25 cancellation
+  // early in a 50ms outer update. A later parent subdivision must observe
+  // that event before selecting another body owner, without a GPU flush.
+  bool crossed_cancel = false;
+  for (unsigned frame = 0; frame < 180; ++frame) {
+    inspection.advance(static_cast<double>(1.0F / 60.0F),
+                       {.movement = {.evade_held = frame == 0}});
+    const auto* body =
+        inspection.player_animation_state(bw::game::CharacterMotionBank::body);
+    if (inspection.player_state()->phase !=
+            bw::game::PlayerMovementPhase::landing ||
+        body == nullptr) {
+      continue;
+    }
+    const auto clip_frame = body->seconds * body->clip->frames_per_second();
+    if (clip_frame >= 23 && clip_frame < 25) {
+      inspection.advance(static_cast<double>(.05F));
+      if (inspection.player_state()->phase !=
+          bw::game::PlayerMovementPhase::grounded) {
+        throw std::runtime_error(
+            "Later parent substep missed completed model cancellation");
+      }
+      crossed_cancel = true;
+      break;
+    }
+  }
+  if (!crossed_cancel) {
+    throw std::runtime_error("Missing actual landing cancellation witness");
+  }
+}
+// Exercise actual Stage light publication across the first authored lamp's
+// source influence boundary, using ordinary controller input and retained data.
+void placed_light_publication(
+    const WorldOutput& resources, bw::game::MissionLoading& loading,
+    const std::shared_ptr<bw::memory::Domain>& domain) {
+  WorldOutput output;
+  output.records = resources.records;
+  output.model_chunks = resources.model_chunks;
+  const auto& stage = loading.stage();
+  const auto& sky = loading.sky();
+  const auto& background = loading.background();
+  if (!stage || !sky || !background) {
+    throw std::runtime_error("Placed light witness requires authored scene");
+  }
+  bw::game::StageInspection inspection(
+      output, {*stage, loading.resident_models()},
+      {*sky, loading.sky_resident_models()}, domain, std::nullopt,
+      {&*background, loading.resident_dependencies()},
+      bw::game::PlayerActorSource{
+          loading.resident_player(), loading.resident_weapon(),
+          loading.player_support(), loading.weapon_support(),
+          kFixtureInitialPose},
+      {}, {loading.character_light(), loading.enemy_light()});
+  require_initial_local_light_clear(output, loading.resident_player().handle);
+  const auto prepared_bytes = domain->snapshot().live_bytes;
+  bw::game::StageTraversalInput approach;
+  approach.movement.direction = {0, -.5F};
+  for (int frame = 0; frame < 90; ++frame) {
+    inspection.advance(1.0 / 60, approach);
+  }
+  const auto body =
+      std::ranges::find_if(output.draw_commands, [&](const auto& draw) {
+        return draw.model == loading.resident_player().handle;
+      });
+  if (body == output.draw_commands.end() ||
+      body->parameters.local_light_meta[0] == 0 ||
+      body->parameters.local_light_meta[0] >
+          bw::render::kMaximumWorldLocalLights ||
+      domain->snapshot().live_bytes != prepared_bytes) {
+    throw std::runtime_error("Approach did not publish prepared source light");
+  }
+  approach.movement.direction = {0, .5F};
+  for (int frame = 0; frame < 180; ++frame) {
+    inspection.advance(1.0 / 60, approach);
+  }
+  require_initial_local_light_clear(output, loading.resident_player().handle);
+}
+
+void model_timing_equivalence(
+    WorldOutput& world, bw::game::MissionLoading& loading,
+    const std::shared_ptr<bw::memory::Domain>& domain,
+    const bw::game::PreparedCharacterAudio& prepared_audio) {
+  const auto& stage = loading.stage();
+  const auto& sky = loading.sky();
+  const auto& background = loading.background();
+  const auto dependencies = loading.resident_dependencies();
+  if (!stage || !sky || !background) {
+    throw std::runtime_error(
+        "Timing witness requires authored scene resources");
+  }
+  // Equivalent complete parent/model intervals must expose identical
+  // motion/event results whether grouped into a host frame or submitted
+  // individually. Both sides use actual stage and animation resources.
+  // Each retained scene owns its draw list. The immutable uploaded-resource
+  // metadata is shared by value; neither observer owns or retires those assets.
+  WorldOutput batched_world, individual_world;
+  batched_world.records = individual_world.records = world.records;
+  batched_world.model_chunks = individual_world.model_chunks =
+      world.model_chunks;
+  CorpusAudioOutput batched_audio, individual_audio;
+  batched_audio.sealed = individual_audio.sealed = true;
+  batched_audio.trace_cues = individual_audio.trace_cues = true;
+  bw::game::SourceRandom batched_random, individual_random;
+  bw::game::StageInspection batched(
+      batched_world, {*stage, loading.resident_models()},
+      {*sky, loading.sky_resident_models()}, domain, std::nullopt,
+      {&*background, dependencies},
+      bw::game::PlayerActorSource{
+          loading.resident_player(), loading.resident_weapon(),
+          loading.player_support(), loading.weapon_support(),
+          kFixtureInitialPose},
+      {}, {loading.character_light(), loading.enemy_light()});
+  bw::game::StageInspection individual(
+      individual_world, {*stage, loading.resident_models()},
+      {*sky, loading.sky_resident_models()}, domain, std::nullopt,
+      {&*background, dependencies},
+      bw::game::PlayerActorSource{
+          loading.resident_player(), loading.resident_weapon(),
+          loading.player_support(), loading.weapon_support(),
+          kFixtureInitialPose},
+      {}, {loading.character_light(), loading.enemy_light()});
+  batched.bind_audio(prepared_audio, batched_audio, batched_random);
+  individual.bind_audio(prepared_audio, individual_audio, individual_random);
+  constexpr std::array elapsed{static_cast<double>(1.0F / 60),
+                               static_cast<double>(1.0F / 30),
+                               .0168,
+                               .031,
+                               .05,
+                               .1};
+  batched_world.pose_publications = individual_world.pose_publications = 0;
+  for (unsigned frame = 0; frame < 120; ++frame) {
+    const double seconds = elapsed.at(frame % elapsed.size());
+    bw::game::StageTraversalInput input;
+    input.movement.direction =
+        frame < 60 ? std::array{0.0F, 1.0F} : std::array{0.0F, 0.0F};
+    for (auto& slot : batched_audio.slots) slot.active = false;
+    for (auto& slot : individual_audio.slots) slot.active = false;
+    batched.advance(seconds, input);
+    double remaining = seconds;
+    while (remaining > 0) {
+      const auto step = bw::game::player_simulation_step(remaining);
+      individual.advance(step, input);
+      remaining -= step;
+    }
+    const auto* left = batched.player_state();
+    const auto* right = individual.player_state();
+    const auto* left_body =
+        batched.player_animation_state(bw::game::CharacterMotionBank::body);
+    const auto* right_body =
+        individual.player_animation_state(bw::game::CharacterMotionBank::body);
+    if (left->phase != right->phase ||
+        left_body->binding != right_body->binding ||
+        std::abs(left_body->unwrapped_seconds - right_body->unwrapped_seconds) >
+            1e-9 ||
+        bw::math::length(bw::math::subtract(left->pose.position,
+                                            right->pose.position)) > .00001F ||
+        bw::math::length(bw::math::subtract(left->velocity, right->velocity)) >
+            .00001F) {
+      throw std::runtime_error(
+          "Host batching changed complete parent/model root intervals");
+    }
+  }
+  if (batched_world.pose_publications != 120 ||
+      individual_world.pose_publications <= batched_world.pose_publications) {
+    throw std::runtime_error("Model substeps leaked into GPU pose publication");
+  }
+  if (batched_audio.cue_trace_size == 0 ||
+      batched_audio.cue_trace_size != individual_audio.cue_trace_size ||
+      !std::ranges::equal(std::span(batched_audio.cue_trace)
+                              .first(batched_audio.cue_trace_size),
+                          std::span(individual_audio.cue_trace)
+                              .first(individual_audio.cue_trace_size)) ||
+      batched_random.draws() != individual_random.draws()) {
+    throw std::runtime_error(
+        "Host batching changed source audio event identities/order");
+  }
+}
+// Extend the provisioned scene with public review requests. E.4 checks failure
+// preserves an active preview; MEM.9 checks retained domain footprint across
+// consumed frames. Device/audio remain controlled fixtures, not visual proof.
+void stage_review_acceptance(
+    bw::game::StageInspection& scene, bw::game::MissionLoading& loading,
+    WorldOutput& world, CorpusAudioOutput& audio,
+    const std::shared_ptr<bw::memory::Domain>& domain) {
+  using Kind = bw::game::AnimationReviewKind;
+  using Bank = bw::game::CharacterMotionBank;
+  auto require = [](bool valid, const char* message) {
+    if (!valid) throw std::runtime_error(message);
+  };
+  auto apply = [&](Kind kind, std::size_t index = 0) {
+    const auto result = scene.review({kind, index});
+    if (!result.accepted) {
+      throw std::runtime_error(std::string("Stage review rejected: ") +
+                               std::string(result.message));
+    }
+  };
+  auto run = [&](unsigned frames) {
+    scene.set_paused(false);
+    for (unsigned frame = 0; frame < frames; ++frame) {
+      // The controlled output has no sample clock; retire prior voices as a
+      // completion observation, while retaining requests/counters for checks.
+      for (auto& slot : audio.slots) slot.active = false;
+      scene.advance(1.0 / 60.0);
+    }
+    scene.set_paused(true);
+  };
+  auto clip_index = [&](std::string_view name, bool weapon = false) {
+    const auto index = scene.review_catalog(weapon)->find(name);
+    if (!index) throw std::runtime_error("Required review publication absent");
+    return *index;
+  };
+  scene.set_paused(false);
+  require(!scene.review({Kind::shot}).accepted,
+          "Running scene admitted a paused menu request");
+  run(2);
+  require(scene.player_state()->contact.grounded,
+          "Review fixture must start on authored ground");
+  const auto entry = *scene.player_state();
+  auto stop = [&] {
+    apply(Kind::stop);
+    require(scene.player_state()->pose.position == entry.pose.position &&
+                scene.player_state()->orientation == entry.orientation &&
+                scene.player_state()->phase == entry.phase &&
+                scene.player_state()->velocity == entry.velocity,
+            "Stop did not restore the review entry snapshot");
+  };
+  const auto walk = clip_index("walk_l");
+  apply(Kind::body_clip, walk);
+  const auto before_memory = domain->snapshot();
+  run(12);
+  const auto after_memory = domain->snapshot();
+  require(scene.player_state()->pose.position == entry.pose.position &&
+              scene.player_animation_state(Bank::body)->seconds > 0 &&
+              before_memory.live_bytes == after_memory.live_bytes &&
+              before_memory.live_allocations == after_memory.live_allocations,
+          "Raw clip moved the fixed actor or changed retained storage");
+  const auto body_clock = scene.player_animation_state(Bank::body)->seconds;
+  const auto body_binding = scene.player_animation_state(Bank::body)->binding;
+  apply(Kind::upper_clip, clip_index("reload_shoot_magazine"));
+  apply(Kind::additive_clip, clip_index("shoot_stand_fire_add"));
+  apply(Kind::weapon_clip, clip_index("stand_l", true));
+  require(
+      scene.player_animation_state(Bank::body)->seconds == body_clock &&
+          scene.player_animation_state(Bank::body)->binding == body_binding &&
+          scene.player_animation_state(Bank::upper_body) != nullptr &&
+          scene.player_animation_state(Bank::additive) != nullptr,
+      "Adding review layers discarded the selected body owner");
+  run(2);
+  const auto retained_clock = scene.player_animation_state(Bank::body)->seconds;
+  for (const auto request :
+       {bw::game::AnimationReviewRequest{Kind::body_clip, 10000},
+        {Kind::body_clip, clip_index("shoot_stand_fire_add")},
+        {Kind::upper_clip, clip_index("shoot_stand_fire_add")},
+        {Kind::additive_clip, clip_index("stand_l")},
+        {Kind::body_clip, clip_index("turn_around")},
+        {Kind::facial, 2},
+        {Kind::damage, 12},
+        {Kind::death, 11},
+        {Kind::spell, 8}}) {
+    require(
+        !scene.review(request).accepted &&
+            scene.player_animation_state(Bank::body)->seconds ==
+                retained_clock &&
+            scene.player_animation_state(Bank::body)->binding == body_binding,
+        "Invalid review request changed the active preview");
+  }
+  apply(Kind::facial, 0);
+  require(scene.player_animation_state(Bank::body)->seconds == retained_clock,
+          "Facial preview restarted the body clock");
+  run(2);
+  stop();
+  scene.change_costume(loading, 5);
+  apply(Kind::body_clip, walk);
+  run(2);
+  const auto absent_face_clock =
+      scene.player_animation_state(Bank::body)->seconds;
+  require(!scene.review({Kind::facial, 0}).accepted &&
+              scene.player_animation_state(Bank::body)->seconds ==
+                  absent_face_clock &&
+              scene.player_animation_state(Bank::body)->binding == body_binding,
+          "Absent costume shapes destroyed the active preview");
+  stop();
+  scene.change_costume(loading, 0);
+  apply(Kind::raise_weapon);
+  run(45);
+  require(scene.player_state()->weapon_raised,
+          "Raised weapon preview did not reach raised movement state");
+  scene.set_paused(false);
+  bw::game::StageTraversalInput release_preview_aim;
+  release_preview_aim.presentation.aim_mode_pressed = true;
+  scene.advance(static_cast<double>(1.0F / 60), release_preview_aim);
+  run(480);
+  require(!scene.player_state()->weapon_raised,
+          "Live aim toggle could not release the preview's raised intent");
+  apply(Kind::raise_weapon);
+  run(45);
+  apply(Kind::shot);
+  require(scene.player_animation_state(Bank::additive) != nullptr,
+          "Shot preview did not submit its authored recoil layer");
+  run(4);
+  apply(Kind::reload);
+  require(scene.player_animation_state(Bank::upper_body) != nullptr &&
+              scene.player_animation_state(Bank::weapon) != nullptr,
+          "Reload did not reach independent body and weapon owners");
+  run(4);
+  stop();
+  apply(Kind::damage, 0);
+  require(scene.player_actions()->kind() == bw::game::AliciaActionKind::damage,
+          "Damage preview bypassed the source action owner");
+  run(4);
+  stop();
+  apply(Kind::death, 0);
+  require(scene.player_actions()->kind() == bw::game::AliciaActionKind::death,
+          "Death preview bypassed the source action owner");
+  run(4);
+  stop();
+  apply(Kind::scripted_jump, 0);
+  run(40);
+  require(scene.player_state()->pose.position[1] > entry.pose.position[1],
+          "Scripted jump preview never left the authored support");
+  stop();
+  apply(Kind::spell, 7);
+  require(scene.player_actions()->kind() == bw::game::AliciaActionKind::magic,
+          "Thunder preview did not retain its magic owner");
+  const auto aiming = scene.player_animation_state(Bank::body)->binding;
+  run(4);
+  apply(Kind::next_phase);
+  require(scene.player_animation_state(Bank::body)->binding != aiming,
+          "Thunder target acknowledgement did not change its animation phase");
+  run(4);
+  stop();
+  require(!scene.review({Kind::next_phase}).accepted,
+          "Stopped preview retained a pending spell phase");
+  const auto physical = *scene.player_state();
+  const auto body_handle = loading.resident_player().handle;
+  const auto weapon_handle = loading.resident_weapon().handle;
+  world.reject_next_replacement = true;
+  bool failed = false;
+  try {
+    scene.change_weapon(loading, 1);
+  } catch (const std::runtime_error&) {
+    failed = true;
+  }
+  require(failed && loading.resident_weapon().handle == weapon_handle &&
+              loading.current_weapon_class() == 0,
+          "Failed live weapon publication changed the current class");
+  const auto audio_before = audio.plays;
+  for (const unsigned weapon_class : {1U, 2U, 3U, 0U}) {
+    const auto camera = scene.camera_state()->pose;
+    const std::vector frozen(scene.player_world_pose().begin(),
+                             scene.player_world_pose().end());
+    scene.change_weapon(loading, weapon_class);
+    require(loading.current_weapon_class() == weapon_class &&
+                loading.resident_player().handle == body_handle &&
+                scene.player_state()->pose.position == physical.pose.position &&
+                scene.camera_state()->pose.eye == camera.eye &&
+                std::ranges::equal(frozen, scene.player_world_pose()),
+            "Live weapon publication changed frozen body, position or camera");
+    apply(Kind::body_clip, clip_index("walk_l"));
+    run(60);
+    apply(Kind::reload);
+    require(scene.player_animation_state(Bank::weapon)->clip != nullptr,
+            "Weapon class did not rebind its prepared motion catalog");
+    run(4);
+    stop();
+  }
+  require(audio.plays > audio_before && audio.listener_updates > 0,
+          "Audio events did not survive live weapon ownership transfer");
+  // The normal B/Q path preserves the active body/event owner and requests
+  // the original upper switch, unlike the deliberately neutral menu selector.
+  apply(Kind::raise_weapon);
+  run(60);
+  require(scene.player_state()->weapon_raised,
+          "Live switch witness did not establish raised posture");
+  scene.set_paused(false);
+  const auto pause_calls = audio.pause_calls;
+  const auto initial_uploads = world.records.size();
+  const auto initial_textures = world.texture_identity;
+  const auto* retained_body = scene.player_animation_state(Bank::body);
+  const auto switch_retained_clock = retained_body->unwrapped_seconds;
+  const auto original_weapon = loading.resident_weapon().handle;
+  world.reject_next_replacement = true;
+  failed = false;
+  try {
+    scene.switch_weapon(loading, 1);
+  } catch (const std::runtime_error&) {
+    failed = true;
+  }
+  require(failed && loading.resident_weapon().handle == original_weapon &&
+              loading.current_weapon_class() == 0 &&
+              scene.player_animation_state(Bank::body) == retained_body &&
+              retained_body->unwrapped_seconds == switch_retained_clock &&
+              scene.player_state()->weapon_raised,
+          "Failed normal switch disturbed body clocks or raised state");
+  for (const unsigned weapon_class : {1U, 2U, 3U, 0U}) {
+    const auto* before_body = scene.player_animation_state(Bank::body);
+    const auto before_clock = before_body->unwrapped_seconds;
+    const auto before_binding = before_body->binding;
+    const auto before_pose = scene.player_state()->pose;
+    const std::vector frozen(scene.player_world_pose().begin(),
+                             scene.player_world_pose().end());
+    scene.set_paused(false);
+    const auto switch_pause_calls = audio.pause_calls;
+    scene.switch_weapon(loading, weapon_class);
+    require(!scene.paused() && !audio.paused &&
+                audio.pause_calls == switch_pause_calls,
+            "Ordinary selection paused unrelated simulation or audio");
+    const auto* upper = scene.player_animation_state(Bank::upper_body);
+    const auto* selected_weapon = scene.player_animation_state(Bank::weapon);
+    require(scene.player_animation_state(Bank::body) == before_body &&
+                before_body->unwrapped_seconds == before_clock &&
+                before_body->binding == before_binding &&
+                scene.player_state()->weapon_raised &&
+                scene.player_state()->pose.position == before_pose.position &&
+                std::ranges::equal(frozen, scene.player_world_pose()) &&
+                upper != nullptr &&
+                upper->binding == (0x130U | (before_binding & 0xfU)) &&
+                selected_weapon != nullptr && selected_weapon->binding == 2,
+            "Normal switch did not preserve body and publish raised switch "
+            "animation");
+    const auto switch_generation = upper->generation;
+    run(4);
+    upper = scene.player_animation_state(Bank::upper_body);
+    require(upper != nullptr && upper->generation == switch_generation &&
+                upper->seconds > 0 &&
+                scene.player_animation_state(Bank::body)->binding ==
+                    upper->binding &&
+                std::abs(scene.player_animation_state(Bank::body)->seconds -
+                         upper->seconds) < 1e-6,
+            "Idle body did not follow the advancing source switch upper phase");
+    run(80);
+  }
+  require(world.records.size() == initial_uploads &&
+              world.texture_identity == initial_textures &&
+              audio.pause_calls >= pause_calls,
+          "Repeated live selection uploaded immutable assets");
+  scene.set_paused(true);
+  stop();
+  const auto lowered_body = scene.player_animation_state(Bank::body)->binding;
+  scene.switch_weapon(loading, 1);
+  require(
+      !scene.player_state()->weapon_raised &&
+          scene.player_animation_state(Bank::weapon)->binding == 1 &&
+          scene.player_animation_state(Bank::upper_body)->binding ==
+              (0x130U | (lowered_body & 0xfU)),
+      "Lowered normal switch selected the wrong weapon rest or upper motion");
+  run(80);
+  scene.change_weapon(loading, 0);
+
+  // The real raise/turn/fire sequence must retain grounded contact when its
+  // authored root interval contains a positive vertical component. Ballistic
+  // ascent remains covered separately by the scripted-jump traversal above.
+  run(30);
+  scene.set_paused(false);
+  scene.advance(1.0 / 60.0, {.presentation = {.aim_mode_pressed = true}});
+  auto grounded_frames = [&](unsigned count,
+                             bw::game::StageTraversalInput input) {
+    for (unsigned frame = 0; frame < count; ++frame) {
+      for (auto& slot : audio.slots) slot.active = false;
+      scene.advance(1.0 / 60.0, input);
+      require(scene.player_state()->contact.grounded &&
+                  scene.player_state()->phase ==
+                      bw::game::PlayerMovementPhase::grounded,
+              "Stationary raised turn/fire lost authored floor support");
+    }
+  };
+  grounded_frames(89, {});
+  grounded_frames(25, {.look = {0, 1}});
+  grounded_frames(30, {});
+  grounded_frames(50, {.look = {0, -1}});
+  grounded_frames(30, {});
+  grounded_frames(25, {.look = {0, 1}});
+  grounded_frames(30, {});
+  grounded_frames(30, {.look = {1, 0}, .presentation = {.fire_trigger = 1}});
+  grounded_frames(30, {.look = {-1, 0}, .presentation = {.fire_trigger = 1}});
+  grounded_frames(25, {.look = {0, 1}, .presentation = {.fire_trigger = 1}});
+  grounded_frames(50, {.look = {0, -1}, .presentation = {.fire_trigger = 1}});
+  // Stop is scoped to an existing preview, never a general player reset.
+  // The preceding live turn/fire path has no preview session to retire.
+  scene.set_paused(true);
+  const auto inactive_clock = scene.player_animation_state(Bank::body)->seconds;
+  const auto inactive_state = *scene.player_state();
+  apply(Kind::stop);
+  require(
+      scene.targeting_state().selected() &&
+          scene.player_state()->velocity == inactive_state.velocity &&
+          scene.player_state()->weapon_raised == inactive_state.weapon_raised &&
+          scene.player_animation_state(Bank::body)->seconds == inactive_clock,
+      "Inactive Stop reset ordinary player ownership");
+  scene.set_paused(false);
+  std::cerr
+      << "Stage review: paused admission, layers, rollback, action phases, "
+         "all4 live weapon classes and resumed audio passed\n";
+}
+
+// Exercise the reported live action boundary through Stage admission, rather
+// than selecting melee directly from a neutral pose. Existing real assets and
+// event/audio owners remain provisioned across each interruption.
+void lower_melee_acceptance(bw::game::StageInspection& scene,
+                            bw::game::MissionLoading& loading,
+                            CorpusAudioOutput& audio) {
+  using Bank = bw::game::CharacterMotionBank;
+  const auto require = [](bool condition, const char* message) {
+    if (!condition) throw std::runtime_error(message);
+  };
+  const auto tick = [&](bw::game::StageTraversalInput input = {}) {
+    for (auto& slot : audio.slots) slot.active = false;
+    scene.advance(static_cast<double>(1.0F / 60), input);
+  };
+  for (unsigned weapon = 0; weapon < 4; ++weapon) {
+    scene.set_paused(true);
+    scene.change_weapon(loading, weapon);
+    scene.set_paused(false);
+    // Same-class selection is intentionally a no-op; the preceding live test
+    // may still own target mode. Exit it through its real input before setup.
+    if (scene.targeting_state().selected()) {
+      tick({.presentation = {.aim_mode_pressed = true}});
+    }
+    for (unsigned frame = 0; frame < 60; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    for (unsigned frame = 0; frame < 90; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    bool lowering = false;
+    for (unsigned frame = 0; frame < 700; ++frame) {
+      tick();
+      const auto* upper = scene.player_animation_state(Bank::upper_body);
+      if (upper != nullptr && (upper->binding & ~std::size_t{15}) == 0x270) {
+        lowering = true;
+        break;
+      }
+    }
+    require(lowering && !scene.targeting_state().selected() &&
+                !scene.targeting_state().camera_targeted(),
+            "RS release failed to reach independent source lowering phase");
+    tick({.presentation = {.attack_pressed = true}});
+    const auto* body = scene.player_animation_state(Bank::body);
+    require(body != nullptr && body->binding == 706 &&
+                scene.player_animation_state(Bank::upper_body) == nullptr &&
+                !scene.player_state()->weapon_raised &&
+                !scene.targeting_state().selected(),
+            "Melee retained the lowering layer or raised/targeting owner");
+    tick({.presentation = {.aim_mode_pressed = true}});
+    require(!scene.targeting_state().selected(),
+            "Melee admitted the ordinary Shooter targeting input receiver");
+    for (unsigned frame = 0; frame < 100; ++frame) tick();
+    // Entry while still targeting must consume the same forced reset message,
+    // not rely on the earlier natural expiry having already cleared posture.
+    tick({.presentation = {.aim_mode_pressed = true}});
+    for (unsigned frame = 0; frame < 90; ++frame) tick();
+    require(scene.player_state()->weapon_raised &&
+                scene.targeting_state().selected(),
+            "Targeted melee setup failed");
+    tick({.presentation = {.attack_pressed = true}});
+    require(!scene.player_state()->weapon_raised &&
+                !scene.targeting_state().selected() &&
+                !scene.targeting_state().camera_targeted() &&
+                scene.player_animation_state(Bank::upper_body) == nullptr,
+            "Melee omitted the forced source posture/camera reset");
+    for (unsigned frame = 0; frame < 100; ++frame) tick();
+  }
+  scene.set_paused(true);
+  scene.change_weapon(loading, 0);
+  scene.set_paused(false);
+  std::cerr << "Live melee: all four lowering interruptions and forced "
+               "target/posture exits passed\n";
+}
+
+void grounded_action_exit_acceptance(bw::game::StageInspection& scene,
+                                     bw::game::MissionLoading& loading,
+                                     CorpusAudioOutput& audio) {
+  using bw::game::AcceptedDeathPresentation;
+  using bw::game::AliciaActionOutcome;
+  using bw::game::AliciaActionUpdate;
+  using bw::game::CharacterMotionBank;
+  using bw::game::SpellPresentationKind;
+  using bw::game::StageTraversalInput;
+  const auto require = [](bool condition, const char* message) {
+    if (!condition) throw std::runtime_error(message);
+  };
+  const auto tick = [&](StageTraversalInput input = {}) {
+    for (auto& slot : audio.slots) slot.active = false;
+    scene.advance(static_cast<double>(1.0F / 60), input);
+  };
+  // These are accepted external messages, not simulated combat outcomes.
+  // A different paused class selection gives each trial neutral ownership.
+  for (unsigned family = 0; family < 4; ++family) {
+    scene.set_paused(true);
+    scene.change_weapon(loading, (family + 1) % 4);
+    scene.set_paused(false);
+    for (unsigned frame = 0; frame < 60; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    for (unsigned frame = 0; frame < 90; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    bool lowering = false;
+    for (unsigned frame = 0; frame < 700; ++frame) {
+      tick();
+      const auto* upper =
+          scene.player_animation_state(CharacterMotionBank::upper_body);
+      if (upper != nullptr && (upper->binding & ~std::size_t{15}) == 0x270) {
+        lowering = true;
+        break;
+      }
+    }
+    require(lowering, "Grounded action exit setup did not reach lowering");
+    auto& actions = *scene.player_actions();
+    AliciaActionUpdate admitted;
+    switch (family) {
+      case 0:
+        admitted = actions.begin_damage({.direction = {.incoming = {0, 0, 1}}});
+        break;
+      case 1:
+        admitted = actions.begin_magic({.slot = 788,
+                                        .complete_with_motion = true,
+                                        .shooter_update = false});
+        break;
+      case 2:
+        admitted = actions.begin_spell(SpellPresentationKind::thunder);
+        break;
+      default: {
+        AcceptedDeathPresentation death;
+        death.direction.incoming = {0, 0, 1};
+        death.positive_weights = {.1F, .1F, .1F};
+        death.nonpositive_weights = {.1F, .1F, .1F, .1F, .1F, .1F};
+        death.random_unit = .5F;
+        admitted = actions.begin_death(death);
+        break;
+      }
+    }
+    require(admitted.outcome == AliciaActionOutcome::started &&
+                scene.player_animation_state(CharacterMotionBank::upper_body) ==
+                    nullptr,
+            "Ordinary state exit retained upper during accepted action entry");
+    tick({.action = {.death_handoff_blocked = true,
+                     .spell = {.camera_owned = true}}});
+    if (family == 0 || family == 3) {
+      require(!scene.player_state()->weapon_raised &&
+                  !scene.targeting_state().selected() &&
+                  !scene.targeting_state().camera_targeted(),
+              "Damage/death missed their forced source Shooter entry message");
+    }
+  }
+  for (unsigned forced = 0; forced < 2; ++forced) {
+    scene.set_paused(true);
+    scene.change_weapon(loading, forced + 1);
+    scene.set_paused(false);
+    for (unsigned frame = 0; frame < 60; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    for (unsigned frame = 0; frame < 90; ++frame) tick();
+    require(scene.targeting_state().selected() &&
+                scene.player_state()->weapon_raised,
+            "Forced damage/death entry setup did not retain targeting");
+    AliciaActionUpdate admitted;
+    if (forced == 0) {
+      admitted = scene.player_actions()->begin_damage(
+          {.direction = {.incoming = {0, 0, 1}}});
+    } else {
+      AcceptedDeathPresentation death;
+      death.direction.incoming = {0, 0, 1};
+      death.positive_weights = {.1F, .1F, .1F};
+      death.nonpositive_weights = {.1F, .1F, .1F, .1F, .1F, .1F};
+      death.random_unit = .5F;
+      admitted = scene.player_actions()->begin_death(death);
+    }
+    require(admitted.outcome == AliciaActionOutcome::started,
+            "Targeted damage/death entry was not admitted");
+    require(!scene.targeting_state().selected() &&
+                !scene.targeting_state().camera_targeted() &&
+                !scene.player_state()->weapon_raised,
+            "Accepted entry did not deliver its effects synchronously");
+    const auto generation =
+        scene.player_animation_state(CharacterMotionBank::body)->generation;
+    scene.advance(0);
+    scene.set_paused(true);
+    scene.advance(1.0 / 60);
+    scene.set_paused(false);
+    require(!scene.targeting_state().selected() &&
+                scene.player_animation_state(CharacterMotionBank::body)
+                        ->generation == generation,
+            "Zero-time/paused publication changed the accepted entry");
+    tick({.action = {.death_handoff_blocked = true}});
+    require(!scene.targeting_state().selected() &&
+                !scene.targeting_state().camera_targeted() &&
+                !scene.player_state()->weapon_raised,
+            "Source forced entry retained live targeting or raised posture");
+    tick({.action = {.death_handoff_blocked = true},
+          .presentation = {.fire_trigger = 1, .aim_mode_pressed = true}});
+    require(!scene.targeting_state().selected() &&
+                !scene.targeting_state().camera_targeted() &&
+                !scene.player_state()->weapon_raised &&
+                scene.player_animation_state(CharacterMotionBank::upper_body) ==
+                    nullptr,
+            "Exclusive action consumed ordinary targeting/fire input");
+  }
+  scene.set_paused(true);
+  scene.change_weapon(loading, 0);
+  scene.set_paused(false);
+  for (unsigned frame = 0; frame < 60; ++frame) tick();
+  tick({.presentation = {.aim_mode_pressed = true}});
+  for (unsigned frame = 0; frame < 90; ++frame) tick();
+  require(scene.player_actions()
+                  ->begin_damage({.direction = {.incoming = {0, 0, 1}}})
+                  .outcome == AliciaActionOutcome::started,
+          "Multiple accepted entries fixture was not admitted");
+  require(!scene.targeting_state().selected() &&
+              !scene.player_state()->weapon_raised,
+          "Damage entry effects were deferred");
+  const auto replacement = scene.player_actions()->begin_magic(
+      {.slot = 788, .shooter_update = false});
+  require(replacement.outcome == AliciaActionOutcome::started &&
+              !scene.targeting_state().selected() &&
+              !scene.player_state()->weapon_raised,
+          "Same-frame replacement lost accepted entry effects or was rejected");
+  static_cast<void>(scene.player_actions()->interrupt());
+  scene.advance(0);
+  require(!scene.targeting_state().selected() &&
+              !scene.player_state()->weapon_raised,
+          "Interruption undid source entry effects before a model step");
+  // Gatling's source .75-second posture lasts less than either spell entry.
+  // Check actual typed state registrations while their body actions remain
+  // active.
+  for (unsigned timed = 0; timed < 2; ++timed) {
+    scene.set_paused(true);
+    scene.change_weapon(loading, 0);
+    scene.change_weapon(loading, 3);
+    scene.set_paused(false);
+    for (unsigned frame = 0; frame < 60; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    for (unsigned frame = 0; frame < 90; ++frame) tick();
+    tick({.presentation = {.aim_mode_pressed = true}});
+    require(
+        !scene.targeting_state().selected() &&
+            scene.targeting_state().camera_targeted(),
+        "Spell camera fixture needs source pending ordinary-context update");
+    auto& actions = *scene.player_actions();
+    const auto admitted =
+        actions.begin_spell(timed == 0 ? SpellPresentationKind::ancient_wall
+                                       : SpellPresentationKind::raven_panic);
+    require(admitted.outcome == AliciaActionOutcome::started,
+            "Timed spell ownership fixture was not admitted");
+    for (unsigned frame = 0; frame < 60; ++frame) {
+      tick({.action = {.spell = {.camera_owned = true}}});
+      require(scene.player_animation_state(CharacterMotionBank::upper_body) ==
+                  nullptr,
+              "Exclusive posture countdown published an ordinary lower clip");
+    }
+    require(scene.player_state()->weapon_raised == (timed == 0) &&
+                scene.targeting_state().camera_targeted() == (timed == 0),
+            "Source spell timed-update registration was not preserved");
+  }
+  scene.set_paused(true);
+  scene.change_weapon(loading, 1);
+  scene.set_paused(false);
+  for (unsigned frame = 0; frame < 60; ++frame) tick();
+  tick({.presentation = {.aim_mode_pressed = true}});
+  for (unsigned frame = 0; frame < 90; ++frame) tick();
+  tick({.movement = {.evade_held = true}});
+  require(!scene.targeting_state().selected() &&
+              !scene.targeting_state().camera_targeted() &&
+              !scene.player_state()->weapon_raised &&
+              scene.player_animation_state(CharacterMotionBank::upper_body) ==
+                  nullptr,
+          "Dodge entry omitted ordinary exit or forced Shooter effects");
+  tick({.presentation = {.fire_trigger = 1, .aim_mode_pressed = true}});
+  require(!scene.targeting_state().selected() &&
+              !scene.player_state()->weapon_raised &&
+              scene.player_animation_state(CharacterMotionBank::upper_body) ==
+                  nullptr,
+          "Dodge consumed ordinary Shooter input");
+  const auto* body = scene.player_animation_state(CharacterMotionBank::body);
+  const auto generation = body->generation;
+  const auto rejected = scene.player_actions()->begin_damage(
+      {.direction = {.incoming = {0, 0, 1}}});
+  require(
+      rejected.outcome == AliciaActionOutcome::unsupported_source_state &&
+          scene.player_animation_state(CharacterMotionBank::body)->generation ==
+              generation,
+      "Grounded-only action admission altered an airborne source owner");
+  for (unsigned frame = 0; frame < 180; ++frame) tick();
+  scene.set_paused(true);
+  scene.change_weapon(loading, 0);
+  scene.set_paused(false);
+  std::cerr << "Grounded action exit: damage, common magic, Thunder, death and "
+               "airborne rejection passed\n";
+}
+
+class CorpusAudioFactory final : public bw::game::GameAudioFactory {
+ public:
+  std::shared_ptr<CorpusAudioOutput> output;
+  std::shared_ptr<bw::audio::CueOutput> create(
+      std::span<const std::uint8_t> settings, bw::audio::Limits,
+      const std::shared_ptr<bw::memory::Domain>& domain) override {
+    if (settings.size() < 4) throw std::runtime_error("Missing original XGS");
+    output = std::allocate_shared<CorpusAudioOutput>(
+        bw::memory::Allocator<CorpusAudioOutput>(domain));
+    return output;
+  }
+};
+class CorpusAudioEnvironment final
+    : public bw::game::CharacterAudioEnvironment {
+ public:
+  bw::game::SourceRandom random;
+  bw::game::CharacterSoundEmission sound_emission(
+      bw::game::SoundMotionCommand) const override {
+    return {{0, 0, 1}, 3, 0, false};
+  }
+  bw::math::Vector3<float> bone_position(std::int32_t) const override {
+    return {1, 0, 1};
+  }
+  bw::math::Vector3<float> voice_position() const override { return {0, 0, 1}; }
+  std::uint32_t random_below(std::uint32_t upper) override {
+    return random.next(upper);
+  }
+};
+void character_audio_presentation(
+    bw::resources::ResourceService& resources, const bw::platform::Files& files,
+    const std::filesystem::path& sound_directory) {
+  using bw::animation::MotionEventPhase;
+  using bw::game::CharacterAudioResult;
+  const auto require_audio = [](bool valid) {
+    if (!valid) {
+      throw std::runtime_error("Original character audio policy mismatch");
+    }
+  };
+  CorpusAudioFactory factory;
+  unsigned progress = 0;
+  bw::game::MissionAudio mission(files, resources.catalogs(), sound_directory,
+                                 resources.memory_domain(), factory,
+                                 {3, 8, 50'000'000}, [&] { ++progress; });
+  require_audio(progress == 3 && factory.output->registrations == 3 &&
+                factory.output->sealed);
+  std::size_t voices = 0, variations = 0;
+  for (std::uint32_t action = 0; action < bw::game::kVoiceActions; ++action) {
+    const auto* voice = mission.prepared().voice(action);
+    if (voice == nullptr) continue;
+    ++voices;
+    for (const auto& variant : voice->variants) {
+      if (variant.weight == 0) continue;
+      require_audio(variant.available);
+      ++variations;
+    }
+  }
+  CorpusAudioEnvironment environment;
+  bw::game::CharacterAudio owner(mission.prepared(), *mission.output());
+  bw::game::CharacterAudioChannel body(
+      owner, bw::game::CharacterAudioBank::body, 1, resources.memory_domain());
+  bw::game::CharacterAudioChannel upper(
+      owner, bw::game::CharacterAudioBank::upper, 1, resources.memory_domain());
+  const auto before = resources.memory_domain()->snapshot();
+  require_audio(body.voice({8}, environment) == CharacterAudioResult::played);
+  const auto first_voice = factory.output->slots.at(0).request.cue;
+  require_audio(upper.voice({8}, environment) ==
+                CharacterAudioResult::suppressed);
+  require_audio(owner.stop_voice() == CharacterAudioResult::stopped);
+  require_audio(body.voice({8}, environment) == CharacterAudioResult::played);
+  require_audio(factory.output->slots.at(0).request.cue != first_voice);
+  require_audio(body.voice({0}, environment) == CharacterAudioResult::played);
+  require_audio(body.voice({2}, environment) ==
+                CharacterAudioResult::unavailable);
+  require_audio(owner.stop_voice() == CharacterAudioResult::stopped);
+  bw::animation::MotionEventContext context{0, 0, 0, {0, 20, {}}, 0, 1};
+  require_audio(body.sound({0, 10}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::played);
+  require_audio(factory.output->slots.at(0).request.cue == 0x1c4);
+  require_audio(body.sound({2039, 0}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::suppressed);
+  require_audio(upper.sound({2039, 0}, MotionEventPhase::enter, context,
+                            environment) == CharacterAudioResult::played);
+  require_audio(body.sound({1110, 10}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::played);
+  require_audio(body.sound({1110, 10}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::capacity);
+  require_audio(upper.sound({1110, 10}, MotionEventPhase::enter, context,
+                            environment) == CharacterAudioResult::played);
+  require_audio(body.sound({1110, 10}, MotionEventPhase::update, context,
+                           environment) == CharacterAudioResult::updated);
+  require_audio(factory.output->positions == 1);
+  const auto stops = factory.output->stops;
+  require_audio(body.reset() == CharacterAudioResult::stopped &&
+                factory.output->stops == stops + 1);
+  require_audio(upper.sound({1110, 10}, MotionEventPhase::exit, context,
+                            environment) == CharacterAudioResult::stopped &&
+                factory.output->stops == stops + 2);
+  context.current_frame = 14;
+  require_audio(body.sound({1110, 10}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::suppressed);
+  const auto after = resources.memory_domain()->snapshot();
+  require_audio(before.live_bytes == after.live_bytes &&
+                before.live_allocations == after.live_allocations);
+  std::cout << "Prepared Alicia audio: " << voices << " voice actions, "
+            << variations
+            << " weighted variants; priority, history, surface and scoped "
+               "lifetime passed\n";
+}
+// Existing provisioned corpus: prepare every common/voice wave through the
+// pinned shared codec; range reads must remain repeatable at loop and EOF
+// edges. E.6 scopes bank/sample ownership, MEM.9 keeps native sample reads
+// allocation-free.
+void prepared_game_audio(bw::resources::ResourceService& resources,
+                         const bw::platform::Files& files,
+                         const std::filesystem::path& sound_directory) {
+  character_audio_presentation(resources, files, sound_directory);
+  constexpr std::size_t kSampleBudget = 47105024, kExpectedWaves = 868;
+  constexpr std::size_t kProbeFrames = 128;
+  std::size_t count = 0, total = 0;
+  for (const auto name : {"bw_common", "voice"}) {
+    const auto selected =
+        resources.catalogs().resolve(std::string("audio.soundbank.") + name);
+    const auto& mount =
+        resources.catalogs().catalogs().at(selected.catalog_index);
+    const auto& resource =
+        mount.catalog.resources().at(selected.resource_index);
+    const auto archive = bw::content::open_archive(
+        files, bw::content::archive_path(files, mount, resource.raw.at(3)),
+        resources.memory_domain());
+    for (std::size_t index = 0; index < archive.records().size(); ++index) {
+      const auto& record = archive.records().at(index);
+      if (record.type != "USER" || !record.name.ends_with(".xwb")) continue;
+      // A publication archive may hold several banks; match the selected name.
+      if (bw::resources::normalize_name(record.name) !=
+          std::string(name) + ".xwb") {
+        continue;
+      }
+      const auto bank = bw::formats::WaveBankDefinition::parse(
+          archive.payload(index), resources.memory_domain());
+      for (const auto& wave : bank.waves()) {
+        const auto pcm = bw::audio::PreparedWave::decode(
+            wave, kSampleBudget - total, resources.memory_domain());
+        total += pcm.samples().size();
+        ++count;
+        const auto frames = std::min(kProbeFrames, pcm.frames());
+        std::vector<float> first(frames * pcm.channels()),
+            repeated(first.size());
+        for (const auto offset :
+             {std::size_t{0}, pcm.frames() - frames,
+              std::min<std::size_t>(wave.loop_start, pcm.frames() - frames)}) {
+          const auto before = resources.memory_domain()->snapshot();
+          if (!pcm.read(offset, first) || !pcm.read(offset, repeated) ||
+              first != repeated || pcm.read(pcm.frames() + 1, repeated)) {
+            throw std::runtime_error(
+                "Prepared game audio range/loop contract mismatch");
+          }
+          const auto after = resources.memory_domain()->snapshot();
+          if (before.live_bytes != after.live_bytes ||
+              before.live_allocations != after.live_allocations) {
+            throw std::runtime_error(
+                "Prepared audio read changed retained storage");
+          }
+        }
+      }
+    }
+  }
+  if (count != kExpectedWaves || total != kSampleBudget) {
+    throw std::runtime_error("Original common/voice decode census mismatch");
+  }
+  std::cout << "Prepared common/voice audio: " << count << " waves, " << total
+            << " samples\n";
+}
 void reconstructed_session(bw::resources::ResourceService& resources,
                            const bw::platform::Files& files, bool concept_route,
                            const std::filesystem::path& game) {
@@ -324,9 +1565,53 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             "Original root concept accessor/alias mismatch");
       }
       WorldOutput world;
+      {
+        bw::game::StartupLoadingSurface presentation(resources, output);
+        const auto icons =
+            files.read(game / "data/menu/9900", resources.memory_domain());
+        presentation.prepare(
+            surface.selected_loading_background(),
+            files.read(game / "data/menu/9951", resources.memory_domain()),
+            icons);
+        constexpr double kHalfFadeTime = .1;
+        if (presentation.show(5, kHalfFadeTime) != .5F ||
+            output.latest.front().color.alpha != 1) {
+          throw std::runtime_error("Loading fade changed sprite coverage");
+        }
+        presentation.show(5, 1);
+        const auto& portrait = output.latest.front().destination;
+        constexpr float kPortraitWidth = 520, kPortraitHeight = 242,
+                        kPortraitY = 434;
+        constexpr std::size_t kRotatedArt = 13, kLoadingTextures = 8;
+        const auto rotated = std::ranges::count_if(
+            output.latest,
+            [](const auto& sprite) { return sprite.rotation_radians != 0; });
+        if (output.live != kLoadingTextures || portrait.x != 0 ||
+            portrait.y != kPortraitY || portrait.width != kPortraitWidth ||
+            portrait.height != kPortraitHeight ||
+            static_cast<std::size_t>(rotated) != kRotatedArt) {
+          throw std::runtime_error(
+              "Original loading portrait/art publication mismatch");
+        }
+        bool missing_tip = false;
+        try {
+          presentation.show(18, 1);
+        } catch (const std::invalid_argument&) {
+          missing_tip = true;
+        }
+        if (!missing_tip) {
+          throw std::runtime_error("Absent original loading tip accepted");
+        }
+        presentation.end();
+        if (output.live != 0) {
+          throw std::runtime_error("Loading presentation retained textures");
+        }
+      }
+      std::size_t loading_pulses = 0;
       bw::game::MissionLoading loading(
           files, resources.catalogs(), resources.memory_domain(), &world,
-          bw::game::MissionLoadOptions{game, profile.current_difficulty()});
+          bw::game::MissionLoadOptions{game, profile.current_difficulty(),
+                                       [&] { ++loading_pulses; }});
       bw::game::MissionDriver mission(resources, loading, 101,
                                       request.script_name,
                                       resources.memory_domain());
@@ -348,6 +1633,10 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           !session.mission_pending()) {
         throw std::runtime_error(
             "Original mission load did not finish at the world-setup boundary");
+      }
+      if (loading_pulses <= loading.stage()->textures.size()) {
+        throw std::runtime_error(
+            "Original mission failed to yield presentation between assets");
       }
       std::cerr << "Original cm01_00 load returned: "
                 << mission.progress().diagnostic << '\n';
@@ -424,6 +1713,19 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           throw std::runtime_error(
               "Original stage/sky definitions are missing");
         }
+        const auto settings_tree = bw::formats::CustomizationDefinition::parse(
+            stage->customization_bytes(), resources.memory_domain());
+        constexpr std::array<float, 4> expected_rates{10, 1, 1.8F, 60};
+        for (unsigned weapon_class = 0; weapon_class < 4; ++weapon_class) {
+          const auto settings = bw::game::WeaponPresentationSettings::parse(
+              settings_tree, weapon_class);
+          const auto expected_scale = weapon_class == 3 ? .9F : 1.0F;
+          if (settings.rate_per_second != expected_rates.at(weapon_class) ||
+              settings.movement_scale != expected_scale) {
+            throw std::runtime_error(
+                "Original weapon presentation settings differ");
+          }
+        }
         // Native class-zero selection owns ten ordinary stage models. Three
         // custom passes remain explicit omissions in the static draw subset.
         const auto ordinary_models = std::ranges::count_if(
@@ -439,7 +1741,8 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             world, {stage.value(), loading.resident_models()},
             {sky.value(), loading.sky_resident_models()},
             resources.memory_domain(), std::nullopt,
-            {background ? &*background : nullptr, background_models});
+            {background ? &*background : nullptr, background_models},
+            std::nullopt, {}, {}, kFixtureInitialPose);
         std::cerr
             << "Original static inspection: " << inspection.selected_draws()
             << " selected, " << inspection.omitted_draws()
@@ -531,7 +1834,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         if (inspection.selected_draws() != 4100 ||
             inspection.omitted_draws() != 0 || inspection.sky_draws() != 1 ||
             inspection.background_draws() != 674 || world.posed_draws != 674 ||
-            world.caster_draws != 4100 || world.submitted != 4775) {
+            world.caster_draws != 3529 || world.submitted != 4775) {
           throw std::runtime_error(
               "Original static inspection selection differs from material "
               "census");
@@ -541,6 +1844,883 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           world.live_textures != retained_textures || world.submitted != 0) {
         throw std::runtime_error(
             "Inspection retained device owners after teardown");
+      }
+      // Initial admission uses each original weapon owner; it must not resolve
+      // class-specific animation through WA0 or admit a live replacement.
+      std::size_t weapon_motion_count = 0;
+      for (unsigned weapon_class = 0; weapon_class < 4; ++weapon_class) {
+        {
+          bw::game::MissionLoading selected(files, resources.catalogs(),
+                                            resources.memory_domain(), &world);
+          selected.prepare_player(0, weapon_class);
+          const auto weapon = selected.resident_weapon();
+          const auto expected_name =
+              std::string("wa") + static_cast<char>('0' + weapon_class);
+          const auto models = world.live_models;
+          const auto textures = world.live_textures;
+          selected.prepare_player(0, weapon_class);
+          bool replacement_rejected = false;
+          try {
+            selected.prepare_player(0, (weapon_class + 1) % 4);
+          } catch (const std::logic_error&) {
+            replacement_rejected = true;
+          }
+          if (weapon.name != expected_name || !replacement_rejected ||
+              selected.resident_weapon().handle != weapon.handle ||
+              world.live_models != models || world.live_textures != textures) {
+            throw std::runtime_error(
+                "Initial weapon class admission changed owners");
+          }
+          bw::game::PlayerActor selected_actor(
+              {selected.resident_player(), weapon, selected.player_support(),
+               selected.weapon_support(), kFixtureInitialPose},
+              resources.memory_domain());
+          // Both original weapon half-turns cancel before the completed hand
+          // attachment. Compare published GPU palettes with that source frame,
+          // independently from the actor's attachment implementation.
+          const auto& weapon_definition = weapon.definition.get();
+          bw::animation::SkeletonPose expected_weapon(
+              weapon_definition.skeleton().value(), resources.memory_domain());
+          const auto* weapon_clock = selected_actor.animation_state(
+              bw::game::CharacterMotionBank::weapon);
+          if (weapon_clock == nullptr) {
+            throw std::runtime_error("Initial weapon has no motion owner");
+          }
+          const auto hand = std::ranges::find(
+              selected_actor.source().body.definition.get().bone_names(),
+              "RightWeapon", &bw::formats::ModelBoneName::name);
+          expected_weapon.evaluate(*weapon_clock->clip, weapon_clock->seconds,
+                                   selected_actor.body_bones()[hand->bone]);
+          for (std::size_t draw = 0; draw < weapon_definition.draws().size();
+               ++draw) {
+            if (!selected_actor.includes_draw(true, draw)) continue;
+            const auto palette = selected_actor.draw_palette(true, draw);
+            const auto& material = weapon_definition.materials().at(
+                weapon_definition.draws().at(draw).material);
+            for (const auto& binding : material.matrices) {
+              const auto& expected =
+                  expected_weapon.skin_transforms()[binding.source_matrix];
+              const auto& actual = palette[binding.destination_matrix];
+              for (std::size_t row = 0; row < 4; ++row) {
+                for (std::size_t column = 0; column < 4; ++column) {
+                  if (std::abs(actual.at(row).at(column) -
+                               expected.at(column).at(row)) > .00001F) {
+                    throw std::runtime_error(
+                        "Weapon render conversion reverses its hand frame");
+                  }
+                }
+              }
+            }
+          }
+          weapon_motion_count +=
+              selected_actor.weapon_animations().motions().size();
+        }
+        if (world.live_models != retained_models ||
+            world.live_textures != retained_textures) {
+          throw std::runtime_error(
+              "Initial weapon admission retained resources");
+        }
+      }
+      if (weapon_motion_count != 26) {
+        throw std::runtime_error(
+            "Four weapon catalogs lost original clip coverage");
+      }
+      {
+        bw::game::MissionLoading selected(files, resources.catalogs(),
+                                          resources.memory_domain(), &world);
+        bool invalid = false;
+        try {
+          selected.prepare_player(0, 4);
+        } catch (const std::invalid_argument&) {
+          invalid = true;
+        }
+        world.reject_next_model = true;
+        bool upload_failed = false;
+        try {
+          selected.prepare_player(0, 3);
+        } catch (const std::runtime_error&) {
+          upload_failed = true;
+        }
+        if (!invalid || !upload_failed ||
+            world.live_models != retained_models ||
+            world.live_textures != retained_textures) {
+          throw std::runtime_error(
+              "Weapon admission failure retained partial assets");
+        }
+        selected.prepare_player(0, 3);
+        selected.cancel();
+        selected.prepare_player(0, 1);
+      }
+      // Live review resource transaction: candidate owners survive promotion,
+      // while preparation, failed upload and rollback preserve active
+      // borrowers.
+      {
+        ObservedFiles observed_files(files);
+        bw::game::MissionLoading selected(observed_files, resources.catalogs(),
+                                          resources.memory_domain(), &world);
+        selected.prepare_player(0);
+        const auto admission_reads = observed_files.reads();
+        const auto admission_uploads = world.records.size();
+        const auto admission_textures = world.texture_identity;
+        const auto body = selected.resident_player();
+        const auto* body_support = &selected.player_support();
+        bw::game::PlayerActor selected_actor(
+            {body, selected.resident_weapon(), selected.player_support(),
+             selected.weapon_support(), kFixtureInitialPose},
+            resources.memory_domain());
+        auto weapon_draws = [](bw::game::ResidentModelView weapon) {
+          std::vector<bw::render::WorldColorDraw> draws;
+          for (std::size_t draw = 0;
+               draw < weapon.definition.get().draws().size(); ++draw) {
+            bw::render::WorldColorDraw command;
+            command.model = weapon.handle;
+            command.draw = draw;
+            draws.push_back(command);
+          }
+          return draws;
+        };
+        world.set_world_draws(weapon_draws(selected.resident_weapon()));
+        selected_actor.select_motion(bw::game::PlayerMotion::walk, 0);
+        (void)selected_actor.advance_motion(.2);
+        selected_actor.publish_pose(kFixtureInitialPose, .4F, world);
+        const auto original_weapon = selected.resident_weapon();
+        const auto* original_support = &selected.weapon_support();
+        const auto initial_models = world.live_models;
+        const auto initial_textures = world.live_textures;
+        selected.prepare_weapon_class(0);
+        selected.commit_weapon_class();
+        world.reject_next_model = true;
+        selected.prepare_weapon_class(1);
+        if (!world.reject_next_model || selected.current_weapon_class() != 0 ||
+            selected.resident_weapon().handle != original_weapon.handle ||
+            &selected.weapon_support() != original_support) {
+          throw std::runtime_error(
+              "Resident selection uploaded or replaced resources");
+        }
+        world.reject_next_model = false;
+        selected.discard_weapon_class();
+        bool rejected = false;
+        selected.prepare_weapon_class(1);
+        rejected = false;
+        try {
+          selected.prepare_player_costume(1);
+        } catch (const std::logic_error&) {
+          rejected = true;
+        }
+        if (!rejected) {
+          throw std::runtime_error("Appearance transactions overlapped");
+        }
+        selected.discard_weapon_class();
+        if (world.live_models != initial_models ||
+            world.live_textures != initial_textures) {
+          throw std::runtime_error(
+              "Discarded weapon candidate retained resources");
+        }
+        for (const unsigned weapon_class : {1U, 2U, 3U, 0U}) {
+          const auto current = selected.resident_weapon();
+          selected.prepare_weapon_class(weapon_class);
+          const auto candidate = selected.candidate_weapon();
+          const auto* candidate_definition = &candidate.definition.get();
+          const auto* candidate_support = &selected.candidate_weapon_support();
+          if (selected.resident_weapon().handle != current.handle) {
+            throw std::runtime_error(
+                "Weapon preparation replaced the active owner");
+          }
+          const auto old_seconds =
+              selected_actor
+                  .animation_state(bw::game::CharacterMotionBank::body)
+                  ->seconds;
+          bw::game::PlayerActor candidate_actor(
+              {body, candidate, selected.player_support(), *candidate_support,
+               selected_actor.source().placement},
+              selected_actor, resources.memory_domain(),
+              bw::game::PlayerAppearanceChange::weapon);
+          if (!std::ranges::equal(selected_actor.body_bones(),
+                                  candidate_actor.body_bones()) ||
+              selected_actor
+                      .animation_state(bw::game::CharacterMotionBank::body)
+                      ->seconds != old_seconds ||
+              candidate_actor.pending_root_displacement() !=
+                  bw::math::Vector3<float>{}) {
+            throw std::runtime_error(
+                "Weapon candidate changed frozen body or retained old root");
+          }
+          world.replace_world_model_draws(current.handle,
+                                          weapon_draws(candidate));
+          selected_actor.adopt_appearance(std::move(candidate_actor));
+          selected.commit_weapon_class();
+          if (selected_actor
+                      .animation_state(bw::game::CharacterMotionBank::body)
+                      ->seconds != 0 ||
+              selected_actor.source().weapon.name != candidate.name) {
+            throw std::runtime_error("Weapon publication lost neutral owner");
+          }
+          (void)selected_actor.advance_motion(1.0 / 60.0);
+          selected_actor.publish_pose(kFixtureInitialPose, .4F, world);
+          if (selected.current_weapon_class() != weapon_class ||
+              selected.resident_weapon().handle != candidate.handle ||
+              &selected.resident_weapon().definition.get() !=
+                  candidate_definition ||
+              &selected.weapon_support() != candidate_support ||
+              selected.resident_player().handle != body.handle ||
+              &selected.resident_player().definition.get() !=
+                  &body.definition.get() ||
+              &selected.player_support() != body_support) {
+            throw std::runtime_error(
+                "Weapon promotion invalidated stable borrowing");
+          }
+        }
+        if (world.live_models != initial_models ||
+            world.live_textures != initial_textures ||
+            observed_files.reads() != admission_reads ||
+            world.records.size() != admission_uploads ||
+            world.texture_identity != admission_textures) {
+          throw std::runtime_error(
+              "Weapon selection repeated acquisition or changed residency");
+        }
+        world.clear_world_draws();
+      }
+      if (world.live_models != retained_models ||
+          world.live_textures != retained_textures) {
+        throw std::runtime_error(
+            "Weapon transaction teardown retained resources");
+      }
+      // Actor admission extends the same mission lifetime; pose changes update
+      // retained palettes without publishing another geometry/texture owner.
+      loading.prepare_player(0);
+      const auto actor_models = world.live_models;
+      const auto actor_textures = world.live_textures;
+      loading.prepare_player(0);
+      const auto initial_player_handle = loading.resident_player().handle;
+      const auto* initial_player_definition =
+          &loading.resident_player().definition.get();
+      world.reject_next_model = true;
+      bool costume_failed = false;
+      try {
+        loading.prepare_player_costume(5);
+      } catch (const std::runtime_error&) {
+        costume_failed = true;
+      }
+      if (!costume_failed || world.live_models != actor_models ||
+          world.live_textures != actor_textures ||
+          &loading.resident_player().definition.get() !=
+              initial_player_definition) {
+        throw std::runtime_error(
+            "Failed costume upload changed current assets");
+      }
+      loading.prepare_player_costume(5);
+      const auto* candidate_definition =
+          &loading.candidate_player().definition.get();
+      if (loading.resident_player().handle != initial_player_handle ||
+          loading.current_player_costume() != 0 ||
+          candidate_definition == initial_player_definition) {
+        throw std::runtime_error(
+            "Costume preparation changed the active appearance");
+      }
+      loading.discard_player_costume();
+      if (world.live_models != actor_models ||
+          world.live_textures != actor_textures ||
+          &loading.resident_player().definition.get() !=
+              initial_player_definition) {
+        throw std::runtime_error("Costume rollback lost current residency");
+      }
+      loading.prepare_player_costume(5);
+      const auto promoted = loading.candidate_player();
+      loading.commit_player_costume();
+      if (&loading.resident_player().definition.get() !=
+              &promoted.definition.get() ||
+          loading.resident_player().handle != promoted.handle ||
+          loading.current_player_costume() != 5) {
+        throw std::runtime_error(
+            "Costume promotion invalidated prepared borrowing");
+      }
+      loading.prepare_player_costume(0);
+      loading.commit_player_costume();
+      if (world.live_models != actor_models ||
+          world.live_textures != actor_textures) {
+        throw std::runtime_error(
+            "Repeated costume replacement accumulated residency");
+      }
+      {
+        const auto dependencies = loading.resident_dependencies();
+        const auto& stage = loading.stage();
+        const auto& sky = loading.sky();
+        const auto& background = loading.background();
+        if (!stage || !sky || !background) {
+          throw std::runtime_error(
+              "Actor scene requires retained stage inputs");
+        }
+        CorpusAudioFactory scene_audio_factory;
+        bw::game::MissionAudio scene_audio(
+            files, resources.catalogs(), game / "data/sound",
+            resources.memory_domain(), scene_audio_factory,
+            {3, 128, 50'000'000});
+        bw::game::SourceRandom scene_random;
+        placed_light_publication(world, loading, resources.memory_domain());
+        bw::game::StageInspection inspection(
+            world, {*stage, loading.resident_models()},
+            {*sky, loading.sky_resident_models()}, resources.memory_domain(),
+            std::nullopt, {&*background, dependencies},
+            bw::game::PlayerActorSource{
+                loading.resident_player(), loading.resident_weapon(),
+                loading.player_support(), loading.weapon_support(),
+                kFixtureInitialPose},
+            {}, {loading.character_light(), loading.enemy_light()});
+        require_initial_local_light_clear(world,
+                                          loading.resident_player().handle);
+        inspection.bind_audio(scene_audio.prepared(), *scene_audio.output(),
+                              scene_random);
+        // All four families share a forward raw root curve; the authored
+        // endpoint reference bone must produce distinct actor-local travel.
+        {
+          bw::game::PlayerActor directions(
+              {loading.resident_player(), loading.resident_weapon(),
+               loading.player_support(), loading.weapon_support(),
+               kFixtureInitialPose},
+              resources.memory_domain());
+          // Source parent movement consumes the preceding model interval;
+          // selection changes its live reference, not the retained raw delta.
+          {
+            bw::game::PlayerActor phase(directions.source(), directions,
+                                        resources.memory_domain());
+            if (bw::math::length(phase.pending_root_displacement()) != 0 ||
+                phase.pending_root_seconds() != 0 ||
+                phase.relative_root_rotation() !=
+                    bw::animation::kIdentityMatrix) {
+              throw std::runtime_error(
+                  "Fresh actor did not retain identity root");
+            }
+            phase.select_motion(bw::game::PlayerMotion::walk, 0);
+            const auto* facing_clip =
+                phase.animation_state(bw::game::CharacterMotionBank::body);
+            const auto raw_reference = bw::animation::transform_matrix(
+                facing_clip->clip->local_transform(1, facing_clip->seconds));
+            if (phase.authored_facing_reference() != raw_reference ||
+                phase.authored_facing_reference() ==
+                    phase.movement_reference()) {
+              throw std::runtime_error(
+                  "Facing reused the corrected displacement reference");
+            }
+
+            if (bw::math::length(phase.pending_root_displacement()) != 0) {
+              throw std::runtime_error(
+                  "Selection advanced a fresh root interval");
+            }
+            (void)phase.advance_motion(.2);
+            const auto pending = phase.pending_root_displacement();
+            const auto inverse =
+                bw::math::inverse_affine(phase.movement_reference());
+            if (!inverse || bw::math::length(pending) <= 0) {
+              throw std::runtime_error(
+                  "Walk failed to publish a root interval");
+            }
+            if (phase.pending_root_seconds() != .2) {
+              throw std::runtime_error(
+                  "Root interval lost its producer duration");
+            }
+            const auto raw =
+                bw::math::transform_direction<float>(pending, *inverse);
+            const auto rotation = phase.relative_root_rotation();
+            phase.select_motion(bw::game::PlayerMotion::evade_left_air, 0);
+            const auto expected = bw::math::transform_direction<float>(
+                raw, phase.movement_reference());
+            if (bw::math::length(bw::math::subtract(
+                    phase.pending_root_displacement(), expected)) > .00001F ||
+                bw::math::length(bw::math::subtract(expected, pending)) <
+                    .01F ||
+                phase.relative_root_rotation() != rotation) {
+              throw std::runtime_error(
+                  "Selection lost raw interval or used its previous reference");
+            }
+            if (phase.pending_root_seconds() != .2) {
+              throw std::runtime_error(
+                  "Selection changed retained root duration");
+            }
+            const auto clock =
+                phase.animation_state(bw::game::CharacterMotionBank::body)
+                    ->unwrapped_seconds;
+            bw::game::PlayerActor appearance(phase.source(), phase,
+                                             resources.memory_domain());
+            if (appearance.animation_state(bw::game::CharacterMotionBank::body)
+                        ->unwrapped_seconds != clock ||
+                appearance.pending_root_displacement() !=
+                    phase.pending_root_displacement() ||
+                appearance.relative_root_rotation() != rotation) {
+              throw std::runtime_error(
+                  "Appearance preview advanced pending motion");
+            }
+            if (appearance.pending_root_seconds() !=
+                phase.pending_root_seconds()) {
+              throw std::runtime_error(
+                  "Appearance preview changed root duration");
+            }
+          }
+          const auto& body_catalog = directions.body_animations();
+          const auto& prepared = body_catalog.motions();
+          std::size_t resolved_slots = 0;
+          for (std::size_t slot = 0; slot < prepared.slot_count(); ++slot) {
+            if (prepared.alias(slot).clip) ++resolved_slots;
+          }
+          const auto delta_count =
+              std::ranges::count(body_catalog.pose_semantics(),
+                                 bw::game::MotionPoseSemantics::additive);
+          const auto ordinary_clip = prepared.find("stand_l");
+          const auto unbound_delta = prepared.find("shoot_stand_fire_add");
+          const auto bound_delta = prepared.alias(916).clip;
+          if (delta_count != 17 ||
+              std::ranges::count(body_catalog.pose_semantics(),
+                                 bw::game::MotionPoseSemantics::ordinary) !=
+                  135 ||
+              std::ranges::count(body_catalog.pose_semantics(),
+                                 bw::game::MotionPoseSemantics::unknown) != 9 ||
+              !ordinary_clip || !unbound_delta || !bound_delta ||
+              body_catalog.pose_semantics(*ordinary_clip) !=
+                  bw::game::MotionPoseSemantics::ordinary ||
+              body_catalog.pose_semantics(*unbound_delta) !=
+                  bw::game::MotionPoseSemantics::additive ||
+              body_catalog.pose_semantics(*bound_delta) !=
+                  bw::game::MotionPoseSemantics::additive ||
+              std::ranges::count(
+                  directions.weapon_animations().pose_semantics(),
+                  bw::game::MotionPoseSemantics::ordinary) != 6) {
+            throw std::runtime_error(
+                "Prepared pose semantics confused absolute poses and deltas");
+          }
+          unknown_pose_admission(
+              loading.player_support(),
+              loading.resident_player().definition.get().skeleton().value(),
+              resources.memory_domain());
+          const auto fall_clip = prepared.alias(721).clip;
+          if (prepared.size() != 161 || resolved_slots != 415 ||
+              body_catalog.parameters().size() != 164 ||
+              body_catalog.shapes().size() != 6 ||
+              directions.weapon_animations().motions().size() != 6 ||
+              !fall_clip || fall_clip != prepared.alias(953).clip ||
+              prepared.alias(721).requested_repeat ||
+              !prepared.clip(*fall_clip).repeating() ||
+              body_catalog.parameter("end04") == nullptr) {
+            throw std::runtime_error(
+                "Prepared character catalog lost source identity");
+          }
+          {
+            bw::game::PlayerActor candidate(directions.source(), directions,
+                                            resources.memory_domain());
+            if (&candidate.body_animations() != &body_catalog ||
+                &candidate.weapon_animations() !=
+                    &directions.weapon_animations()) {
+              throw std::runtime_error(
+                  "Appearance duplicated immutable motion catalogs");
+            }
+          }
+          directions.select_motion(bw::game::PlayerMotion::walk, 0);
+          const auto walking_root = directions.advance_motion(0.2);
+          directions.select_motion(bw::game::PlayerMotion::stand, 0.3F);
+          const auto stopped_root = directions.advance_motion(0.1);
+          if (bw::math::length(walking_root) <= 0 ||
+              bw::math::length(stopped_root) > 0.000001F) {
+            throw std::runtime_error(
+                "Outgoing visual blend leaked into selected root movement");
+          }
+          // Body transitions do not reset an independently owned weapon clock.
+          const auto weapon_time =
+              directions.animation_state(bw::game::CharacterMotionBank::weapon)
+                  ->unwrapped_seconds;
+          directions.select_motion(bw::game::PlayerMotion::walk, 0);
+          (void)directions.advance_motion(0.125);
+          const auto* body_state =
+              directions.animation_state(bw::game::CharacterMotionBank::body);
+          const auto* weapon_state =
+              directions.animation_state(bw::game::CharacterMotionBank::weapon);
+          if (body_state == nullptr || weapon_state == nullptr ||
+              std::abs(body_state->unwrapped_seconds - 0.125) > 0.000001 ||
+              std::abs(weapon_state->unwrapped_seconds - weapon_time - 0.125) >
+                  0.000001) {
+            throw std::runtime_error("Body selection reset the weapon clock");
+          }
+          // The actual INT parameter changes entry blending, while source
+          // phase-preserving migrations deliberately retain caller blending.
+          const auto* attack_parameter = body_catalog.parameter("at_stagger");
+          if (attack_parameter == nullptr || !attack_parameter->blend_frames ||
+              attack_parameter->blend_frames->entry != 10 ||
+              attack_parameter->blend_frames->exit != 0) {
+            throw std::runtime_error("Authored attack transition is absent");
+          }
+          bw::game::ActionMotionPlan attack;
+          attack.requests[0] = {
+              .slot = 706, .blend_seconds = .6, .fresh = true};
+          attack.count = 1;
+          if (directions.apply_action_plan(attack).admitted != 1) {
+            throw std::runtime_error("Source attack slot was not admitted");
+          }
+          (void)directions.advance_motion(5.0 / 60.0);
+          if (std::abs(directions
+                           .animation_state(bw::game::CharacterMotionBank::body)
+                           ->weight -
+                       .5F) > .0001F) {
+            throw std::runtime_error(
+                "INT entry duration did not override blend");
+          }
+          attack.requests[0].start =
+              bw::game::ActionMotionStart::preserve_phase;
+          (void)directions.apply_action_plan(attack);
+          (void)directions.advance_motion(.3);
+          if (std::abs(directions
+                           .animation_state(bw::game::CharacterMotionBank::body)
+                           ->weight -
+                       .5F) > .0001F) {
+            throw std::runtime_error(
+                "Phase-preserving request used INT override");
+          }
+          // Accepted reload presentation owns separate upper and weapon clocks;
+          // reaching its upper endpoint clears that complete pose owner.
+          const auto reload =
+              bw::game::accepted_reload({.body_slot = 689, .weapon_class = 0});
+          if (directions.apply_action_plan(reload).admitted != reload.count) {
+            throw std::runtime_error(
+                "Reload presentation lost authored bindings");
+          }
+          const auto* upper = directions.animation_state(
+              bw::game::CharacterMotionBank::upper_body);
+          if (upper == nullptr) {
+            throw std::runtime_error(
+                "Reload did not create upper motion owner");
+          }
+          const auto duration = upper->clip->duration_seconds();
+          (void)directions.advance_motion(duration + 1.0 / 60.0);
+          if (directions.animation_state(
+                  bw::game::CharacterMotionBank::upper_body) != nullptr) {
+            throw std::runtime_error(
+                "Completed upper owner retained pose layers");
+          }
+          bw::game::ActionMotionPlan frame_entry;
+          frame_entry.count = 1;
+          frame_entry.requests[0] = {
+              .slot = 788,
+              .start = bw::game::ActionMotionStart::frames,
+              .start_frames = 1,
+              .fresh = true};
+          (void)directions.apply_action_plan(frame_entry);
+          const auto* frame_state =
+              directions.animation_state(bw::game::CharacterMotionBank::body);
+          if (frame_state == nullptr ||
+              std::abs(frame_state->seconds *
+                           frame_state->clip->frames_per_second() -
+                       1) > .0001) {
+            throw std::runtime_error(
+                "Source frame entry was treated as seconds");
+          }
+          directions.advance(0, world);
+          constexpr std::array motions{
+              bw::game::PlayerMotion::evade_forward_air,
+              bw::game::PlayerMotion::evade_backward_air,
+              bw::game::PlayerMotion::evade_left_air,
+              bw::game::PlayerMotion::evade_right_air};
+          for (std::size_t direction = 0; direction < motions.size();
+               ++direction) {
+            directions.select_motion(motions.at(direction), 0);
+            const auto delta = directions.advance_motion(0.25);
+            directions.advance(0, world);
+            // The same authored direction remains available to root motion,
+            // but the pre-hierarchy modifier removes it from displayed facing.
+            const auto bones = directions.body_bones();
+            for (std::size_t row = 0; row < 3; ++row) {
+              for (std::size_t column = 0; column < 3; ++column) {
+                if (std::abs(bones[1].at(row).at(column) -
+                             bones[0].at(row).at(column)) > 0.0001F) {
+                  throw std::runtime_error(
+                      "Movement reference leaked into displayed facing");
+                }
+              }
+            }
+            const float projected = direction < 2 ? delta[2] : delta[0];
+            const bool positive = direction == 0 || direction == 3;
+            if (delta[1] <= 0 || (positive ? projected <= 0 : projected >= 0)) {
+              throw std::runtime_error(
+                  "Authored evade reference did not preserve direction/lift");
+            }
+          }
+          // Exercise the full immutable catalog through production actor pose
+          // and relative-root paths. This validates data/consumer admission,
+          // not gameplay-family or native visual equivalence.
+          for (std::size_t index = 0; index < prepared.size(); ++index) {
+            directions.request_animation(
+                bw::game::CharacterMotionBank::body,
+                {.clip = index,
+                 .binding = index,
+                 .parameter = body_catalog.parameter_for_clip(index),
+                 .fresh = true});
+            (void)directions.advance_motion(1.0 / 60.0);
+            directions.advance(0, world);
+          }
+        }
+        model_timing_equivalence(world, loading, resources.memory_domain(),
+                                 scene_audio.prepared());
+        inspection.advance(1.0 / 60.0);
+        for (unsigned frame = 0; frame < 30; ++frame) {
+          inspection.advance(1.0 / 60.0);
+        }
+        inspection.advance(0.05, {.movement = {.crouch_pressed = true}});
+        if (inspection.player_state()->stance !=
+            bw::game::AliciaStance::crouched) {
+          throw std::runtime_error(
+              "Crouch edge did not survive bounded movement substeps");
+        }
+        inspection.advance(1.0 / 60.0, {.movement = {.crouch_pressed = true}});
+        if (inspection.player_state()->stance !=
+            bw::game::AliciaStance::standing) {
+          throw std::runtime_error(
+              "Second source crouch edge did not restore standing");
+        }
+        auto* actions = inspection.player_actions();
+        if (actions == nullptr ||
+            actions->begin_damage({.direction = {.incoming = {0, 0, 1}}})
+                    .outcome != bw::game::AliciaActionOutcome::started) {
+          throw std::runtime_error("Ordinary player damage was not admitted");
+        }
+        for (unsigned frame = 0; frame < 4; ++frame) {
+          inspection.advance(1.0 / 60.0, {.movement = {.direction = {1, 0}}});
+        }
+        if (actions->kind() != bw::game::AliciaActionKind::damage) {
+          throw std::runtime_error(
+              "Locomotion replaced an active damage owner");
+        }
+        for (unsigned frame = 0; frame < 180 && actions->blocks_locomotion();
+             ++frame) {
+          inspection.advance(1.0 / 60.0);
+        }
+        if (actions->blocks_locomotion()) {
+          throw std::runtime_error(
+              "Ordinary damage did not release body ownership");
+        }
+        const auto before_unavailable = inspection.player_world_pose()[2];
+        const auto unavailable = actions->begin_sustained_damage(
+            {.direction = {.incoming = {0, 0, 1}},
+             .recovery_seconds = .3F,
+             .random_unit = .5F});
+        if (unavailable.outcome !=
+                bw::game::AliciaActionOutcome::unavailable_motion ||
+            actions->blocks_locomotion() ||
+            inspection.player_world_pose()[2] != before_unavailable) {
+          throw std::runtime_error(
+              "Absent sustained damage changed active pose");
+        }
+        const auto magic = actions->begin_magic({.slot = 788,
+                                                 .complete_with_motion = true,
+                                                 .shooter_update = false});
+        if (magic.outcome != bw::game::AliciaActionOutcome::started ||
+            !magic.acquire_magic_scope) {
+          throw std::runtime_error(
+              "Accepted magic lost scoped presentation owner");
+        }
+        unsigned scope_releases = 0;
+        for (unsigned frame = 0; frame < 180; ++frame) {
+          inspection.advance(1.0 / 60.0);
+          scope_releases += inspection.player_action_status()
+                                ->release_magic_scope.has_value();
+        }
+        if (actions->blocks_locomotion() || scope_releases != 1) {
+          throw std::runtime_error("Magic scope did not release exactly once");
+        }
+        // The fixture acknowledges the preceding device voice's completion;
+        // it does not invent a cue duration or weaken equal-priority admission.
+        for (auto& slot : scene_audio_factory.output->slots) {
+          if (slot.request.bank == 4 || slot.request.bank == 50) {
+            slot.active = false;
+          }
+        }
+        const auto thunder =
+            actions->begin_spell(bw::game::SpellPresentationKind::thunder);
+        if (thunder.outcome != bw::game::AliciaActionOutcome::started ||
+            !thunder.acquire_spell_scope) {
+          throw std::runtime_error(
+              "Thunder presentation entry was not admitted");
+        }
+        inspection.advance(0);
+        const auto waiting_pose = inspection.player_world_pose()[2];
+        const auto waiting_camera = inspection.camera_state()->pose.eye;
+        inspection.advance(1.0 / 60.0);
+        if (inspection.player_action_status()->outcome !=
+                bw::game::AliciaActionOutcome::observation_required ||
+            inspection.player_world_pose()[2] != waiting_pose ||
+            inspection.camera_state()->pose.eye != waiting_camera) {
+          throw std::runtime_error(
+              "Missing spell observation consumed simulation");
+        }
+        // Thunder's original voice event is at frame115 of its start motion.
+        // Target acceptance is external; retain aim until that event crosses.
+        for (unsigned frame = 0; frame < 120; ++frame) {
+          inspection.advance(1.0 / 60.0,
+                             {.action = {.spell = {.camera_owned = true}}});
+        }
+        (void)actions->accept_thunder_target();
+        unsigned thunder_releases = 0;
+        // The installed strike clip spans 666 source frames; cinematic owner
+        // signals alone must not shorten its terminal animation lifetime.
+        constexpr unsigned kThunderObservationFrames = 720;
+        for (unsigned frame = 0; frame < kThunderObservationFrames; ++frame) {
+          inspection.advance(
+              1.0 / 60.0,
+              {.action = {.spell = {.cinematic_segment_finished = true}}});
+          thunder_releases += inspection.player_action_status()
+                                  ->release_spell_scope.has_value();
+        }
+        if (actions->blocks_locomotion() || thunder_releases != 1) {
+          throw std::runtime_error("Thunder phase scope did not release once");
+        }
+        const auto jump_start_y = inspection.player_state()->pose.position[1];
+        if (inspection
+                .begin_player_scripted_jump({.captured_velocity = {0, 4.2F, 0}})
+                .outcome != bw::game::AliciaActionOutcome::started) {
+          throw std::runtime_error("Accepted scripted jump was not admitted");
+        }
+        bool scripted_airborne = false, scripted_recovered = false;
+        float scripted_height = 0;
+        for (unsigned frame = 0; frame < 180; ++frame) {
+          inspection.advance(1.0 / 60.0);
+          const auto* player = inspection.player_state();
+          const auto height = player->pose.position[1] - jump_start_y;
+          if (player->phase == bw::game::PlayerMovementPhase::takeoff &&
+              std::abs(height) > .001F) {
+            throw std::runtime_error(
+                "Scripted start consumed pose-root motion");
+          }
+          scripted_airborne |=
+              player->phase == bw::game::PlayerMovementPhase::airborne;
+          scripted_height = std::max(scripted_height, height);
+          if (scripted_airborne &&
+              player->phase == bw::game::PlayerMovementPhase::grounded) {
+            scripted_recovered = true;
+            break;
+          }
+        }
+        if (!scripted_airborne || !scripted_recovered ||
+            scripted_height < .5F) {
+          throw std::runtime_error(
+              "Scripted impulse did not traverse flight and landing");
+        }
+        // Actual player evade waits for the 15-frame start, then consumes
+        // authored XYZ motion. Landing cancels at frame 25 played at 2x.
+        unsigned takeoff_frames = 0, landing_frames = 0;
+        bool airborne = false, recovered = false;
+        for (unsigned frame = 0; frame < 180; ++frame) {
+          inspection.advance(1.0 / 60.0,
+                             {.movement = {.evade_held = frame == 0}});
+          const auto phase = inspection.player_state()->phase;
+          takeoff_frames += phase == bw::game::PlayerMovementPhase::takeoff;
+          landing_frames += phase == bw::game::PlayerMovementPhase::landing;
+          airborne |= phase == bw::game::PlayerMovementPhase::airborne;
+          if (landing_frames != 0 &&
+              phase == bw::game::PlayerMovementPhase::grounded) {
+            recovered = true;
+            break;
+          }
+        }
+        if (!airborne || !recovered || takeoff_frames < 15 ||
+            takeoff_frames > 17 || landing_frames < 13 || landing_frames > 15) {
+          throw std::runtime_error(
+              "Original evade phase mismatch: takeoff=" +
+              std::to_string(takeoff_frames) +
+              ", landing=" + std::to_string(landing_frames) +
+              ", airborne=" + std::to_string(airborne) +
+              ", recovered=" + std::to_string(recovered));
+        }
+        model_cancellation_substeps(inspection);
+        const auto start = inspection.player_state()->pose.position;
+        for (unsigned frame = 0; frame < 90; ++frame) {
+          inspection.advance(1.0 / 60.0, {.movement = {{0, 1}, false}});
+        }
+        if (!world.view_update ||
+            inspection.player_state()->pose.position == start) {
+          throw std::runtime_error(
+              "Production traversal did not move actor and view");
+        }
+        if (scene_audio_factory.output->bank_plays.at(0) == 0 ||
+            scene_audio_factory.output->bank_plays.at(50) == 0 ||
+            scene_random.draws() == 0 ||
+            scene_audio_factory.output->listener_updates == 0) {
+          throw std::runtime_error(
+              "Production motion audio mismatch: common=" +
+              std::to_string(scene_audio_factory.output->bank_plays.at(0)) +
+              ", voice=" +
+              std::to_string(scene_audio_factory.output->bank_plays.at(4)) +
+              ", stream=" +
+              std::to_string(scene_audio_factory.output->bank_plays.at(50)) +
+              ", random=" + std::to_string(scene_random.draws()) +
+              ", listener=" +
+              std::to_string(scene_audio_factory.output->listener_updates));
+        }
+        inspection.advance(1.0 / 60.0, {.pause_pressed = true});
+        const auto paused_audio_updates = scene_audio_factory.output->updates;
+        const auto paused_audio_plays = scene_audio_factory.output->plays;
+        const auto paused_pose = inspection.player_state()->pose.position;
+        const auto paused_camera = inspection.camera_state()->pose.eye;
+        inspection.advance(0.1, {.movement = {{1, 0}, true}, .look = {1, 1}});
+        if (!inspection.paused() || !scene_audio_factory.output->paused ||
+            scene_audio_factory.output->updates != paused_audio_updates ||
+            scene_audio_factory.output->plays != paused_audio_plays ||
+            inspection.player_state()->pose.position != paused_pose ||
+            inspection.camera_state()->pose.eye != paused_camera) {
+          throw std::runtime_error("Traversal pause advanced actor or camera");
+        }
+        // Appearance publication is transactional while traversal is frozen.
+        // A renderer failure must retire the candidate and retain the old
+        // actor.
+        const auto before_handle = loading.resident_player().handle;
+        const auto before_phase = inspection.player_state()->phase;
+        const auto before_velocity = inspection.player_state()->velocity;
+        const auto before_yaw = inspection.player_state()->pose.yaw_degrees;
+        const auto before_hips = inspection.player_world_pose()[2];
+        world.reject_next_replacement = true;
+        bool publication_failed = false;
+        try {
+          inspection.change_costume(loading, 5);
+        } catch (const std::runtime_error&) {
+          publication_failed = true;
+        }
+        if (!publication_failed ||
+            loading.resident_player().handle != before_handle ||
+            world.live_models != actor_models ||
+            world.live_textures != actor_textures ||
+            inspection.player_world_pose()[2] != before_hips) {
+          throw std::runtime_error(
+              "Failed appearance publication changed the scene");
+        }
+        for (const unsigned costume : {1U, 2U, 3U, 4U, 5U, 0U}) {
+          inspection.change_costume(loading, costume);
+          inspection.advance(0.1, {.movement = {{1, 0}, true}, .look = {1, 1}});
+          if (loading.current_player_costume() != costume ||
+              !inspection.paused() ||
+              inspection.player_state()->pose.position != paused_pose ||
+              inspection.player_state()->pose.yaw_degrees != before_yaw ||
+              inspection.player_state()->phase != before_phase ||
+              inspection.player_state()->velocity != before_velocity ||
+              inspection.camera_state()->pose.eye != paused_camera ||
+              inspection.player_world_pose()[2] != before_hips ||
+              world.live_models != actor_models) {
+            throw std::runtime_error(
+                "Costume replacement changed frozen traversal state");
+          }
+        }
+        inspection.advance(1.0 / 60.0, {.pause_pressed = true});
+        if (inspection.paused() || scene_audio_factory.output->paused) {
+          throw std::runtime_error("Traversal and audio did not resume");
+        }
+        stage_review_acceptance(inspection, loading, world,
+                                *scene_audio_factory.output,
+                                resources.memory_domain());
+        lower_melee_acceptance(inspection, loading,
+                               *scene_audio_factory.output);
+        grounded_action_exit_acceptance(inspection, loading,
+                                        *scene_audio_factory.output);
+        if (inspection.player_draws() != 52 || world.submitted != 4827 ||
+            world.live_models != actor_models ||
+            world.live_textures != actor_textures) {
+          throw std::runtime_error(
+              "Player pose publication changed mission residency");
+        }
+      }
+      if (world.submitted != 0) {
+        throw std::runtime_error("Player scene retained draws after teardown");
       }
       mission.cancel();
       if (mission.progress().phase != bw::game::MissionPhase::cancelled ||
@@ -664,6 +2844,7 @@ int main(int argc, char** argv) {
         throw std::runtime_error(
             "Root destruction did not release publication");
       }
+      prepared_game_audio(resources, files, game / "data" / "sound");
       reconstructed_session(resources, files, false, game);
       reconstructed_session(resources, files, true, game);
     }

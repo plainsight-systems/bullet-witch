@@ -1,3 +1,6 @@
+// Shared math retains each caller's scalar/accumulator precision; tolerance
+// and failure policy remain here. Both-phase I.9/MEM.9 contracts are in
+// bw/math/vector.hpp and matrix.hpp.
 // Compose the original snapped behind-camera preset in three collision-limited
 // offsets. Header contracts delimit this initial static snapshot from the
 // future actor/follow controller. Both MCP phases: R.2 (#rr-use-ptr) makes
@@ -11,19 +14,17 @@
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
+
+#include "bw/math/vector.hpp"
 namespace bw::game {
 namespace {
 constexpr float kDegreesToRadians = std::numbers::pi_v<float> / 180.0F;
 constexpr float kOriginalAspect = 16.0F / 9.0F;
 constexpr float kCameraClearance = 0.05F;
 constexpr std::uint32_t kCameraExcludedFlags = 0x2000;
-using Vec = std::array<float, 3>;
+using Vec = math::Vector3<float>;
 Vec offset(const Vec& origin, float distance, const Vec& direction) {
-  Vec result = origin;
-  for (std::size_t i = 0; i < result.size(); ++i) {
-    result.at(i) += direction.at(i) * distance;
-  }
-  return result;
+  return math::add(origin, math::scale(direction, distance));
 }
 }  // namespace
 InitialPlayerCamera make_initial_player_camera(

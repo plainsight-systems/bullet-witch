@@ -17,6 +17,11 @@
 // Background body associations apply both-phase C.32 (#rc-dtor-ptr) and
 // MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md): load-owned
 // integer mappings borrow no physics runtime and allocate only at construction.
+// Optional authored local lights retain copied scalar data and a signed source
+// joint. Decode only enabled records; no scene registration occurs here.
+// Both MCP phases I.1 (ri-explicit) and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) separate immutable setup from
+// publication.
 #pragma once
 
 #include "bw/formats/common.hpp"
@@ -51,6 +56,31 @@ class CollisionDefinition {
 struct CollisionReference {
   std::uint32_t source_offset{}, target_offset{};
 };
+// Typed shape records borrow convex float3 bytes; local_pose is expanded to
+// row-vector basis rows plus translation. Body index selects the matching
+// authored placement matrix. Unsupported mesh kinds remain explicit.
+// Both MCP phases: I.1 (ri-explicit) defines geometry/pose units; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) limits metadata to
+// load.
+enum class PhysicsShapeKind : std::uint8_t {
+  sphere,
+  box,
+  capsule,
+  convex,
+  triangle_mesh,
+  triangle_mesh_alt
+};
+struct PhysicsShape {
+  PhysicsShapeKind kind{};
+  std::size_t body{};
+  std::array<std::array<float, 3>, 4> local_pose{};
+  std::array<float, 3> dimensions{};
+  std::span<const std::uint8_t> convex_points;
+};
+struct PhysicsLocalLight {
+  std::int32_t joint{-1};
+  std::array<float, 3> diffuse{}, specular{}, attenuation{};
+};
 class PhysicsCollisionDefinition {
  public:
   static PhysicsCollisionDefinition parse(
@@ -60,6 +90,8 @@ class PhysicsCollisionDefinition {
   // Original physics-body order maps each authored placement matrix to a
   // skeleton joint. Missing body records retain -1; no physics SDK is needed.
   const auto& body_joints() const { return body_joints_; }
+  const auto& shapes() const { return shapes_; }
+  const auto& local_light() const { return local_light_; }
   std::span<const std::uint8_t> bytes() const { return bytes_; }
 
  private:
@@ -67,10 +99,13 @@ class PhysicsCollisionDefinition {
                              const std::shared_ptr<memory::Domain>& domain)
       : bytes_(bytes),
         references_(memory::Allocator<CollisionReference>(domain)),
-        body_joints_(memory::Allocator<std::int32_t>(domain)) {}
+        body_joints_(memory::Allocator<std::int32_t>(domain)),
+        shapes_(memory::Allocator<PhysicsShape>(domain)) {}
   std::span<const std::uint8_t> bytes_;
   memory::Vector<CollisionReference> references_;
   memory::Vector<std::int32_t> body_joints_;
+  memory::Vector<PhysicsShape> shapes_;
+  std::optional<PhysicsLocalLight> local_light_;
 };
 
 class AreaDefinition {

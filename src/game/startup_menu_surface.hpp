@@ -40,6 +40,10 @@ class StartupMenuSurface final : public MenuSurface {
   // Pump encoded resources and construct textures before reporting readiness.
   bool ready() override;
   void show(const MenuPresentation& presentation) override;
+  // Replace sprite commands with a bounded lower-corner text overlay only.
+  // Prepared font resources must remain ready; empty text clears the overlay.
+  // I.1 and MEM.9 preserve explicit publication and fixed command storage.
+  void show_status(std::string_view text);
   void end() noexcept override;
 
  private:

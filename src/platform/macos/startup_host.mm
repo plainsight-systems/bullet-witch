@@ -1,3 +1,20 @@
+// Action input extends the existing main-thread snapshot: retain keyboard taps,
+// sample controller holds, clear on focus loss, then derive one-shot edges.
+// RT/F stays normalized held fire intent; the game owns acceptance and cadence.
+// Both MCP phases apply I.1 (#ri-explicit) to this platform/game boundary and
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) to fixed masks.
+// No callback, allocation, repeat timer or gameplay service is added per action.
+// Component replacement applies I.1 (#ri-explicit), C.85 (#rc-swap-noexcept),
+// and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md): validate/prepare before
+// nonthrowing publication, keeping GPU assets resident. Both MCP phases read.
+// Hardware evade is held LT above 0.1; Space retains down/up taps within one
+// event pump. A stays menu confirmation. Both-phase I.1/E.4 expose distinct
+// hold/edge meanings; MEM.9 stores fixed input state without frame allocation.
+// Keyboard gameplay presses retain event edges separately from final held state
+// (P.1 #rp-direct); MEM.9 uses two stack flags without frame-time allocation.
+// Sprite canvas fit is independent of world residency. Implementation ES.22
+// (#res-init) initializes the complete viewport before either pass uses it;
+// MEM.9 keeps this per-frame arithmetic in fixed stack storage.
 // Material animation forwards an explicit borrowed constant-update batch
 // (both-phase I.1 #ri-explicit and GPU.1 retained-device-data guidance).
 // The host preserves the native owner and main-thread access boundary.
@@ -44,6 +61,7 @@
 #include "bw/platform/startup_host.hpp"
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
+#include "gamepad_actions.hpp"
 #include "platform/macos/texture_allocation.hpp"
 #include "platform/macos/world_renderer.hpp"
 
@@ -113,6 +131,7 @@ constexpr std::uint32_t kConfirmAction = 0x1010U;
 constexpr std::uint32_t kCancelAction = 0x2020U;
 constexpr unsigned short kReturnKey = 36;
 constexpr unsigned short kSpaceKey = 49;
+constexpr unsigned short kCrouchKey = 8;
 constexpr unsigned short kEscapeKey = 53;
 constexpr unsigned short kFullscreenKey = 3;
 constexpr unsigned short kUpKey = 126, kDownKey = 125, kLeftKey = 123, kRightKey = 124;
@@ -122,6 +141,34 @@ constexpr std::uint32_t kDownAction = 0x02000000U;
 constexpr std::uint32_t kLeftAction = 0x04000000U;
 constexpr std::uint32_t kRightAction = 0x08000000U;
 constexpr std::uint32_t kDirections = 0x0f000000U;
+constexpr std::uint32_t kMoveForward = 1U << 0, kMoveBackward = 1U << 1;
+constexpr std::uint32_t kMoveLeft = 1U << 2, kMoveRight = 1U << 3;
+constexpr std::uint32_t kLookUp = 1U << 4, kLookDown = 1U << 5;
+constexpr std::uint32_t kLookLeft = 1U << 6, kLookRight = 1U << 7;
+constexpr std::uint32_t kFire = 1U << 8;
+constexpr std::uint32_t kReload = macos::kReloadButton;
+constexpr std::uint32_t kAttack = macos::kAttackButton;
+constexpr std::uint32_t kWeaponCycle = macos::kWeaponButton;
+constexpr std::uint32_t kAimMode = macos::kTargetButton;
+constexpr std::uint32_t kActionPresses = kReload | kAttack | kWeaponCycle | kAimMode;
+std::uint32_t gameplay_key(unsigned short code) {
+  constexpr std::array<std::pair<unsigned short, std::uint32_t>, 13> bindings{{{13, kMoveForward},
+                                                                               {1, kMoveBackward},
+                                                                               {0, kMoveLeft},
+                                                                               {2, kMoveRight},
+                                                                               {34, kLookUp},
+                                                                               {40, kLookDown},
+                                                                               {38, kLookLeft},
+                                                                               {37, kLookRight},
+                                                                               {3, kFire},
+                                                                               {15, kReload},
+                                                                               {14, kAttack},
+                                                                               {12, kWeaponCycle},
+                                                                               {17, kAimMode}}};
+  const auto found =
+      std::ranges::find_if(bindings, [code](const auto& binding) { return binding.first == code; });
+  return found == bindings.end() ? 0U : found->second;
+}
 std::uint32_t key_action(unsigned short code) {
   switch (code) {
     case kReturnKey:
@@ -147,6 +194,7 @@ struct SpriteParameters {
   std::array<float, 4> uv;
   std::array<float, 4> color;
   std::array<float, 4> sampling;
+  std::array<float, 4> transform;
 };
 bool valid_rectangle(const render::Rect& rect) {
   return std::isfinite(rect.x) && std::isfinite(rect.y) && std::isfinite(rect.width) &&
@@ -190,6 +238,9 @@ struct StartupHost::State {
   std::uint64_t next_texture{1};
   MediaAudio media_audio;
   std::uint32_t keyboard_keys{};
+  std::uint32_t gameplay_keys{};
+  bool previous_pause{}, previous_crouch{};
+  macos::GameplayButtonEdges action_edges;
   std::uint32_t previous_held{};
   std::array<double, kActionBits> repeat_elapsed{};
   std::chrono::steady_clock::time_point input_time{std::chrono::steady_clock::now()};
@@ -337,6 +388,8 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     auto& state = *state_;
     state.window_delegate.closeEnabled = window_close_enabled;
     std::uint32_t key_edges = 0;
+    std::uint32_t action_key_edges = 0;
+    bool evade_key_edge = false, pause_key_edge = false, crouch_key_edge = false;
     while (NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                                untilDate:[NSDate distantPast]
                                                   inMode:NSDefaultRunLoopMode
@@ -360,10 +413,17 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
         if (event.type == NSEventTypeKeyDown) {
           if (!event.isARepeat) {
             key_edges |= action;
+            action_key_edges |= gameplay_key(code) & kActionPresses;
+            // A down/up pair drained together must still produce one press.
+            evade_key_edge = evade_key_edge || code == kSpaceKey;
+            pause_key_edge = pause_key_edge || code == kEscapeKey;
+            crouch_key_edge = crouch_key_edge || code == kCrouchKey;
           }
           state.keyboard_keys |= key;
+          state.gameplay_keys |= gameplay_key(code);
         } else {
           state.keyboard_keys &= ~key;
+          state.gameplay_keys &= ~gameplay_key(code);
         }
       } else {
         [NSApp sendEvent:event];
@@ -374,11 +434,36 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     std::uint32_t held = ((state.keyboard_keys & 3U) != 0 ? kConfirmAction : 0U) |
                          ((state.keyboard_keys & 4U) != 0 ? kCancelAction : 0U) |
                          (state.keyboard_keys & kDirections);
+    const auto key_axis = [&](std::uint32_t positive, std::uint32_t negative) {
+      return static_cast<float>((state.gameplay_keys & positive) != 0) -
+             static_cast<float>((state.gameplay_keys & negative) != 0);
+    };
+    std::array<float, 2> movement{key_axis(kMoveRight, kMoveLeft),
+                                  key_axis(kMoveForward, kMoveBackward)};
+    std::array<float, 2> look{key_axis(kLookRight, kLookLeft), key_axis(kLookUp, kLookDown)};
+    bool evade = (state.keyboard_keys & 2U) != 0;
+    bool pause = (state.keyboard_keys & 4U) != 0;
+    bool crouch = false;
+    float fire_trigger = (state.gameplay_keys & kFire) != 0 ? 1.0F : 0.0F;
+    std::uint32_t action_holds = state.gameplay_keys & kActionPresses;
     if (NSApp.active && state.window.keyWindow) {
       NSArray<GCController*>* controllers = [GCController controllers];
       for (NSUInteger index = 0; index < controllers.count; ++index) {
         GCController* controller = controllers[index];
         GCExtendedGamepad* pad = controller.extendedGamepad;
+        const auto merge_axis = [](float keyboard, float controller_axis) {
+          return std::abs(controller_axis) > std::abs(keyboard) ? controller_axis : keyboard;
+        };
+        movement[0] = merge_axis(movement[0], pad.leftThumbstick.xAxis.value);
+        movement[1] = merge_axis(movement[1], pad.leftThumbstick.yAxis.value);
+        look[0] = merge_axis(look[0], pad.rightThumbstick.xAxis.value);
+        look[1] = merge_axis(look[1], pad.rightThumbstick.yAxis.value);
+        constexpr float kEvadeTriggerThreshold = 0.1F;
+        evade = evade || pad.leftTrigger.value > kEvadeTriggerThreshold;
+        pause = pause || pad.buttonMenu.pressed;
+        crouch = crouch || pad.leftThumbstickButton.pressed;
+        fire_trigger = std::max(fire_trigger, pad.rightTrigger.value);
+        action_holds |= macos::gamepad_action_holds(pad);
         if (pad.buttonA.pressed || pad.buttonMenu.pressed) {
           held |= kConfirmAction;
         }
@@ -402,8 +487,19 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     } else {
       // Focus loss retires held input rather than carrying it into the next activation.
       state.keyboard_keys = 0;
+      state.gameplay_keys = 0;
+      movement = {};
+      look = {};
+      evade = false;
+      pause = false;
       held = 0;
       key_edges = 0;
+      evade_key_edge = false;
+      pause_key_edge = false;
+      crouch_key_edge = false;
+      fire_trigger = 0;
+      action_holds = 0;
+      action_key_edges = 0;
     }
     // Keep press edges distinct from the recovered per-bit repeat timing.
     const auto pressed = key_edges | (held & ~state.previous_held);
@@ -428,9 +524,25 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
       }
     }
     state.previous_held = held;
+    const bool evade_held = evade_key_edge || evade;
+    const bool pause_pressed = pause_key_edge || (pause && !state.previous_pause);
+    state.previous_pause = pause;
+    const bool crouch_pressed = crouch_key_edge || (crouch && !state.previous_crouch);
+    state.previous_crouch = crouch;
+    const auto action_pressed = state.action_edges.sample(action_holds, action_key_edges);
     return {.pressed_actions = pressed,
             .repeated_actions = repeated,
-            .close_requested = !state.window.visible};
+            .close_requested = !state.window.visible,
+            .movement = movement,
+            .look = look,
+            .evade_held = evade_held,
+            .pause_pressed = pause_pressed,
+            .crouch_pressed = crouch_pressed,
+            .fire_trigger = fire_trigger,
+            .reload_pressed = (action_pressed & kReload) != 0,
+            .attack_pressed = (action_pressed & kAttack) != 0,
+            .weapon_cycle_pressed = (action_pressed & kWeaponCycle) != 0,
+            .aim_mode_pressed = (action_pressed & kAimMode) != 0};
   }
 }
 void StartupHost::upload(const video::VideoFrame& frame) {
@@ -477,21 +589,21 @@ bool StartupHost::draw(float opacity) {
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
     id<MTLCommandBuffer> command = [state.commands commandBuffer];
-    MTLViewport world_viewport{};
+    const double canvas_width = static_cast<double>(drawable.texture.width);
+    const double canvas_height = static_cast<double>(drawable.texture.height);
+    const double canvas_fit =
+        std::min(canvas_width / render::kCanvasWidth, canvas_height / render::kCanvasHeight);
+    const auto scene_width = static_cast<std::uint32_t>(render::kCanvasWidth * canvas_fit);
+    const auto scene_height = static_cast<std::uint32_t>(render::kCanvasHeight * canvas_fit);
+    // Fit the logical canvas even when only title/menu sprites are resident.
+    // Pixel alignment also preserves the world pass's destination sample offset.
+    const MTLViewport canvas_viewport{std::floor((canvas_width - scene_width) / 2),
+                                      std::floor((canvas_height - scene_height) / 2),
+                                      static_cast<double>(scene_width),
+                                      static_cast<double>(scene_height),
+                                      0,
+                                      1};
     if (state.world->has_color_draws()) {
-      const double width = static_cast<double>(drawable.texture.width);
-      const double height = static_cast<double>(drawable.texture.height);
-      const double fit = std::min(width / render::kCanvasWidth, height / render::kCanvasHeight);
-      const auto scene_width = static_cast<std::uint32_t>(render::kCanvasWidth * fit);
-      const auto scene_height = static_cast<std::uint32_t>(render::kCanvasHeight * fit);
-      // Pixel-align the fitted scene and its display viewport together; the
-      // recovered fullscreen sample offset is defined in destination pixels.
-      world_viewport = {std::floor((width - scene_width) / 2),
-                        std::floor((height - scene_height) / 2),
-                        static_cast<double>(scene_width),
-                        static_cast<double>(scene_height),
-                        0,
-                        1};
       state.world->prepare_presentation(command, state.shader_library, scene_width, scene_height);
     }
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
@@ -501,7 +613,7 @@ bool StartupHost::draw(float opacity) {
     if (state.world->has_color_draws()) {
       // Preserve the inspection projection's logical aspect through the same
       // centered canvas fit used by menu presentation; clear retains black bars.
-      [encoder setViewport:world_viewport];
+      [encoder setViewport:canvas_viewport];
       state.world->encode_presentation(encoder, state.shader_library, opacity);
       [encoder endEncoding];
       pass.colorAttachments[0].loadAction = MTLLoadActionLoad;
@@ -528,19 +640,19 @@ bool StartupHost::draw(float opacity) {
     }
     // Overlay ordered quads in the shared logical canvas with the same fade.
     if (state.sprite_count != 0) {
-      [encoder setViewport:world_viewport];
+      [encoder setViewport:canvas_viewport];
       [encoder setRenderPipelineState:state.sprite_pipeline];
       for (const auto& submitted : std::span(state.sprites).first(state.sprite_count)) {
         const auto& sprite = submitted.sprite;
         const SpriteParameters parameters{
-            .rectangle = {sprite.destination.x / render::kCanvasWidth,
-                          sprite.destination.y / render::kCanvasHeight,
-                          sprite.destination.width / render::kCanvasWidth,
-                          sprite.destination.height / render::kCanvasHeight},
+            .rectangle = {sprite.destination.x, sprite.destination.y, sprite.destination.width,
+                          sprite.destination.height},
             .uv = {sprite.uv.x, sprite.uv.y, sprite.uv.width, sprite.uv.height},
             .color = {sprite.color.red * opacity, sprite.color.green * opacity,
                       sprite.color.blue * opacity, sprite.color.alpha},
-            .sampling = {static_cast<float>(sprite.channel), 0, 0, 0}};
+            .sampling = {static_cast<float>(sprite.channel), 0, 0, 0},
+            .transform = {std::cos(sprite.rotation_radians), std::sin(sprite.rotation_radians),
+                          sprite.rotation_origin_x, sprite.rotation_origin_y}};
         [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
         [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
         [encoder setFragmentTexture:state.textures.at(submitted.texture_slot).native.get()
@@ -615,10 +727,12 @@ void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
   for (const auto& sprite : sprites) {
     const auto& uv = sprite.uv;
     const auto& color = sprite.color;
-    if (!valid_rectangle(sprite.destination) || !valid_rectangle(uv) || !unit_value(uv.x) ||
-        !unit_value(uv.y) || !unit_value(uv.x + uv.width) || !unit_value(uv.y + uv.height) ||
-        !unit_value(color.red) || !unit_value(color.green) || !unit_value(color.blue) ||
-        !unit_value(color.alpha) || sprite.channel > render::TextureChannel::alpha) {
+    if (!std::isfinite(sprite.rotation_radians) || !std::isfinite(sprite.rotation_origin_x) ||
+        !std::isfinite(sprite.rotation_origin_y) || !valid_rectangle(sprite.destination) ||
+        !valid_rectangle(uv) || !unit_value(uv.x) || !unit_value(uv.y) ||
+        !unit_value(uv.x + uv.width) || !unit_value(uv.y + uv.height) || !unit_value(color.red) ||
+        !unit_value(color.green) || !unit_value(color.blue) || !unit_value(color.alpha) ||
+        sprite.channel > render::TextureChannel::alpha) {
       throw std::runtime_error("Invalid sprite geometry or color");
     }
     const auto texture = std::ranges::find_if(state.textures, [&sprite](const auto& entry) {
@@ -670,11 +784,40 @@ void StartupHost::set_world_draws(std::span<const render::WorldColorDraw> draws)
   require_main_thread();
   state_->world->set_world_draws(draws);
 }
+// Publish one prepared component without rebuilding unrelated scene resources.
+void StartupHost::replace_world_model_draws(render::WorldModelHandle previous,
+                                            std::span<const render::WorldColorDraw> replacement) {
+  require_main_thread();
+  state_->world->replace_world_model_draws(previous, replacement);
+}
 // Forward only mutable material constants; retained scene resources stay owned.
 void StartupHost::update_world_texture_offsets(
     std::span<const render::WorldTextureOffsetUpdate> updates) {
   require_main_thread();
   state_->world->update_world_texture_offsets(updates);
+}
+// Copy completed actor palettes into the retained scene before native encoding.
+void StartupHost::update_world_lighting(std::span<const render::WorldLightingUpdate> updates) {
+  require_main_thread();
+  state_->world->update_world_lighting(updates);
+}
+void StartupHost::update_world_poses(std::span<const render::WorldPoseUpdate> updates) {
+  require_main_thread();
+  state_->world->update_world_poses(updates);
+}
+void StartupHost::update_shape_positions(
+    std::span<const render::WorldShapePositionUpdate> updates) {
+  if (!state_->world) throw std::logic_error("World renderer is unavailable");
+  state_->world->update_shape_positions(updates);
+}
+void StartupHost::update_world_visibility(std::span<const render::WorldVisibilityUpdate> updates) {
+  require_main_thread();
+  state_->world->update_world_visibility(updates);
+}
+// Publish the complete camera packet on the renderer's owning thread.
+void StartupHost::update_world_view(const render::WorldViewUpdate& update) {
+  require_main_thread();
+  state_->world->update_world_view(update);
 }
 void StartupHost::clear_world_draws() noexcept { state_->world->clear_world_draws(); }
 void StartupHost::release_model(render::WorldModelHandle model) noexcept {

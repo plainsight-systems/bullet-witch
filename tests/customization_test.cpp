@@ -43,6 +43,15 @@ void customization_tests() {
                 settings.far_plane == 1000 && settings.transition_speed == 5 &&
                 std::abs(settings.vertical_fov_radians - .76794487F) < .000001F,
             "Initial preset selects authored fields");
+    require(settings.contexts[1].height == .7F &&
+                settings.contexts[3].height == .25F &&
+                std::abs(settings.contexts[1].vertical_fov_radians -
+                         .34906585F) < .000001F &&
+                std::abs(settings.contexts[1].look_radians_per_second[0] -
+                         .78539816F) < .000001F &&
+                !settings.automatic_targeting_camera,
+            "Targeting and crouch settings are decoded independently of "
+            "ordinary preset");
     constexpr std::array missing{std::string_view("missing")};
     rejects([&] { (void)tree.lookup(missing); });
   }

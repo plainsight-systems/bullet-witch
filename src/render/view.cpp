@@ -1,3 +1,6 @@
+// Shared math retains each caller's scalar/accumulator precision; tolerance
+// and failure policy remain here. Both-phase I.9/MEM.9 contracts are in
+// bw/math/vector.hpp and matrix.hpp.
 // Build portable camera transforms from explicit validated pose/frustum inputs.
 // The original renderer separates rotated clip coordinates from camera-relative
 // global material vectors; preserve both outputs rather than rotating lighting
@@ -15,38 +18,31 @@
 #include <numbers>
 #include <stdexcept>
 
+#include "bw/math/vector.hpp"
+
 namespace bw::render {
 namespace {
-using Vector = std::array<float, 3>;
 constexpr float kBasisTolerance = 0.0001F;
-float dot(const Vector& left, const Vector& right) {
-  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
-}
 bool near(float value, float expected) {
   return std::abs(value - expected) <= kBasisTolerance;
-}
-template <std::size_t Size>
-bool finite(const std::array<float, Size>& values) {
-  return std::ranges::all_of(values,
-                             [](float value) { return std::isfinite(value); });
 }
 void validate(const ViewPose& pose, const PerspectiveView& perspective) {
   const auto& right = pose.right;
   const auto& up = pose.up;
   const auto& forward = pose.forward;
-  const Vector cross{right[1] * up[2] - right[2] * up[1],
-                     right[2] * up[0] - right[0] * up[2],
-                     right[0] * up[1] - right[1] * up[0]};
-  if (!finite(pose.eye) || !finite(right) || !finite(up) || !finite(forward) ||
-      !near(dot(right, right), 1) || !near(dot(up, up), 1) ||
-      !near(dot(forward, forward), 1) || !near(dot(right, up), 0) ||
-      !near(dot(right, forward), 0) || !near(dot(up, forward), 0) ||
-      !near(dot(cross, forward), 1)) {
+  const auto cross = math::cross(right, up);
+  if (!math::all_finite(pose.eye) || !math::all_finite(right) ||
+      !math::all_finite(up) || !math::all_finite(forward) ||
+      !near(math::dot(right, right), 1) || !near(math::dot(up, up), 1) ||
+      !near(math::dot(forward, forward), 1) || !near(math::dot(right, up), 0) ||
+      !near(math::dot(right, forward), 0) || !near(math::dot(up, forward), 0) ||
+      !near(math::dot(cross, forward), 1)) {
     throw std::invalid_argument(
         "View requires a finite orthonormal camera pose");
   }
-  if (!finite(std::array{perspective.vertical_fov_radians, perspective.aspect,
-                         perspective.near_plane, perspective.far_plane}) ||
+  if (!math::all_finite(std::array{perspective.vertical_fov_radians,
+                                   perspective.aspect, perspective.near_plane,
+                                   perspective.far_plane}) ||
       perspective.vertical_fov_radians <= 0 ||
       perspective.vertical_fov_radians >= std::numbers::pi_v<float> ||
       perspective.aspect <= 0 || perspective.near_plane <= 0 ||
@@ -65,7 +61,7 @@ ViewTransforms make_view_transforms(const ViewPose& pose,
   for (std::size_t axis = 0; axis < basis.size(); ++axis) {
     const auto& direction = basis.at(axis);
     result.view_rows.at(axis) = {direction[0], direction[1], direction[2],
-                                 -dot(direction, pose.eye)};
+                                 -math::dot(direction, pose.eye)};
     result.camera_relative_world_rows.at(axis).at(axis) = 1;
     result.camera_relative_world_rows.at(axis)[3] = -pose.eye.at(axis);
   }
@@ -91,8 +87,8 @@ ViewTransforms make_view_transforms(const ViewPose& pose,
   }
   result.clip_rows[2][3] -= depth * perspective.far_plane;
   // Finite inputs alone do not guarantee representable transformed origins.
-  if (!std::ranges::all_of(result.view_rows, finite<4>) ||
-      !std::ranges::all_of(result.clip_rows, finite<4>)) {
+  if (!std::ranges::all_of(result.view_rows, math::all_finite<float, 4>) ||
+      !std::ranges::all_of(result.clip_rows, math::all_finite<float, 4>)) {
     throw std::invalid_argument("Camera transform exceeds finite float range");
   }
   return result;

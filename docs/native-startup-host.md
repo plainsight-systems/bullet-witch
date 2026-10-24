@@ -156,6 +156,23 @@ derived from held state with the recovered 0.5-second delay and 0.125-second
 interval; options volume changes consume pressed left/right edges. Focus loss
 resets repeat timers.
 
+Bounded traversal samples left-stick movement, right-stick look, held LT above
+0.1 for the original evasive leap, and Menu for pause. Keyboard aliases are
+W/A/S/D, I/J/K/L, Space and Escape respectively. Left-stick click or C toggles the original crouched stance once per press. A/B remain menu confirmation/cancellation, independently of captured gameplay
+intent. RT/F reports held fire intent; X/R, A/E, B/Q and RS-click/T report
+reload, attack, next-weapon and aim-mode press edges. Desktop letters are
+explicit review aliases. Capture does not accept shots, consume ammunition or
+implement weapon-specific aim modes; those belong to the game adapter. See
+[the source mapping](../research/engine/subsystems/alicia-action-policy.md#interactive-input-capture-and-admission-boundary).
+The game owner applies the
+recovered radial movement preprocessing and directional action policy.
+Pause presents Resume, Costume, Weapon Class and Animation Review; menu input
+continues while mission, animation,
+camera and material clocks stop. In-session Costume is an approved improvement
+over the original pause menu. Replacement preserves the current action and camera,
+and resets the new outfit simulation from the frozen pose. See
+[the appearance transaction](../research/engine/subsystems/pause-and-costume-switching.md).
+
 Window-close permission is applied before Cocoa processes close events; the
 window delegate vetoes closure while the shared session inhibits it. The native
 backend never hides a window and then pretends the close was ignored.

@@ -33,9 +33,9 @@ struct ShadowWarpSettings {
   float alignment_threshold{}, parallel_near_extension{};
   float perspective_angle_radians{}, depth_scale{}, filter_radius_uv{};
 };
-// Height minimum < maximum, near < shadow far <= camera far; alignment in
-// [0,1), positive extension/depth scale, angle in (0,pi/2). Light travels away
-// from the source. Guard inset is derived from filter_radius_uv.
+// Height minimum < maximum, near < shadow far <= camera far; finite alignment
+// branch threshold, positive extension/depth scale, angle in (0,pi/2). Light
+// travels away from the source. Guard inset is derived from filter_radius_uv.
 ShadowProjection make_directional_shadow_projection(
     const ViewPose& camera, const PerspectiveView& perspective,
     const ShadowWarpSettings& settings,

@@ -1,10 +1,15 @@
 # Physics scene and collision integration
 
-Updated October 22, 2026. [Architecture](../ARCHITECTURE.md).
+Updated October 23, 2026. [Architecture](../ARCHITECTURE.md).
 
 The PC engine owns a concrete PhysX SDK/scene, calls its step interface from the
 game update, and releases scene contents before releasing the SDK. Actor-pair
 separation is an additional engine mechanism documented in [actor lifecycle](actor-lifecycle.md).
+The slice 5 [player collision boundary](player-collision-boundary.md) now connects
+Alicia's custom sphere/capsule support and airborne movement to its own geometry
+queries. It also distinguishes native backend candidates from the game's
+movement policy; a stock middleware character controller is not the recovered
+player controller.
 
 ## Ownership and initialization
 
@@ -113,6 +118,12 @@ connects frame phases. A research-created fragment at 0x461785 was removed and t
 true wrapper 0x461770 exported; [repair log](../../evidence/engine/pass-06/boundary-repair/console.log)
 records this analysis-only correction.
 
-Remaining: movement-component receiver equations, queued record schemas, collision
-filter meaning, mesh cooking/resource ownership, exact middleware ABI and dynamic
-results. The owned scene's creation, frame step and teardown are now connected.
+The next boundary trace confirms `0x4f7ac0` / `0x4f79f0` construct and cook raw
+triangle data at runtime through `NxCookTriangleMesh`; the original triangles
+are available independently of a legacy cooked cache. Character support and
+airborne integrator receivers are mapped in the linked player report.
+
+Remaining: complete movement/query branches, queued record schemas, collision
+filter meaning, all physics shape/body/constraint schemas, cooking/resource
+ownership beyond the established triangle route, exact middleware ABI and dynamic
+results. The owned scene's creation, frame step and teardown are connected.

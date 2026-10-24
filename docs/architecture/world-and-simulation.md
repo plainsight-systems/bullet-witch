@@ -1,7 +1,8 @@
 # World, scene and simulation
 
 **Target architecture · working baseline · October 22, 2026.**
-[Engine architecture](logical-overview.md) · [Runtime ownership](runtime-model.md).
+[Engine architecture](logical-overview.md) · [Runtime ownership](runtime-model.md) ·
+[Actors, poses and animation](actors-and-animation.md).
 
 A world is the authoritative collection of live scene and gameplay instances for
 a mission. It integrates entity identity, hierarchy, stage instances, subsystem
@@ -181,8 +182,8 @@ world-local services or mission resources.
 | Identity/hierarchy/components | [Actor lifecycle](../../research/engine/subsystems/actor-lifecycle.md) | Actor variants, wrap/exhaustion and exceptional paths |
 | Factories and model ownership | [Actors and animation](../../research/engine/subsystems/actors-and-animation.md) | Variant-specific construction and release |
 | AI mechanism/actions | [AI runtime](../../research/engine/subsystems/ai-runtime.md) | Full action equations, controller limits and callback semantics |
-| Animation | [Animation data](../../research/engine/subsystems/animation-data.md) | Exact numerical branches and secondary consumers |
-| Collision/dynamics | [Physics](../../research/engine/subsystems/physics-and-collision.md) | Shape/filter schemas, movement/writeback and middleware fidelity |
+| Animation | [Animation data](../../research/engine/subsystems/animation-data.md), [implemented actor/pose boundary](actors-and-animation.md) | Animation events, combat actions and secondary deformation consumers |
+| Collision/dynamics | [Physics](../../research/engine/subsystems/physics-and-collision.md), [custom player contact](../../research/engine/subsystems/player-collision-boundary.md) | Dynamic-body provider, impulses, destruction and remaining special-state filters |
 | Effects | [Particle contracts](../../research/engine/subsystems/particle-runtime-contracts.md) | Specialized math, scalar terminal behavior and allocation failures |
 | Stage/spatial/view inputs | [Stage loading](../../research/engine/subsystems/mission-and-stage-loading.md), [renderer](../../research/engine/subsystems/rendering.md) | Area topology, camera and full visibility/lighting behavior |
 

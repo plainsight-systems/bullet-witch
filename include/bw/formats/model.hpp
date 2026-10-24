@@ -1,3 +1,7 @@
+// Actor preparation: both-phase I.11 (#ri-raw) bounds mission asset borrowing;
+// CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
+// resolves names/attachments once before frame-time pose and palette updates.
 // Material animation names and ordered per-draw texture-slot snapshots apply
 // both-phase R.2 (#rr-use-ptr) bounded archive views and MEM.9
 // (guidelines/memory/ MEM.9-embedded-allocate-at-init.md) construction-time
@@ -33,6 +37,11 @@
 #include "bw/formats/resource_archive.hpp"
 
 namespace bw::formats {
+// Names borrow the retained model archive; indices identify skeleton bones.
+struct ModelBoneName {
+  std::string_view name;
+  std::uint32_t bone{};
+};
 struct ModelVertexElement {
   std::uint16_t stream{}, offset{};
   std::uint8_t type{}, method{}, usage{}, usage_index{};
@@ -113,6 +122,7 @@ class ModelDefinition {
   const auto& index_buffers() const { return index_buffers_; }
   const auto& shape_buffers() const { return shape_buffers_; }
   const auto& skeleton() const { return skeleton_; }
+  const auto& bone_names() const { return bone_names_; }
   const auto& shape_offsets() const { return shape_offsets_; }
   const auto& materials() const { return materials_; }
   const auto& draws() const { return draws_; }
@@ -142,6 +152,7 @@ class ModelDefinition {
   memory::Vector<ModelBuffer> vertex_buffers_, index_buffers_, shape_buffers_,
       shape_offsets_;
   std::optional<SkeletonDefinition> skeleton_;
+  memory::Vector<ModelBoneName> bone_names_;
   memory::Vector<ModelMaterial> materials_;
   memory::Vector<ModelDraw> draws_;
   memory::Vector<ModelRecord> records_;

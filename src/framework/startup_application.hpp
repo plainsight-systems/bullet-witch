@@ -56,6 +56,7 @@
 #include "bw/platform/startup_host.hpp"
 #include "bw/render/view.hpp"
 #include "bw/video/player.hpp"
+#include "game/mission_audio.hpp"
 
 namespace bw::framework {
 struct StartupOptions {
@@ -81,5 +82,6 @@ int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
                 platform::SaveStorage& saves,
                 video::Player::OpenDecoder open_decoder,
-                const StartupMemory& memory);
+                const StartupMemory& memory,
+                game::GameAudioFactory& audio_factory);
 }  // namespace bw::framework

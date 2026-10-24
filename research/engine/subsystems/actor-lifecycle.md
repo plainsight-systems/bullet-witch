@@ -181,6 +181,9 @@ semantics and every behavior transition remain AI-01 work.
 channels, not the AI tree. Their ten readers, previous/current motion position and
 interval callbacks through 0x6acea0 establish a separate animation-event path.
 
+See the focused [actor/model clock audit](actor-model-clock-order.md) for the
+retained root interval and parent-before-model timing contract.
+
 ## Model pose and weapon attachments
 
 Model virtual +8 is **0x5e37f0**, which performs this ordered sequence:

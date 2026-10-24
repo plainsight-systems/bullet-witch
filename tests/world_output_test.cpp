@@ -23,6 +23,16 @@ void world_output_tests() {
   using bw::render::ExposureController;
   using bw::render::ExposureParameters;
   constexpr float interval = 1.0F / 30.0F;
+  const auto bounds = bw::render::exposure_output_bounds({64, 1, 2, 1});
+  near(bounds.measurement_floor, .001F,
+       "Shared measurement floor is original policy");
+  near(bounds.minimum_luminance.value_or(0), 2,
+       "Shared lower bound preserves authored value");
+  near(bounds.maximum_luminance.value_or(0), 2.001F,
+       "Shared bounds preserve minimum separation");
+  const auto disabled = bw::render::exposure_output_bounds({64, 1, {}, {}});
+  require(!disabled.minimum_luminance && !disabled.maximum_luminance,
+          "Absent authored bounds remain absent for every backend");
   ExposureController controller;
   ExposureParameters parameters{2, 1, std::nullopt, std::nullopt};
   near(controller.advance({std::log(2.0F), 0}, parameters), 2,

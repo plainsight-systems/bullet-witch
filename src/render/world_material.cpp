@@ -1,5 +1,5 @@
-// Classify only source-traced static material families for every target.
-// The exact supported selectors preserve original program dependencies;
+// Classify only source-traced surface and actor material families for every
+// target. The exact supported selectors preserve original program dependencies;
 // descriptive feature requirements keep compatibility bits out of scene code.
 // Contract/algorithm and both-phase E.6/GPU.1 guidance are in the header.
 #include "bw/render/world_material.hpp"
@@ -30,12 +30,59 @@ WorldMaterialRequirements world_material_requirements(
   constexpr std::uint32_t kLocalLightSurface = 0x04a00882;
   if (lighting == WorldLightingPolicy::without_direct_lighting ||
       lighting == WorldLightingPolicy::supplied) {
+    // This clothing program interpolates between two base colors; its
+    // Fresnel coefficient controls alpha rather than reflection energy.
+    constexpr std::uint32_t kClothingLayer = 0x82c080b0;
+    constexpr std::uint16_t kClothingVariant = 2;
+    if (flags == kClothingLayer && variant == kClothingVariant) {
+      WorldMaterialRequirements result;
+      result.supported = true;
+      result.normal_map = true;
+      result.secondary_base = true;
+      result.vertex_color = true;
+      result.directional_light = lighting == WorldLightingPolicy::supplied;
+      result.spherical_harmonics = irradiance;
+      result.joint_influences = 2;
+      result.secondary_alpha_blend = true;
+      result.alpha_fresnel = true;
+      return result;
+    }
     const bool layered = flags == kLayeredShadowSurface && variant == kTwoBases;
     const bool local = flags == kLocalLightSurface && variant == kOneBase;
     const bool untextured = flags == 0x00800000 && variant == 0;
     constexpr std::array<std::uint32_t, 9> kBackgroundSelectors{
         0xc0800010, 0x80800010, 0xc0822010, 0xc2800010, 0x80800090,
         0x82800010, 0xc0802010, 0xc0c22010, 0xc0800090};
+    // These actor programs share the source surface equations with an
+    // optional authored ambient-occlusion map and one/two/four bone inputs.
+    // Their direct local-light list is supplied by the prepared scene owner.
+    constexpr std::array<std::uint32_t, 18> kActorSelectors{
+        0x00820490, 0x00822490, 0x40800010, 0x40800410, 0x42800090, 0x80800490,
+        0x80822010, 0x80822490, 0x82800010, 0x82800410, 0x82800490, 0xc0800010,
+        0xc0800410, 0xc0800490, 0xc0802490, 0xc2800410, 0x40800490, 0x42800010};
+    if (variant == kOneBase &&
+        std::ranges::find(kActorSelectors, flags) != kActorSelectors.end()) {
+      WorldMaterialRequirements result;
+      result.supported = true;
+      result.directional_light = lighting == WorldLightingPolicy::supplied;
+      result.normal_map = (flags & kNormal) != 0;
+      result.environment_map = (flags & kEnvironment) != 0;
+      result.environment_shadow = result.environment_map;
+      result.reflection =
+          (result.environment_map || result.directional_light) &&
+          (flags & kDisableReflection) == 0;
+      result.fresnel = result.reflection && (flags & kFresnel) != 0;
+      result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
+      result.spherical_harmonics = irradiance;
+      constexpr std::uint32_t kTwoJoints = 0x80000000, kOcclusion = 0x400;
+      result.local_lights = lighting == WorldLightingPolicy::supplied;
+      result.joint_influences = (flags & kSingleJoint) != 0 ? 1
+                                : (flags & kTwoJoints) != 0 ? 2
+                                                            : 4;
+      result.ambient_occlusion = (flags & kOcclusion) != 0;
+      return result;
+    }
+
     if (variant == kOneBase && std::ranges::find(kBackgroundSelectors, flags) !=
                                    kBackgroundSelectors.end()) {
       WorldMaterialRequirements result;
@@ -43,6 +90,7 @@ WorldMaterialRequirements world_material_requirements(
       result.directional_light = lighting == WorldLightingPolicy::supplied;
       result.normal_map = (flags & kNormal) != 0;
       result.environment_map = (flags & kEnvironment) != 0;
+      result.environment_shadow = result.environment_map;
       result.reflection =
           (result.environment_map || result.directional_light) &&
           (flags & kDisableReflection) == 0;
@@ -67,6 +115,9 @@ WorldMaterialRequirements world_material_requirements(
       result.reflection = result.directional_light;
       result.fresnel = result.reflection && (flags & kFresnel) != 0;
       result.base_texture = !untextured;
+      // The untextured source program consumes the scene-wide direct packet.
+      result.local_lights =
+          untextured && lighting == WorldLightingPolicy::supplied;
       return result;
     }
   }
@@ -86,16 +137,16 @@ WorldMaterialRequirements world_material_requirements(
   // Programs with directional lighting disabled also omit the specular path.
   const bool directional = (flags & kDisableDirectional) == 0;
   const bool reflection = directional && (flags & kDisableReflection) == 0;
-  return {true,
-          (flags & kNormal) != 0 && (directional || irradiance),
-          variant == kTwoBases,
-          (flags & kEnvironment) != 0,
-          (flags & kVertexColor) != 0,
-          (flags & kVertexIllumination) != 0,
-          reflection,
-          reflection && (flags & kFresnel) != 0,
-          directional,
-          (effective_flags & kAlphaSelector) != 0,
-          irradiance};
+  return {.supported = true,
+          .normal_map = (flags & kNormal) != 0 && (directional || irradiance),
+          .secondary_base = variant == kTwoBases,
+          .environment_map = (flags & kEnvironment) != 0,
+          .vertex_color = (flags & kVertexColor) != 0,
+          .vertex_illumination = (flags & kVertexIllumination) != 0,
+          .reflection = reflection,
+          .fresnel = reflection && (flags & kFresnel) != 0,
+          .directional_light = directional,
+          .alpha_cutout = (effective_flags & kAlphaSelector) != 0,
+          .spherical_harmonics = irradiance};
 }
 }  // namespace bw::render

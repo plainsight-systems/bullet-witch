@@ -23,6 +23,25 @@ void require_finite(float value) {
   }
 }
 }  // namespace
+// Normalize optional authored bounds once for either CPU history output or
+// the first actual GPU reduction. No temporal state crosses this policy API.
+ExposureOutputBounds exposure_output_bounds(
+    const ExposureParameters& parameters) {
+  auto lower = parameters.minimum_luminance;
+  auto upper = parameters.maximum_luminance;
+  if (lower) {
+    require_finite(*lower);
+    *lower = std::clamp(*lower, kLuminanceFloor, kMaximumLowerBound);
+  }
+  if (upper) {
+    require_finite(*upper);
+    *upper = std::clamp(*upper, kMinimumUpperBound, kMaximumUpperBound);
+    if (lower) {
+      *upper = std::max(*upper, *lower + kLuminanceFloor);
+    }
+  }
+  return {kLuminanceFloor, lower, upper};
+}
 float ExposureController::advance(ExposureSample sample,
                                   const ExposureParameters& parameters) {
   require_finite(sample.log_average_luminance);
@@ -31,17 +50,12 @@ float ExposureController::advance(ExposureSample sample,
   if (sample.elapsed_seconds < 0) {
     throw std::invalid_argument("Exposure elapsed time must be nonnegative");
   }
-  if (parameters.minimum_luminance) {
-    require_finite(*parameters.minimum_luminance);
-  }
-  if (parameters.maximum_luminance) {
-    require_finite(*parameters.maximum_luminance);
-  }
+  const auto bounds = exposure_output_bounds(parameters);
   // The original readback promotes the log scalar for exp, then stores float.
   const auto measured = static_cast<float>(
       std::exp(static_cast<double>(sample.log_average_luminance)));
   require_finite(measured);
-  const auto current = std::max(measured, kLuminanceFloor);
+  const auto current = std::max(measured, bounds.measurement_floor);
   const auto window = static_cast<std::size_t>(
       std::clamp(parameters.history_window, 1,
                  static_cast<std::int32_t>(kMaximumHistory)));
@@ -82,17 +96,8 @@ float ExposureController::advance(ExposureSample sample,
   }
   // Output bounds do not change retained adaptation or future slew behavior.
   auto output = adapted_;
-  auto lower = parameters.minimum_luminance;
-  auto upper = parameters.maximum_luminance;
-  if (lower) {
-    *lower = std::clamp(*lower, kLuminanceFloor, kMaximumLowerBound);
-  }
-  if (upper) {
-    *upper = std::clamp(*upper, kMinimumUpperBound, kMaximumUpperBound);
-    if (lower) {
-      *upper = std::max(*upper, *lower + kLuminanceFloor);
-    }
-  }
+  const auto& lower = bounds.minimum_luminance;
+  const auto& upper = bounds.maximum_luminance;
   if (lower) output = std::max(output, *lower);
   if (upper) output = std::min(output, *upper);
   return output;

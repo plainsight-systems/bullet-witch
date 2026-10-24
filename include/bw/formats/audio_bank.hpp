@@ -7,8 +7,9 @@
 // mixer, decoder or native audio device is created. Exclusive construction;
 // immutable reads thereafter require the byte owners to remain alive. Costs
 // O(records + seek entries + name bytes), metadata proportional to records, no
-// wave payload copy. Design SL.con.3 (#rsl-bounds) checks every reference
-// before access; MEM.6
+// wave payload copy. Streaming flags are retained as metadata; this parser
+// performs no streaming I/O or sample decoding. Design SL.con.3 (#rsl-bounds)
+// checks every reference before access; MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) routes
 // all variable metadata through the injected domain. Reference: pinned FACT
 // parsers and original bank constructors mapped in audio-bank-reference.md.
@@ -21,6 +22,25 @@ struct AudioWave {
   std::span<const std::uint8_t> encoded;
   std::uint32_t loop_start{}, loop_length{};
   std::span<const std::uint8_t> seek_entries;
+};
+// Independent wave-bank metadata supports preparing compressed samples before
+// the backend parses full cue variation/RPC schemas. Shares the same checked
+// in-memory reader as AudioBankDefinition; no duplicate container parser.
+class WaveBankDefinition {
+ public:
+  explicit WaveBankDefinition(const std::shared_ptr<memory::Domain>& domain);
+  static WaveBankDefinition parse(
+      std::span<const std::uint8_t> bytes,
+      const std::shared_ptr<memory::Domain>& domain);
+  std::string_view name() const { return name_; }
+  bool streaming() const { return streaming_; }
+  const auto& waves() const { return waves_; }
+
+ private:
+  void read(std::span<const std::uint8_t> bytes);
+  bool streaming_{};
+  std::string_view name_;
+  memory::Vector<AudioWave> waves_;
 };
 struct AudioWaveChoice {
   std::uint16_t wave{};
@@ -69,7 +89,7 @@ class AudioBankDefinition {
   static AudioBankDefinition parse(
       AudioBankInputs inputs, const std::shared_ptr<memory::Domain>& domain);
   std::string_view name() const { return name_; }
-  const auto& waves() const { return waves_; }
+  const auto& waves() const { return wave_bank_.waves(); }
   const auto& cues() const { return cues_; }
   const auto& sounds() const { return sounds_; }
   const auto& tracks() const { return tracks_; }
@@ -80,14 +100,13 @@ class AudioBankDefinition {
 
  private:
   explicit AudioBankDefinition(const std::shared_ptr<memory::Domain>& domain);
-  void read_waves(std::span<const std::uint8_t> bytes);
   void read_sounds(std::span<const std::uint8_t> bytes);
   resources::Range read_codes(std::span<const std::uint8_t> bytes,
                               std::uint64_t& cursor);
   void read_events(std::span<const std::uint8_t> bytes, std::uint64_t& cursor,
                    AudioTrack& track);
-  std::string_view name_, wave_name_;
-  memory::Vector<AudioWave> waves_;
+  std::string_view name_;
+  WaveBankDefinition wave_bank_;
   memory::Vector<AudioCue> cues_;
   memory::Vector<AudioSound> sounds_;
   memory::Vector<AudioTrack> tracks_;

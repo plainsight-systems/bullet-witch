@@ -102,3 +102,10 @@ Decoder availability and full behavior on graph failure remain unverified. No co
 ## Native evidence
 
 [0x4acb30](../../evidence/engine/pass-06g/functions/004acb30.c) · [0x507570](../../evidence/engine/pass-06d/functions/00507570.c) · [0x507ff0](../../evidence/engine/pass-06j/functions/00507ff0.c) · [0x508bf0](../../evidence/engine/pass-06i/functions/00508bf0.c) · [0x508670](../../evidence/engine/pass-06i/functions/00508670.c) · [0x562780](../../evidence/engine/pass-06g/functions/00562780.c) · [0x562b00](../../evidence/engine/pass-06j/functions/00562b00.c)
+
+## Reconstruction audio prerequisite
+
+The [animation audio assessment](animation-audio-presentation.md) identifies the
+original SE surface/cue resolver, separate VO arbitration, actual WMAv2 banks
+and the missing shared decoder/backend boundary. Movie PCM playback and bank
+metadata construction do not provide gameplay sound execution.

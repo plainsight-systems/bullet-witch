@@ -39,11 +39,24 @@
 #include <span>
 #include <utility>
 
+#include "audio/fact/output.hpp"
 #include "bw/memory/device_budget.hpp"
 #include "framework/startup_application.hpp"
 #include "platform/macos/cpu_backing.hpp"
 #include "video/ffmpeg/decoder.hpp"
 
+namespace {
+class NativeGameAudioFactory final : public bw::game::GameAudioFactory {
+ public:
+  std::shared_ptr<bw::audio::CueOutput> create(
+      std::span<const std::uint8_t> settings, bw::audio::Limits limits,
+      const std::shared_ptr<bw::memory::Domain>& domain) override {
+    return std::allocate_shared<bw::audio::fact::Output>(
+        bw::memory::Allocator<bw::audio::fact::Output>(domain), settings,
+        limits, domain);
+  }
+};
+}  // namespace
 int main(int argc, char** argv) {
   try {
     auto configuration = bw::framework::parse_startup_options(
@@ -73,13 +86,14 @@ int main(int argc, char** argv) {
     bw::platform::HostFiles files;
     bw::platform::StartupHost host(memory.runtime, device_memory,
                                    configuration.window);
+    NativeGameAudioFactory game_audio;
     // The shared loop borrows services owned by this composition scope.
     return bw::framework::run_startup(
         configuration, host, files, *saves,
         [domain = memory.media](const std::filesystem::path& path) {
           return bw::video::ffmpeg::open_decoder_in_domain(path, domain);
         },
-        memory);
+        memory, game_audio);
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

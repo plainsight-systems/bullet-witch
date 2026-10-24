@@ -8,6 +8,12 @@ The selected actor now has a connected [lifecycle map](actor-lifecycle.md): hier
 update, state/AI dispatch, pose and attachments, deferred spawning and destruction.
 Animation codecs, detailed physics/AI contracts and other actor variants remain open.
 
+The current reconstruction's full Alicia animation continuation is organized in
+[animation coverage and implementation order](alicia-animation-coverage.md):
+161 body clips, event/layer/weapon dependencies, source-proven bindings and the
+remaining per-family consumers. It separates available resources from completed
+behavior and keeps combat outcomes outside the animation pass.
+
 ## Character resource construction
 
 The resource registry maps `vfx2.create.character` to **0x418f20**. At CALL phase 2
@@ -207,3 +213,17 @@ rendered frames.
 - MODEL-03: recover sampler codecs and bone/material blend arithmetic; classify
   additional pose passes and mode-specific scheduling.
 - Graphics implementation remains deferred while the engine map advances.
+
+### Selected weapon ownership
+
+Normal B/Q switching now keeps the actor's body/upper/additive playback and
+selected event timelines at their stable address. Weapon playback is a separate
+owned clock bound to its own immutable class catalog and the stable actor sink.
+A candidate prepares that owner without changing the current body, validates its
+source rest, and retains the displayed body for renderer publication. After
+publication, adoption retires the old weapon clock before its catalog/assets,
+preserves body facial/secondary state, and submits the source upper switch
+request. Idle source policy then synchronizes its full-body switch variant;
+moving locomotion stays beneath the upper layer. The explicit paused Weapon
+Class review retains its independent neutral-reset contract. See
+[the source switch contract](alicia-action-policy.md#normal-weapon-cycling-presentation).

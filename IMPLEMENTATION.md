@@ -119,7 +119,7 @@ The arrows describe the chosen development approach, not an already working port
 
 ## SRC-03: One Shot Kill delivery breakdown
 
-**Target selected October 23, 2026; slices 1–4 are authorized, with distinct
+**Target selected October 23, 2026; slices 1–5 are authorized, with distinct
 acceptance boundaries below.**
 The Concept Mission menu unlock, source-backed concept routing and owned mission
 Lua are implemented. The original load returns after genuine resource
@@ -138,7 +138,7 @@ level-viewer project.
 | 2. Required content and typed loading | Follow the real `load()` sequence and census its transitive stage/placement dependencies: sky, character lighting, area/model data, text/score, hide/path data, sound/environment/reverb, magic/background objects and `cm01_00_0`. Extend typed record/CALL handling and the shared background resource worker as required. | Required content is decoded and owned with explicit readiness; queue completion alone never reports successful asset construction. Missing/malformed content, cancellation and release have observable outcomes and balanced ownership. GPU readiness remains a later consumer boundary. |
 | 3. World renderer foundation | Follow the [renderer reconstruction drill-in](docs/architecture/world-renderer-reconstruction.md). Assemble real static stage geometry through shared world/render contracts and the Mac Metal backend. Add vertex/index/depth handling and the required original textured material subset. Use the script-authored spawn and recovered initial player-camera settings, clearance and projection. | First visible level: actual `st04_c` geometry appears with checked placement, scale and depth. This is a static world view, not player control or completed original lighting; omissions are recorded. |
 | 4. Required stage presentation | Add the sky, background, lighting/area behavior and material/effect variants required by the confirmed dependency closure. This can proceed alongside later actor work once interfaces are stable. | The stage's required presentation inputs have visible consumers and known gaps; no blanket original-renderer parity claim. |
-| 5. Alicia and traversal | Construct the player actor, model/animation, input, game camera and collision/movement path. Honor mission entry and checkpoint-dependent player positions. | Alicia can traverse the stage through the game camera without falling through geometry; original start/pause/resume gates and checkpoint 0/10/20 placement branches are exercised. |
+| 5. Alicia and traversal | Construct the player actor, model/animation, input, game camera and collision/movement path. Use an explicit bounded traversal entry with the sole approved initial-placement shim. | Alicia can traverse the stage through the game camera without falling through geometry; bounded traversal pause/resume is exercised. Historical diagnostics inject independent checkpoint-coordinate fixtures, not production checkpoint restoration. Full original mission start belongs to slice 6. |
 | 6. Mission behavior | Implement the placement-driven enemies and required native AI/combat/damage, traps 610/620, checkpoints 10/20, goal 500, timer dispatch, HUD/messages, gameplay audio and effects. Establish where the one-hit rule is implemented outside the mission script. | The actual actors and mission callbacks produce observable behavior: checkpoint progression, music timer, goal handling and evidenced one-hit/death behavior. Script simplicity is not treated as absence of native enemies or AI. |
 | 7. Complete the mission loop | Connect clear/death/retry/result/root-return routing and repeat load/unload. Preserve outcome values separately from cleanup completion. | Load, play, clear or die, retry, return to menu and load again without stale jobs, callbacks, leases or device uses. Gameplay save writing is accepted only after its schema and restoration behavior are implemented. |
 
@@ -163,8 +163,7 @@ and sky. Runtime shader selection now consumes the original sky and authored
 stage spherical-harmonic inputs, and the host forwards the authored output
 settings. This closes the earlier black sky and clipped ground failures without
 changing exposure values. Slice 4 is implemented, verified and accepted on October 23, 2026.
-Slice 5 remains planned and awaits authorization.
-Projection and shadow edge sampling are completed inside this slice, including
+Projection and shadow edge sampling are completed inside slice 4, including
 camera movement and boundary filter footprints. Its actual-corpus selection
 contains 4,100 ordinary surface draws, 674 placed-prop draws and one sky draw,
 with zero material omissions. Initial group masks, body-to-joint palettes,
@@ -181,6 +180,44 @@ mip generation is a separate setting-dependent path, not a slice-4 prerequisite.
 Current native observations belong in [renderer evidence](research/engine/subsystems/stage-view-completion.md);
 load acceptance is recorded in [mission ownership](research/engine/subsystems/mission-launch.md).
 
+The initial slice-5 traversal boundary is implemented and verified: selected-costume skeletal animation and weapon attachment,
+root-driven locomotion, custom static character collision, physical jump/landing,
+a live camera and traversal pause/resume. The sole approved temporary shim supplies
+the exact fresh One Shot Kill initial pose; production checkpoint restoration is
+not implemented. Historical checkpoint-coordinate probes are test evidence only. The native menu route reaches the loaded player
+scene, where walking, jumping/landing, camera look and pause/resume were observed.
+Full mission start, checkpoint progression and dynamic-body simulation remain
+later scope. See [actors and animation](docs/architecture/actors-and-animation.md)
+for ownership and the remaining input-policy fidelity boundary, and
+[traversal acceptance](research/engine/subsystems/player-traversal-acceptance.md)
+for native evidence and measured update cost.
+
+The user-expanded Alicia animation slice is ready for physical user review after
+source-backed ownership/lighting correction, scoped adversarial re-review and the
+final integrated gate. Only initial placement has an explicit temporary shim
+exception; see [current adversarial disposition](research/engine/subsystems/overfitting-and-shim-review.md).
+Native review exposed analog rejection, missing live weapon-switch motion and
+incorrect aiming; source-backed corrections now pass their actual sequences.
+The combined turning/firing failure also required separating grounded contact
+from airborne ascent, preserving support during positive animation root motion.
+The full automated gate passes; this does not replace user acceptance.
+Presentation mechanisms have live action inputs and an explicit
+in-scene animation review path, including transactional weapon-class selection.
+Prior integrated checks cover their exercised paths; they did not establish
+correctness of these rejected live sequences. See the
+[review checklist](docs/animation-review.md).
+Its boundary includes the full prepared motion catalog,
+source action-family transitions, ordered body/upper-body layers, independent
+weapon playback, motion-event presentation and facial deformation. Each family
+has a reachable accepted presentation request or an explicit source/resource
+disposition, with actual-content verification recorded in
+[animation acceptance](research/engine/subsystems/alicia-animation-acceptance.md).
+Decoded clips or mapped functions alone do not establish gameplay completion. Combat outcomes,
+enemy behavior and the original mission start belong to slice 6. The remaining
+neutral backward-evade visual comparison and garment surface intersections are
+documented separately rather than silently treated as solved. See
+[animation coverage](research/engine/subsystems/alicia-animation-coverage.md).
+
 Teardown and partial-construction rollback belong to every slice; slice 7 verifies
 the complete loop rather than introducing cleanup at the end. A developer mission
 launch path may shorten iteration, but cannot stand in for validated menu routing.
@@ -190,8 +227,9 @@ set achievements or unlock campaign Stage Select, Chaos or Hell. The native
 status accessor and selected-concept resource alias are separately recovered and
 implemented; menu access policy does not replace those contracts.
 
-Before traversal, decide the backend and cooked-collision treatment for the
-[recovered PhysX 2.6.4 boundary](research/engine/subsystems/physics-and-collision.md).
+Traversal preserves the recovered custom character controller over shared static
+contact queries. The [PhysX 2.6.4 boundary](research/engine/subsystems/physics-and-collision.md)
+remains separate for dynamic-body provider and cooked-data treatment.
 That choice affects behavior and needs explicit direction if it changes fidelity;
 it need not block the first static view. Existing movie PCM playback does not
 implement gameplay sound banks. Scope material/shader work to actual stage needs,
@@ -347,3 +385,11 @@ The current target is One Shot Kill. Preserve the implemented front-end, owned
 mission and inspection contracts while completing remaining load consumers; address the
 remaining front-end gaps at their owning subsystems rather than fabricating
 successful behavior.
+
+The next slice must first reconcile its playable-level dependencies and then
+prioritize real in-level pause/resume lifecycle, input ownership, simulation
+freeze/resume, and HUD feedback from authoritative player/weapon state. Animation
+review controls are not proof of those gameplay contracts. The dependency
+checklist in [QUEUE](docs/process/QUEUE.md) must distinguish missing gameplay
+state from presentation and later fidelity upgrades before deeper level work.
+No placeholder HUD or fabricated action outcome satisfies this prerequisite.

@@ -1,3 +1,14 @@
+// Action input reports normalized fire intent and one-shot button edges only;
+// game owners admit shots, reloads, weapon switches and aim modes. Native
+// focus loss clears held state. Design I.1 (#ri-explicit) keeps that boundary
+// explicit; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps
+// the added edge history in fixed inline storage without per-pump allocation.
+// Component draw replacement applies I.1 (#ri-explicit), C.85
+// (#rc-swap-noexcept), and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md):
+// prepare discrete changes before nonthrowing publication, retaining unrelated
+// state and resident resources. See model-draw-replacement.md; both MCP phases.
+// View updates forward atomically to the retained renderer (both-phase
+// I.1/C.121 and GPU.1), without copying geometry or allocating host storage.
 // Material animation forwards an explicit borrowed constant-update batch
 // (both-phase I.1 #ri-explicit and GPU.1 retained-device-data guidance).
 // The host preserves the native owner and main-thread access boundary.
@@ -53,6 +64,16 @@ struct StartupInput {
   std::uint32_t pressed_actions{};
   std::uint32_t repeated_actions{};
   bool close_requested{};
+  // Raw normalized axes, held evade and pause edge. Gameplay owns dead zones,
+  // rates, motion selection and pause policy; menu repeats remain independent.
+  std::array<float, 2> movement{}, look{};
+  bool evade_held{}, pause_pressed{}, crouch_pressed{};
+  // Default controller RT / desktop F. No shot acceptance or cadence here.
+  float fire_trigger{};
+  // Controller X/A/B/RS click; desktop R/E/Q/T. Keyboard taps survive a
+  // down/up pair drained in one pump. These are not menu-repeat actions.
+  bool reload_pressed{}, attack_pressed{}, weapon_cycle_pressed{},
+      aim_mode_pressed{};
 };
 inline constexpr std::uint32_t kDefaultWindowWidth = 1280;
 inline constexpr std::uint32_t kDefaultWindowHeight = 720;
@@ -105,8 +126,20 @@ class StartupHost final : public video::Output,
   void set_world_output_parameters(
       const render::WorldOutputParameters& parameters) override;
   void set_world_draws(std::span<const render::WorldColorDraw> draws) override;
+  void replace_world_model_draws(
+      render::WorldModelHandle previous,
+      std::span<const render::WorldColorDraw> replacement) override;
   void update_world_texture_offsets(
       std::span<const render::WorldTextureOffsetUpdate> updates) override;
+  void update_world_lighting(
+      std::span<const render::WorldLightingUpdate> updates) override;
+  void update_world_poses(
+      std::span<const render::WorldPoseUpdate> updates) override;
+  void update_shape_positions(
+      std::span<const render::WorldShapePositionUpdate> updates) override;
+  void update_world_visibility(
+      std::span<const render::WorldVisibilityUpdate> updates) override;
+  void update_world_view(const render::WorldViewUpdate& update) override;
   void clear_world_draws() noexcept override;
 
  private:

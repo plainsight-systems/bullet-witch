@@ -14,6 +14,8 @@ struct OutputParameters {
   float bloom_key, bloom_threshold, bloom_soft_knee, log_luminance;
   uint adapted, bloom, enabled;
   float opacity;
+  float4 global_color;
+  float4 first_measurement_bounds;
 };
 constexpr sampler point_clamp(coord::normalized, address::clamp_to_edge,
                               filter::nearest);
@@ -30,6 +32,15 @@ vertex OutputVertex world_output_vertex(uint id [[vertex_id]],
   // direction.
   float2 position = positions[id] + float2(.5, -.5) * p.inverse_extent;
   return {float4(position, 0, 1), uvs[id]};
+}
+// Original ScalingRGB pool pixel 17: point-clamped RGB multiplication,
+// unchanged alpha, no saturation. The separate RGBA16F target precedes the
+// luminance/bloom chain, preserving both measurement input and quantization.
+fragment float4 world_scale_rgb(OutputVertex in [[stage_in]],
+                                texture2d<float> image [[texture(0)]],
+                                constant OutputParameters& p [[buffer(0)]]) {
+  float4 color = image.sample(point_clamp, in.uv);
+  return float4(color.rgb * p.global_color.rgb, color.a);
 }
 fragment float4 world_log_luminance(OutputVertex in [[stage_in]],
                                     texture2d<float> image [[texture(0)]]) {
@@ -67,13 +78,27 @@ fragment float world_reduce_luminance(OutputVertex in [[stage_in]],
                  .r;
   return sum / 16;
 }
+// With no completed CPU readback, apply the same source output limits to the
+// actual current GPU measurement. No temporal sample is fabricated. A disabled
+// history keeps the original raw-reduction path; retained CPU output is already
+// bounded. Bloom and final transfer intentionally differ after this selection.
+float output_log_luminance(texture2d<float> luminance,
+                           constant OutputParameters& p) {
+  if (p.adapted) return p.log_luminance;
+  float measured = luminance.sample(point_clamp, float2(.5)).r;
+  if (p.first_measurement_bounds.w != 0) {
+    float value = max(exp(measured), p.first_measurement_bounds.z);
+    measured = log(clamp(value, p.first_measurement_bounds.x,
+                         p.first_measurement_bounds.y));
+  }
+  return measured;
+}
 fragment float4 world_bloom_extract(OutputVertex in [[stage_in]],
                                     texture2d<float> image [[texture(0)]],
                                     texture2d<float> luminance [[texture(1)]],
                                     constant OutputParameters& p
                                     [[buffer(0)]]) {
-  float measured =
-      p.adapted ? p.log_luminance : luminance.sample(point_clamp, float2(.5)).r;
+  float measured = output_log_luminance(luminance, p);
   float3 thresholded = max(image.sample(point_clamp, in.uv).rgb * p.bloom_key /
                                    exp(measured + .001) -
                                p.bloom_threshold,
@@ -126,8 +151,7 @@ fragment float4 world_display_output(OutputVertex in [[stage_in]],
                                      [[buffer(0)]]) {
   float3 color = image.sample(point_clamp, in.uv).rgb;
   if (p.enabled) {
-    float measured = p.adapted ? p.log_luminance
-                               : luminance.sample(point_clamp, float2(.5)).r;
+    float measured = output_log_luminance(luminance, p);
     color = pow(abs(color * p.exposure_key / (exp(measured) + .001)),
                 float3(p.inverse_gamma));
     if (p.bloom) color += bloom.sample(linear_clamp, in.uv).rgb;

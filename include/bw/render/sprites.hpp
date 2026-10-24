@@ -49,6 +49,12 @@ struct Sprite {
   Rect uv{0, 0, 1, 1};
   Color color;
   TextureChannel channel{TextureChannel::rgba};
+  // Clockwise canvas rotation about a local pixel origin. Zero preserves the
+  // existing axis-aligned contract. Authored loading art supplies this pivot;
+  // it is not inferred from texture dimensions. I.1 exposes the transform and
+  // GPU.1 keeps the image resident while only constants change.
+  float rotation_radians{};
+  float rotation_origin_x{}, rotation_origin_y{};
 };
 class SpriteOutput {
  public:

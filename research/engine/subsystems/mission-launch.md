@@ -4,6 +4,12 @@ October 23, 2026. Original executable/installation remain read-only. This record
 separates recovered contracts, implemented ownership and outstanding native
 consumers; loading definitions is not a completed mission.
 
+The current [mission-start admission audit](mission-start-admission.md) identifies
+the exact setup gates still missing before original `start()` may run. The
+animation review scene's fixed placement remains an open reconstruction finding;
+resident assets and an Alicia controller do not satisfy the set-table actor
+construction, world-lifetime and callback/checkpoint gates.
+
 ## Menu status accessor: previous uncertainty resolved
 
 The menu updater `0x49b320` stores internal result **5** for a completed extra
@@ -65,15 +71,17 @@ Recovered early operations:
 | Operation | Recovered contract / implementation boundary |
 |---|---|
 | `_GetCheckPoint` / `0x478d20` | Reads checkpoint state. Current MissionDriver is used only for a fresh concept route, initial checkpoint0; Continue is not routed through it. |
-| `_ExecLoadingScene` / `0x4787e0` | Immediate task activation. Argument5 is a loading item, **not** the title's randomly selected background-image index. Owner getter `0x43d7f0`, initializer `0x4a6b40`, update `0x4a7470`, draw `0x4a6c00`. Active item is retained; full animated presentation remains explicitly unready. |
+| `_ExecLoadingScene` / `0x4787e0` | Immediate task activation. Argument5 is a loading item, **not** the title's randomly selected background-image index. Owner getter `0x43d7f0`, initializer `0x4a6b40`, update `0x4a7470`, draw `0x4a6c00`. Active item is retained; the native composition now presents the original selected portrait, animated art and item text through `StartupLoadingSurface`. |
 | `_SetRiffName` / `0x47c610` | Phase0 copies the name through `0x43eac0` and returns pending; phase`0x466` resumes. Driver retains the copied name and one initial wait. |
 | `_LoadCharaLight` | Worker `0x441160` requests `charalight.<name>_cl/_el`; `0x568030` retains each published USER pointer with scalar defaults. Retained raw CPU owners can satisfy that load without claiming a lighting evaluator. |
 | `_LoadSky` | `0x442520` matches the exact model name, then uses `0x444580`. Actual `sky04_c` has one mesh, one texture and one material; no collision or material-animation catalog entries. CPU definitions are retained; original mesh/texture wrapper/device readiness is tracked separately. |
 | `_LoadStage` | Shared stage decoder can retain a complete static CPU snapshot. Collision, area, material-animation and other consumers remain explicit; a static inspection snapshot cannot certify script/gameplay readiness. |
 
 The loading draw references system sprites447/448 (`loading_15s_1.png`,
-`loading_15s_2.png`) with rotation/animation, plus an indexed text table. Current
-portable sprite commands lack rotation; this is a concrete presentation gap.
+`loading_15s_2.png`) in 45 repeated sliding submissions, plus an indexed text
+table. Portable sprite commands now carry the original centered rotation. See
+[loading presentation](loading-presentation.md) and [source mapping](loading-art-mapping.md)
+for the concrete artwork, localization, icons and safe loading pulses.
 Background sprite332 belongs to the title-selected loading group and is distinct
 from argument5. No arbitrary loading05 image is substituted for that argument.
 
@@ -203,7 +211,8 @@ CPU ray evidence and the original constructor closed that selection error.
 
 This completes resource-loading acceptance for the selected mission, not actor
 creation or gameplay. Original `_WaitMission` remains pending until a future
-world/outcome producer exists. Loading-scene animation and authored scene
-presentation remain explicit work. Current native observations are recorded in
+world/outcome producer exists. The native loading presentation now runs during
+asset construction; script start/outcome completion remains a separate contract.
+Current native observations are recorded in
 [stage view completion](stage-view-completion.md); synthetic corpus output alone
 does not certify the native image.

@@ -479,15 +479,16 @@ its exposure or sky. This is a sampled geometry witness, not a blanket claim
 about every later camera or material transparency. The authored quads remain
 retained and must be implemented when their visible use is reached.
 
-The initial eye lies inside the selected AREA record (id1), but the environment
-update is **disabled by the authored stage setting**. `0x4829d0` performs the
-AREA/table/FLAN-driven settings update only when stage byte0x24 is nonzero.
-Instruction0x4829db explicitly compares `[EAX+0x24]` with zero; selected
-`st04_c` byte0x24 is zero. This matters because the enabled branch can otherwise
-change tone parameters, directional colors and global color-processing values.
-Applying those FLAN values despite the gate would introduce behavior absent
-from the original selected scene. The default CSTM environment remains the
-correct input for this snapshot.
+The initial eye lies inside AREA record id 1. The prior claim that raw stage
+byte `+0x24 == 0` disables the update was incorrect: activation
+`45ae00 → 45cbe0 → 45ff80 → 5f9c00` sets that byte to one before runtime
+`4829d0`. The original AREA/STBL/FLAN producer changes the effective environment;
+raw CSTM defaults are not the final scene inputs. Independent original-code
+execution on actual data selects row/frame 1 and publishes character SH intensity
+`0.005`, ambient zero and exposure key `0.13`, among other values. See
+[the corrected live producer audit](lighting-scene-producer-contract.md#scene-gates-and-remaining-limits).
+The earlier `stage-area-fidelity-audit.json` records raw bytes only and does not
+prove runtime gating. Its disabled-AREA conclusion is superseded.
 
 Area lookup for environment cubemaps is independent: `0x4828f0` selects table
 column2 after `0x482910` maps the containing AREA id to its row. The two actual

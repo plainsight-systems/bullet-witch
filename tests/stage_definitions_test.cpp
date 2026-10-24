@@ -241,9 +241,13 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
   auto parse = [&] {
     return bw::formats::StageEnvironment::parse(bytes, "test", domain);
   };
+  scalar(0x1c, .75F);
+  scalar(0x20, 1.25F);
   const auto result = parse();
   require(result.sky_yaw_degrees == 15 && result.sky_height == 2 &&
               result.ambient_color == std::array{0.25f, 0.5f, 2.0f} &&
+              result.character_light_intensity == .75F &&
+              result.enemy_light_intensity == 1.25F &&
               result.light_diffuse.front() == 0.5f &&
               result.light_vector.at(1) == 1000 &&
               result.tone_mapping.enabled &&

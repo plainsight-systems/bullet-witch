@@ -61,6 +61,14 @@ native hot paths to select target-specific implementations. Acceptance of a
 scalar routine for one port slice does not prescribe the architecture of larger
 future animation workloads.
 
+Preserve recovered CPU/GPU work placement for the direct-port baseline without
+presenting it as recommended modern architecture. Broad repartition is a later
+improvement pass after the working port. A measured performance blocker or a
+demonstrated defect can justify a focused earlier exception: record the source
+boundary, measurements, chosen change and native acceptance. Untraced paths stay
+explicitly unresolved; do not extrapolate whole-engine parity from one consumer.
+See `docs/architecture/world-renderer-reconstruction.md`.
+
 Prefer a proven implementation or algorithm behind the project's portable/native
 boundaries over inventing a new framework. Review known limitations as well as
 successful behavior. Reference study supplements the required C++ MCP guidance;
@@ -76,6 +84,14 @@ boundary, and validate the resulting consumer. Do not quietly promote the
 inference to original parity or keep tracing indefinitely without implementing
 a useful, reviewable boundary. A decision that changes the broader fidelity or
 platform plan still needs user direction.
+
+Resolve the algorithm before tuning the result. Reproduce the complete
+input-to-state-to-visible-output path and locate its first violated boundary.
+Use recovered source first; after a bounded trace, use a concrete pinned
+established implementation for the ambiguous boundary and record the inference.
+Do not accumulate sign, offset, clamp, tolerance, timing or special-case patches
+without evidence. A failed correction reopens the diagnosis; isolated helper
+tests do not establish integrated correctness.
 
 Verification must exercise the behavior that matters in the running subsystem.
 For media, that includes visible final frames, complete audio, clock progression,

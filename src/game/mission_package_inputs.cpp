@@ -110,8 +110,9 @@ void MissionLoading::preload_model(std::string_view name) {
     }
     dependency_definitions_.push_back(std::move(definition));
     if (renderer_ != nullptr) {
-      dependency_residencies_.emplace_back(
-          *renderer_, dependency_definitions_.back(), memory_);
+      dependency_residencies_.emplace_back(*renderer_,
+                                           dependency_definitions_.back(),
+                                           memory_, options_.progress);
     }
     dependency_names_.push_back(std::move(model));
   }
@@ -132,6 +133,7 @@ memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
     for (std::size_t index = 0; index < definition.models.size(); ++index) {
       const auto& model = definition.models.at(index);
       std::span<const std::int32_t> body_joints;
+      const formats::PhysicsCollisionDefinition* physics_collision = nullptr;
       for (const auto& input : definition.inputs) {
         constexpr std::string_view kModelPrefix = "model.";
         std::string_view name = input.name;
@@ -142,11 +144,13 @@ memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
         if (name.starts_with(model.name) &&
             name.substr(model.name.size()) == ".phit") {
           body_joints = input.physics_collision->body_joints();
+          physics_collision = &*input.physics_collision;
           break;
         }
       }
       result.push_back({model.name, model.definition,
-                        resident->models.at(index), body_joints});
+                        resident->models.at(index), body_joints,
+                        physics_collision});
     }
     ++resident;
   }
@@ -258,8 +262,9 @@ void MissionLoading::preload_character(std::string_view name) {
     }
     dependency_definitions_.push_back(std::move(definition));
     if (renderer_ != nullptr) {
-      dependency_residencies_.emplace_back(
-          *renderer_, dependency_definitions_.back(), memory_);
+      dependency_residencies_.emplace_back(*renderer_,
+                                           dependency_definitions_.back(),
+                                           memory_, options_.progress);
     }
     dependency_names_.push_back(std::move(model));
   }
@@ -282,8 +287,8 @@ void MissionLoading::load_npc_palette() {
     if (!palette_definition_) {
       throw std::logic_error("NPC texture definition disappeared");
     }
-    palette_residency_.emplace(*renderer_, palette_definition_.value(),
-                               memory_);
+    palette_residency_.emplace(*renderer_, palette_definition_.value(), memory_,
+                               options_.progress);
     palette_ = make_npc_palette(palette_definition_.value(),
                                 palette_residency_->textures, memory_);
   }

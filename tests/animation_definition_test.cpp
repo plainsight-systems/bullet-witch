@@ -52,6 +52,30 @@ void animation_definition_tests() {
   auto domain =
       bw::memory::Domain::create(std::make_shared<AnimationBacking>());
   {
+    // Cancellation is a persistent authored event window, with file-relative
+    // offsets and signed frames; absent channels leave no early-exit policy.
+    bw::resources::Bytes bytes(128);
+    word(bytes, 0, 0x30415046);
+    require(!bw::formats::MotionCancellation::parse(bytes).first_frame,
+            "Absent cancellation channel has no marker");
+    word(bytes, 20, 44);
+    word(bytes, 44, 0x43414e30);
+    word(bytes, 48, 2);
+    word(bytes, 52, 56);
+    word(bytes, 88, 13);
+    word(bytes, 124, 7);
+    require(bw::formats::MotionCancellation::parse(bytes).first_frame == 7,
+            "Cancellation latches at the earliest authored frame");
+    word(bytes, 124, 0xffffffff);
+    rejects([&] { (void)bw::formats::MotionCancellation::parse(bytes); });
+    word(bytes, 124, 7);
+    word(bytes, 48, 3);
+    rejects([&] { (void)bw::formats::MotionCancellation::parse(bytes); });
+    word(bytes, 48, 2);
+    word(bytes, 44, 0);
+    rejects([&] { (void)bw::formats::MotionCancellation::parse(bytes); });
+  }
+  {
     bw::resources::Bytes bytes(140);
     word(bytes, 0, 0x00414237);
     word(bytes, 20, 1);

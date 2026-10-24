@@ -1,3 +1,6 @@
+// Typed PHIT shape decoding applies both-phase I.1 (ri-explicit) to body/pose
+// associations and MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// to load-only metadata. Convex float3 spans borrow the retained archive.
 // Material animation refinement applies both-phase R.2 (#rr-use-ptr) to
 // bounded borrowed labels/keys and MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md) to setup-only metadata allocation.
@@ -10,6 +13,9 @@
 // outside format decoding. Partial metadata unwinds through the explicit domain
 // owner. Both MCP phases retrieved SL.con.3 (#rsl-bounds) and MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md).
+// Enabled local-light records copy finite authored parameters at load time.
+// Both MCP phases I.1 (ri-explicit) and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) keep runtime emission outside decoding.
 #include "bw/formats/stage_definitions.hpp"
 
 #include <bit>
@@ -215,6 +221,32 @@ PhysicsCollisionDefinition PhysicsCollisionDefinition::parse(
     constexpr std::uint64_t kLinksCountOffset = 8, kLinksTableOffset = 12;
     const auto group = reference(kHeaderBase + kGroupWord * kWordBytes);
     if (group != 0) {
+      // The emitter bit admits an authored joint and two independent colors.
+      constexpr std::uint32_t kLocalLightFlag = 0x200;
+      constexpr std::uint64_t kLightJoint = 36, kLightDiffuse = 40;
+      constexpr std::uint64_t kLightSpecular = 52, kLightAttenuation = 64;
+      constexpr std::uint64_t kLightRecordBytes = 76;
+      if ((reader.u32(group) & kLocalLightFlag) != 0) {
+        reader.range(group, kLightRecordBytes);
+        PhysicsLocalLight light;
+        light.joint =
+            std::bit_cast<std::int32_t>(reader.u32(group + kLightJoint));
+        for (std::size_t channel = 0; channel < light.diffuse.size();
+             ++channel) {
+          auto scalar = [&](std::uint64_t field) {
+            const auto value = std::bit_cast<float>(
+                reader.u32(group + field + channel * kWordBytes));
+            if (!std::isfinite(value)) {
+              malformed("Nonfinite physics local light");
+            }
+            return value;
+          };
+          light.diffuse.at(channel) = scalar(kLightDiffuse);
+          light.specular.at(channel) = scalar(kLightSpecular);
+          light.attenuation.at(channel) = scalar(kLightAttenuation);
+        }
+        result.local_light_ = light;
+      }
       directory({group + kGroupCountOffset, group + kGroupTableOffset},
                 [](std::uint64_t) {});
     }
@@ -248,6 +280,97 @@ PhysicsCollisionDefinition PhysicsCollisionDefinition::parse(
       }
       reference(child + 2 * kWordBytes, child);
       reference(child + 3 * kWordBytes, child);
+    }
+  }
+  // Resolve convex clouds in their separate SDK-cache order, then attach each
+  // typed shape to its authored body and expanded row-vector local pose.
+  memory::Vector<std::span<const std::uint8_t>> convex_clouds{
+      memory::Allocator<std::span<const std::uint8_t>>(domain)};
+  constexpr std::uint64_t kCloudKindOffset = 2, kCloudCountOffset = 4;
+  constexpr std::uint64_t kCloudPointsOffset = 8;
+  if (root != 0) {
+    const auto count = reader.u32(root);
+    for (std::uint32_t i = 0; i < count; ++i) {
+      const auto child = root + reader.u32(root + (i + 1ULL) * kWordBytes);
+      reader.range(child, kCloudPointsOffset + kWordBytes);
+      if (half(bytes, static_cast<std::size_t>(child + kCloudKindOffset)) ==
+          0) {
+        const auto points =
+            half(bytes, static_cast<std::size_t>(child + kCloudCountOffset));
+        const auto data = reader.u32(child + kCloudPointsOffset);
+        if (points != 0 && data == 0) {
+          malformed("Null convex collision point cloud");
+        }
+        convex_clouds.push_back(
+            span(reader, {child + data, points * kVectorBytes}));
+        for (std::uint64_t point = 0; point < points; ++point) {
+          for (std::uint64_t axis = 0; axis < 3; ++axis) {
+            (void)number(reader, child + data + point * kVectorBytes +
+                                     axis * kWordBytes);
+          }
+        }
+      }
+    }
+  }
+  constexpr std::uint64_t kShapePoseOffset = 16, kShapeGeometryIndex = 68;
+  constexpr std::uint64_t kShapeDimensionsOffset = 64;
+  constexpr std::size_t kRotationRows = 3, kTranslationRow = 3;
+  if (body_table != 0) {
+    for (std::uint32_t body = 0; body < body_count; ++body) {
+      const auto record = reader.u32(body_table + body * kWordBytes);
+      if (record == 0) {
+        continue;
+      }
+      const auto count = reader.u32(record + kShapeCountOffset);
+      const auto table = reader.u32(record + kShapeTableOffset);
+      if (count != 0 && table == 0) {
+        malformed("Null physics shape directory");
+      }
+      reader.range(table, count * kWordBytes);
+      for (std::uint32_t shape = 0; shape < count; ++shape) {
+        const auto at = reader.u32(table + shape * kWordBytes);
+        if (at == 0) {
+          continue;
+        }
+        const auto kind = reader.u32(at);
+        if (kind >
+            static_cast<std::uint32_t>(PhysicsShapeKind::triangle_mesh_alt)) {
+          unsupported("Unsupported physics shape kind");
+        }
+        PhysicsShape value;
+        value.kind = static_cast<PhysicsShapeKind>(kind);
+        value.body = body;
+        for (std::size_t row = 0; row < kRotationRows; ++row) {
+          for (std::size_t column = 0; column < kRotationRows; ++column) {
+            value.local_pose.at(row).at(column) =
+                number(reader, at + kShapePoseOffset +
+                                   (column * kRotationRows + row) * kWordBytes);
+          }
+          value.local_pose[kTranslationRow].at(row) = number(
+              reader, at + kShapePoseOffset +
+                          (kRotationRows * kRotationRows + row) * kWordBytes);
+        }
+        if (value.kind == PhysicsShapeKind::convex) {
+          const auto index = reader.u32(at + kShapeGeometryIndex);
+          if (index >= convex_clouds.size()) {
+            malformed("Physics shape convex index exceeds cloud directory");
+          }
+          value.convex_points = convex_clouds.at(index);
+        } else if (value.kind <= PhysicsShapeKind::capsule) {
+          const std::size_t dimensions =
+              value.kind == PhysicsShapeKind::box
+                  ? 3
+                  : (value.kind == PhysicsShapeKind::capsule ? 2 : 1);
+          for (std::size_t axis = 0; axis < dimensions; ++axis) {
+            value.dimensions.at(axis) =
+                number(reader, at + kShapeDimensionsOffset + axis * kWordBytes);
+            if (value.dimensions.at(axis) < 0) {
+              malformed("Negative physics shape dimension");
+            }
+          }
+        }
+        result.shapes_.push_back(value);
+      }
     }
   }
   return result;

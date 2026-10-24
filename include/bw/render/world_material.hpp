@@ -1,4 +1,4 @@
-// Shared classification of recovered original static surface programs.
+// Shared classification of recovered original surface and actor programs.
 // Input flags are the effective original selector after explicit pass policy;
 // variant preserves the original low two selector bytes. Return unsupported
 // for untraced programs: never select a plausible replacement. Requirements
@@ -28,14 +28,22 @@ struct WorldMaterialRequirements {
   bool supported{};
   bool normal_map{}, secondary_base{}, environment_map{};
   bool vertex_color{}, vertex_illumination{};
-  bool reflection{}, fresnel{}, directional_light{};
+  bool reflection{}, fresnel{}, directional_light{}, local_lights{};
+  // Source actor/background receivers multiply environment facing by shadow
+  // visibility; static environment programs do not. Independent of direct
+  // diffuse/specular shadow policy. Both phases I.1/GPU.1: classify once and
+  // retain this explicit equation feature with the uploaded material layout.
+  bool environment_shadow{};
   // Original depth coverage: material alpha * base alpha >= 0.5 at raw UV.
   bool alpha_cutout{};
   bool spherical_harmonics{};
   // Original untextured programs consume material constants without UV/base.
   bool base_texture{true};
-  // Exact original vertex families use zero, one or two joint influences.
+  // Exact original vertex families use zero, one, two or four joint influences.
   std::uint8_t joint_influences{};
+  bool ambient_occlusion{};
+  // Distinct authored clothing layer blends RGB and applies FRSA to alpha.
+  bool secondary_alpha_blend{}, alpha_fresnel{};
 };
 WorldMaterialRequirements world_material_requirements(
     std::uint32_t effective_flags, std::uint16_t variant,

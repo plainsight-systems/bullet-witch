@@ -1,3 +1,13 @@
+// Component replacement verification applies both-phase I.1/C.85 and GPU.1:
+// exercise transaction rollback and retained native state with device pixels.
+// Shadow footprint tests exercise the inferred UE receiver-plane adaptation:
+// tilted self-receivers remain lit while distinct thin casters retain contact
+// edges; singular projection derivatives stay bounded. Both phases consulted
+// Core I.1 (explicit coordinate contracts) and performance GPU.10
+// (guidelines/gpu/GPU.10-profile-with-gpu-timelines-and-counters.md): completed
+// native pixel checks establish correctness, not throughput measurements.
+// Retained camera checks exercise I.1 transactional publication and GPU.1
+// resident resources through native pixel results, not internal state.
 // Both-phase I.1/GPU.1 also verify optional shader resource consumption with
 // actual device pixels and no dummy texture allocation.
 // Headless native Metal contracts inside the existing memory-tests scenario.
@@ -26,6 +36,7 @@
 #include "platform/macos/buffer_allocation.hpp"
 #include "platform/macos/cpu_backing.hpp"
 #include "platform/macos/texture_allocation.hpp"
+#include "platform/macos/world_postprocess.hpp"
 #include "platform/macos/world_renderer.hpp"
 
 namespace {
@@ -144,6 +155,20 @@ void world_geometry_contract(id<MTLDevice> device) {
               limited->snapshot().pending_resources == 0,
           "Index admission failure rolls back the earlier native vertex buffer");
 }
+// Invalid shared view state must preserve the already-published camera/image.
+template <typename ReadPixel>
+void reject_view_update(bw::platform::macos::WorldRenderer& renderer,
+                        const bw::render::WorldViewUpdate& update, const ReadPixel& read_pixel) {
+  const auto before = read_pixel();
+  bool rejected = false;
+  try {
+    renderer.update_world_view(update);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel() == before,
+          "Invalid view/light packet preserves the prior complete presentation");
+}
 // Authored pixels exercise the recovered surface equations without game data.
 void world_surface_contract(id<MTLDevice> device) {
   using bw::render::WorldColorDraw;
@@ -210,7 +235,7 @@ void world_surface_contract(id<MTLDevice> device) {
   float presentation_opacity = 1;
   double clear_depth = 1;
   bool present_scene = false;
-  const auto read_pixel = [&] {
+  const auto read_pixel = [&](std::uint32_t x = extent / 2, std::uint32_t y = extent / 2) {
     auto* pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = color;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -241,7 +266,7 @@ void world_surface_contract(id<MTLDevice> device) {
     std::array<std::uint8_t, 4> result{};
     [color getBytes:result.data()
         bytesPerRow:4
-         fromRegion:MTLRegionMake2D(extent / 2, extent / 2, 1, 1)
+         fromRegion:MTLRegionMake2D(x, y, 1, 1)
         mipmapLevel:0];
     return result;
   };
@@ -297,6 +322,11 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.set_world_draws(shadow_draws);
   require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
           "Shadow map removes directional light while retaining baked illumination");
+  shadow_draws[1].visible = false;
+  renderer.set_world_draws(shadow_draws);
+  require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
+          "Hidden source draw also stops casting into the retained shadow map");
+  shadow_draws[1].visible = true;
   shadow_draws[1].casts_shadow = false;
   renderer.set_world_draws(shadow_draws);
   require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
@@ -400,6 +430,56 @@ void world_surface_contract(id<MTLDevice> device) {
   }
   require(rejected_shadow_radius && read_pixel() == unshadowed,
           "Unrepresentable filter footprint rejects atomically before replacing native draws");
+  // A slope makes texel-center depth differ from the visible surface sample.
+  // Preserve the plane instead of introducing a constant scene depth offset.
+  auto plane = receiver;
+  plane.casts_shadow = true;
+  plane.parameters.shadow_clip_rows[2] = {.01F, 0, 0, .25F};
+  for (const float offset : {0.0F, .0005F, -.0005F}) {
+    plane.parameters.shadow_clip_rows[0][3] = offset;
+    renderer.set_world_draws(std::span(&plane, 1));
+    require(read_pixel() == unshadowed,
+            "Tilted self-caster stays lit across nearest-texel phase changes");
+  }
+  plane.parameters.shadow_clip_rows[0][3] = 0;
+  auto thin_caster = plane;
+  thin_caster.parameters.clip_rows[0][3] = 4;
+  thin_caster.parameters.shadow_clip_rows[0] = {.005F, 0, 0, .03125F};
+  thin_caster.parameters.shadow_clip_rows[1] = {0, 4, 0, 0};
+  // At the measured receiver pixel the plane depth is .2503125: this
+  // separation is small, but greater than its derived texel correction.
+  thin_caster.parameters.shadow_clip_rows[2] = {0, 0, 0, .25036F};
+  const std::array contact_draws{plane, thin_caster};
+  renderer.set_world_draws(contact_draws);
+  require(read_pixel() == shadowed && read_pixel(extent / 2 + 1) == unshadowed,
+          "Thin distinct occluder retains its shadow and adjacent contact edge");
+  plane.parameters.shadow_clip_rows = {{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, .25F}, {0, 0, 0, 1}}};
+  plane.casts_shadow = false;
+  renderer.set_world_draws(std::span(&plane, 1));
+  require(read_pixel() == unshadowed,
+          "Singular receiver UV derivatives preserve finite unobstructed lighting");
+  // Uniformly small homogeneous coordinates represent the same finite view.
+  // Derivative normalization must not manufacture an infinite depth slope.
+  plane.parameters.shadow_clip_rows = receiver.parameters.shadow_clip_rows;
+  for (auto& row : plane.parameters.shadow_clip_rows) {
+    for (auto& coefficient : row) coefficient *= 1.0e-20F;
+  }
+  renderer.set_world_draws(std::span(&plane, 1));
+  require(read_pixel() == unshadowed,
+          "Near-zero homogeneous scale preserves finite shadow coordinates");
+  plane.parameters.shadow_clip_rows[3] = {0, 0, 0, 0};
+  renderer.set_world_draws(std::span(&plane, 1));
+  require(read_pixel() == unshadowed, "Zero shadow homogeneous W has a bounded unshadowed result");
+  plane.parameters.shadow_clip_rows = receiver.parameters.clip_rows;
+  plane.parameters.shadow_clip_rows[2] = {1, 0, 0, .25F};
+  plane.casts_shadow = true;
+  renderer.set_world_draws(std::span(&plane, 1));
+  const auto steep_pixel = read_pixel();
+  for (std::size_t channel = 0; channel < 3; ++channel) {
+    require(steep_pixel.at(channel) >= shadowed.at(channel) &&
+                steep_pixel.at(channel) <= unshadowed.at(channel),
+            "Steep receiver slope remains within the lighting endpoints");
+  }
   draw.parameters.fog_color = {1, 0, 0, 1};
   draw.parameters.fog_height = {0, 1, 0, 1};
   renderer.set_world_draws(std::span(&draw, 1));
@@ -434,6 +514,68 @@ void world_surface_contract(id<MTLDevice> device) {
   require(untextured_pixel[0] >= 127 && untextured_pixel[0] <= 128 && untextured_pixel[1] == 64 &&
               untextured_pixel[2] == 32 && untextured_pixel[3] == 191,
           "Untextured material consumes SH and emission without UV or a dummy texture");
+  // Visibility changes neither resident bindings nor authored draw order.
+  const auto visibility_bytes = domain->snapshot().live_bytes;
+  bw::render::WorldVisibilityUpdate visibility{draw.model, draw.draw, false};
+  renderer.update_world_visibility(std::span(&visibility, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0} &&
+              domain->snapshot().live_bytes == visibility_bytes,
+          "Hidden retained draw emits no color and allocates nothing");
+  const std::array invalid_visibility{
+      bw::render::WorldVisibilityUpdate{draw.model, draw.draw, true},
+      bw::render::WorldVisibilityUpdate{{}, draw.draw, true}};
+  bool rejected_visibility = false;
+  try {
+    renderer.update_world_visibility(invalid_visibility);
+  } catch (const std::invalid_argument&) {
+    rejected_visibility = true;
+  }
+  require(rejected_visibility && read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Late invalid visibility destination leaves prior state untouched");
+  visibility.visible = true;
+  renderer.update_world_visibility(std::span(&visibility, 1));
+  require(read_pixel() == untextured_pixel,
+          "Revealing a retained draw restores the same resident material");
+  // Camera publication changes only selected view constants; retained materials
+  // and geometry survive both successful updates and late validation failure.
+  bw::render::WorldViewParameters view_parameters{
+      .clip_rows = draw.parameters.clip_rows,
+      .world_rows = draw.parameters.world_rows,
+      .fog_color = draw.parameters.fog_color,
+      .fog_distance = draw.parameters.fog_distance,
+      .fog_height = draw.parameters.fog_height,
+      .fog_density = draw.parameters.fog_density,
+      .shadow_clip_rows = draw.parameters.shadow_clip_rows};
+  bw::render::WorldViewUpdate view_update{view_parameters, view_parameters};
+  view_update.world.clip_rows[0][3] += 8;
+  draw.view_space = bw::render::WorldViewSpace::world;
+  renderer.set_world_draws(std::span(&draw, 1));
+  const auto view_budget = domain->snapshot().live_bytes;
+  renderer.update_world_view(view_update);
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0} &&
+              domain->snapshot().live_bytes == view_budget,
+          "Live world projection moves retained geometry without allocation");
+  auto invalid_view = bw::render::WorldViewUpdate{view_parameters, view_parameters};
+  invalid_view.sky.fog_color[0] = std::nanf("");
+  reject_view_update(renderer, invalid_view, read_pixel);
+  invalid_view.sky = view_parameters;
+  invalid_view.lighting = bw::render::WorldViewUpdate::Lighting{};
+  invalid_view.lighting->diffuse[0] = std::nanf("");
+  reject_view_update(renderer, invalid_view, read_pixel);
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == untextured_pixel,
+          "Republishing a scene resets the prior view override and preserves material constants");
+  draw.view_space = bw::render::WorldViewSpace::sky;
+  renderer.set_world_draws(std::span(&draw, 1));
+  renderer.update_world_view(view_update);
+  require(read_pixel() == untextured_pixel,
+          "Sky draws select their distinct camera-centered projection");
+  draw.view_space = bw::render::WorldViewSpace::fixed;
+  renderer.set_world_draws(std::span(&draw, 1));
+  view_update.sky.clip_rows[0][3] += 8;
+  renderer.update_world_view(view_update);
+  require(read_pixel() == untextured_pixel,
+          "Fixed draws retain their own projection independently of both live spaces");
   draw.state.mip_filter = bw::render::WorldMipFilter::unresolved;
   bool rejected_mip_filter = false;
   try {
@@ -484,6 +626,195 @@ void world_surface_contract(id<MTLDevice> device) {
   }
   require(rejected_palette && read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
           "Out-of-range joint palette rejects before replacing the retained native draw");
+  // Four source lanes and separate rest positions share the same draw owner.
+  const auto skinned = upload_fixture({.shader = {0x00020490, 1},
+                                       .normal_mapped = true,
+                                       .shape = true,
+                                       .joint_palette = true,
+                                       .ambient_occlusion = true,
+                                       .joint_indices = {0, 1, 2, 3},
+                                       .joint_weights = {63, 64, 64, 64}});
+  const std::array skin_textures{base, normal};
+  renderer.bind_model_textures(skinned, skin_textures);
+  std::array<bw::render::WorldJointMatrix, 4> skin_joints{};
+  for (auto& matrix : skin_joints) {
+    for (std::size_t row = 0; row < 4; ++row) matrix.at(row).at(row) = 1;
+  }
+  draw.model = skinned;
+  draw.effective_shader_flags = 0x00820690;
+  draw.joint_matrices = skin_joints;
+  draw.use_shape_positions = true;
+  renderer.set_world_draws(std::span(&draw, 1));
+  const auto skin_pixel = read_pixel();
+  require(skin_pixel[0] > 0,
+          "Four-influence skin consumes the explicitly selected rest shape stream");
+  const auto pose_budget = domain->snapshot().live_bytes;
+  skin_joints[3][0][3] = 8;
+  const bw::render::WorldPoseUpdate pose_update{skinned, 0, skin_joints};
+  renderer.update_world_poses(std::span(&pose_update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0} &&
+              domain->snapshot().live_bytes == pose_budget,
+          "Fourth influence updates the retained pose without allocating or resubmitting geometry");
+  skin_joints[3][0][3] = 0;
+  const std::array pose_batch{pose_update, bw::render::WorldPoseUpdate{{999999}, 0, skin_joints}};
+  bool rejected_pose = false;
+  try {
+    renderer.update_world_poses(pose_batch);
+  } catch (const std::invalid_argument&) {
+    rejected_pose = true;
+  }
+  require(rejected_pose && read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Late invalid pose identity rejects the complete batch without partial writes");
+  renderer.update_world_poses(std::span(&pose_update, 1));
+  require(read_pixel() == skin_pixel, "Retained pose update restores the original skinned pose");
+  const bw::render::WorldLightingUpdate original_light{skinned, 0,
+                                                       draw.parameters.irradiance_coefficients};
+  auto dark_light = original_light;
+  dark_light.irradiance_coefficients = {};
+  renderer.update_world_lighting(std::span(&dark_light, 1));
+  const auto dark_pixel = read_pixel();
+  require(dark_pixel[0] < skin_pixel[0] && domain->snapshot().live_bytes == pose_budget,
+          "Spatial lighting updates retained skin without geometry upload or allocation");
+  const std::array light_batch{
+      original_light,
+      bw::render::WorldLightingUpdate{{999999}, 0, original_light.irradiance_coefficients}};
+  bool rejected_light = false;
+  try {
+    renderer.update_world_lighting(light_batch);
+  } catch (const std::invalid_argument&) {
+    rejected_light = true;
+  }
+  require(rejected_light && read_pixel() == dark_pixel,
+          "Late invalid lighting destination preserves all earlier retained constants");
+  auto invalid_light = original_light;
+  invalid_light.irradiance_coefficients[0][0] = std::numeric_limits<float>::quiet_NaN();
+  rejected_light = false;
+  try {
+    renderer.update_world_lighting(std::span(&invalid_light, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_light = true;
+  }
+  require(rejected_light && read_pixel() == dark_pixel,
+          "Nonfinite lighting cannot contaminate retained rendering");
+  renderer.update_world_lighting(std::span(&original_light, 1));
+  require(read_pixel() == skin_pixel, "Spatial lighting restoration preserves skin pose and view");
+  // Exercise the original direct-light material path independently of SH.
+  // One emitter in front of the surface contributes; moving it behind removes
+  // that contribution. Invalid batches cannot partially replace either field.
+  draw.lighting = bw::render::WorldLightingPolicy::supplied;
+  draw.parameters.irradiance_coefficients = {};
+  renderer.set_world_draws(std::span(&draw, 1));
+  const auto unlit_local_pixel = read_pixel();
+  auto direct_light = dark_light;
+  direct_light.local_light_count = 1;
+  direct_light.local_lights[0] = {{0, 0, 3, 1}, {1, 1, 1, 1}, {0, 0, 0, 0}, {1, 1, 1, .05F}};
+  renderer.update_world_lighting(std::span(&direct_light, 1));
+  const auto direct_pixel = read_pixel();
+  require(direct_pixel[0] > unlit_local_pixel[0],
+          "Original local diffuse loop illuminates the retained skin");
+  auto invalid_direct = direct_light;
+  invalid_direct.local_light_count = bw::render::kMaximumWorldLocalLights + 1;
+  const std::array direct_batch{dark_light, invalid_direct};
+  rejected_light = false;
+  try {
+    renderer.update_world_lighting(direct_batch);
+  } catch (const std::invalid_argument&) {
+    rejected_light = true;
+  }
+  require(rejected_light && read_pixel() == direct_pixel,
+          "Invalid direct count rejects whole SH/direct publication atomically");
+  direct_light.local_lights[0].position[2] = -3;
+  renderer.update_world_lighting(std::span(&direct_light, 1));
+  require(read_pixel() == unlit_local_pixel,
+          "Back-facing local light does not illuminate the surface");
+  renderer.update_world_lighting(std::span(&dark_light, 1));
+  require(read_pixel() == unlit_local_pixel, "Empty packet clears previous direct-light slots");
+  draw.lighting = bw::render::WorldLightingPolicy::without_direct_lighting;
+  draw.parameters.irradiance_coefficients = original_light.irradiance_coefficients;
+  renderer.set_world_draws(std::span(&draw, 1));
+  // CPU shape positions are retained once, then consumed by skinning without
+  // changing normals, materials, palettes or native allocation ownership.
+  std::array<std::array<float, 3>, 3> shape_positions{{{-1, -1, .5F}, {1, -1, .5F}, {0, 1, .5F}}};
+  const bw::render::WorldShapePositionUpdate shape_update{skinned, 0, shape_positions};
+  for (auto& position : shape_positions) position[0] += 4;
+  renderer.update_shape_positions(std::span(&shape_update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0} &&
+              domain->snapshot().live_bytes == pose_budget,
+          "CPU shape deformation updates native skin positions without allocating");
+  for (auto& position : shape_positions) position[0] -= 4;
+  const std::array shape_batch{shape_update,
+                               bw::render::WorldShapePositionUpdate{{999999}, 0, shape_positions}};
+  bool rejected_shape_batch = false;
+  try {
+    renderer.update_shape_positions(shape_batch);
+  } catch (const std::invalid_argument&) {
+    rejected_shape_batch = true;
+  }
+  require(rejected_shape_batch && read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Late invalid shape destination preserves the previous whole publication");
+  renderer.update_shape_positions(std::span(&shape_update, 1));
+  require(read_pixel() == skin_pixel, "Zero shape deformation restores authored positions");
+  // Unrelated live palettes survive replacement, and candidate palettes are
+  // owned before the caller resumes or reuses its scratch matrices.
+  auto retained_skin = draw;
+  retained_skin.parameters.material_color = {1, 0, 0, 1};
+  auto previous_skin = draw;
+  previous_skin.model = rigid;
+  previous_skin.effective_shader_flags = 0xc0800210;
+  previous_skin.joint_matrices = joints;
+  previous_skin.use_shape_positions = false;
+  const std::array palette_scene{previous_skin, retained_skin};
+  renderer.set_world_draws(palette_scene);
+  skin_joints[3][0][3] = 8;
+  renderer.update_world_poses(std::span(&pose_update, 1));
+  auto candidate_skin = previous_skin;
+  candidate_skin.model = weighted;
+  candidate_skin.effective_shader_flags = 0x80800210;
+  renderer.replace_world_model_draws(rigid, std::span(&candidate_skin, 1));
+  const auto candidate_pixel = read_pixel();
+  joints[0][0][3] = 20;
+  require(candidate_pixel == std::array<std::uint8_t, 4>{192, 128, 64, 255} &&
+              read_pixel() == candidate_pixel,
+          "Replacement owns candidate palettes while preserving unrelated latest poses");
+  skin_joints[3][0][3] = 0;
+  renderer.update_world_poses(std::span(&pose_update, 1));
+  require(read_pixel()[0] == 0 && read_pixel()[1] == 0 && read_pixel()[2] > 0,
+          "Retained animated component keeps its pose update destination after replacement");
+  renderer.set_world_draws(std::span(&draw, 1));
+  draw.use_shape_positions = false;
+  bool rejected_shape = false;
+  try {
+    renderer.set_world_draws(std::span(&draw, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_shape = true;
+  }
+  require(rejected_shape && read_pixel() == skin_pixel,
+          "Shape streams require explicit rest-shape policy before publication");
+  // The costume layer interpolates two base RGB values and applies its
+  // separate Fresnel coefficient only to output alpha, including the SH path.
+  const auto clothing = upload_fixture({.shader = {0x824080b0, 2},
+                                        .normal_mapped = true,
+                                        .secondary_base = true,
+                                        .joint_palette = true,
+                                        .vertex_modulation = true});
+  const std::array clothing_textures{base, normal, base};
+  renderer.bind_model_textures(clothing, clothing_textures);
+  draw = {.model = clothing,
+          .effective_shader_flags = 0x82c082b0,
+          .parameters = surface_parameters,
+          .state = surface_state,
+          .lighting = bw::render::WorldLightingPolicy::without_direct_lighting,
+          .joint_matrices = std::span(skin_joints).first(2)};
+  draw.parameters.indirect_secondary = {.5F, .5F, .5F, 1};
+  draw.parameters.fresnel = {1, 0, .25F, 0};
+  for (std::size_t channel = 0; channel < 3; ++channel) {
+    draw.parameters.irradiance_coefficients.at(channel).at(3) = 1;
+  }
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{96, 64, 32, 64},
+          "Clothing secondary interpolation and Fresnel alpha match the original SH program");
+  renderer.release_model(clothing);
+  renderer.release_model(skinned);
   renderer.release_model(rigid);
   renderer.release_model(weighted);
   const auto geometric = upload_fixture({.shader = {0x00420802, 1}, .base_only = true});
@@ -537,6 +868,68 @@ void world_surface_contract(id<MTLDevice> device) {
   require(duplicate_pixel[0] == 0 && duplicate_pixel[2] == 0 && duplicate_pixel[1] >= 191 &&
               duplicate_pixel[1] <= 192,
           "One indexed UV update reaches every retained submission of the model draw");
+  // A paused component swap preserves unrelated live UV/view state, replaces
+  // nonadjacent old entries once, and rebuilds only the update destination index.
+  const auto previous_body = upload_fixture({.shader = {0x00420802, 1}, .base_only = true});
+  const auto replacement_body = upload_fixture({.shader = {0x00420802, 1}, .base_only = true});
+  const auto previous_private_texture = renderer.upload_world_texture(image);
+  renderer.bind_model_textures(previous_body, std::span(&previous_private_texture, 1));
+  renderer.bind_model_textures(replacement_body, std::span(&base, 1));
+  auto body_draw = blended_offset_draw;
+  body_draw.model = previous_body;
+  body_draw.view_space = bw::render::WorldViewSpace::world;
+  auto retained_draw = blended_offset_draw;
+  retained_draw.view_space = bw::render::WorldViewSpace::world;
+  const std::array prior_component_draws{body_draw, retained_draw, body_draw};
+  renderer.set_world_draws(prior_component_draws);
+  renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  bw::render::WorldViewUpdate retained_view{};
+  retained_view.world.clip_rows = surface_parameters.clip_rows;
+  retained_view.world.world_rows = surface_parameters.world_rows;
+  retained_view.world.clip_rows[0][3] = 4;
+  renderer.update_world_view(retained_view);
+  auto replacement_draw = body_draw;
+  replacement_draw.model = replacement_body;
+  auto invalid_replacement = replacement_draw;
+  invalid_replacement.draw = 999999;
+  const std::array invalid_replacements{replacement_draw, invalid_replacement};
+  const auto prior_replacement_budget = budget->snapshot();
+  bool rejected_replacement = false;
+  try {
+    renderer.replace_world_model_draws(previous_body, invalid_replacements);
+  } catch (const std::invalid_argument&) {
+    rejected_replacement = true;
+  }
+  const bw::render::WorldTextureOffsetUpdate prior_body_update{.model = previous_body};
+  renderer.update_world_texture_offsets(std::span(&prior_body_update, 1));
+  require(rejected_replacement && read_pixel() == std::array<std::uint8_t, 4>{} &&
+              budget->snapshot().live_resources == prior_replacement_budget.live_resources,
+          "Invalid replacement retains previous identities, view and device resources");
+  renderer.replace_world_model_draws(previous_body, std::span(&replacement_draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{} &&
+              budget->snapshot().live_resources == prior_replacement_budget.live_resources,
+          "Successful replacement preserves the current view without GPU resource upload");
+  retained_view.world.clip_rows[0][3] = 0;
+  renderer.update_world_view(retained_view);
+  const auto replaced_pixel = read_pixel();
+  require(replaced_pixel[0] >= 47 && replaced_pixel[0] <= 49 && replaced_pixel[1] >= 159 &&
+              replaced_pixel[1] <= 161 && replaced_pixel[2] >= 15 && replaced_pixel[2] <= 17,
+          "Replacement removes all old draws at their first position and retains live green UVs");
+  bool rejected_old_component = false;
+  try {
+    renderer.update_world_texture_offsets(std::span(&prior_body_update, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_old_component = true;
+  }
+  const bw::render::WorldTextureOffsetUpdate new_body_update{.model = replacement_body};
+  renderer.update_world_texture_offsets(std::span(&new_body_update, 1));
+  renderer.release_model(previous_body);
+  renderer.release_world_texture(previous_private_texture);
+  require(rejected_old_component && read_pixel() == replaced_pixel,
+          "Old component geometry and private texture retirement preserve new and unrelated draws");
+  renderer.release_model(replacement_body);
+  renderer.set_world_draws(duplicate_offsets);
+  renderer.update_world_texture_offsets(std::span(&offset_update, 1));
   renderer.bind_model_textures(geometric, std::span(&offset_texture, 1));
   bool rejected_stale_offset = false;
   try {
@@ -675,6 +1068,76 @@ void world_surface_contract(id<MTLDevice> device) {
   require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 255, 255},
           "Original cubemap reflection combines environment power, reflection alpha and Fresnel "
           "weight");
+  // PW5's original pixel123 independently consumes AMOC red and green. The
+  // fixture aliases base/AMOC deliberately: no diffuse energy is supplied, so
+  // changing green can only admit reflection, not alter lit base color.
+  image.shape = bw::formats::WorldTextureShape::two_dimensional;
+  image.pixels = {255, 0, 0, 255};
+  const auto reflection_blocked = renderer.upload_world_texture(image);
+  image.pixels = {255, 255, 0, 255};
+  const auto reflection_allowed = renderer.upload_world_texture(image);
+  const auto occluded_reflective = upload_fixture({.shader = {0x00022490, 1},
+                                                   .normal_mapped = true,
+                                                   .environment = true,
+                                                   .joint_palette = true,
+                                                   .ambient_occlusion = true});
+  std::array<bw::render::WorldJointMatrix, 4> reflection_joints{};
+  for (auto& matrix : reflection_joints) {
+    for (std::size_t row = 0; row < 4; ++row) matrix.at(row).at(row) = 1;
+  }
+  draw.model = occluded_reflective;
+  draw.effective_shader_flags = 0x00822690;
+  draw.joint_matrices = reflection_joints;
+  const std::array<WorldTextureHandle, 4> blocked_bindings{reflection_blocked, normal, {}, cube};
+  renderer.bind_model_textures(occluded_reflective, blocked_bindings);
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 255},
+          "AMOC green zero suppresses reflection while red remains one");
+  const std::array<WorldTextureHandle, 4> allowed_bindings{reflection_allowed, normal, {}, cube};
+  renderer.bind_model_textures(occluded_reflective, allowed_bindings);
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 255, 255},
+          "AMOC green one retains the original cubemap response");
+  // Keep all color inputs fixed and vary only source family, facing and an
+  // actual caster. Static PS225 does not shadow its cubemap; actor PS123 does.
+  const auto reflected_shadow_pixel = [&](bool actor_family, bool shadow, bool facing) {
+    auto reflected_receiver = draw;
+    reflected_receiver.model = actor_family ? occluded_reflective : reflective;
+    reflected_receiver.effective_shader_flags = actor_family ? 0x00822690 : 0x00e22882;
+    reflected_receiver.joint_matrices =
+        actor_family ? std::span<const bw::render::WorldJointMatrix>(reflection_joints)
+                     : std::span<const bw::render::WorldJointMatrix>{};
+    auto& parameters = reflected_receiver.parameters;
+    parameters.material_color = {0, 0, 0, 1};
+    parameters.light_direction = {0, 0, facing ? -1.0F : 1.0F, 0};
+    parameters.reflection[3] = .25F;
+    parameters.shadow_clip_rows = parameters.clip_rows;
+    parameters.shadow_clip_rows[2] = {0, 0, 0, .25F};
+    parameters.shadow_parameters = {1, 0, 0, 0};
+    auto reflected_caster = reflected_receiver;
+    reflected_caster.casts_shadow = shadow;
+    reflected_caster.parameters.clip_rows[0][3] = 4;
+    reflected_caster.parameters.shadow_clip_rows[2] = {0, 0, 0, .75F};
+    const std::array reflected_draws{reflected_receiver, reflected_caster};
+    renderer.set_world_draws(reflected_draws);
+    return read_pixel();
+  };
+  const auto static_lit = reflected_shadow_pixel(false, false, true);
+  require(reflected_shadow_pixel(false, true, true) == static_lit && static_lit[2] == 255,
+          "Static environment facing is unchanged by shadow visibility");
+  const auto actor_lit = reflected_shadow_pixel(true, false, true);
+  const auto actor_shadowed = reflected_shadow_pixel(true, true, true);
+  require(actor_lit[2] == 255 && actor_shadowed[2] >= 63 && actor_shadowed[2] <= 64,
+          "Receiver environment facing uses visibility and retains authored reflection floor");
+  for (const bool actor_family : {false, true}) {
+    const auto zero_facing = reflected_shadow_pixel(actor_family, false, false);
+    require(reflected_shadow_pixel(actor_family, true, false) == zero_facing &&
+                zero_facing[2] >= 63 && zero_facing[2] <= 64,
+            "Both environment families retain the reflection floor at zero facing");
+  }
+  draw.model = reflective;
+  draw.effective_shader_flags = 0x00e22882;
+  draw.joint_matrices = {};
   // Missing authored LENV restores the original black cube even after an
   // authored red cube draw; a wrong-shape explicit binding remains an error.
   const auto fallback_model = upload_fixture({.shader = {0x00422882, 1}, .normal_mapped = true});
@@ -715,6 +1178,27 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.set_world_draws(std::span(&draw, 1));
   require(read_pixel() == std::array<std::uint8_t, 4>{96, 64, 32, 64},
           "Source-alpha blending uses the original shared color and alpha factors");
+  // Scene-wide phases survive model-major publication: late translucency must
+  // composite over opaque work even when that model was submitted first.
+  auto opaque_phase = draw;
+  opaque_phase.state.blend = bw::render::WorldBlend::opaque;
+  opaque_phase.parameters.material_color = {1, 0, 0, 1};
+  auto blended_phase = draw;
+  blended_phase.state.depth_write = false;
+  blended_phase.parameters.material_color = {0, 0, 1, 1};
+  blended_phase.color_phase = bw::render::WorldColorPhase::material_blended;
+  const std::array ordered_phases{opaque_phase, blended_phase};
+  renderer.set_world_draws(ordered_phases);
+  const auto ordered_pixel = read_pixel();
+  const std::array reversed_phases{blended_phase, opaque_phase};
+  renderer.set_world_draws(reversed_phases);
+  require(read_pixel() == ordered_pixel && ordered_pixel[0] != 0 && ordered_pixel[2] != 0,
+          "Prepared scene phases composite late material over opaque independent of model order");
+  blended_phase.color_phase = bw::render::WorldColorPhase::opaque;
+  const std::array same_phase{blended_phase, opaque_phase};
+  renderer.set_world_draws(same_phase);
+  require(read_pixel() != ordered_pixel,
+          "Commands within one phase retain caller ordering rather than incidental blend sorting");
   const auto cutout = upload_fixture({.shader = {0x00020883, 1}, .normal_mapped = true});
   const std::array<WorldTextureHandle, 2> cutout_bindings{translucent, normal};
   renderer.bind_model_textures(cutout, cutout_bindings);
@@ -726,11 +1210,12 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.set_world_draws(std::span(&draw, 1));
   require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
           "Original depth-mask coverage rejects material times sampled alpha below one half");
-  for (auto handle :
-       {geometric, layered, shadow_layered, local_lit, sky, reflective, fallback_model, cutout}) {
+  for (auto handle : {geometric, layered, shadow_layered, local_lit, sky, reflective,
+                      occluded_reflective, fallback_model, cutout}) {
     renderer.release_model(handle);
   }
-  for (auto handle : {secondary, sky_texture, cube, translucent}) {
+  for (auto handle :
+       {secondary, sky_texture, cube, translucent, reflection_blocked, reflection_allowed}) {
     renderer.release_world_texture(handle);
   }
   draw = original_draw;
@@ -795,6 +1280,8 @@ void world_output_contract(id<MTLDevice> device) {
         log_luminance{};
     std::uint32_t adapted{}, bloom{}, enabled{1};
     float opacity{1};
+    std::array<float, 4> global_color{1, 1, 1, 1};
+    std::array<float, 4> first_measurement_bounds{};
   } parameters;
   const auto execute = [&](NSString* function, id<MTLTexture> target) {
     auto* pipeline_descriptor = [[MTLRenderPipelineDescriptor alloc] init];
@@ -857,6 +1344,122 @@ void world_output_contract(id<MTLDevice> device) {
   require(std::abs(static_cast<long>(display.at(2)) - expected) <= 1 && display.at(0) == 0 &&
               display.at(1) == 0 && display.at(3) == 255,
           "Original exposure and gamma map HDR to display without a second transfer");
+  // Source pool pixel17 multiplies RGB without saturating HDR and preserves
+  // sampled alpha; this fixture also distinguishes point from linear sampling.
+  source = bw::platform::macos::TextureAllocation::create(device, budget, 2, 2,
+                                                          MTLPixelFormatRGBA16Float);
+  std::array<std::uint16_t, 16> colors{0x3400, 0x3800, 0x4000, 0x3600, 0x3c00, 0x3c00,
+                                       0x3c00, 0x3c00, 0x4200, 0x4200, 0x4200, 0x3c00,
+                                       0x4400, 0x4400, 0x4400, 0x3c00};
+  [source.get() replaceRegion:MTLRegionMake2D(0, 0, 2, 2)
+                  mipmapLevel:0
+                    withBytes:colors.data()
+                  bytesPerRow:8 * sizeof(std::uint16_t)];
+  parameters.inverse_extent = {.5F, .5F};
+  parameters.global_color = {2, 3, .25F, 9};
+  execute(@"world_scale_rgb", log_image.get());
+  [log_image.get() getBytes:sample.data()
+                bytesPerRow:sizeof(sample)
+                 fromRegion:MTLRegionMake2D(0, 0, 1, 1)
+                mipmapLevel:0];
+  require(sample == std::array<std::uint16_t, 4>{0x3800, 0x3e00, 0x3800, 0x3600},
+          "Source RGB filter preserves HDR above one and original alpha");
+
+  // Exercise owner ordering: the same filtered HDR must feed both measurement
+  // and final display. Test-only readback follows completion; retained targets
+  // stay charged and are reused on the next frame (I.11 / GPU.9, both phases).
+  for (std::size_t i = 0; i < colors.size(); i += 4) {
+    colors.at(i) = 0x3400;
+    colors.at(i + 1) = 0x3800;
+    colors.at(i + 2) = 0x4000;
+    colors.at(i + 3) = 0x3600;
+  }
+  [source.get() replaceRegion:MTLRegionMake2D(0, 0, 2, 2)
+                  mipmapLevel:0
+                    withBytes:colors.data()
+                  bytesPerRow:8 * sizeof(std::uint16_t)];
+  auto* paint_descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+  paint_descriptor.vertexFunction = [library newFunctionWithName:@"world_output_vertex"];
+  paint_descriptor.fragmentFunction = [library newFunctionWithName:@"world_scale_rgb"];
+  paint_descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA16Float;
+  paint_descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+  auto paint = [device newRenderPipelineStateWithDescriptor:paint_descriptor error:nil];
+  require(paint != nil, "Scene fixture paint pipeline available");
+  bw::platform::macos::WorldPostprocess owner(device, domain, budget);
+  bw::render::WorldOutputParameters policy;
+  policy.global_color_mode = 2;
+  policy.global_color = {2, -4, .25F, 9};
+  owner.configure(policy);
+  parameters.global_color = {1, 1, 1, 1};
+  const auto render_frame = [&] {
+    auto command = [queue commandBuffer];
+    auto encoder = owner.begin_scene(command, 2, 2);
+    [encoder setRenderPipelineState:paint];
+    [encoder setFragmentTexture:source.get() atIndex:0];
+    [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
+    [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    [encoder endEncoding];
+    owner.prepare_output(command, library);
+    auto* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = output.get();
+    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    encoder = [command renderCommandEncoderWithDescriptor:pass];
+    owner.encode_display(encoder, library, 1);
+    [encoder endEncoding];
+    [command commit];
+    [command waitUntilCompleted];
+    require(command.status == MTLCommandBufferStatusCompleted, "Filtered scene chain completed");
+    [output.get() getBytes:display.data()
+               bytesPerRow:4
+                fromRegion:MTLRegionMake2D(0, 0, 1, 1)
+               mipmapLevel:0];
+  };
+  render_frame();
+  require(display.at(0) == 128 && display.at(1) == 0 && display.at(2) == 128,
+          "Pre-tone filter runs when tone mapping is disabled and clamps negative multipliers");
+  const auto live = budget->snapshot().live_logical_bytes;
+  render_frame();
+  require(budget->snapshot().live_logical_bytes == live,
+          "Filtered scene storage persists across completed frames");
+  policy.tone_mapping_enabled = true;
+  policy.exposure_key = .18F;
+  policy.gamma = 1;
+  owner.configure(policy);
+  render_frame();
+  require(std::abs(static_cast<int>(display.at(0)) - 111) <= 2 && display.at(1) == 0 &&
+              std::abs(static_cast<int>(display.at(2)) - 111) <= 2,
+          "Luminance reduction and final transfer both consume the filtered HDR scene");
+  // A reset removes every prior GPU measurement. Each following assertion is
+  // therefore the genuinely first submitted frame under a different source
+  // output-bound policy, rather than a check that only starts passing later.
+  policy.bloom_enabled = true;
+  policy.bloom_exposure_key = .01F;
+  policy.bloom_threshold = .01F;
+  policy.bloom_soft_knee = .01F;
+  policy.exposure = {64, 1, .07F, 2.6F};
+  policy.global_color = {.2F, -4, .025F, 9};
+  owner.reset();
+  owner.configure(policy);
+  render_frame();
+  require(std::abs(static_cast<int>(display.at(2)) - 32) <= 1,
+          "First native bloom and final transfer obey the source lower luminance bound");
+  policy.bloom_enabled = false;
+  policy.exposure = {64, 1, .07F, .1F};
+  policy.global_color = {2, -4, .25F, 9};
+  owner.reset();
+  owner.configure(policy);
+  render_frame();
+  require(std::abs(static_cast<int>(display.at(2)) - 227) <= 1,
+          "First native measurement obeys the source upper luminance bound");
+  policy.exposure.history_window = 0;
+  owner.reset();
+  owner.configure(policy);
+  render_frame();
+  require(std::abs(static_cast<int>(display.at(2)) - 111) <= 2,
+          "No-history native output keeps the source unbounded GPU measurement");
+  owner.reset();
   source.reset();
   reduced.reset();
   output.reset();

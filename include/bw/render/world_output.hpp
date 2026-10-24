@@ -29,7 +29,27 @@ struct ExposureParameters {
   std::optional<float> minimum_luminance;
   std::optional<float> maximum_luminance;
 };
+struct ExposureOutputBounds {
+  float measurement_floor{};
+  std::optional<float> minimum_luminance;
+  std::optional<float> maximum_luminance;
+};
+// Prepare the original optional output clamps without changing history. Both
+// the CPU controller and a target's first real GPU measurement use these
+// normalized limits. Invalid bounds throw; no samples, clocks or allocations
+// are involved. Both-phase I.1 exposes the policy; GPU.1 keeps the initial
+// reduction on-device rather than forcing an extra synchronous readback.
+ExposureOutputBounds exposure_output_bounds(
+    const ExposureParameters& parameters);
 struct WorldOutputParameters {
+  // Authored whole-scene filter precedes luminance measurement, bloom and
+  // display transfer. Mode 0 bypasses it; mode 2 multiplies RGB by nonnegative
+  // global_color.rgb and preserves source alpha. Other modes remain explicit
+  // unsupported inputs. The backend owns a persistent HDR intermediate;
+  // this is not an exposure multiplier. I.11 / GPU.9 ownership and allocation
+  // rules were read in both design and implementation phases.
+  std::int32_t global_color_mode{};
+  std::array<float, 4> global_color{1, 1, 1, 1};
   bool tone_mapping_enabled{};
   float exposure_key{};
   float gamma{};

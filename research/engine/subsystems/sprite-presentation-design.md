@@ -109,3 +109,17 @@ screen during execution. `--windowed` bypasses the startup transition.
 The installed Apple SDK's NSWindow delegate declarations confirm failure is a
 supported outcome (including conflicting animations/gestures). No SDL code is
 copied, and this change does not replace AppKit's transition animation.
+
+## Canvas viewport independent of world residency
+
+Native traversal acceptance exposed a pre-existing sprite-only presentation
+regression: the host initialized the logical canvas viewport only while world
+draws were resident, then applied its zero-initialized value to title/menu
+sprites. Movies selected their own viewport, so they remained visible while
+menu input continued behind a black screen. The canvas fit is now computed
+unconditionally from the current drawable, before optional world preparation.
+World and sprite passes share that pixel-aligned viewport; the movie pass still
+uses its own source aspect ratio. This changes no surface/resource lifetime.
+ES.22 initializes the complete value before use; MEM.9 keeps the arithmetic in
+fixed stack storage. Targeted fatal clang-tidy and pinned formatting pass;
+actual window acceptance is recorded by the parent integration run.

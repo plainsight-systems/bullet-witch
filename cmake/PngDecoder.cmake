@@ -27,6 +27,13 @@ function(bw_configure_png_decoder)
     URL_HASH SHA256=2540302a1844ad2b2b501977abecfa850f265f97b78f065a712ab4074a89f5b5
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(bw_libpng)
+  # Decoding the original stage expands hundreds of megabytes. Keep symbols
+  # but optimize pinned codec internals in Debug; project validation remains
+  # unoptimized and fully checked. See loading-presentation.md measurements.
+  foreach(codec_target zlibstatic png_static)
+    target_compile_options(${codec_target} PRIVATE
+      "$<$<AND:$<CONFIG:Debug>,$<C_COMPILER_ID:Clang,AppleClang,GNU>>:-O2>")
+  endforeach()
   add_library(bw_images src/formats/image.cpp src/formats/bitmap_font.cpp src/formats/world_texture.cpp)
   target_include_directories(bw_images PUBLIC include)
   target_compile_features(bw_images PUBLIC cxx_std_20)

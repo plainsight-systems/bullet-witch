@@ -1,13 +1,17 @@
-// CPU asset loading contract in bw/content/stage.hpp. Native source anchors and
-// selected compatibility subset are recorded in stage-content-decoding.md.
-// Resolve immutable catalogs, build a temporary owned result, then return only
-// after required mesh/texture associations validate. Exceptions unwind all
-// partial acquisitions. This synchronous mechanism makes no worker/device-ready
-// claim; caller owns scheduling and cancellation/publication.
-// Costs O(catalog entries + records + decoded mesh indices + bytes read), with
-// O(log acquired archives) cache lookup. Optimization: retain each texture file
-// once per stage; encoded images remain borrowed by the native upload consumer.
-// Both design and implementation consulted cpp-guidelines SL.con.3
+// Loading presentation uses explicit asset-boundary callbacks (design Core I.1
+// #ri-explicit, implementation E.6 #re-raii). Performance GPU.1 retains
+// uploads; callbacks pump only completed loading UI and never inspect partial
+// owners. CPU asset loading contract in bw/content/stage.hpp. Native source
+// anchors and selected compatibility subset are recorded in
+// stage-content-decoding.md. Resolve immutable catalogs, build a temporary
+// owned result, then return only after required mesh/texture associations
+// validate. Exceptions unwind all partial acquisitions. This synchronous
+// mechanism makes no worker/device-ready claim; caller owns scheduling and
+// cancellation/publication. Costs O(catalog entries + records + decoded mesh
+// indices + bytes read), with O(log acquired archives) cache lookup.
+// Optimization: retain each texture file once per stage; encoded images remain
+// borrowed by the native upload consumer. Both design and implementation
+// consulted cpp-guidelines SL.con.3
 // (#rsl-bounds) and R.2 (#rr-use-ptr), checking record and buffer references
 // before spans; cpp-performance MEM.6 (guidelines/memory/
 // MEM.6-inject-allocators-behind-one-interface.md) accounts nested owners.
@@ -495,7 +499,8 @@ StageDefinition load_texture_definition(
 }
 StageDefinition load_stage_definition(
     const platform::Files& files, const resources::CatalogSet& catalogs,
-    std::string_view stage, const std::shared_ptr<memory::Domain>& domain) {
+    std::string_view stage, const std::shared_ptr<memory::Domain>& domain,
+    const LoadProgress& progress) {
   const memory::Allocator<std::byte> allocator(domain);
   const auto normalized = resources::normalize_name(stage, allocator);
   if (normalized.size() < 4 || !normalized.starts_with("st")) {
@@ -538,6 +543,7 @@ StageDefinition load_stage_definition(
   for (const auto& name : names) {
     builder.model(name).static_world_object = ordinary_stage_model(name);
     builder.auxiliaries(name);
+    if (progress) progress();
   }
   // Stage construction also loads the matching stage-gimmick namespace;
   // these definitions do not instantiate the later mission actors.
@@ -565,6 +571,7 @@ StageDefinition load_stage_definition(
   for (const auto& name : gimmicks) {
     builder.model(name);
     builder.auxiliaries(name);
+    if (progress) progress();
     for (const auto suffix :
          {".motion.list.compress", ".motion.list.nocompress",
           ".motionparam.list", ".motionparam.defaultmotion"}) {

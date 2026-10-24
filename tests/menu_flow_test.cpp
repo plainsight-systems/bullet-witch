@@ -14,7 +14,9 @@
 #include <stdexcept>
 #include <vector>
 
+#include "game/pause_flow.hpp"
 #include "game/profile.hpp"
+#include "media_memory_fixture.hpp"
 
 namespace {
 void require(bool value, const char* message) {
@@ -25,6 +27,78 @@ void require(bool value, const char* message) {
 void down(bw::game::MenuFlow& flow) { flow.update({0, 0x02000000}); }
 void accept(bw::game::MenuFlow& flow) { flow.update({0x1010, 0}); }
 void cancel(bw::game::MenuFlow& flow) { flow.update({0x2020, 0}); }
+void pause_review_transactions() {
+  // An empty immutable catalog exercises unavailable clip pages without
+  // preparing unrelated animation fixtures. Actual names/pages use the corpus.
+  constexpr std::array<std::uint8_t, 8> skeleton_bytes{'_', 'B', 'L', 'B',
+                                                       0,   0,   0,   0};
+  const auto domain =
+      bw::memory::Domain::create(std::make_shared<bw::test::MediaBacking>());
+  const auto skeleton =
+      bw::formats::SkeletonDefinition::parse(skeleton_bytes, domain);
+  const bw::animation::PreparedClipCatalog catalog({}, skeleton, 0, {}, domain);
+  bw::game::PauseFlow pause(0);
+  pause.bind_review_catalogs(catalog, catalog, 0);
+  pause.update(true, {});
+  const auto choose = [&](std::string_view label) {
+    for (std::size_t i = 0; i < pause.presentation().count; ++i) {
+      if (pause.presentation().rows.at(pause.presentation().selected).label ==
+          label) {
+        pause.update(false, {0x1010, 0});
+        return;
+      }
+      pause.update(false, {0, 0x02000000});
+    }
+    throw std::runtime_error("Missing pause row");
+  };
+  choose("Weapon class (preview)");
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0x1010, 0});
+  require(pause.requested_weapon() == 1 && pause.paused(),
+          "Weapon request waits for transaction");
+  pause.complete_weapon(false);
+  require(pause.paused() && !pause.requested_weapon(),
+          "Failed weapon remains paused");
+  choose("Animation review");
+  choose("Face");
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0x1010, 0});
+  require(pause.requested_review() &&
+              pause.requested_review()->kind ==
+                  bw::game::AnimationReviewKind::facial &&
+              pause.requested_review()->index == 3,
+          "Face menu excludes absent face two without renumbering payload");
+  std::string rejection = "Unavailable preview";
+  pause.complete_review({false, rejection});
+  rejection.assign("changed");
+  require(
+      pause.paused() && pause.presentation().message == "Unavailable preview",
+      "Failure owns message and preserves pause");
+  pause.update(false, {0x1010, 0});
+  pause.complete_review({true, "Accepted"});
+  require(
+      !pause.paused() && !pause.requested_review() && !pause.update(false, {}),
+      "Accepted preview resumes without repeating request");
+  pause.update(true, {});
+  choose("Animation review");
+  choose("Body clips");
+  require(
+      pause.presentation().count == 1 && !pause.presentation().rows[0].enabled,
+      "Empty catalog is visible but unavailable");
+  pause.update(false, {0x1010, 0});
+  require(!pause.requested_review(), "Disabled catalog never dispatches");
+  pause.update(false, {0x2020, 0});
+  choose("Scripted jump");
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0x1010, 0});
+  require(pause.requested_review() && pause.requested_review()->index == 8,
+          "Jump selector retains authored sparse value");
+  require(
+      pause.update(true, {}) && !pause.paused() && !pause.requested_review(),
+      "Pause toggle cancels a pending request and consumes frame");
+}
 void navigation_and_new_game() {
   bw::game::Profile profile;
   bw::game::MenuFlow flow(profile);
@@ -201,6 +275,24 @@ void options_and_stage() {
 }
 }  // namespace
 void test_menu_flow() {
+  bw::game::PauseFlow pause(5);
+  require(!pause.update(false, {}), "Gameplay frame stays unconsumed");
+  require(pause.update(true, {0x1010, 0}) && pause.paused(),
+          "Pause edge consumes confirm without immediately resuming");
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0x1010, 0});
+  require(pause.presentation().selected == 5,
+          "Costume page selects live costume");
+  pause.update(false, {0, 0x02000000});
+  pause.update(false, {0x1010, 0});
+  require(pause.requested_costume() == 0, "Costume navigation wraps");
+  pause.complete_costume(false);
+  require(pause.paused() && !pause.requested_costume(),
+          "Failure preserves pause");
+  require(pause.update(false, {0x2020, 0}) && !pause.paused(),
+          "Resume consumes the whole input frame");
+  require(!pause.update(false, {}), "Next frame can advance gameplay");
+  pause_review_transactions();
   navigation_and_new_game();
   continue_and_back();
   options_and_stage();

@@ -207,6 +207,13 @@ void shadow_tests() {
   const auto camera = pose(kWitnesses[0]);
   const auto normal = make_directional_shadow_projection(
       camera, kView, kSettings, {0, -1000, -.001F});
+  auto authored_branch = kSettings;
+  authored_branch.alignment_threshold = 30.98F;
+  const auto unrestricted = make_directional_shadow_projection(
+      camera, kView, authored_branch, {0, -1000, -.001F});
+  require(
+      unrestricted.clip_rows == normal.clip_rows,
+      "Finite authored thresholds above one select the original warped branch");
   auto wide_filter = kSettings;
   wide_filter.filter_radius_uv = 2.0F / 1024;
   const auto guarded = make_directional_shadow_projection(

@@ -1,3 +1,6 @@
+// Shared math retains each caller's scalar/accumulator precision; tolerance
+// and failure policy remain here. Both-phase I.9/MEM.9 contracts are in
+// bw/math/vector.hpp and matrix.hpp.
 // Implement shadow.hpp with double intermediates and validated float rows.
 // The recovered runtime-initialized perspective warp uses the same homogeneous
 // transform for casters and receivers. See shadow-projection-baseline.md. The
@@ -12,24 +15,17 @@
 #include <limits>
 #include <stdexcept>
 
+#include "bw/math/vector.hpp"
+
 namespace bw::render {
 namespace {
-using Vector = std::array<double, 3>;
-double dot(const Vector& left, const Vector& right) {
-  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
-}
-Vector cross(const Vector& left, const Vector& right) {
-  return {left[1] * right[2] - left[2] * right[1],
-          left[2] * right[0] - left[0] * right[2],
-          left[0] * right[1] - left[1] * right[0]};
-}
+using Vector = math::Vector3<double>;
 Vector normalized(Vector value) {
-  const double length = std::sqrt(dot(value, value));
+  const double length = math::length(value);
   if (!std::isfinite(length) || length == 0) {
     throw std::invalid_argument("Shadow direction must be finite and nonzero");
   }
-  for (auto& component : value) component /= length;
-  return value;
+  return math::divide(value, length);
 }
 float random_unit(std::uint32_t& state) {
   constexpr std::uint32_t kMultiplier = 214013;
@@ -76,13 +72,15 @@ ShadowProjection make_directional_shadow_projection(
                             settings.parallel_near_extension,
                             settings.perspective_angle_radians,
                             settings.depth_scale};
+  // The original compares against the raw finite alignment control. AREA
+  // deliberately supplies values above one to keep the warped branch active.
+  // This is a branch threshold, not a normalized cosine input.
   constexpr double kHalfPi = 1.5707963267948966;
   if (!std::ranges::all_of(controls,
                            [](float v) { return std::isfinite(v); }) ||
       settings.far_distance <= perspective.near_plane ||
       settings.far_distance > perspective.far_plane ||
       settings.minimum_height >= settings.maximum_height ||
-      settings.alignment_threshold < 0 || settings.alignment_threshold >= 1 ||
       settings.parallel_near_extension <= 0 || settings.depth_scale <= 0 ||
       settings.perspective_angle_radians <= 0 ||
       settings.perspective_angle_radians >= kHalfPi) {
@@ -103,8 +101,8 @@ ShadowProjection make_directional_shadow_projection(
     to_light.at(axis) = light_position.at(axis) - eye.at(axis);
   }
   to_light = normalized(to_light);
-  const bool warped =
-      std::abs(dot(to_light, camera_forward)) <= settings.alignment_threshold;
+  const bool warped = std::abs(math::dot(to_light, camera_forward)) <=
+                      settings.alignment_threshold;
   // Original clipping replaces a corner only when its eye ray crosses the
   // selected height plane; it does not clamp every corner's Y coordinate.
   constexpr std::size_t kFrustumCorners = 8;
@@ -142,10 +140,12 @@ ShadowProjection make_directional_shadow_projection(
     for (auto& component : forward) component = -component;
   }
   Vector up_reference = warped ? camera_forward : Vector{0, 1, 0};
-  auto right = cross(up_reference, forward);
-  if (dot(right, right) == 0) right = cross(Vector{0, 0, -1}, forward);
+  auto right = math::cross(up_reference, forward);
+  if (math::dot(right, right) == 0) {
+    right = math::cross(Vector{0, 0, -1}, forward);
+  }
   right = normalized(right);
-  const auto up = normalized(cross(forward, right));
+  const auto up = normalized(math::cross(forward, right));
   std::array basis{right, warped ? forward : up, warped ? up : forward};
   Vector origin = light_position;
   if (warped) {
@@ -158,7 +158,7 @@ ShadowProjection make_directional_shadow_projection(
       center.at(axis) =
           center.at(axis) / static_cast<double>(kFrustumCorners) - eye.at(axis);
     }
-    const double distance = dot(camera_forward, center);
+    const double distance = math::dot(camera_forward, center);
     for (std::size_t axis = 0; axis < 3; ++axis) {
       origin.at(axis) = eye.at(axis) + camera_forward.at(axis) * distance;
     }
@@ -173,7 +173,7 @@ ShadowProjection make_directional_shadow_projection(
       relative.at(axis) = corner.at(axis) - origin.at(axis);
     }
     for (std::size_t axis = 0; axis < 3; ++axis) {
-      corner.at(axis) = dot(relative, basis.at(axis));
+      corner.at(axis) = math::dot(relative, basis.at(axis));
     }
     const double cone_distance =
         std::max(std::abs(corner[0]), std::abs(corner[1])) / cone_tangent;
@@ -226,7 +226,7 @@ ShadowProjection make_directional_shadow_projection(
     rows[3].at(component) = basis[2].at(component);
   }
   rows[2][3] -= depth_scale * far_plane;
-  rows[3][3] = -dot(basis[2], origin);
+  rows[3][3] = -math::dot(basis[2], origin);
   if (warped) {
     // Algebraic composition of the original inverse axis-swap/translation and
     // final depth remap. Its depth offset cancels; retain the authored scale.

@@ -23,6 +23,8 @@ using resources::detail::Reader;
 constexpr std::uint64_t kWordBytes = 4;
 constexpr std::uint64_t kEnvironmentBytes = 0x160;
 constexpr std::uint64_t kAmbientColor = 0;
+constexpr std::uint64_t kCharacterLightIntensity = 0x1c;
+constexpr std::uint64_t kEnemyLightIntensity = 0x20;
 constexpr std::uint64_t kSkyYaw = 0xc0, kSkyHeight = 0xc4;
 constexpr std::uint64_t kLightDiffuse = 0xc8, kLightSpecular = 0xd8;
 constexpr std::uint64_t kLightVector = 0xf4;
@@ -85,6 +87,10 @@ StageEnvironment StageEnvironment::parse(
   reader.range(0, kEnvironmentBytes);
   const auto value = [&](std::uint64_t field) { return scalar(reader, field); };
   StageEnvironment result;
+  // Original stage activation publishes these to the two SHLT owners after
+  // loading. Preserve the authored values rather than their constructor one.
+  result.character_light_intensity = value(kCharacterLightIntensity);
+  result.enemy_light_intensity = value(kEnemyLightIntensity);
   for (std::size_t i = 0; i < result.ambient_color.size(); ++i) {
     result.ambient_color.at(i) = value(kAmbientColor + i * kWordBytes);
   }
@@ -127,6 +133,17 @@ StageEnvironment StageEnvironment::parse(
   tone.adaptation_slew = value(kAdaptation);
   tone.minimum_luminance = value(kMinLuminance);
   tone.maximum_luminance = value(kMaxLuminance);
+  // Later records append the global pre-tone color operation. Earlier records
+  // end before it and carry no operation; AREA may supply it after activation.
+  constexpr std::uint64_t kColorMode = 0x18c, kColorRgb = 0x190;
+  if (payload.size() >= kColorRgb + 3 * kWordBytes) {
+    tone.color_filter_mode =
+        std::bit_cast<std::int32_t>(reader.u32(kColorMode));
+    for (std::size_t component = 0; component < 3; ++component) {
+      tone.color_filter.at(component) =
+          value(kColorRgb + component * kWordBytes);
+    }
+  }
   if (tone.gamma <= 0 || tone.minimum_luminance <= 0 ||
       tone.maximum_luminance < tone.minimum_luminance ||
       tone.adaptation_slew < 0) {

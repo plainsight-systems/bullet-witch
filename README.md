@@ -42,7 +42,35 @@ launching. Native host options pass through; see the
 [host notes](docs/native-startup-host.md) for controls and verification options.
 For static-stage inspection, `./run --inspect-camera X Y Z YAW PITCH` sets an
 explicit camera position and angles in degrees. Omitting it uses the recovered
-starting camera. This is a development view; player movement is not implemented.
+starting camera. The explicit camera option keeps a fixed development view.
+
+In Concept Mission → One Shot Kill, the bounded traversal build uses these
+controls. Full mission behavior is still being reconstructed.
+
+| Action | Xbox controller | Keyboard |
+| --- | --- | --- |
+| Move | Left stick | W/A/S/D |
+| Look | Right stick | I/J/K/L |
+| Evasive leap | LT | Space |
+| Crouch/stand | Left stick click | C |
+| Fire presentation | RT held | F held |
+| Reload presentation | X | R |
+| Melee presentation | A | E |
+| Switch weapon presentation | B | Q |
+| Aim presentation mode | Right stick click | T |
+| Pause/resume | Menu | Escape |
+
+The pause menu offers Resume, Costume, Weapon Class, and Animation Review.
+Choose with the D-pad or arrow keys and confirm with A or Return. Animation
+Review runs selected actions and clips in the current scene; unavailable requests
+stay paused with an explanation. B/Q switches weapons with the original change
+animation, retaining body movement and aiming state; the paused Weapon Class
+selector resets presentation to neutral. Both preserve position and require
+Alicia to be grounded. These controls review presentation: ammunition, hits,
+projectiles, spell effects, and combat outcomes are not simulated.
+See the [animation review checklist](docs/animation-review.md) for exact controls,
+input sequences, expected results and the boundary between live controls and
+explicit presentation previews.
 
 ## Where it stands
 
@@ -52,14 +80,14 @@ runtime. Its startup tasks connect to shared movie playback and a native Mac
 host using Metal and AudioQueue. Shaders live in separate source files and compile with the build, so the graphics implementation
 can grow and be tuned independently of the host code.
 
-There is no playable build yet. The Mac build runs the logos, opening cinematic
+The Mac build runs the logos, opening cinematic
 and animated title screen using the original assets. It loads profile data,
 displays interactive menus and costume previews, and carries the selection
 through the original Lua to a gameplay request. One Shot Kill now opens its
-original mission script and completes its resource-loading sequence. The static
-view uses the ordinary stage models, original textures and
-reconstructed shaders. Actor creation and gameplay have not started; authored
-environment presentation and some menu options remain open. The [startup notes](docs/startup-runtime.md) and
+original mission script and completes its resource-loading sequence. The scene uses ordinary stage and prop models, original textures, lighting,
+shadows and reconstructed shaders. Selected-costume skeletal animation, a live
+camera and custom character movement now support bounded traversal.
+Mission behavior, combat, outcomes and some menu options remain open. The [startup notes](docs/startup-runtime.md) and
 [native host notes](docs/native-startup-host.md) describe what runs and what
 remains; the [implementation plan](IMPLEMENTATION.md) follows that work through
 a playable mission, the complete game and the Xbox port.

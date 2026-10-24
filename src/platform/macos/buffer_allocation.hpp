@@ -1,11 +1,12 @@
-// Move-only native immutable buffer and corresponding device-budget charge.
+// Move-only native buffer and corresponding device-budget charge. Geometry
+// owners may publish bounded shared-position updates after GPU retirement.
 // create borrows bytes for the call, validates size, admits estimated storage,
 // copies through Metal shared storage, and reconciles allocatedSize before
 // publication. Failure releases both native resource and admission. The caller
 // retires GPU consumers before reset/destruction. get() is borrowed, never an
 // ownership transfer. Single-owner operations; budget synchronization is
 // separate. Algorithm: validate -> reserve -> acquire/copy -> commit -> retire
-// -> release. One setup allocation/copy, no per-frame upload or readback.
+// -> release. One setup allocation/copy; this owner does not schedule uploads.
 // Native driver metadata remains external. See world-renderer-foundation.md.
 // Both MCP phases: E.6 (#re-raii) rollback; GPU.1
 // (guidelines/gpu/GPU.1-keep-data-on-device.md) retains device data. Preserve

@@ -51,6 +51,13 @@ shared headers must not force a lowest-common-denominator shader language or
 layout. Optimize from measured GPU/CPU timings, bandwidth and synchronization
 costs while preserving the faithful baseline.
 
+The current CPU animation/secondary-pose and GPU skinning/shading allocation
+follows the recovered Steam implementation within the traced scope. It is not a
+modern performance recommendation or proof for unresolved engine paths. The
+[baseline work-placement policy](world-renderer-reconstruction.md#baseline-work-placement-and-later-performance-design)
+keeps broad CPU/GPU repartition for the improvement pass after a working port,
+while allowing focused changes for measured blockers or demonstrated defects.
+
 ## Rendering structure
 
 ```mermaid
@@ -281,3 +288,37 @@ perform no file I/O or GPU work. The original native BGRA font flags map into
 canonical RGBA channels before commands reach the renderer. See the
 [sprite design](../../research/engine/subsystems/sprite-presentation-design.md)
 for inspected reference implementations, ordering evidence and shader equations.
+
+## Mission loading presentation
+
+`StartupLoadingSurface` owns the original portrait selected during title setup,
+the repeated sliding art, English loading-item text and authored default Xbox
+control images. Its fixed sprite commands include a rotation about a local pixel
+origin. The target renderer applies that transform in canvas space; game-specific
+timing, layout and source-image identities remain in the game surface.
+
+`MissionLoading` remains a serial owner. Its injected progress callback runs
+between completed CPU assets and device uploads, where framework composition can
+pump platform events and present only the loading surface. It cannot reenter Lua,
+mutate catalogs or observe partially constructed world state. This follows Doom
+3's synchronous loading-screen update contract. No new renderer thread-safety
+claim or generic job subsystem is introduced. The published stage replaces loading
+presentation only after its complete world submission; loading wall time is not
+charged to the first simulation tick.
+
+```mermaid
+flowchart LR
+  Lua[Original mission load] --> Load[MissionLoading]
+  Load --> Assets[CPU definitions and native residency]
+  Assets --> Pulse[Completed asset boundary]
+  Pulse --> Host[Platform events]
+  Pulse --> Loading[StartupLoadingSurface]
+  Loading --> Sprites[Resident sprite commands]
+  Assets --> Ready[Complete world publication]
+  Ready --> World[Stage traversal presentation]
+```
+
+See [loading evidence and measurements](../../research/engine/subsystems/loading-presentation.md)
+and [native artwork/text mapping](../../research/engine/subsystems/loading-art-mapping.md).
+Full original mission-task exit and keyboard/remapped-control tip presentation
+remain with their corresponding mission and input owners.

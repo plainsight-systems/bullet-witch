@@ -18,5 +18,18 @@
   "[objective-cpp]": {
     "editor.defaultFormatter": "ms-vscode.cpptools",
     "editor.formatOnSave": true
-  }
+  },
+  "C_Cpp.files.exclude": {
+    "**/.vscode": true,
+    "**/.vs": true,
+    "**/research/vendor/**": true
+  },
+  "C_Cpp.codeAnalysis.exclude": {
+    "**/research/vendor/**": true
+  },
+  "files.exclude": {
+    "**/research/vendor/**": true
+  },
+  "omnisharp.projectFilesExcludePattern": "**/node_modules/**,**/.git/**,**/bower_components/**,**/research/vendor/**",
+  "dotnet.defaultSolution": "disable"
 }

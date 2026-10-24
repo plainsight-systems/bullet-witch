@@ -1,5 +1,74 @@
 # Current engineering decisions
 
+- On October 24, 2026, the user accepted the current Alicia traversal, animation
+  and lighting slice for commit. Lighting may still look slightly too dark;
+  retain that observation for future source/footage comparison without tuning
+  this accepted baseline. This closes the slice review gate, not full-game
+  parity or every historical control/visual comparison. Remaining gameplay and
+  ownership work is recorded in QUEUE and
+  `research/engine/subsystems/runtime-subsystem-inventory.md`.
+
+- Faithful-port performance acceptance targets stable 60 fps (about 16.67 ms),
+  adopted from the official Steam PC baseline. Record output resolution, target
+  Mac/hardware, scene, build and timing scope for acceptance; none is invented
+  or claimed achieved by the incomplete scene. Published 720p30 minimum hardware
+  remains a reference; recommended hardware has no documented FPS/resolution.
+  See `research/engine/subsystems/steam-performance-baseline.md`.
+
+- The sole user-authorized temporary shim is fresh One Shot Kill initial
+  placement, isolated in `initial_placement_shim` with exact mission/stage and
+  no-checkpoint guards. No reusable controller/Stage fallback owns these
+  coordinates. Remove it when original mission-start gates and Lua player
+  commands run against the real world; this does not claim startup completion.
+  Earlier adversarial ownership and lighting findings have scoped re-review
+  clearance. Subsequent physical review reopened melee during weapon lowering
+  and costume brightness. The source-owned complete Shooter state matrix and
+  synchronous entry correction now pass scoped re-review and the rebuilt PW5
+  four-class native interruption witness. The combined gate, final original-root
+  corpus and rebuilt native replay pass.
+  The brightness defect was a missing live environment producer: stage activation
+  enables AREA, whose camera-selected scalar channels replace raw CSTM defaults.
+  The cave character-field target is 0.005 rather than one; ambient, directional,
+  fog, sky, shadow and output settings update with it. Scene-ready startup requests
+  one immediate publication, then world updates perform the original transition.
+  The engine owns prepared environment and lighting state; the game maps original
+  channel meanings. The source pre-tone RGB operation is restored before metering,
+  bloom and final output. No costume scalar, art retuning or replacement metering
+  algorithm is used. Settled native PW5/PW0 and region-transition captures improve
+  substantially. Native first-presentation output now bounds its actual GPU
+  measurement as the original does even with empty history; final PW5/PW0
+  first-visible captures show no initial flash. No fake seed or warm-up is used.
+  Original initial texture contents/timing remain unproven; the user has accepted
+  this slice with the slight-darkness observation recorded above.
+  See `research/engine/subsystems/character-material-brightness-audit.md`,
+  `research/engine/subsystems/targeting-melee-arbitration.md` and
+  `research/engine/subsystems/mission-start-admission.md`.
+
+- Scene lighting is an engine-owned subsystem. `scene::SceneLighting` owns
+  decoded fields with generic scene-local identities, independent intensities,
+  authored emitters, directional/ambient parameters and prepared view admission.
+  Game code supplies definitions and complete model observations; controllers
+  do not sample or rank lights. Shared directional values are separate from
+  owned receiver packets. Static view lights and spatial receiver active lists
+  preserve their distinct source candidate sets and ordering. The owner is
+  serialized, retains prepared domain storage, and publishes fixed values to
+  rendering; it is not a completed entity registry or asynchronous scene.
+  `scene::Environment` separately owns region/curve bindings and retained
+  transitions. Game compatibility supplies the channel schema and source policy;
+  the existing world update drives it without another clock. Scene-ready startup
+  sets the source one-shot snap flag; later region changes blend normally.
+  Final `python3 scripts/check.py all` passes: build, all six CTest targets,
+  fatal clang-tidy, policy tests and repository content checks. See
+  `docs/architecture/lighting.md` and
+  `research/engine/subsystems/scene-lighting-pass-contract.md` for fidelity limits.
+
+- With this animation slice accepted, establish source-backed authoritative
+  world tick and pause ownership alongside real gameplay pause/resume and HUD,
+  before extending gameplay entities. Current Stage-local orchestration is not
+  a complete world scheduler. Local animation cursors consume supplied simulation
+  steps; host clamping, pause and surrounding camera/material/audio time domains
+  remain explicit boundaries in `docs/architecture/actors-and-animation.md`.
+
 - Use subagents by default for task execution, keeping
   the main conversation available for planning and parallel exploration. Assign
   clear ownership and integrate/check their results; independent agent review
@@ -15,33 +84,125 @@
   background, status, development details and other reference material. Keep the
   top-level `./run` command visible in the running section.
 
+- Current CPU animation/secondary constraints and GPU skinning/shading follow
+  the traced Steam baseline, not a recommended modern engine partition. Keep
+  broad target-aware CPU/GPU repartition for the improvement pass after the
+  working port; measured blockers or demonstrated defects can justify focused
+  earlier changes with documented evidence and native verification. Unresolved
+  paths are not covered by a whole-engine fidelity claim. See the work-placement
+  policy in `docs/architecture/world-renderer-reconstruction.md`.
 - Source reconstruction is the implementation direction: preserve behavior,
   establish a direct port, then improve the engine and graphics.
+- Slice 5 actor presentation now has mission-owned selected-costume and weapon
+  resources, immutable prepared clips, reusable skeletal poses and native skin
+  palette updates. The original model basis, height offset, player mesh mask,
+  attachment bone and weapon stand motion are preserved. The bounded traversal owner now connects root-driven movement, custom static
+  contact, physical jump/landing and the live camera. Native actual-content
+  numerical verification covers all three authored placements, with zero domain
+  allocation/release during updates. User review now accepts the corrected evasive timing and floor alignment.
+  Forward/back movement into evade still has rejected apparent facing after the
+  first reference reset; the bounded source audit supports the current pipeline,
+  so exact neutral-run original-game visual comparison remains needed. A
+  machine-code witness identified and corrected the near-180-degree turn-side
+  fallback, preserving the source target; inspected PC footage only establishes
+  a raised-weapon backward flip, not the rejected neutral-run transition. See
+  `research/engine/subsystems/player-evade-visual-reference.md`. The recovered outfit
+  secondary pass is now integrated and native-verified across all six costumes;
+  user review of garment/body intersections remains open.
+  The user accepts the later floor/character shadow correction; remaining
+  pixelation and distant-map motion are original-game comparison points. The native menu route and keyboard movement,
+  jump/landing, camera look and pause/resume were observed in the running app. See `research/engine/subsystems/player-traversal-acceptance.md`. Animation root displacement is consumed once and locked out of the
+  render pose. Source re-evaluation found hardware LT selects a directional
+  root-driven evasive leap; the earlier generic scripted jump mapped to A was
+  incorrect. All XYZ root displacement uses the source Waist_direction basis
+  (sampled from the selected prepared clip each update), landing plays at 2x with cancellation frame 25, and live model height
+  uses negative effective radius. Ordinary nonfiring input now preserves source
+  radial scaling/deadzone and 0.9 walk/dash rate selection. See
+  `research/engine/subsystems/player-evasive-leap.md`. Preserve source movement above
+  shared collision queries; dynamic-body backend selection remains separate.
+  See `docs/architecture/actors-and-animation.md` and
+  `research/engine/subsystems/player-collision-boundary.md`.
+- Current user review reopened Stop preview, persistent aiming and an unnamed
+  geometry-breaking selection. The native menu Stop path resumes movement; no
+  separate reset defect has been reproduced. User retest rejected the earlier expiry-only aim fix. A separate source
+  targeting owner and original camera contexts now implement immediate mode
+  exit independently of raised posture. Scoped adversarial re-review clears this
+  owner, inactive Stop and source-bound classification; physical confirmation
+  remains pending. Unknown and incompatible ordinary/additive representations
+  are disabled/rejected before changing the active preview. Complete model
+  substeps and balanced host subdivision correct independently demonstrated
+  stale-event and tiny-remainder defects. Native mixed-rate aim/Stop replay and
+  original-root assertions pass; user confirmation remains pending. See
+  `research/engine/subsystems/animation-review-lifecycle.md` and
+  `research/engine/subsystems/animation-review-geometry.md`.
+- Expanded animation now connects source-backed player action inputs, explicit
+  in-scene presentation review and transactional weapon-class selection. The
+  integrated build, original-root corpus, native menu pages and complete native
+  review sequence pass. Raised turning preserves raw source vectors through
+  branch selection and normalizes the final facing; both directions pass for
+  all four weapons. User review exposed legal-stick rejection, missing live switch motion and
+  visibly incorrect aiming. Source-backed corrections now preserve the capped
+  input magnitude, request the original switch while retaining body clocks,
+  separate raw facing from displacement references, and apply both weapon
+  attachment/render conversions. Grounded contact is explicitly distinct from
+  airborne ascent: tiny positive root Y no longer causes stationary turn/fire
+  to lose support. The original failing native sequence now passes across all
+  four weapons, with steady and held-fire pitch side views inspected. The full
+  automated gate passes; user acceptance of this corrected build is pending. Combat outcomes remain outside this slice. See
+  `docs/animation-review.md` for controls and synthetic-observation boundaries.
+- Expanded Alicia animation now prepares all 161 body motions and 164 parameters
+  with alias/resource identity preserved. Stable body/upper/additive/weapon
+  rings drive masks, blends, facial/visibility events and source action-family
+  policies. The parent consumes the preceding raw root interval through the
+  current selected reference; the model then advances once and publishes pose,
+  events and the next interval. Raised aim uses the admitted five-bone chain
+  and original scaled-marker quaternion arithmetic. Native forward/up/side
+  aim and three-checkpoint scripted/reaction/pause captures pass. Motion-driven
+  scene sound/voice and pause checks pass the actual-root corpus. A production
+  motion-driven CoreAudio run completes without reported device errors and
+  with balanced teardown; subjective audibility remains for user listening.
+  Combat, world spell effects and dynamic death handoff are separate capabilities.
+  Live weapon-class presentation review uses isolated resource/actor candidates
+  and atomic renderer publication, preserving the frozen body and resetting the
+  new weapon action owners. All four models and 26 weapon motions are admitted. See
+  `research/engine/subsystems/alicia-animation-coverage.md`.
+
 - First playable mission target selected October 23, 2026: One Shot Kill
   (`cm01_00`, extra mission ID 1), using `st04_c` stage resources. The planned
   breakdown in `IMPLEMENTATION.md` separates mission/content loading, a first
   static stage view, stage presentation, player traversal and mission behavior.
-  Slices 1–4 are authorized. Original concept launch follows native internal
+  Slices 1–5 are authorized. Original concept launch follows native internal
   status 5 to API 6 and selected-package aliasing to cm01_00. Its original load
   now returns naturally after typed stage/collision/material-animation owners,
   text/cover/audio registration and character/weapon dependency construction.
-  The mission waits at `awaiting_world_setup`; actor creation and gameplay do
-  not run. Original-root integration verifies 54 dependency model variants,
+  The mission waits at `awaiting_world_setup`; selected-costume actor
+  presentation prepares clips and a bone-attached weapon. Full mission start remains incomplete. The normal concept path enters
+  a separate bounded traversal lifetime with authored placements and pause,
+  without completing unsupported mission callbacks. Original-root integration verifies 54 dependency model variants,
   11 shared character support sets and 178 NPC palette bindings, with balanced
   teardown. The static view borrows those load-owned GPU resources and selects
   all ten ordinary stage models. Slice 4 now selects 4,100 ordinary draws,
   674 placed-prop draws from 276 placements, and one sky draw, with no omitted
-  material draws in the actual corpus. This remains a bounded initial snapshot.
-  Its initial camera decodes the authored behind-player
-  preset, applies the recovered fresh script pose/yaw and original static
-  triangle-clearance sequence, then supplies the original fixed-aspect reverse-depth
-  projection. Generic stage customization and scene collision remain engine
-  owners; player camera policy lives under game/camera. Mission start/actor
-  simulation has not executed, so this explicit pose bootstrap does not claim a
-  live gameplay camera. Slices 1–3 are implemented, verified and accepted for
+  material draws in the actual corpus. Placed props retain their authored initial poses; dynamic-body simulation is not implemented.
+  The live camera decodes the authored behind-player
+  preset, follows the corrected player pose and uses the original static
+  triangle-clearance sequence with a prepared broad phase, then supplies the original
+  fixed-aspect reverse-depth projection. Generic stage customization and scene collision remain engine
+  owners; player camera policy lives under game/camera. Full mission start has not executed; bounded actor simulation consumes the
+  authored placement independently while the live camera follows its resolved pose. Slices 1–3 are implemented, verified and accepted for
   commit on October 23, 2026. Slice 4 is implemented, verified and accepted for
-  commit on the same date. Slice 5 remains planned and awaits authorization.
-  Shadow projection and edge sampling are closed within slice 4:
+  commit on the same date. Slice 5 runs through the normal menu route. Expanded
+  animation requires a fully reachable, checked review path; user acceptance
+  remains separate. Timing, height and shadow correction are accepted. Neutral
+  backward-evade comparison and mesh-aware outfit improvements retain their
+  documented dispositions rather than blocking all animation inspection.
+  Shadow projection matrix and edge-filter reconstruction retain source/device
+  verification from slice 4. User review reopened visual shadow stability:
+  extra source-excluded caster chunks and demonstrated receiver self-shadow
+  artifacts are corrected. The user accepts the improvement; pixelation and
+  distant mountain-shadow movement still lack original-game visual comparison. See
+  `research/engine/subsystems/stage-shadow-presentation.md`. The established
+  matrix/filter work is distinct from that visible residual:
   stage activation supplies the recovered perspective-warp controls, six original
   machine-code witnesses verify the camera-dependent matrix, and caster/receiver
   consumers share its homogeneous rows. The unsupported original address state
@@ -152,8 +313,8 @@
   main on the current host; no passing ASan claim is made. ThreadSanitizer also
   fails before main with signal 11 in a minimal diagnostic; no TSan pass or
   race-freedom claim is made. Other target builds
-  remain unverified. World rendering now has a bounded static inspection subset;
-  gameplay and complete original stage presentation remain unimplemented.
+  remain unverified. World rendering now supports bounded player traversal and static scene presentation;
+  combat, dynamic world simulation and the complete mission loop remain unimplemented.
 - Existing integration coverage exceeds the imported five-scenario target;
   the explicit adoption exception now enumerates eleven scenarios, including
   the provisioned original-root integration required for the startup slice.
@@ -250,7 +411,35 @@
   Costume previews are authored 2D images, not a world-rendering dependency.
   FrontEnd gates readiness, fades and persistence; StartupSession captures
   StartMission as owned launch data and leaves WaitMission pending. The host
-  consumes One Shot Kill into owned mission/load state and independent static
-  inspection; other routes still stop at the request boundary. Current options
+  consumes One Shot Kill into owned mission/load state and bounded player
+  traversal; other routes still stop at the request boundary. Current options
   cover persisted volumes and costume; audio gain, BGM/cues, other options and
   full submenu animation/localization parity remain outstanding.
+
+- Loading presentation is now a main-thread owner independent of partial world
+  construction. Asset-boundary callbacks pump events and submit resident original
+  loading art/text; they do not advance Lua or render a partial scene. Preserve
+  the title-selected portrait and separate loading item. Current tips use the
+  original English column and default Xbox icon mapping. Pinned PNG/zlib internals
+  are optimized even in Debug after measured decode cost and pixel-hash equality;
+  project Debug validation remains enabled. See `loading-presentation.md`.
+
+- Reusable CPU vector/matrix computation belongs to `bw_math`, with explicit
+  scalar and accumulator precision. Keep caller tolerances and validation policy
+  local; do not duplicate float/double primitives in subsystem files. Target
+  specialization belongs behind the shared numerical contract. See
+  `research/engine/subsystems/shared-math.md`.
+
+- In-mission costume selection is an intentional baseline improvement approved
+  by the user. Pause owns UI input and freezes session/mission, actor, camera,
+  secondary and material updates. Appearance replacement prepares an isolated
+  stable-address mission body, validates/prepares actor state, publishes only
+  replacement body draws, then retires prior resources. Preserve movement,
+  camera and action clocks; do not persist this session choice implicitly.
+  The pause menu exposes Resume, Costume, Weapon Class and Animation Review
+  with existing authored typography and costume previews. All six costumes pass actual-content native replacement/resume
+  checks with preserved frozen body/camera and balanced teardown. Texture
+  retirement now invalidates only affected models, preserving the new scene.
+  See `pause-and-costume-switching.md` and `model-draw-replacement.md`;
+  physical-controller review confirms the menu works. Dress/body intersections
+  and backward-run evade facing remain open original-game comparisons.

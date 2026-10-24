@@ -1,0 +1,348 @@
+// Native action identities at the compatibility boundary; these are source
+// dispatch constants, not extracted audio. 46e710/4ad400, tables958ea8/95f710.
+// Voice action names: table958fc0. See animation-audio-presentation.md.
+constexpr std::array<std::uint32_t, 179> kDirect0{{
+    0x16cU,      0x18U,  0x19U,       0x1aU,       0x1c8U,      0x1c9U,
+    0x1bU,       0x1cU,  0x1dU,       0x1eU,       0x1fU,       0x20U,
+    0x1caU,      0x1cbU, 0x21U,       0x22U,       0x1ccU,      0x1cdU,
+    0x23U,       0x24U,  0x1ceU,      0x1cfU,      0x25U,       0x26U,
+    0x27U,       0x28U,  0x29U,       0x2aU,       0x2bU,       0x2cU,
+    0x2dU,       0x1d0U, 0x2eU,       0x1d1U,      0x2fU,       0x30U,
+    0x31U,       0x32U,  0x33U,       0x34U,       0x35U,       0x36U,
+    0x37U,       0x38U,  0x39U,       0x3aU,       0x3bU,       0x3cU,
+    0x3dU,       0x3eU,  0x3fU,       0x40U,       0x41U,       0x42U,
+    0x43U,       0x44U,  0x1d2U,      0x1d3U,      0x1d4U,      0x1d5U,
+    0x1d6U,      0x1d7U, 0x1d8U,      0x1d9U,      0x49U,       0x4aU,
+    0x4bU,       0x4cU,  0x45U,       0x46U,       0x47U,       0x48U,
+    0x4dU,       0x4eU,  0x166U,      0x58U,       0x59U,       0x5aU,
+    0x5bU,       0x5cU,  0x5dU,       0x5eU,       0x5fU,       0x60U,
+    0x61U,       0x62U,  0x63U,       0x64U,       0x65U,       0x66U,
+    0x67U,       0x68U,  0x69U,       0x6aU,       0x6bU,       0x165U,
+    0x70U,       0x71U,  0x72U,       0x73U,       0x74U,       0x75U,
+    0x76U,       0x77U,  0x78U,       0x79U,       0x7aU,       0x7bU,
+    0x7cU,       0x7dU,  0x8000007eU, 0x7fU,       0x80U,       0x81U,
+    0x82U,       0x83U,  0x84U,       0x85U,       0xffffffffU, 0x87U,
+    0x88U,       0x89U,  0x8aU,       0x800001daU, 0x8bU,       0x8cU,
+    0x8dU,       0x8eU,  0x8fU,       0x90U,       0x91U,       0x92U,
+    0x1dbU,      0x93U,  0x94U,       0x95U,       0x80000096U, 0x97U,
+    0x98U,       0x99U,  0x9aU,       0x9bU,       0x9cU,       0x9dU,
+    0x800001dcU, 0x9eU,  0x1ddU,      0x9fU,       0xa2U,       0xa3U,
+    0x800000a4U, 0xa5U,  0xa6U,       0xa7U,       0x2001cU,    0xa9U,
+    0xaaU,       0xabU,  0xacU,       0x1e6U,      0x177U,      0x1e7U,
+    0x178U,      0x1e8U, 0x1e9U,      0x179U,      0x17aU,      0x17bU,
+    0x1eaU,      0x1bcU, 0x1bdU,      0x1ebU,      0x1ecU,      0x1c2U,
+    0x199U,      0x10fU, 0x86U,       0x8004011aU, 0x320684U,
+}};
+constexpr std::array<std::uint32_t, 54> kDirect1{{
+    0x80000110U, 0x111U,      0x112U,      0x80000113U, 0x114U,
+    0x80000115U, 0x80000116U, 0x80000117U, 0x80000118U, 0x119U,
+    0x11aU,      0x11bU,      0x8000011cU, 0xffffffffU, 0x11dU,
+    0x8000011eU, 0x11fU,      0x80000120U, 0x121U,      0x122U,
+    0x80000123U, 0x800001e1U, 0x800001e2U, 0x164U,      0x124U,
+    0x80000125U, 0x126U,      0x127U,      0x128U,      0x129U,
+    0x12aU,      0x12bU,      0x12cU,      0x8000012dU, 0x8000012eU,
+    0x8000012fU, 0x80000130U, 0x80000131U, 0x80000132U, 0x133U,
+    0x134U,      0x135U,      0x136U,      0x137U,      0x138U,
+    0x139U,      0x13aU,      0x13bU,      0x13cU,      0x13dU,
+    0x13eU,      0x13fU,      0x140U,      0x141U,
+}};
+constexpr std::array<std::uint32_t, 21> kDirect2{{
+    0x800000adU, 0xaeU, 0x800000afU, 0x800000b0U, 0x800000b1U, 0x800000b2U,
+    0xb3U,       0xb4U, 0xb5U,       0xb6U,       0xb7U,       0x800000b8U,
+    0x800000b9U, 0xbaU, 0xbbU,       0xbcU,       0x800000bdU, 0xbeU,
+    0xbfU,       0xc0U, 0xc1U,
+}};
+constexpr std::array<std::uint32_t, 45> kDirect3{{
+    0x169U,      0x142U,      0x147U,      0x149U,      0x148U,
+    0x170U,      0x16fU,      0x14dU,      0x80000172U, 0x173U,
+    0x80000171U, 0x174U,      0x8000014cU, 0x14bU,      0x14eU,
+    0x14fU,      0x8000014aU, 0x1e5U,      0x143U,      0x144U,
+    0x145U,      0x146U,      0x1e3U,      0x150U,      0x155U,
+    0x156U,      0x157U,      0x80000158U, 0x159U,      0x8000015aU,
+    0x176U,      0x80000151U, 0x152U,      0x153U,      0x154U,
+    0x175U,      0x8000015bU, 0x8000015cU, 0x8000015dU, 0x8000015eU,
+    0x8000015fU, 0x160U,      0x80000161U, 0x80000162U, 0x80000163U,
+}};
+constexpr std::array<std::uint32_t, 27> kDirect4{{
+    0x1e4U, 0xc2U, 0xc3U,  0xc4U, 0xc5U,  0xc6U, 0xc7U,  0xc8U, 0xc9U,
+    0xcaU,  0xcbU, 0x1deU, 0xccU, 0xcdU,  0xceU, 0xcfU,  0xd0U, 0xd1U,
+    0xd2U,  0xd3U, 0xd4U,  0xd5U, 0x1dfU, 0xe1U, 0x1e0U, 0xe2U, 0xe3U,
+}};
+constexpr std::array<std::uint32_t, 10> kDirect5{{
+    0xffffffffU,
+    0xe8U,
+    0xe9U,
+    0xeaU,
+    0xebU,
+    0xecU,
+    0xedU,
+    0xeeU,
+    0xefU,
+    0x10005U,
+}};
+constexpr std::array<std::uint32_t, 104> kDirect6{{
+    0x800000f0U, 0x80000168U, 0x800000f1U, 0xf2U,    0xf3U,       0xf4U,
+    0xf5U,       0xf6U,       0xf7U,       0x167U,   0xf8U,       0xf9U,
+    0xfaU,       0xfbU,       0xfcU,       0xfdU,    0xfeU,       0xffU,
+    0x80000100U, 0x80000101U, 0x102U,      0x103U,   0x104U,      0x105U,
+    0x106U,      0x107U,      0x108U,      0x109U,   0x10aU,      0x10bU,
+    0x10cU,      0x10dU,      0x10eU,      0x20015U, 0x10000U,    0x8000016eU,
+    0x1aeU,      0x17cU,      0x17dU,      0x17eU,   0x17fU,      0x180U,
+    0x181U,      0x182U,      0x183U,      0x184U,   0x185U,      0x185U,
+    0x187U,      0x188U,      0x189U,      0x18aU,   0x18bU,      0x18dU,
+    0x18eU,      0x18cU,      0x18fU,      0x190U,   0x191U,      0x192U,
+    0x193U,      0x194U,      0x195U,      0x196U,   0xffffffffU, 0x197U,
+    0x8000019dU, 0x185U,      0x186U,      0x1a1U,   0x1a2U,      0x1a3U,
+    0x1a4U,      0x1afU,      0x19eU,      0x19fU,   0x1a0U,      0xffffffffU,
+    0x198U,      0xffffffffU, 0xffffffffU, 0x10004U, 0x10003U,    0x19bU,
+    0x19cU,      0x8000019dU, 0x1a6U,      0x1a7U,   0x1a1U,      0x1a2U,
+    0x1a3U,      0x1a4U,      0x1a5U,      0x19eU,   0x19fU,      0x1a0U,
+    0x1a8U,      0x1aaU,      0x1a9U,      0x1abU,   0x1acU,      0x1beU,
+    0x1bfU,      0x19aU,
+}};
+struct DirectSoundRange {
+  std::uint32_t start;
+  std::span<const std::uint32_t> cues;
+};
+constexpr std::array<DirectSoundRange, 7> kDirectRanges{{
+    {1000, kDirect0},
+    {2000, kDirect1},
+    {3000, kDirect2},
+    {4000, kDirect3},
+    {5000, kDirect4},
+    {6000, kDirect5},
+    {7000, kDirect6},
+}};
+struct SurfaceSound {
+  std::uint8_t surface;
+  std::uint32_t cue;
+};
+constexpr std::array<SurfaceSound, 9> kSurface0{{
+    {2, 0x18U},
+    {3, 0x1c4U},
+    {6, 0x18U},
+    {7, 0x1c3U},
+    {13, 0x18U},
+    {4, 0x1bdU},
+    {5, 0x178U},
+    {12, 0x18U},
+    {17, 0x1c4U},
+}};
+constexpr std::array<SurfaceSound, 9> kSurface1{{
+    {2, 0x18U},
+    {3, 0x1c4U},
+    {6, 0x1aU},
+    {7, 0x1c3U},
+    {13, 0x1aU},
+    {4, 0x1bdU},
+    {5, 0x178U},
+    {12, 0x1aU},
+    {17, 0x1c4U},
+}};
+constexpr std::array<SurfaceSound, 7> kSurface2{{
+    {2, 0x31U},
+    {3, 0x32U},
+    {6, 0x31U},
+    {17, 0x32U},
+    {7, 0x1e7U},
+    {13, 0x31U},
+    {5, 0x1eaU},
+}};
+constexpr std::array<SurfaceSound, 5> kSurface3{{
+    {2, 0x34U},
+    {3, 0x35U},
+    {6, 0x34U},
+    {7, 0x34U},
+    {13, 0x34U},
+}};
+constexpr std::array<SurfaceSound, 0> kSurface4{{}};
+constexpr std::array<SurfaceSound, 9> kSurface5{{
+    {2, 0x1aU},
+    {3, 0x3dU},
+    {4, 0x3cU},
+    {5, 0x179U},
+    {6, 0x3bU},
+    {7, 0x1c5U},
+    {13, 0x3bU},
+    {14, 0x3cU},
+    {17, 0x3dU},
+}};
+constexpr std::array<SurfaceSound, 6> kSurface6{{
+    {32, 0x86U},
+    {33, 0x5dU},
+    {34, 0x60U},
+    {4, 0x5dU},
+    {11, 0x60U},
+    {14, 0x5dU},
+}};
+constexpr std::array<SurfaceSound, 6> kSurface7{{
+    {32, 0x86U},
+    {33, 0x5eU},
+    {34, 0x61U},
+    {4, 0x5eU},
+    {11, 0x61U},
+    {14, 0x5eU},
+}};
+constexpr std::array<SurfaceSound, 6> kSurface8{{
+    {32, 0x5cU},
+    {33, 0x5fU},
+    {34, 0x62U},
+    {4, 0x5fU},
+    {11, 0x62U},
+    {14, 0x5fU},
+}};
+constexpr std::array<SurfaceSound, 0> kSurface9{{}};
+constexpr std::array<SurfaceSound, 0> kSurface10{{}};
+constexpr std::array<SurfaceSound, 6> kSurface11{{
+    {2, 0xb6U},
+    {4, 0xb5U},
+    {7, 0xb6U},
+    {11, 0xb5U},
+    {13, 0xb6U},
+    {14, 0xb5U},
+}};
+constexpr std::array<SurfaceSound, 18> kSurface12{{
+    {2, 0xc2U},
+    {3, 0xc7U},
+    {4, 0xc6U},
+    {5, 0xc3U},
+    {6, 0xc2U},
+    {7, 0xc2U},
+    {8, 0xf6U},
+    {11, 0xc5U},
+    {13, 0xc2U},
+    {14, 0xc5U},
+    {16, 0x90U},
+    {30, 0xc8U},
+    {31, 0xcaU},
+    {32, 0xcbU},
+    {33, 0xc5U},
+    {34, 0xc6U},
+    {35, 0xc9U},
+    {18, 0x90U},
+}};
+constexpr std::array<SurfaceSound, 1> kSurface13{{
+    {5, 0xe1U},
+}};
+constexpr std::array<SurfaceSound, 5> kSurface14{{
+    {2, 0xe9U},
+    {3, 0xeaU},
+    {6, 0xe9U},
+    {7, 0xe9U},
+    {13, 0xe9U},
+}};
+constexpr std::array<SurfaceSound, 0> kSurface15{{}};
+constexpr std::array<SurfaceSound, 5> kSurface16{{
+    {2, 0xecU},
+    {3, 0xedU},
+    {6, 0xecU},
+    {7, 0xecU},
+    {13, 0xecU},
+}};
+constexpr std::array<SurfaceSound, 7> kSurface17{{
+    {2, 0x1d3U},
+    {3, 0x1d4U},
+    {6, 0x1d3U},
+    {7, 0x1e7U},
+    {13, 0x1d3U},
+    {5, 0x1eaU},
+    {17, 0x1d4U},
+}};
+constexpr std::array<SurfaceSound, 7> kSurface18{{
+    {2, 0x1d7U},
+    {3, 0x1d8U},
+    {6, 0x1d7U},
+    {7, 0x1e7U},
+    {13, 0x1d7U},
+    {5, 0x1eaU},
+    {17, 0x1d8U},
+}};
+constexpr std::array<SurfaceSound, 6> kSurface19{{
+    {2, 0x50U},
+    {3, 0x51U},
+    {6, 0x50U},
+    {7, 0x50U},
+    {13, 0x50U},
+    {17, 0x51U},
+}};
+constexpr std::array<SurfaceSound, 0> kSurface20{{}};
+constexpr std::array<SurfaceSound, 0> kSurface21{{}};
+constexpr std::array<SurfaceSound, 0> kSurface22{{}};
+struct PlayerSoundAction {
+  std::uint32_t fallback;
+  std::span<const SurfaceSound> surfaces;
+};
+constexpr std::array<PlayerSoundAction, 23> kPlayerActions{{
+    {0x16cU, kSurface0},       {0x16cU, kSurface1},       {0x30U, kSurface2},
+    {0x33U, kSurface3},        {0xffffffffU, kSurface4},  {0x19U, kSurface5},
+    {0x166U, kSurface6},       {0x58U, kSurface7},        {0x59U, kSurface8},
+    {0x800000afU, kSurface9},  {0x800000b1U, kSurface10}, {0xb4U, kSurface11},
+    {0x1e4U, kSurface12},      {0x1e0U, kSurface13},      {0xe8U, kSurface14},
+    {0xffffffffU, kSurface15}, {0xebU, kSurface16},       {0x1d2U, kSurface17},
+    {0x1d6U, kSurface18},      {0x4fU, kSurface19},       {0x1b0U, kSurface20},
+    {0xffffffffU, kSurface21}, {0x139U, kSurface22},
+}};
+constexpr std::array<std::string_view, 62> kVoiceNames{{
+    "die",
+    "m_damage",
+    "l_damage",
+    "snipe_die",
+    "battle",
+    "panic_fire",
+    "crowd_ravens",
+    "attack",
+    "dodge",
+    "gigas_voise",
+    "screamer_voice",
+    "contact",
+    "encounter",
+    "reaction_sound",
+    "command_rush",
+    "command_fire",
+    "reply",
+    "possess",
+    "gift",
+    "s_damage",
+    "panic_tornado",
+    "panic_meteo",
+    "panic_ravens",
+    "demon_encounter",
+    "panic_gigas",
+    "panic_thunder",
+    "tumble",
+    "thanks",
+    "yell",
+    "player_dead",
+    "help",
+    "chase",
+    "giveup",
+    "enemy_giveup",
+    "giveup_attack",
+    "grenade",
+    "reaction_snipe",
+    "l_surprised",
+    "contact_radio",
+    "abuse_corpse",
+    "gigas_footsteps",
+    "feign_death",
+    "sneeze",
+    "good_impression",
+    "bad_impression",
+    "gigas_encounter",
+    "friend_dead",
+    "nice_play",
+    "crush_die",
+    "exist",
+    "exist_extra",
+    "attack_a",
+    "attack_b",
+    "attack_c",
+    "die_sp",
+    "provocation",
+    "cast",
+    "cast_huge",
+    "cast_thunder",
+    "cast_tornade",
+    "cast_meteo",
+    "change_target",
+}};

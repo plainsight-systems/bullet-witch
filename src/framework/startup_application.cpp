@@ -1,7 +1,27 @@
-// An optional inspection pose is passed once to stage-view construction.
-// This development setting never replaces the original player spawn or starts
-// actor simulation. Both MCP phases: I.1 (#ri-explicit) keeps the override in
-// owned configuration; MEM.9
+// Interactive presentation review forwards captured intent to Stage and keeps
+// external review observations explicit. Paused transactions rebind catalog
+// borrowers after publication, report failures without advancing the game, and
+// rebase wall deadlines. Ordinary next-weapon activates mission-resident assets
+// without pausing audio/world or consuming a UI-only frame; source model
+// instance recreation is separate from immutable resource acquisition
+// (R.20/I.11/CDSA.32). Both MCP phases I.1 (#ri-explicit) preserve
+// admission/composition boundaries; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps notices and
+// per-frame orchestration fixed values; resource work occurs only on requests.
+// Pause composition routes UI input before game clocks, preserving a sampled
+// wall clock while simulation is frozen. A selected costume loads/publishes as
+// an explicit paused transaction; failure keeps the current appearance. Menu
+// resources are prepared at mission admission, not each pause. Both phases Core
+// I.1 (#ri-explicit), E.6 (#re-raii), performance MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md). See
+// research/engine/subsystems/pause-and-costume-switching.md.
+// Loading presentation uses explicit asset-boundary callbacks (design Core I.1
+// #ri-explicit, implementation E.6 #re-raii). Performance GPU.1 retains
+// uploads; callbacks pump only completed loading UI and never inspect partial
+// owners. An optional inspection pose is passed once to stage-view
+// construction. This development setting never replaces the original player
+// spawn or starts actor simulation. Both MCP phases: I.1 (#ri-explicit) keeps
+// the override in owned configuration; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps parsing and view
 // construction outside repeated frame work. Memory composition: require
 // resource/runtime/media capabilities, construct catalogs and their service
@@ -53,8 +73,12 @@
 #include <thread>
 #include <utility>
 
+#include "game/initial_placement_shim.hpp"
 #include "game/mission_loading.hpp"
+#include "game/pause_flow.hpp"
+#include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
+#include "game/startup_loading_surface.hpp"
 #include "game/startup_menu_surface.hpp"
 #include "game/startup_playback.hpp"
 #include "game/startup_services.hpp"
@@ -66,7 +90,8 @@ int run_startup(const StartupOptions& configuration,
                 platform::StartupHost& host, platform::Files& files,
                 platform::SaveStorage& saves,
                 video::Player::OpenDecoder open_decoder,
-                const StartupMemory& memory) {
+                const StartupMemory& memory,
+                game::GameAudioFactory& audio_factory) {
   if (!memory.resources || !memory.runtime || !memory.media) {
     throw std::invalid_argument(
         "Startup requires resource, runtime and media domains");
@@ -118,13 +143,29 @@ int run_startup(const StartupOptions& configuration,
   bw::game::StartupSession session(playback, &title_surface, &frontend,
                                    memory.runtime);
   session.start_root(resources, 1);
+  game::StartupLoadingSurface loading_surface(resources, host);
   // Mission owners retire in reverse order: Lua polls, load data, then
   // catalogs.
   std::optional<resources::ResourceService> mission_resources;
   std::optional<game::MissionLoading> mission_loading;
   std::optional<game::MissionDriver> mission;
+  game::SourceRandom random;
+  std::optional<game::MissionAudio> mission_audio;
   std::optional<game::StageInspection> stage_inspection;
   bool inspected_stage = false;
+  std::optional<game::PauseFlow> pause;
+  bool evade_rearmed = true;
+  std::string_view live_notice;
+  const auto bind_review_catalogs = [&] {
+    const auto* body = stage_inspection.value().review_catalog(false);
+    const auto* weapon = stage_inspection.value().review_catalog(true);
+    if (body != nullptr && weapon != nullptr) {
+      pause.value().bind_review_catalogs(
+          *body, *weapon, mission_loading.value().current_weapon_class(),
+          stage_inspection.value().review_pose_semantics(false),
+          stage_inspection.value().review_pose_semantics(true));
+    }
+  };
   std::optional<game::MissionPhase> reported_mission_phase;
   const auto started = std::chrono::steady_clock::now();
   const auto deadline =
@@ -133,6 +174,28 @@ int run_startup(const StartupOptions& configuration,
   auto next_tick = started;
   constexpr auto target_period = std::chrono::nanoseconds(16'666'667);
   constexpr float maximum_game_delta = 0.1F;
+  std::optional<std::chrono::steady_clock::time_point> loading_started;
+  auto loading_presented = started;
+  bool loading_close_requested = false;
+  // Completed asset operations may pump only loading presentation. They never
+  // reenter Lua, inspect a partial world or transfer native ownership threads.
+  // This is Doom 3's bounded loading-screen update contract; see research.
+  const auto loading_pulse = [&] {
+    if (!mission_loading || !mission_loading->loading_scene().active ||
+        inspected_stage) {
+      return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const bool first = !loading_started;
+    if (first) loading_started = now;
+    if (!first && now - loading_presented < target_period) return;
+    loading_close_requested |= host.pump(true).close_requested;
+    const auto loading_opacity = loading_surface.show(
+        mission_loading->loading_scene().item,
+        std::chrono::duration<double>(now - *loading_started).count());
+    (void)host.draw(loading_opacity);
+    loading_presented = now;
+  };
   std::size_t reported_movies = 0;
   float longest_tick = 0;
   double longest_pump = 0;
@@ -163,9 +226,90 @@ int run_startup(const StartupOptions& configuration,
       }
       return 0;
     }
+    bool ui_frame = false;
+    if (input.pause_pressed || input.reload_pressed || input.attack_pressed ||
+        input.aim_mode_pressed || input.fire_trigger > 0) {
+      live_notice = {};
+    }
+    if (pause) {
+      ui_frame = pause->update(input.pause_pressed,
+                               {input.pressed_actions, input.repeated_actions});
+      if (ui_frame) {
+        evade_rearmed = false;
+      } else if (!input.evade_held) {
+        evade_rearmed = true;
+      }
+      stage_inspection->set_paused(pause->paused());
+      if (const auto costume = pause->requested_costume()) {
+        bool success = false;
+        try {
+          stage_inspection->change_costume(*mission_loading, *costume);
+          success = true;
+        } catch (const std::exception& error) {
+          mission_loading->discard_player_costume();
+          std::cerr << "Costume change: " << error.what() << '\n';
+        }
+        pause->complete_costume(success);
+        if (success) bind_review_catalogs();
+        // A bounded resource transaction is not simulation time on resume.
+        previous_tick = std::chrono::steady_clock::now();
+        next_tick = previous_tick + target_period;
+      }
+      if (const auto weapon_class = pause->requested_weapon()) {
+        bool success = false;
+        try {
+          stage_inspection->change_weapon(*mission_loading, *weapon_class);
+          success = true;
+        } catch (const std::exception& error) {
+          mission_loading->discard_weapon_class();
+          std::cerr << "Weapon preview change: " << error.what() << '\n';
+        }
+        pause->complete_weapon(success);
+        if (success) bind_review_catalogs();
+        previous_tick = std::chrono::steady_clock::now();
+        next_tick = previous_tick + target_period;
+      }
+      if (const auto review = pause->requested_review()) {
+        pause->complete_review(stage_inspection->review(*review));
+        // Successful preview resumes the scene next frame; this confirmation
+        // remains entirely owned by the UI and cannot also fire an action.
+        stage_inspection->set_paused(pause->paused());
+        live_notice = {};
+      }
+      if (!ui_frame && input.weapon_cycle_pressed) {
+        const auto* player = stage_inspection->player_state();
+        if (player == nullptr ||
+            player->phase != game::PlayerMovementPhase::grounded) {
+          live_notice = "Weapon preview change needs grounded Alicia.";
+        } else {
+          // Resident selection is an ordinary action. This frame still
+          // advances world/audio and retains elapsed host time.
+          bool success = false;
+          try {
+            constexpr unsigned kWeaponClasses = 4;
+            const auto next_weapon =
+                (mission_loading->current_weapon_class() + 1) % kWeaponClasses;
+            stage_inspection->switch_weapon(*mission_loading, next_weapon);
+            success = true;
+          } catch (const std::exception& error) {
+            mission_loading->discard_weapon_class();
+            std::cerr << "Weapon preview change: " << error.what() << '\n';
+          }
+          if (success) {
+            bind_review_catalogs();
+            live_notice = "Weapon switch animation - no inventory change.";
+          } else {
+            live_notice =
+                "Weapon preview unavailable; current weapon retained.";
+          }
+        }
+      }
+    }
+    const float simulation_delta = ui_frame ? 0.0F : game_delta;
     // Advance transport before game policy observes completion and selects
     // draws.
-    playback.advance({.wall_delta = wall_delta, .game_delta = game_delta});
+    playback.advance(
+        {.wall_delta = wall_delta, .game_delta = simulation_delta});
     if (configuration.verify &&
         playback.completed_movies() != reported_movies) {
       reported_movies = playback.completed_movies();
@@ -201,15 +345,39 @@ int run_startup(const StartupOptions& configuration,
       longest_tick = 0;
       longest_pump = 0;
     }
-    const auto actions = configuration.verify ? 0U : input.pressed_actions;
-    const auto result =
-        session.advance({game_delta, actions},
-                        configuration.verify ? 0U : input.repeated_actions);
+    const auto actions =
+        configuration.verify || stage_inspection ? 0U : input.pressed_actions;
+    script::RunResult result{};
+    if (!ui_frame) {
+      result = session.advance({simulation_delta, actions},
+                               configuration.verify || stage_inspection
+                                   ? 0U
+                                   : input.repeated_actions);
+    }
     if (stage_inspection) {
-      stage_inspection->advance(game_delta);
+      if (!ui_frame) {
+        stage_inspection->advance(
+            simulation_delta,
+            {.movement = {input.movement, input.evade_held && evade_rearmed,
+                          input.crouch_pressed},
+             .look = {input.look[0], input.look[1]},
+             .presentation = {.fire_trigger = input.fire_trigger,
+                              .reload_pressed = input.reload_pressed,
+                              .attack_pressed = input.attack_pressed,
+                              .aim_mode_pressed = input.aim_mode_pressed}});
+      }
+      if (pause && pause->paused()) {
+        menu_surface.show(pause->presentation());
+      } else {
+        menu_surface.show_status(live_notice.empty()
+                                     ? stage_inspection->review_status()
+                                     : live_notice);
+      }
       // Inspection presents independently while the original mission load and
       // its black fade remain pending; this never advances script completion.
       (void)host.draw(1.0F);
+    } else if (mission_loading && mission_loading->loading_scene().active) {
+      loading_pulse();
     } else {
       playback.draw();
     }
@@ -240,18 +408,36 @@ int run_startup(const StartupOptions& configuration,
       selected_catalogs.mount(
           kConceptCatalogPriority, selected_path,
           content::open_catalog(files, selected_path, memory.resources));
+      for (unsigned costume_id = 1; costume_id <= kSteamCostumePackages;
+           ++costume_id) {
+        const auto number = std::to_string(costume_id);
+        const auto costume =
+            configuration.game / "data/concept" / ("PW" + number) /
+            (costume_id == 1 ? "PW1.rat" : "pw" + number + ".rat");
+        selected_catalogs.mount(
+            static_cast<int>(costume_id), costume,
+            content::open_catalog(files, costume, memory.resources));
+      }
       mission_resources.emplace(std::move(selected_catalogs), files,
                                 memory.resources);
+      const auto controller_icons =
+          files.read(configuration.game / "data/menu/9900", memory.resources);
+      loading_surface.prepare(
+          title_surface.selected_loading_background(),
+          files.read(configuration.game / "data/menu/9951", memory.resources),
+          controller_icons);
       mission_loading.emplace(
           files, mission_resources->catalogs(), memory.resources, &host,
           game::MissionLoadOptions{configuration.game,
-                                   profile.current_difficulty()});
+                                   profile.current_difficulty(), loading_pulse,
+                                   true});
       constexpr resources::ResourceTag kMissionScriptTag = 100;
       mission.emplace(mission_resources.value(), mission_loading.value(),
                       kMissionScriptTag, request.script_name, memory.runtime);
     }
-    if (mission) {
+    if (mission && !ui_frame) {
       const auto& progress = mission->advance();
+      if (loading_close_requested) return 0;
       if (progress.phase == game::MissionPhase::failed) {
         throw std::runtime_error(progress.diagnostic);
       }
@@ -277,6 +463,16 @@ int run_startup(const StartupOptions& configuration,
         }
         const auto background_models = mission_loading->resident_dependencies();
         const auto& background = mission_loading->background();
+        mission_loading->prepare_player(
+            session.gameplay_request()->selection.costume);
+        // Original common/voice banks prepare once under loading progress;
+        // the target chooses the native cue backend through its factory.
+        constexpr audio::Limits kMissionAudioLimits{
+            .banks = 3, .cues = 128, .decoded_samples = 50'000'000};
+        mission_audio.emplace(files, mission_resources->catalogs(),
+                              configuration.game / "data/sound", memory.media,
+                              audio_factory, kMissionAudioLimits,
+                              loading_pulse);
         stage_inspection.emplace(
             host,
             game::StageViewSource{stage.value(),
@@ -285,12 +481,35 @@ int run_startup(const StartupOptions& configuration,
                                   mission_loading->sky_resident_models()},
             memory.resources, configuration.inspection_camera,
             game::StageBackgroundSource{background ? &*background : nullptr,
-                                        background_models});
+                                        background_models},
+            game::PlayerActorSource{
+                mission_loading->resident_player(),
+                mission_loading->resident_weapon(),
+                mission_loading->player_support(),
+                mission_loading->weapon_support(),
+                game::initial_placement_shim(
+                    session.gameplay_request()->script_name,
+                    mission->stage_name(),
+                    !session.gameplay_request()->checkpoint.empty())},
+            loading_pulse,
+            game::StageCharacterLightSource{mission_loading->character_light(),
+                                            mission_loading->enemy_light()});
+        stage_inspection->bind_audio(mission_audio->prepared(),
+                                     *mission_audio->output(), random);
+        menu_surface.begin();
+        while (!menu_surface.ready()) loading_pulse();
+        pause.emplace(mission_loading->current_player_costume());
+        bind_review_catalogs();
         inspected_stage = true;
+        loading_surface.end();
+        // Loading wall time is not an initial simulation step.
+        previous_tick = std::chrono::steady_clock::now();
+        next_tick = previous_tick + target_period;
         std::cerr << "Static inspection: " << stage_inspection->selected_draws()
                   << " ordinary draws, " << stage_inspection->background_draws()
                   << " placed-prop draws, " << stage_inspection->omitted_draws()
-                  << " omitted draws; initial poses, authored fog and shadows; "
+                  << " omitted draws, " << stage_inspection->player_draws()
+                  << " player/weapon draws; authored poses, fog and shadows; "
                      "actor simulation remains separate\n";
       }
     }

@@ -35,7 +35,7 @@ ExternalProject_Add(bw_ffmpeg_build
     --enable-avformat --enable-avcodec --enable-avutil
     --enable-swscale --enable-swresample
     --enable-demuxer=asf --enable-protocol=file
-    --enable-decoder=wmv3,vc1,wmapro --enable-parser=vc1 --enable-pthreads
+    --enable-decoder=wmv3,vc1,wmapro,wmav2 --enable-parser=vc1 --enable-pthreads
     ${bw_ffmpeg_platform_options}
   BUILD_COMMAND "${BW_FFMPEG_MAKE}" "-j${bw_ffmpeg_jobs}"
   INSTALL_COMMAND "${BW_FFMPEG_MAKE}" install

@@ -324,4 +324,7 @@ void StartupTitleSurface::show(bool visible, TitlePresentation presentation) {
   state.renderer.set_sprites(std::span(state.commands).first(count));
 }
 void StartupTitleSurface::end() noexcept { state_->end(); }
+std::string_view StartupTitleSurface::selected_loading_background() const {
+  return state_->loading_name;
+}
 }  // namespace bw::game

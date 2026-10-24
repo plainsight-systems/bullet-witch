@@ -1,16 +1,48 @@
-// Game mission load ownership for the current static-definition slice. Borrow
+// Weapon resources are mission-resident, separate from selected model
+// instances. Admission prepares all four definitions/support/device owners
+// once. Selection only borrows an existing stable entry; publication precedes
+// noexcept commit, and discard never retires prepared assets. Cancel requires
+// all actor/render borrowers released first. Single main thread, fixed
+// four-entry lookup, no I/O or upload during selection. Both-phase Core
+// R.20/I.11 and performance CDSA.32/MEM.9 govern ownership, borrowing and
+// bounded load preparation. See weapon-selection-residency.md for source
+// instance recreation and cost limits. Paused weapon replacement prepares one
+// stable candidate before publication. Both phases E.6 (#re-raii) and COPY.5
+// preserve rollback and unique device retirement; actor/render borrowers must
+// switch before noexcept commit. Initial weapon admission retains RAII
+// ownership and never copies device handles (both phases Core R.20 #rr-owner,
+// performance COPY.5
+// guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md).
+// Appearance replacement prepares a stable-address candidate while current
+// views stay valid. The caller publishes replacement draws before noexcept
+// commit; discard only retires candidate assets. No frame-time allocations.
+// Both-phase Core E.6 (#re-raii), C.83 (#rc-swap) and performance MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) govern rollback,
+// publication ordering and user-requested load allocation. See
+// research/engine/subsystems/pause-and-costume-switching.md.
+// Mission checkpoint placement is an explicit value-returning compatibility
+// boundary, independent of reusable player control. Source checkpoint
+// thresholds select one of three authored poses with constant work and no
+// allocation. Both-phase Core I.1 (#ri-explicit) exposes checkpoint input;
+// performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// keeps lookup storage fixed. Actor preparation: both-phase I.11 (#ri-raw)
+// bounds mission asset borrowing; CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
+// resolves names/attachments once before frame-time pose and palette updates.
+// Game mission resource and actor-asset ownership. Borrow
 // immutable catalogs/files through destruction; retain decoded CPU inputs using
 // the resource Domain. Single main-thread caller. Requests are serial and
 // execute once when polled; pending/blocked/failed are distinct from successful
-// load. Loading-scene activation retains its original item, but its animated
-// renderer remains an explicit presentation gap. Sky/stage CPU definitions can
-// be inspected separately from actor construction and physics simulation.
-// No gameplay start is fabricated. Cancellation drops retained definitions and
-// requests. Algorithm: copy request -> construct owned definitions -> expose
-// supported native readiness or exact remaining consumer -> retain until
-// cancellation. Work follows asset bytes/records; no file reads or decode
-// repeated while blocked. Design/implementation E.6 (#re-raii) provides partial
-// construction cleanup; cpp-performance MEM.6
+// load. Loading-scene activation retains its original item and the injected
+// presentation readiness. Safe asset-boundary callbacks keep native loading
+// visible without advancing scripts or inspecting a partial world. Sky/stage
+// CPU definitions can be inspected separately from actor construction and
+// physics simulation. No gameplay start is fabricated. Cancellation drops
+// retained definitions and requests. Algorithm: copy request -> construct owned
+// definitions -> expose supported native readiness or exact remaining consumer
+// -> retain until cancellation. Work follows asset bytes/records; no file reads
+// or decode repeated while blocked. Design/implementation E.6 (#re-raii)
+// provides partial construction cleanup; cpp-performance MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) retains
 // the injected allocator across all owned decoded data.
 // Background placement additions apply both-phase C.32 (#rc-dtor-ptr) to
@@ -55,6 +87,10 @@ struct MissionCallbackDefinition {
 struct MissionLoadOptions {
   std::filesystem::path game_directory;
   unsigned difficulty{};
+  // Borrowed callback target must outlive this owner. Invoked on its calling
+  // thread at completed asset boundaries, never during native encoding.
+  content::LoadProgress progress{};
+  bool loading_presentation_ready{};
 };
 struct PlacementDefinition {
   explicit PlacementDefinition(const std::shared_ptr<memory::Domain>& domain)
@@ -82,6 +118,38 @@ class MissionLoading final : public MissionLoadServices {
   // Prepare shared stage owners once; poll separately gates constructor
   // readiness.
   void prepare_stage(std::string_view stage);
+  // Explicit actor asset admission after mission loading. Selected costume
+  // catalogs must already be mounted; immutable assets remain mission-owned.
+  // Initial weapon class0..3 selects the original wa0..3 resource. Repeating
+  // the same admission is harmless; replacement uses the explicit candidate
+  // transaction below. Failed admission owns
+  // no player assets; all borrowed views remain tied to this owner.
+  void prepare_player(unsigned costume, unsigned weapon_class = 0);
+  ResidentModelView resident_player() const;
+  // Requires an admitted player and a different valid costume. Failures leave
+  // current views valid. Candidate views survive successful promotion.
+  void prepare_player_costume(unsigned costume);
+  ResidentModelView candidate_player() const;
+  // Call only after all current body borrowers/draws have been replaced.
+  // Missing candidate is harmless; no allocations or exceptions occur.
+  void commit_player_costume() noexcept;
+  void discard_player_costume() noexcept;
+  unsigned current_player_costume() const;
+  // Select an already admitted immutable weapon resource. Same-class requests
+  // are harmless; body and weapon candidates cannot overlap. No reads, decode
+  // or upload occur. Candidate/current views remain valid through cancel.
+  void prepare_weapon_class(unsigned weapon_class);
+  ResidentModelView candidate_weapon() const;
+  const content::CharacterSupport& candidate_weapon_support() const;
+  unsigned current_weapon_class() const;
+  // Only after actor/catalog/palette/draw borrowers switch successfully. No
+  // allocation or exceptions; discard drops only candidate selection. No ammo,
+  // action clocks, body pose or camera state is owned by this transaction.
+  void commit_weapon_class() noexcept;
+  void discard_weapon_class() noexcept;
+  ResidentModelView resident_weapon() const;
+  const content::CharacterSupport& player_support() const;
+  const content::CharacterSupport& weapon_support() const;
   // Handles align with their retained definition model vectors and borrow this
   // owner until cancellation. CPU definition presence does not imply residency.
   std::span<const render::WorldModelHandle> resident_models() const {
@@ -93,6 +161,13 @@ class MissionLoading final : public MissionLoadServices {
     return sky_residency_ ? std::span<const render::WorldModelHandle>(
                                 sky_residency_->models)
                           : std::span<const render::WorldModelHandle>{};
+  }
+  // Immutable authored light data borrows the mission residency lifetime.
+  const content::UserDefinition* character_light() const noexcept {
+    return character_light_ ? &*character_light_ : nullptr;
+  }
+  const content::UserDefinition* enemy_light() const noexcept {
+    return enemy_light_ ? &*enemy_light_ : nullptr;
   }
   const std::optional<content::StageDefinition>& stage() const {
     return stage_;
@@ -143,7 +218,8 @@ class MissionLoading final : public MissionLoadServices {
   struct ResidentDefinition {
     ResidentDefinition(render::WorldOutput& renderer,
                        const content::StageDefinition& definition,
-                       const std::shared_ptr<memory::Domain>& domain);
+                       const std::shared_ptr<memory::Domain>& domain,
+                       const content::LoadProgress& progress = {});
     ~ResidentDefinition();
     ResidentDefinition(const ResidentDefinition&) = delete;
     ResidentDefinition& operator=(const ResidentDefinition&) = delete;
@@ -167,6 +243,33 @@ class MissionLoading final : public MissionLoadServices {
   std::optional<content::UserDefinition> character_light_, enemy_light_;
   std::optional<content::StageDefinition> sky_, stage_;
   std::optional<ResidentDefinition> sky_residency_, stage_residency_;
+  struct PlayerBody {
+    content::StageDefinition definition;
+    std::optional<ResidentDefinition> residency;
+    unsigned costume{};
+    explicit PlayerBody(content::StageDefinition value, unsigned selected)
+        : definition(std::move(value)), costume(selected) {}
+    ResidentModelView view() const;
+  };
+  std::shared_ptr<PlayerBody> player_body_, candidate_body_;
+  struct PlayerWeapon {
+    content::StageDefinition definition;
+    content::CharacterSupport support;
+    std::optional<ResidentDefinition> residency;
+    unsigned weapon_class{};
+    PlayerWeapon(content::StageDefinition model,
+                 content::CharacterSupport motions, unsigned selected)
+        : definition(std::move(model)),
+          support(std::move(motions)),
+          weapon_class(selected) {}
+    ResidentModelView view() const;
+  };
+  std::array<std::shared_ptr<PlayerWeapon>, 4> prepared_weapons_;
+  std::shared_ptr<PlayerWeapon> player_weapon_, candidate_weapon_;
+  std::shared_ptr<PlayerWeapon> prepare_weapon(unsigned weapon_class,
+                                               bool report_progress);
+  std::optional<content::CharacterSupport> player_support_;
+  std::optional<unsigned> player_costume_;
   memory::Vector<content::StageDefinition> dependency_definitions_;
   std::list<ResidentDefinition, memory::Allocator<ResidentDefinition>>
       dependency_residencies_;

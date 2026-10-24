@@ -1,7 +1,9 @@
 // Small synthetic camera/settings/collision inputs shared by in-process tests.
 // No game bytes are embedded. Test backing is the explicit host allocation
 // boundary; production metadata still uses the injected domain. Both MCP
-// phases: R.2 (#rr-use-ptr) bounds byte arrays; MEM.6
+// phases: I.1 (ri-explicit) defines authored rate/limit fields; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retains fixed values.
+// Original fixture guidance: R.2 (#rr-use-ptr) bounds byte arrays; MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) supplies
 // the exercised allocator. Fixed fixture layouts encode public disk contracts.
 #pragma once
@@ -68,7 +70,7 @@ inline bw::resources::Bytes collision(
 }
 inline bw::resources::Bytes customization() {
   constexpr std::size_t names = 32, nodes = 128, payload = nodes + 64;
-  bw::resources::Bytes bytes(nodes + 592);
+  bw::resources::Bytes bytes(nodes + 600);
   word(bytes, 0, 0x4d545343);
   word(bytes, 4, 0x04030201);
   word(bytes, 12, names);
@@ -93,11 +95,19 @@ inline bw::resources::Bytes customization() {
   word(bytes, nodes + 20, 32);
   word(bytes, nodes + 36, 48);
   word(bytes, nodes + 548, 560);
-  scalar(bytes, payload + 56, .7F);
-  scalar(bytes, payload + 60, .5F);
-  scalar(bytes, payload + 68, -3);
-  scalar(bytes, payload + 80, 44);
+  constexpr std::array<std::size_t, 4> presets{1, 2, 13, 14};
+  for (const auto preset : presets) {
+    const auto at = payload + preset * 28;
+    scalar(bytes, at, preset >= 12 ? .25F : .7F);
+    scalar(bytes, at + 4, .5F);
+    scalar(bytes, at + 12, -3);
+    scalar(bytes, at + 24, preset % 12 == 1 ? 20 : 44);
+  }
+  scalar(bytes, payload + 428, 45);
+  scalar(bytes, payload + 432, 45);
   scalar(bytes, payload + 476, 5);
+  scalar(bytes, payload + 424, 100);
+  scalar(bytes, payload + 436, 70);
   scalar(bytes, nodes + 576, .01F);
   scalar(bytes, nodes + 580, 1000);
   return bytes;

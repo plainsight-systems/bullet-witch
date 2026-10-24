@@ -1,3 +1,24 @@
+// Immutable weapon acquisition belongs to mission admission; action selection
+// retains a prepared owner and recreates only its selected model state. Both
+// phases R.20/I.11/CDSA.32/MEM.9 apply as detailed in mission_loading.hpp.
+// Initial weapon admission: both-phase R.20/COPY.5 preserve the existing
+// RAII rollback scope and unique device owners; selection adds no copy path.
+// Candidate body ownership uses domain-backed stable storage. Decode/upload
+// completes before publication; RAII rolls failures back, noexcept promotion
+// retires prior resources only after the caller replaces all borrowers. Both
+// phases Core E.6 (#re-raii), C.83 (#rc-swap), performance MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md).
+// Checkpoint placement uses explicit input and a returned pose (both-phase
+// Core I.1, #ri-explicit). The unchanged authored threshold lookup performs
+// constant work with fixed values and no allocation (both-phase MEM.9,
+// guidelines/memory/MEM.9-embedded-allocate-at-init.md).
+// Loading presentation uses explicit asset-boundary callbacks (design Core I.1
+// #ri-explicit, implementation E.6 #re-raii). Performance GPU.1 retains
+// uploads; callbacks pump only completed loading UI and never inspect partial
+// owners. Actor preparation: both-phase I.11 (#ri-raw) bounds mission asset
+// borrowing; CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
+// resolves names/attachments once before frame-time pose and palette updates.
 // Own serial mission-resource construction and retained package inputs.
 // Character-light loads retain original definitions; sky loads construct real
 // native mesh/texture objects. Stage CPU constructors and device residency
@@ -41,7 +62,8 @@ MissionLoading::MissionLoading(const platform::Files& files,
       cover_points_(memory::Allocator<CoverPointDefinition>(memory_)) {}
 MissionLoading::ResidentDefinition::ResidentDefinition(
     render::WorldOutput& output, const content::StageDefinition& definition,
-    const std::shared_ptr<memory::Domain>& domain)
+    const std::shared_ptr<memory::Domain>& domain,
+    const content::LoadProgress& progress)
     : renderer(output),
       models(memory::Allocator<render::WorldModelHandle>(domain)),
       textures(memory::Allocator<render::WorldTextureHandle>(domain)) {
@@ -57,6 +79,9 @@ MissionLoading::ResidentDefinition::ResidentDefinition(
                : formats::WorldTextureShape::two_dimensional},
           memory::Allocator<std::uint8_t>(domain));
       textures.push_back(renderer.upload_world_texture(pixels));
+      // Only completed uploads yield to loading presentation. E.6 preserves
+      // partial-owner cleanup; GPU.1 leaves all admitted pixels resident.
+      if (progress) progress();
     }
     memory::Vector<render::WorldTextureHandle> table{
         memory::Allocator<render::WorldTextureHandle>(domain)};
@@ -72,6 +97,7 @@ MissionLoading::ResidentDefinition::ResidentDefinition(
         throw std::runtime_error(
             "World model texture publication did not become ready");
       }
+      if (progress) progress();
     }
   } catch (...) {
     release();
@@ -79,6 +105,200 @@ MissionLoading::ResidentDefinition::ResidentDefinition(
   }
 }
 MissionLoading::ResidentDefinition::~ResidentDefinition() { release(); }
+// Stage load readiness and actor admission remain separate. Any failed actor
+// upload retires its partial device owners without replacing mission state.
+void MissionLoading::prepare_player(unsigned costume, unsigned weapon_class) {
+  constexpr unsigned kMaximumCostume = 5, kWeaponClasses = 4;
+  if (costume > kMaximumCostume || weapon_class >= kWeaponClasses ||
+      renderer_ == nullptr) {
+    throw std::invalid_argument(
+        "Player assets require a valid costume, weapon class and renderer");
+  }
+  if (player_costume_) {
+    if (*player_costume_ != costume ||
+        (!player_weapon_ || player_weapon_->weapon_class != weapon_class)) {
+      throw std::logic_error(
+          "Player assets already admitted for another costume or weapon class");
+    }
+    return;
+  }
+  const auto name = memory::String("pw", memory::Allocator<char>(memory_)) +
+                    static_cast<char>('0' + costume);
+  try {
+    player_body_ = std::allocate_shared<PlayerBody>(
+        memory::Allocator<PlayerBody>(memory_),
+        content::load_model_definition(files_, catalogs_, name, memory_),
+        costume);
+    for (unsigned index = 0; index < prepared_weapons_.size(); ++index) {
+      prepared_weapons_.at(index) = prepare_weapon(index, true);
+    }
+    player_weapon_ = prepared_weapons_.at(weapon_class);
+    player_support_ =
+        content::load_character_support(files_, catalogs_, name, memory_);
+    if (player_body_->definition.models.size() != 1) {
+      throw std::runtime_error(
+          "Player or weapon model association is ambiguous");
+    }
+    player_body_->residency.emplace(*renderer_, player_body_->definition,
+                                    memory_, options_.progress);
+    player_costume_ = costume;
+  } catch (...) {
+    player_weapon_.reset();
+    prepared_weapons_.fill({});
+    player_body_.reset();
+    player_support_.reset();
+    candidate_weapon_.reset();
+    candidate_body_.reset();
+    throw;
+  }
+}
+ResidentModelView MissionLoading::PlayerBody::view() const {
+  if (!residency) throw std::logic_error("Player residency is not available");
+  const auto& model = definition.models.front();
+  std::span<const std::uint8_t> control_points;
+  if (model.control_points) {
+    const auto& location = *model.control_points;
+    control_points =
+        definition.archives.at(location.archive).payload(location.record);
+  }
+  return {model.name, model.definition, residency->models.front(),
+          {},         nullptr,          control_points};
+}
+ResidentModelView MissionLoading::resident_player() const {
+  if (!player_body_) throw std::logic_error("Player assets are not admitted");
+  return player_body_->view();
+}
+unsigned MissionLoading::current_player_costume() const {
+  if (!player_body_) throw std::logic_error("Player assets are not admitted");
+  return player_body_->costume;
+}
+// Keep both CPU archives and native handles isolated until actor preparation
+// succeeds. A local owner also rolls back a partial upload automatically.
+void MissionLoading::prepare_player_costume(unsigned costume) {
+  constexpr unsigned kMaximumCostume = 5;
+  if (!player_body_ || renderer_ == nullptr || costume > kMaximumCostume ||
+      costume == player_body_->costume) {
+    throw std::invalid_argument(
+        "Costume replacement needs a different admitted body");
+  }
+  if (candidate_body_ || candidate_weapon_) {
+    throw std::logic_error("Appearance candidate already prepared");
+  }
+  const auto name = memory::String("pw", memory::Allocator<char>(memory_)) +
+                    static_cast<char>('0' + costume);
+  auto candidate = std::allocate_shared<PlayerBody>(
+      memory::Allocator<PlayerBody>(memory_),
+      content::load_model_definition(files_, catalogs_, name, memory_),
+      costume);
+  if (candidate->definition.models.size() != 1) {
+    throw std::runtime_error("Costume model association is ambiguous");
+  }
+  candidate->residency.emplace(*renderer_, candidate->definition, memory_);
+  candidate_body_ = std::move(candidate);
+}
+ResidentModelView MissionLoading::candidate_player() const {
+  if (!candidate_body_) {
+    throw std::logic_error("Costume candidate is not prepared");
+  }
+  return candidate_body_->view();
+}
+void MissionLoading::commit_player_costume() noexcept {
+  if (!candidate_body_) return;
+  player_body_.swap(candidate_body_);
+  player_costume_ = player_body_->costume;
+  candidate_body_.reset();
+}
+void MissionLoading::discard_player_costume() noexcept {
+  candidate_body_.reset();
+}
+ResidentModelView MissionLoading::PlayerWeapon::view() const {
+  if (!residency) throw std::logic_error("Weapon residency is not available");
+  const auto& model = definition.models.front();
+  return {model.name, model.definition, residency->models.front(), {}};
+}
+std::shared_ptr<MissionLoading::PlayerWeapon> MissionLoading::prepare_weapon(
+    unsigned weapon_class, bool report_progress) {
+  const auto name = memory::String("wa", memory::Allocator<char>(memory_)) +
+                    static_cast<char>('0' + weapon_class);
+  auto weapon = std::allocate_shared<PlayerWeapon>(
+      memory::Allocator<PlayerWeapon>(memory_),
+      content::load_model_definition(files_, catalogs_, name, memory_),
+      content::load_character_support(files_, catalogs_, name, memory_),
+      weapon_class);
+  if (weapon->definition.models.size() != 1) {
+    throw std::runtime_error("Weapon model association is ambiguous");
+  }
+  weapon->residency.emplace(
+      *renderer_, weapon->definition, memory_,
+      report_progress ? options_.progress : std::function<void()>{});
+  return weapon;
+}
+// Keep the active model/support at stable addresses until the actor and
+// renderer finish preparing their matching class-specific replacement.
+void MissionLoading::prepare_weapon_class(unsigned weapon_class) {
+  constexpr unsigned kWeaponClasses = 4;
+  if (!player_costume_ || !player_weapon_ || renderer_ == nullptr ||
+      weapon_class >= kWeaponClasses) {
+    throw std::invalid_argument(
+        "Weapon replacement needs an admitted player and class");
+  }
+  if (candidate_weapon_ || candidate_body_) {
+    throw std::logic_error("Appearance candidate already prepared");
+  }
+  if (weapon_class == player_weapon_->weapon_class) return;
+  candidate_weapon_ = prepared_weapons_.at(weapon_class);
+  if (!candidate_weapon_) {
+    throw std::logic_error("Weapon resource was not admitted with the mission");
+  }
+}
+ResidentModelView MissionLoading::candidate_weapon() const {
+  if (!candidate_weapon_) {
+    throw std::logic_error("Weapon candidate is not prepared");
+  }
+  return candidate_weapon_->view();
+}
+const content::CharacterSupport& MissionLoading::candidate_weapon_support()
+    const {
+  if (!candidate_weapon_) {
+    throw std::logic_error("Weapon candidate is not prepared");
+  }
+  return candidate_weapon_->support;
+}
+unsigned MissionLoading::current_weapon_class() const {
+  if (!player_weapon_ || !player_costume_) {
+    throw std::logic_error("Player assets are not admitted");
+  }
+  return player_weapon_->weapon_class;
+}
+void MissionLoading::commit_weapon_class() noexcept {
+  if (!candidate_weapon_) return;
+  player_weapon_.swap(candidate_weapon_);
+  candidate_weapon_.reset();
+}
+void MissionLoading::discard_weapon_class() noexcept {
+  candidate_weapon_.reset();
+}
+ResidentModelView MissionLoading::resident_weapon() const {
+  if (!player_costume_ || !player_weapon_) {
+    throw std::logic_error("Player assets are not admitted");
+  }
+  return player_weapon_->view();
+}
+const content::CharacterSupport& MissionLoading::player_support() const {
+  if (!player_costume_) {
+    throw std::logic_error("Player assets are not admitted");
+  }
+  if (!player_support_) {
+    throw std::logic_error("Player support is not available");
+  }
+  return *player_support_;
+}
+const content::CharacterSupport& MissionLoading::weapon_support() const {
+  if (!player_costume_ || !player_weapon_) {
+    throw std::logic_error("Player assets are not admitted");
+  }
+  return player_weapon_->support;
+}
 void MissionLoading::ResidentDefinition::release() noexcept {
   for (const auto model : models) {
     renderer.release_model(model);
@@ -154,7 +374,8 @@ void MissionLoading::begin_loading_scene(unsigned item) {
   if (item >= kLoadingItems) {
     throw std::invalid_argument("Loading scene item out of range");
   }
-  loading_scene_ = {item, true, false};
+  loading_scene_ = {item, true, options_.loading_presentation_ready};
+  if (options_.progress) options_.progress();
 }
 void MissionLoading::request(MissionLoadKind kind, std::string_view name) {
   if (pending_ || report_.state == MissionLoadState::blocked) {
@@ -171,12 +392,13 @@ void MissionLoading::prepare_stage(std::string_view stage) {
     return;
   }
   // Publish the complete CPU snapshot atomically; exceptions retain old state.
-  auto decoded =
-      content::load_stage_definition(files_, catalogs_, stage, memory_);
+  auto decoded = content::load_stage_definition(files_, catalogs_, stage,
+                                                memory_, options_.progress);
   stage_name_ = stage;
   stage_ = std::move(decoded);
   if (renderer_ != nullptr) {
-    stage_residency_.emplace(*renderer_, stage_.value(), memory_);
+    stage_residency_.emplace(*renderer_, stage_.value(), memory_,
+                             options_.progress);
   }
 }
 MissionLoadReport MissionLoading::poll() {
@@ -205,7 +427,8 @@ MissionLoadReport MissionLoading::poll() {
         sky_ = content::load_model_definition(files_, catalogs_, request_name_,
                                               memory_);
         if (renderer_ != nullptr) {
-          sky_residency_.emplace(*renderer_, sky_.value(), memory_);
+          sky_residency_.emplace(*renderer_, sky_.value(), memory_,
+                                 options_.progress);
           report_ = {MissionLoadState::ready, {}};
         } else {
           report_ = {MissionLoadState::blocked,
@@ -291,6 +514,13 @@ void MissionLoading::cancel() noexcept {
   pending_ = false;
   request_kind_.reset();
   loading_scene_ = {};
+  player_costume_.reset();
+  candidate_weapon_.reset();
+  player_weapon_.reset();
+  prepared_weapons_.fill({});
+  player_body_.reset();
+  player_support_.reset();
+  candidate_body_.reset();
   palette_.clear();
   palette_residency_.reset();
   palette_definition_.reset();

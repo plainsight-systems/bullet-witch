@@ -32,8 +32,19 @@ void pcm_buffer_contracts();
 void startup_playback_contracts();
 void test_menu_flow();
 void initial_camera_tests();
+void player_camera_tests();
+#ifdef __APPLE__
+void BWGamepadTargetingTests();
+#endif
+void placed_collision_tests();
 void stage_shadow_tests();
 void startup_options_tests();
+void motion_presentation_tests();
+void alicia_action_policy_tests();
+void alicia_reaction_policy_tests();
+void scripted_jump_policy_tests();
+void spell_presentation_policy_tests();
+void aim_posture_tests();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -183,8 +194,19 @@ int main() {
     startup_playback_contracts();
     test_menu_flow();
     initial_camera_tests();
+    player_camera_tests();
+#ifdef __APPLE__
+    BWGamepadTargetingTests();
+#endif
+    placed_collision_tests();
     stage_shadow_tests();
     startup_options_tests();
+    motion_presentation_tests();
+    alicia_action_policy_tests();
+    alicia_reaction_policy_tests();
+    scripted_jump_policy_tests();
+    spell_presentation_policy_tests();
+    aim_posture_tests();
     bridge_contract();
     failures();
     scheduling();
