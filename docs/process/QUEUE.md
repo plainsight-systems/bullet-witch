@@ -1,5 +1,18 @@
 # Remaining work
 
+- Diagnose intermittent native fullscreen startup if it recurs. Two launches
+  failed before a diagnostic-only rebuild subsequently entered fullscreen and
+  movie playback. Failure logs now distinguish delegate rejection from a pending
+  transition timeout and record activation/key state; launch behavior is unchanged.
+  This is unresolved, not fixed by the successful retry. See the current evidence
+  in `research/engine/subsystems/sprite-presentation-design.md`.
+
+- Video work is parked. The actual title-screen still is externally hosted,
+  verified and embedded in the README; the GitHub description is updated.
+  Keep capture files and metadata under ignored `research/evidence/public-demo/`.
+  Do not resume video recording/editing as part of this pass. See
+  `research/reports/2026-10-24-public-demo.md`.
+
 - Retain the accepted lighting baseline. On October 24, 2026, the user accepted
   this slice for commit while noting it may be slightly too dark. Do not tune
   brightness from that observation alone. Original initial texture contents and

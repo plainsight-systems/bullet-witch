@@ -93,6 +93,13 @@ bw_strict(bw_startup_playback)
 add_library(bw_startup_presentation src/game/startup_title_surface.cpp src/game/startup_menu_surface.cpp src/game/startup_loading_surface.cpp)
 target_link_libraries(bw_startup_presentation PUBLIC bw_game PRIVATE bw_images)
 target_include_directories(bw_startup_presentation PUBLIC src)
+# Display the target OS, including when a toolchain selects a cross-build target.
+set(bw_target_platform_name "${CMAKE_SYSTEM_NAME}")
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  set(bw_target_platform_name "macOS")
+endif()
+target_compile_definitions(bw_startup_presentation PRIVATE
+  BW_TARGET_PLATFORM_NAME="${bw_target_platform_name}")
 bw_strict(bw_startup_presentation)
 add_library(bw_startup_framework src/framework/startup_application.cpp src/framework/startup_options.cpp)
 target_link_libraries(bw_startup_framework PUBLIC bw_startup_playback PRIVATE bw_startup_presentation)

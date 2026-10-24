@@ -1,3 +1,9 @@
+// Capture is an explicit presentation policy: hide developer UI only. It never
+// changes simulation, media clocks, input or resource loading. Interactive runs
+// have no deadline; verification retains a bounded default and callers may set
+// an explicit positive time budget. Both MCP phases: Core I.1 (#ri-explicit)
+// exposes policy in owned options; performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) confines configuration to setup.
 // Inspection configuration is an optional explicit camera pose. It changes
 // only static-view position/orientation; the authored projection and normal
 // mission route remain intact. Parse finite coordinates and angles before any
@@ -62,9 +68,10 @@ namespace bw::framework {
 struct StartupOptions {
   std::filesystem::path game;
   std::filesystem::path profile;
-  static constexpr int kDefaultMaximumSeconds = 300;
-  int maximum_seconds{kDefaultMaximumSeconds};
+  static constexpr int kVerificationMaximumSeconds = 300;
+  std::optional<int> maximum_seconds;
   bool verify{};
+  bool capture{};
   platform::WindowOptions window;
   std::optional<render::ViewPose> inspection_camera;
 };

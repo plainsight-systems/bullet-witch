@@ -1,3 +1,7 @@
+// Capture menu coverage exercises the same pause and costume transactions with
+// developer rows hidden, including catalog rebinding. Both MCP phases: Core I.1
+// (#ri-explicit) verifies public policy; performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) preserves fixed menu storage.
 // V1: public menu navigation, persisted choices and immutable handoff
 // contracts. In-memory profile only; no storage processes, rendering or game
 // assets. Algorithm: navigate pages using actual action masks, verify state and
@@ -37,6 +41,10 @@ void pause_review_transactions() {
   const auto skeleton =
       bw::formats::SkeletonDefinition::parse(skeleton_bytes, domain);
   const bw::animation::PreparedClipCatalog catalog({}, skeleton, 0, {}, domain);
+  bw::game::PauseFlow hidden_review(0, false);
+  hidden_review.bind_review_catalogs(catalog, catalog, 0);
+  require(hidden_review.presentation().count == 2,
+          "Catalog binding must not expose hidden developer tools");
   bw::game::PauseFlow pause(0);
   pause.bind_review_catalogs(catalog, catalog, 0);
   pause.update(true, {});
@@ -292,6 +300,25 @@ void test_menu_flow() {
   require(pause.update(false, {0x2020, 0}) && !pause.paused(),
           "Resume consumes the whole input frame");
   require(!pause.update(false, {}), "Next frame can advance gameplay");
+  bw::game::PauseFlow clean_pause(5, false);
+  require(clean_pause.update(true, {}) && clean_pause.paused() &&
+              clean_pause.presentation().count == 2 &&
+              clean_pause.presentation().rows[0].label == "Resume" &&
+              clean_pause.presentation().rows[1].label == "Costume",
+          "Capture pause must omit review tools and retain ordinary rows");
+  clean_pause.update(false, {0, 0x02000000});
+  clean_pause.update(false, {0x1010, 0});
+  require(clean_pause.presentation().selected == 5,
+          "Capture costume selection must preserve session state");
+  clean_pause.update(false, {0, 0x02000000});
+  clean_pause.update(false, {0x1010, 0});
+  require(clean_pause.requested_costume() == 0,
+          "Capture costume input must remain interactive");
+  clean_pause.complete_costume(true);
+  require(clean_pause.paused() && clean_pause.presentation().count == 2,
+          "Capture must retain hidden review rows after costume replacement");
+  require(clean_pause.update(false, {0x1010, 0}) && !clean_pause.paused(),
+          "Capture Resume must return control to ordinary gameplay");
   pause_review_transactions();
   navigation_and_new_game();
   continue_and_back();

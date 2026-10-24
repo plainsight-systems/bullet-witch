@@ -42,6 +42,35 @@ void startup_options_tests() {
   const auto normal = parse({"host", "--game", "owned-game"});
   require(!normal.inspection_camera && normal.window.fullscreen,
           "Normal launch must retain the source camera and fullscreen");
+  require(!normal.maximum_seconds && !normal.capture,
+          "Interactive launches must not have an implicit timeout");
+  const auto capture = parse({"host", "--game", "owned-game", "--capture"});
+  require(capture.capture && capture.window.fullscreen &&
+              !capture.maximum_seconds && !capture.inspection_camera &&
+              !capture.verify,
+          "Capture must preserve ordinary fullscreen startup");
+  const auto bounded = parse(
+      {"host", "--game", "owned-game", "--capture", "--max-seconds", "15"});
+  require(bounded.maximum_seconds == 15,
+          "Explicit capture deadline was not retained");
+  const auto verification =
+      parse({"host", "--game", "owned-game", "--verify-startup"});
+  require(verification.maximum_seconds ==
+              bw::framework::StartupOptions::kVerificationMaximumSeconds,
+          "Verification must retain its bounded default");
+  const auto explicit_verification =
+      parse({"host", "--game", "owned-game", "--verify-startup",
+             "--max-seconds", "20"});
+  require(explicit_verification.maximum_seconds == 20,
+          "Explicit verification deadline was not retained");
+  reject({"host", "--game", "owned-game", "--capture", "--windowed"});
+  reject({"host", "--game", "owned-game", "--windowed", "--capture"});
+  reject({"host", "--game", "owned-game", "--capture", "--verify-startup"});
+  reject({"host", "--game", "owned-game", "--capture", "--inspect-camera", "0",
+          "0", "0", "0", "0"});
+  reject({"host", "--game", "owned-game", "--max-seconds", "0"});
+  reject({"host", "--game", "owned-game", "--max-seconds", "-1"});
+  reject({"host", "--game", "owned-game", "--max-seconds"});
   const auto explicit_view =
       parse({"host", "--game", "owned-game", "--windowed", "--inspect-camera",
              "1", "2", "-3", "450", "30"});

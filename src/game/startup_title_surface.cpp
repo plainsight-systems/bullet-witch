@@ -1,10 +1,19 @@
-// Memory migration: native owners propagate the ResourceService CPU domain to
-// final pixel/glyph storage and retained presentation state/strings. Owning
-// allocators retain the domain through copies and partial-construction cleanup;
-// defaults are legacy parser/test compatibility, never exhaustion fallback.
-// PNG writes directly to its final owned destination. Fixed draw storage adds
-// no per-frame allocations; native texture lifetime stays with SpriteOutput.
-// Design R.1 (#rr-raii), implementation E.6 (#re-raii), both-phase MEM.6
+// The reconstruction status label is real title UI, independent of capture
+// mode. CMake supplies the target platform name; shared presentation owns its
+// Alpha prefix, subdued opacity and right alignment on the version baseline.
+// Font construction verifies and measures its glyphs once; each frame reuses
+// fixed sprite storage. Design Core I.1 (#ri-explicit) exposes build identity
+// at the build boundary; implementation SL.con.3 (#rsl-bounds) bounds command
+// writes. Both phases retrieved performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md): no per-frame string
+// construction/allocation. Memory migration: native owners propagate the
+// ResourceService CPU domain to final pixel/glyph storage and retained
+// presentation state/strings. Owning allocators retain the domain through
+// copies and partial-construction cleanup; defaults are legacy parser/test
+// compatibility, never exhaustion fallback. PNG writes directly to its final
+// owned destination. Fixed draw storage adds no per-frame allocations; native
+// texture lifetime stays with SpriteOutput. Design R.1 (#rr-raii),
+// implementation E.6 (#re-raii), both-phase MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) and MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain owners and
 // fixed presentation capacity. Pinned source/external libpng exclusions are
@@ -21,6 +30,7 @@
 // construction without duplicate image owners. No media clock work lives here.
 #include "startup_title_surface.hpp"
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <stdexcept>
@@ -45,7 +55,10 @@ constexpr std::array<render::Rect, 3> kSpritePositions{
     render::Rect{350, 505, 0, 0}, render::Rect{350, 505, 0, 0},
     render::Rect{412, 632, 0, 0}};
 constexpr std::u16string_view kVersion = u"Version 1.0.5";
-constexpr std::size_t kDrawCapacity = kDrawIds.size() + kVersion.size();
+constexpr std::u16string_view kBuildLabel =
+    u"Alpha \u00b7 " BW_TARGET_PLATFORM_NAME;
+constexpr std::size_t kDrawCapacity =
+    kDrawIds.size() + kVersion.size() + kBuildLabel.size();
 unsigned sprite_id(std::span<const std::uint8_t> bytes, std::size_t index) {
   constexpr std::size_t word_bytes = 2;
   constexpr unsigned byte_shift = 8;
@@ -86,6 +99,7 @@ struct StartupTitleSurface::State {
   std::size_t texture_count{};
   std::array<SpriteImage, 3> images{};
   render::TextureHandle font_texture;
+  float build_label_width{};
   std::array<render::Sprite, kDrawCapacity> commands{};
   enum class Phase : std::uint8_t { idle, title, loading, ready };
   Phase phase{Phase::idle};
@@ -170,6 +184,20 @@ struct StartupTitleSurface::State {
     font = acquire("sprite.font");
     const auto& font_metrics =
         metrics.emplace(formats::BitmapFont::parse(font->bytes(), allocator));
+    // Measure visible ink so the last glyph sits on the matching right margin.
+    build_label_width = 0;
+    float cursor = 0;
+    for (const auto codepoint : kBuildLabel) {
+      const auto glyph = font_metrics.glyph(codepoint);
+      if (!glyph) throw std::runtime_error("Missing build label glyph");
+      if (!glyph->blank) {
+        build_label_width =
+            std::max(build_label_width,
+                     cursor + static_cast<float>(glyph->bearing_left +
+                                                 glyph->right - glyph->left));
+      }
+      cursor += static_cast<float>(glyph->advance);
+    }
     const auto expected_width = static_cast<float>(font_metrics.atlas_width());
     const auto expected_height =
         static_cast<float>(font_metrics.atlas_height());
@@ -299,28 +327,36 @@ void StartupTitleSurface::show(bool visible, TitlePresentation presentation) {
       static_cast<float>(state.metrics.value().atlas_height());
   // Convert original glyph metrics/channel coverage into the shared sprite
   // commands.
-  auto cursor = text_left;
-  for (const auto codepoint : kVersion) {
-    const auto glyph = state.metrics->glyph(codepoint);
-    if (!glyph) {
-      throw std::runtime_error("Missing original version glyph");
+  const auto text = [&](std::u16string_view value, float left,
+                        render::Color tint) {
+    auto cursor = left;
+    for (const auto codepoint : value) {
+      const auto glyph = state.metrics->glyph(codepoint);
+      if (!glyph) {
+        throw std::runtime_error("Missing title text glyph");
+      }
+      if (!glyph->blank) {
+        const auto width = static_cast<float>(glyph->right - glyph->left);
+        const auto height = static_cast<float>(glyph->bottom - glyph->top);
+        state.commands.at(count++) = {
+            state.font_texture,
+            {cursor + static_cast<float>(glyph->bearing_left) * scale,
+             baseline + static_cast<float>(glyph->bearing_top) * scale,
+             width * scale, height * scale},
+            {static_cast<float>(glyph->left) / atlas_width,
+             static_cast<float>(glyph->top) / atlas_height, width / atlas_width,
+             height / atlas_height},
+            tint,
+            channel(glyph->channel)};
+      }
+      cursor += static_cast<float>(glyph->advance) * scale;
     }
-    if (!glyph->blank) {
-      const auto width = static_cast<float>(glyph->right - glyph->left);
-      const auto height = static_cast<float>(glyph->bottom - glyph->top);
-      state.commands.at(count++) = {
-          state.font_texture,
-          {cursor + static_cast<float>(glyph->bearing_left) * scale,
-           baseline + static_cast<float>(glyph->bearing_top) * scale,
-           width * scale, height * scale},
-          {static_cast<float>(glyph->left) / atlas_width,
-           static_cast<float>(glyph->top) / atlas_height, width / atlas_width,
-           height / atlas_height},
-          {1, 1, 1, presentation.version_opacity},
-          channel(glyph->channel)};
-    }
-    cursor += static_cast<float>(glyph->advance) * scale;
-  }
+  };
+  text(kVersion, text_left, {.alpha = presentation.version_opacity});
+  constexpr float build_label_opacity = 0.65F;
+  text(kBuildLabel,
+       render::kCanvasWidth - text_left - state.build_label_width * scale,
+       {.alpha = presentation.version_opacity * build_label_opacity});
   state.renderer.set_sprites(std::span(state.commands).first(count));
 }
 void StartupTitleSurface::end() noexcept { state_->end(); }

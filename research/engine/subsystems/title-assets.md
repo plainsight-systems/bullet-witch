@@ -127,3 +127,17 @@ An added in-process format contract explicitly verifies all four flag mappings.
 Ignored `glyph-channel-inspection.txt` records independent original-glyph crops
 as thresholded pixel grids, including wrong-channel comparisons. Native replay
 and a readable version label remain the acceptance check for this correction.
+
+## Reconstruction identity label
+
+The user approved a small `Alpha · macOS` label on October 24, 2026. This is
+intentional reconstruction UI, separate from the unchanged authored version.
+CMake supplies the target platform from `CMAKE_SYSTEM_NAME` (`Darwin` displays
+as `macOS`); the shared title renderer contains no platform-name decision.
+The label uses the existing original bitmap font at size 16, on the version's
+baseline, with a matching 10-unit right margin and 65% of its opacity. Width is
+measured from glyph ink once during font construction. It remains visible in
+capture mode, adds no media or simulation behavior and uses fixed sprite storage.
+Read-only inspection confirmed the original font contains U+00B7 (middle dot)
+and every character needed for the Mac label. The actual native title capture
+and glyph-check metadata remain under ignored `research/evidence/public-demo/`.

@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent
+CAPTURE_LOG = Path('research/evidence/capture/latest.log')
 
 
 def main():
@@ -25,28 +26,72 @@ def main():
     )
     parser.add_argument('--build-only', action='store_true',
                         help='build the host without opening a window')
+    parser.add_argument('--capture', action='store_true',
+                        help='hide developer UI; write diagnostics to '
+                             'research/evidence/capture/latest.log')
     options, host_options = parser.parse_known_args()
     if sys.platform != 'darwin':
         parser.error('The native launcher currently supports macOS only.')
     game = options.game.expanduser().resolve()
-    if not options.build_only and not (game / 'data/data/stable/stable.rat').is_file():
-        parser.error(f'Game installation not found at {game}. '
-                     'Use --game PATH or set BULLET_WITCH_GAME_DIR.')
-    if shutil.which('cmake') is None:
-        parser.error('CMake is required. See scripts/README.md for build setup.')
+    executable = ROOT / 'build/host-debug/bw-startup'
+    command = [str(executable), '--game', str(game), *host_options]
+    if options.capture:
+        command.append('--capture')
+        # Keep the real build and host processes, with one retained diagnostic
+        # stream. The launcher waits to report failure after fullscreen closes.
+        log_path = ROOT / CAPTURE_LOG
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open('w', encoding='utf-8') as log:
+            try:
+                validate(game, options.build_only)
+                build(log)
+                if not options.build_only:
+                    subprocess.run(command, stdout=log,
+                                   stderr=subprocess.STDOUT, check=True)
+            except subprocess.CalledProcessError as error:
+                print(f'Process failed: {error}', file=log)
+                print(f'Capture failed; see {CAPTURE_LOG}.', file=sys.stderr)
+                return (error.returncode if error.returncode > 0
+                        else 128 - error.returncode)
+            except (OSError, RuntimeError) as error:
+                print(f'Launch failed: {error}', file=log)
+                print(f'Capture failed; see {CAPTURE_LOG}.', file=sys.stderr)
+                return 1
+        return 0
     # Both build steps must succeed before replacing this process with the host.
-    subprocess.run(['cmake', '--preset', 'host-debug'], cwd=ROOT, check=True)
-    subprocess.run(['cmake', '--build', '--preset', 'host-debug',
-                    '--target', 'bw-startup', '--parallel', '4'], cwd=ROOT, check=True)
+    try:
+        validate(game, options.build_only)
+    except RuntimeError as error:
+        parser.error(str(error))
+    build()
     if not options.build_only:
-        executable = ROOT / 'build/host-debug/bw-startup'
-        os.execv(executable, [str(executable), '--game', str(game), *host_options])
+        os.execv(executable, command)
+    return 0
+
+
+def validate(game, build_only):
+    if not build_only and not (game / 'data/data/stable/stable.rat').is_file():
+        raise RuntimeError(f'Game installation not found at {game}. '
+                           'Use --game PATH or set BULLET_WITCH_GAME_DIR.')
+    if shutil.which('cmake') is None:
+        raise RuntimeError('CMake is required. See scripts/README.md for build setup.')
+
+
+def build(output=None):
+    subprocess.run(['cmake', '--preset', 'host-debug'], cwd=ROOT, check=True,
+                   stdout=output, stderr=subprocess.STDOUT if output else None)
+    subprocess.run(['cmake', '--build', '--preset', 'host-debug',
+                    '--target', 'bw-startup', '--parallel', '4'], cwd=ROOT,
+                   check=True, stdout=output,
+                   stderr=subprocess.STDOUT if output else None)
 
 
 if __name__ == '__main__':
     try:
-        main()
+        sys.exit(main())
     except subprocess.CalledProcessError as error:
         sys.exit(error.returncode)
+    except OSError:
+        sys.exit('Launcher could not open a required file or start a process.')
     except KeyboardInterrupt:
         sys.exit(130)

@@ -1,3 +1,8 @@
+// Developer review visibility is fixed at construction. Hiding its root entries
+// leaves normal Resume/Costume input and transactions unchanged. No capture
+// dependency reaches the simulation. Both MCP phases: Core I.1 (#ri-explicit)
+// keeps the input explicit; MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) retains fixed menu storage.
 // Review pages retain prepared pose semantics beside borrowed clip labels.
 // Unknown or incompatible entries remain visible but disabled; actual
 // publication indices never change. Core I.1/E.4 makes admission explicit;
@@ -31,7 +36,7 @@
 namespace bw::game {
 class PauseFlow {
  public:
-  explicit PauseFlow(unsigned costume);
+  explicit PauseFlow(unsigned costume, bool developer_review = true);
   PauseFlow(const PauseFlow&) = delete;
   PauseFlow& operator=(const PauseFlow&) = delete;
   PauseFlow(PauseFlow&&) = delete;
@@ -62,6 +67,7 @@ class PauseFlow {
   void select();
   void message(std::string_view text);
   void append(std::string_view label, unsigned id, bool enabled = true);
+  bool developer_review_;
   bool paused_{};
   Page page_{Page::root};
   AnimationReviewKind family_{AnimationReviewKind::stop};

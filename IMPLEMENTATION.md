@@ -192,15 +192,20 @@ for ownership and the remaining input-policy fidelity boundary, and
 [traversal acceptance](research/engine/subsystems/player-traversal-acceptance.md)
 for native evidence and measured update cost.
 
-The user-expanded Alicia animation slice is ready for physical user review after
-source-backed ownership/lighting correction, scoped adversarial re-review and the
-final integrated gate. Only initial placement has an explicit temporary shim
-exception; see [current adversarial disposition](research/engine/subsystems/overfitting-and-shim-review.md).
+The user accepted the expanded Alicia traversal, animation and lighting slice on
+October 24, 2026, after source-backed ownership/lighting correction, scoped
+adversarial re-review and the final integrated gate. It was committed as
+`9e6be4d`. The slightly-dark lighting observation remains recorded without tuning
+the accepted baseline. Acceptance closes this slice, not every historical
+control/visual comparison or full-game parity. Only initial placement has an
+explicit temporary shim exception; see
+[current adversarial disposition](research/engine/subsystems/overfitting-and-shim-review.md).
 Native review exposed analog rejection, missing live weapon-switch motion and
 incorrect aiming; source-backed corrections now pass their actual sequences.
 The combined turning/firing failure also required separating grounded contact
 from airborne ascent, preserving support during positive animation root motion.
-The full automated gate passes; this does not replace user acceptance.
+The full automated gate passed for the accepted slice; each check establishes
+only its exercised behavior, not a retest of every historical diagnostic.
 Presentation mechanisms have live action inputs and an explicit
 in-scene animation review path, including transactional weapon-class selection.
 Prior integrated checks cover their exercised paths; they did not establish
@@ -217,6 +222,18 @@ enemy behavior and the original mission start belong to slice 6. The remaining
 neutral backward-evade visual comparison and garment surface intersections are
 documented separately rather than silently treated as solved. See
 [animation coverage](research/engine/subsystems/alicia-animation-coverage.md).
+
+The [work queue](docs/process/QUEUE.md) identifies the prerequisites for mission
+behavior: first establish source-backed world scheduling, input and pause
+ownership; then bind the real gameplay HUD and pause flow to authoritative
+player/weapon state. Genuine entity construction and mission-start gates must
+execute the original script against live owners, replacing the placement shim,
+before completing combat, checkpoints and the clear/death/retry/return loop.
+These steps share dependencies: HUD initialization participates in mission
+startup, and pause-menu retry/exit require actual lifecycle transitions. They
+must not be reported complete through mock state or successful no-op actions.
+This is the planned prerequisite order, not authorization for another
+implementation slice.
 
 Teardown and partial-construction rollback belong to every slice; slice 7 verifies
 the complete loop rather than introducing cleanup at the end. A developer mission

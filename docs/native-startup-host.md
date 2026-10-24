@@ -1,20 +1,18 @@
 # Native startup host
 
-The previous mixed-stream implementation failed native acceptance. It has been
-replaced with independent media execution and a callback-fed native audio
-service. The replacement passes silent component probes and the integrated
-two-logo run recorded below.
-
-The first visible slice runs the original root script through the reconstructed
+The native host runs the original root script through the reconstructed
 company-logo, startup-check, opening-cinematic and title tasks. Shared C++ owns task sequencing and fades; the reusable
 [video player](video-player.md) owns media scheduling and completion. The Mac backend owns its window, Metal
 presentation, audio device and input sampling. Title presents the original
 movie, animated prompt, copyright and font text. Title confirmation now runs
 profile loading and the interactive menu with original menu/costume sprite assets.
 A supported confirmed choice reaches an owned gameplay request. One Shot Kill
-continues into its original mission script and a limited static world inspection
-view. The original mission load completes and waits at `awaiting_world_setup`;
-actor construction and playable mission execution have not started.
+continues into its original mission script, resource loading and a bounded
+traversal scene with Alicia, costume replacement, lighting, shadows, animation
+and custom character movement. The original mission load completes and waits at
+`awaiting_world_setup`; full mission startup, combat and outcomes remain
+unimplemented. The accepted traversal scene uses the explicitly isolated initial
+placement shim until genuine world startup replaces it.
 
 Build and run with the local purchased installation:
 
@@ -48,9 +46,10 @@ timeout returns to the original attract loop; confirmation enters profile loadin
 and the menu. New Game, valid Continue and campaign-stage selection can reach a
 validated gameplay request, which the executable reports before exiting. One
 Shot Kill instead retains the request, original mission/load owners and the
-static inspection view. `--max-seconds N` bounds a development
-run (default 300 seconds). `--verify-startup` ignores skipping and exits after
-all four movies complete naturally and title publishes outcome 2. It checks
+traversal scene. Ordinary interactive runs have no time limit;
+`--max-seconds N` explicitly bounds a development run.
+`--verify-startup` retains a default 300-second bound, ignores skipping and exits
+after all four movies complete naturally and title publishes outcome 2. It checks
 complete PCM consumption, device drain, no unexpected audio underruns and
 terminal-frame presentation, and prints per-movie counters. These conditions
 do not establish original-game audiovisual parity.
@@ -58,6 +57,46 @@ Verification ignores skip actions so typing in another task cannot shorten a
 movie; closing the window still aborts. It fails for early close, timeout or
 decode/device errors. Ordinary playback retains the documented skip bindings.
 This mode belongs to the existing provisioned original-root integration scenario.
+
+## Recording a demonstration
+
+From the repository root, the recording command is:
+
+```sh
+./run --capture
+```
+
+Use the same purchased installation and profile as an ordinary run. Capture mode
+keeps native fullscreen, audio output and the existing 60 Hz host pacing target.
+It hides the in-scene developer status and the pause menu's Weapon Class and
+Animation Review entries. Build/runtime diagnostics go to the ignored
+`research/evidence/capture/latest.log`, replaced on each capture launch. Successful
+runs leave the terminal quiet; failures return a nonzero status and a short
+message pointing to that log.
+It does not change loading work, animation, input, rendering, movie timing or
+scene content. It is a presentation option, not a recorder or a sustained-frame-rate
+guarantee. The normal pause and costume controls remain available.
+
+`--capture` rejects `--windowed`, `--verify-startup` and `--inspect-camera`.
+An explicit positive `--max-seconds N` remains available for a bounded run;
+omitting it leaves capture and ordinary interactive runs untimed.
+
+Build once before recording with `./run --build-only`. The recording command still
+performs its ordinary incremental build check; retain the actual command-to-window
+interval in an uninterrupted launch shot. A clean checkout first needs the
+[documented tools and SDK](../scripts/README.md), dependency downloads and a
+purchased installation. No IDE, developer shell initialization or separate
+executable command is required after that setup.
+
+Movie and title audio use the existing playback path. Menu background music,
+confirmation cues and persisted volume-to-output wiring remain incomplete.
+Capture mode does not add substitute music or cues. Keep any logo acceleration
+in the video edit, visibly labeled, rather than changing runtime playback.
+
+Record the app output without other windows containing extracted data, research
+tools or local paths. Keep captures outside Git. The
+[public demonstration plan](../research/reports/2026-10-24-public-demo.md) records
+the approved shots, external hosting and capture metadata needed before publication.
 
 ## Shared contracts and native implementation
 

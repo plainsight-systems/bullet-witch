@@ -1,3 +1,8 @@
+// Fullscreen failure diagnostics distinguish AppKit rejection from an unfinished
+// transition and record activation/key state without changing launch behavior.
+// Both MCP phases: Core E.6 (#re-raii) keeps failed native construction under
+// existing ownership cleanup; performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) confines diagnostic formatting to failure.
 // Action input extends the existing main-thread snapshot: retain keyboard taps,
 // sample controller holds, clear on focus loss, then derive one-shot edges.
 // RT/F stays normalized held fire intent; the game owns acceptance and cadence.
@@ -375,7 +380,11 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
       if (!state.window_delegate.fullscreen || state.window_delegate.fullscreenFailed ||
           state.window_delegate.fullscreenTransition) {
         throw std::runtime_error(
-            "Could not complete native full screen transition; retry with --windowed");
+            "Native fullscreen startup failed: rejected=" +
+            std::to_string(state.window_delegate.fullscreenFailed) +
+            " pending=" + std::to_string(state.window_delegate.fullscreenTransition) +
+            " entered=" + std::to_string(state.window_delegate.fullscreen) + " active=" +
+            std::to_string(NSApp.active) + " key=" + std::to_string(state.window.keyWindow));
       }
     }
   }

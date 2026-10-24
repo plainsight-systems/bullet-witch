@@ -123,3 +123,35 @@ uses its own source aspect ratio. This changes no surface/resource lifetime.
 ES.22 initializes the complete value before use; MEM.9 keeps the arithmetic in
 fixed stack storage. Targeted fatal clang-tidy and pinned formatting pass;
 actual window acceptance is recorded by the parent integration run.
+
+## Intermittent capture launch failure — October 24, 2026
+
+Two capture launches reported the generic fullscreen startup failure after the
+build succeeded. A subsequent diagnostic-only rebuild launched through native
+fullscreen and into original movie playback. The diagnostic change does not
+alter bootstrap ordering, event dispatch, deadlines or playback. The failure
+remains unresolved; the successful retry does not establish a correction.
+
+The failure message now records delegate rejection, transition pending and
+entered flags plus application-active/window-key state. This distinguishes an
+AppKit rejection from the ten-second transition hang bound on the next occurrence.
+The previous generic messages cannot establish which branch occurred.
+
+The current locally provisioned SDL source is pinned by `cmake/GameAudio.cmake`
+to revision `829a65d769d935c4852f8159e964312c0957260a`. Source comparison read
+[`setFullscreenSpace`, `Cocoa_SetWindowFullscreenSpace` and
+`windowDidFailToEnterFullScreen`](https://github.com/libsdl-org/SDL/blob/829a65d769d935c4852f8159e964312c0957260a/src/video/cocoa/SDL_cocoawindow.m)
+and [`Cocoa_RegisterApp`](https://github.com/libsdl-org/SDL/blob/829a65d769d935c4852f8159e964312c0957260a/src/video/cocoa/SDL_cocoaevents.m).
+SDL completes application registration before window creation, queues its
+fullscreen selector on the main run loop, and bounds retry attempts for
+interrupted transitions. Its failure-handler comment identifies immediate
+fullscreen startup from an already-fullscreen terminal as a possible reproduction.
+The installed AppKit `NSWindow` delegate declaration also identifies competing
+animations/gestures as supported rejection causes. These are investigation leads,
+not established causes of the observed failures. No retry policy, fixed delay,
+windowed fallback or bootstrap reordering was added without a reproduction.
+
+C++ design and implementation each retrieved Core `E.6` and performance `MEM.9`:
+existing native ownership handles exceptional construction, and diagnostic
+string construction occurs only on failure. Capture output still goes to the
+ignored launcher log; no developer text is added to the game image.

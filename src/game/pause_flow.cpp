@@ -1,12 +1,15 @@
-// Prepared clip semantics keep incompatible pose representations visible but
-// disabled without changing catalog identity (Core I.1/E.4, CDSA.32).
-// Pause navigation publishes explicit requests before external transactions.
-// Review pages borrow prepared catalog labels; only a bounded page is visited.
-// Completion copies any transient error into fixed storage, resumes accepted
-// previews, and otherwise retains pause. Menu consumption never advances game
-// clocks. Both MCP phases: I.1 (#ri-explicit) separates input from admission;
-// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds all
-// storage.
+// Optional developer entries are omitted when constructing the root page;
+// ordinary pause/costume behavior is identical. Core I.1 and performance MEM.9
+// (references below), read in both phases, keep this bounded presentation
+// policy independent of gameplay state and clocks. Prepared clip semantics keep
+// incompatible pose representations visible but disabled without changing
+// catalog identity (Core I.1/E.4, CDSA.32). Pause navigation publishes explicit
+// requests before external transactions. Review pages borrow prepared catalog
+// labels; only a bounded page is visited. Completion copies any transient error
+// into fixed storage, resumes accepted previews, and otherwise retains pause.
+// Menu consumption never advances game clocks. Both MCP phases: I.1
+// (#ri-explicit) separates input from admission; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds all storage.
 #include "pause_flow.hpp"
 
 #include <algorithm>
@@ -61,7 +64,8 @@ bool catalog_family(AnimationReviewKind kind) {
          kind == AnimationReviewKind::weapon_clip;
 }
 }  // namespace
-PauseFlow::PauseFlow(unsigned costume) : costume_(costume) {
+PauseFlow::PauseFlow(unsigned costume, bool developer_review)
+    : developer_review_(developer_review), costume_(costume) {
   if (costume >= kCostumes) {
     throw std::invalid_argument("Invalid pause costume");
   }
@@ -106,8 +110,10 @@ void PauseFlow::populate(Page page) {
     presentation_.title = "Paused";
     append("Resume", 0);
     append("Costume", 1);
-    append("Weapon class (preview)", 2, body_ != nullptr);
-    append("Animation review", 3, body_ != nullptr);
+    if (developer_review_) {
+      append("Weapon class (preview)", 2, body_ != nullptr);
+      append("Animation review", 3, body_ != nullptr);
+    }
   } else if (page == Page::costumes) {
     presentation_.title = "Costume";
     presentation_.selected = costume_;

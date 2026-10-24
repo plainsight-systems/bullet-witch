@@ -1,5 +1,18 @@
 # Bullet Witch
 
+![Bullet Witch's animated title screen running in the native alpha macOS build, with the START prompt and Alpha · macOS label.](https://media.plainsight-systems.com/bullet-witch/title-screen-2026-10-24-0dbf54587d10.png)
+
+Native alpha build on Apple M3 Max · Metal · captured October 24, 2026.
+[Capture details](research/reports/2026-10-24-public-demo.md#published-still).
+Game imagery remains the property of its rights holders and is not covered by
+this repository's licenses.
+
+This is an unofficial C++20 engine reconstruction of Cavia's Bullet Witch,
+running natively on Apple silicon with Metal. Cavia is the studio behind
+Drakengard and the original NieR. Bullet Witch first released on Xbox 360 in
+2006; the Steam PC release followed on April 25, 2018.
+[Release sources](research/reports/2026-10-24-public-demo.md#release-facts).
+
 I want to get Bullet Witch running on Xbox Series X, then be able to work on
 it: preserve how the game plays, improve the graphics, and change the engine
 where there is a reason to. Having readable source makes that possible.
@@ -9,6 +22,10 @@ The original executable, Lua scripts and game data provide the evidence for
 how it works. The destination is a faithful port to Series X in Developer
 Mode, with improvements built on top of that baseline. Development currently
 runs on an Apple silicon Mac.
+
+**Requires purchased game data.** No game assets, extracted scripts or raw
+decompiler output are included in Git. Research findings are written in my
+own words. This project is unaffiliated with the game's rights holders.
 
 ## Get it locally
 
@@ -40,6 +57,20 @@ installation at `~/Games/BulletWitch-Steam`. To use another location, set
 Use `./run --windowed` for a window, or `./run --build-only` to build without
 launching. Native host options pass through; see the
 [host notes](docs/native-startup-host.md) for controls and verification options.
+For recording, use the same launcher with developer UI hidden:
+
+```sh
+./run --capture
+```
+
+Capture mode keeps fullscreen presentation, game audio and the ordinary 60 Hz
+host cadence. It does not skip loading, accelerate playback or change gameplay.
+Diagnostics go to the ignored `research/evidence/capture/latest.log` rather
+than the terminal. The host's pacing target is not a claim of sustained 60 FPS
+in every scene. See the
+[capture notes](docs/native-startup-host.md#recording-a-demonstration) for preparation
+and current audio limits.
+
 For static-stage inspection, `./run --inspect-camera X Y Z YAW PITCH` sets an
 explicit camera position and angles in degrees. Omitting it uses the recovered
 starting camera. The explicit camera option keeps a fixed development view.
@@ -80,11 +111,14 @@ runtime. Its startup tasks connect to shared movie playback and a native Mac
 host using Metal and AudioQueue. Shaders live in separate source files and compile with the build, so the graphics implementation
 can grow and be tuned independently of the host code.
 
-The Mac build runs the logos, opening cinematic
-and animated title screen using the original assets. It loads profile data,
-displays interactive menus and costume previews, and carries the selection
-through the original Lua to a gameplay request. One Shot Kill now opens its
-original mission script and completes its resource-loading sequence. The scene uses ordinary stage and prop models, original textures, lighting,
+On an M3 Max, the native Metal build runs the splash logos, opening cinematic
+and animated title screen using the original assets. It loads profile data
+and displays interactive menus and costume selection. The original Lua
+orchestrates screen flow; reconstructed C++ implements the menus and carries
+their selections back to Lua. Front-end costume previews use the game's authored
+2D images. One Shot Kill now opens its original mission script and completes its
+resource-loading sequence. The scene uses ordinary stage and prop models,
+original textures, lighting,
 shadows and reconstructed shaders. Selected-costume skeletal animation, a live
 camera and custom character movement now support bounded traversal.
 Mission behavior, combat, outcomes and some menu options remain open. The [startup notes](docs/startup-runtime.md) and
@@ -196,6 +230,10 @@ research tools used here.
 Project code and configuration use Apache 2.0; writing, diagrams and original
 artwork use CC BY 4.0. See [LICENSE](LICENSE) for the split. Third-party
 components retain their own licenses.
+
+Captured game imagery and audio remain the property of their respective rights
+holders and are not covered by this repository's licenses. Demonstration media
+stays outside Git.
 
 This is an unofficial project, unaffiliated with the game's rights holders.
 Users supply their own purchased game; its code and assets are not included

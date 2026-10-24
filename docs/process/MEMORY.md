@@ -1,5 +1,21 @@
 # Current engineering decisions
 
+- Public-demo catchup uses `./run --capture`: ordinary fullscreen startup/audio
+  and 60 Hz host cadence, with developer status and review-only pause entries
+  hidden. Build/runtime diagnostics go to ignored
+  `research/evidence/capture/latest.log`. Interactive runs are untimed by default;
+  verification retains its 300-second bound. Full `check.py all` passes; a native
+  launch confirmed fullscreen movie output, a quiet terminal and exit 0 after
+  window closure. This does not establish sustained FPS, a listening check or
+  manual in-level overlay acceptance. The user authorized the README/capture
+  changes for commit/push and parked video work. One actual alpha macOS title
+  still is now hosted on R2 and embedded by URL in the README; public bytes and
+  image content type match the local capture. The GitHub description is updated.
+  Keep image bytes outside Git and preserve the existing license scope and
+  evidence rule. See
+  `research/reports/2026-10-24-public-demo.md` for primary release sources and
+  publication handoff.
+
 - On October 24, 2026, the user accepted the current Alicia traversal, animation
   and lighting slice for commit. Lighting may still look slightly too dark;
   retain that observation for future source/footage comparison without tuning

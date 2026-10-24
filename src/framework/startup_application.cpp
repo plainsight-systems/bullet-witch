@@ -1,3 +1,8 @@
+// Capture suppresses developer presentation at composition boundaries while
+// retaining ordinary input, simulation, media and loading. Optional launch
+// budgets bound only explicitly timed/verification runs. Both MCP phases:
+// Core I.1 (#ri-explicit) supplies immutable launch policy; performance MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) adds no frame storage.
 // Interactive presentation review forwards captured intent to Stage and keeps
 // external review observations explicit. Paused transactions rebind catalog
 // borrowers after publication, report failures without advancing the game, and
@@ -169,7 +174,9 @@ int run_startup(const StartupOptions& configuration,
   std::optional<game::MissionPhase> reported_mission_phase;
   const auto started = std::chrono::steady_clock::now();
   const auto deadline =
-      started + std::chrono::seconds(configuration.maximum_seconds);
+      configuration.maximum_seconds
+          ? started + std::chrono::seconds(*configuration.maximum_seconds)
+          : std::chrono::steady_clock::time_point::max();
   auto previous_tick = started;
   auto next_tick = started;
   constexpr auto target_period = std::chrono::nanoseconds(16'666'667);
@@ -369,9 +376,12 @@ int run_startup(const StartupOptions& configuration,
       if (pause && pause->paused()) {
         menu_surface.show(pause->presentation());
       } else {
-        menu_surface.show_status(live_notice.empty()
-                                     ? stage_inspection->review_status()
-                                     : live_notice);
+        // Clear the developer overlay without altering the world submission.
+        menu_surface.show_status(configuration.capture
+                                     ? std::string_view{}
+                                     : (live_notice.empty()
+                                            ? stage_inspection->review_status()
+                                            : live_notice));
       }
       // Inspection presents independently while the original mission load and
       // its black fade remain pending; this never advances script completion.
@@ -498,7 +508,8 @@ int run_startup(const StartupOptions& configuration,
                                      *mission_audio->output(), random);
         menu_surface.begin();
         while (!menu_surface.ready()) loading_pulse();
-        pause.emplace(mission_loading->current_player_costume());
+        pause.emplace(mission_loading->current_player_costume(),
+                      !configuration.capture);
         bind_review_catalogs();
         inspected_stage = true;
         loading_surface.end();
