@@ -1,21 +1,27 @@
-// Capture is an explicit presentation policy: hide developer UI only. It never
-// changes simulation, media clocks, input or resource loading. Interactive runs
-// have no deadline; verification retains a bounded default and callers may set
-// an explicit positive time budget. Both MCP phases: Core I.1 (#ri-explicit)
-// exposes policy in owned options; performance MEM.9 (guidelines/memory/
-// MEM.9-embedded-allocate-at-init.md) confines configuration to setup.
-// Inspection configuration is an optional explicit camera pose. It changes
-// only static-view position/orientation; the authored projection and normal
-// mission route remain intact. Parse finite coordinates and angles before any
-// native window exists. Stored values require no per-frame parsing/allocation.
-// Both MCP phases: I.1 (#ri-explicit) exposes this development override;
-// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) confines
-// conversion to setup. See docs/native-startup-host.md for the CLI coordinate
-// convention. Memory composition: target-selected resource, runtime and media
-// domains are required capabilities. Pass each to its owner before work starts;
-// retained catalog/sample/context storage keeps the capability through final
-// release. No native backing choice or historical aggregate budget is inferred
-// here. R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// Concept progression selection is an explicit development policy. Saved
+// mode inherits the owned handoff; development mode supplies a nonpersistent
+// completed-game capability profile at entry. Neither edits permanent saves.
+// Design C.9/I.30, implementation E.4 (#re-design-invariants); both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds entry-only
+// work. Capture is an explicit presentation policy: hide developer UI only. It
+// never changes simulation, media clocks, input or resource loading.
+// Interactive runs have no deadline; verification retains a bounded default and
+// callers may set an explicit positive time budget. Both MCP phases: Core I.1
+// (#ri-explicit) exposes policy in owned options; performance MEM.9
+// (guidelines/memory/ MEM.9-embedded-allocate-at-init.md) confines
+// configuration to setup. Inspection configuration is an optional explicit
+// camera pose. It changes only static-view position/orientation; the authored
+// projection and normal mission route remain intact. Parse finite coordinates
+// and angles before any native window exists. Stored values require no
+// per-frame parsing/allocation. Both MCP phases: I.1 (#ri-explicit) exposes
+// this development override; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) confines conversion to
+// setup. See docs/native-startup-host.md for the CLI coordinate convention.
+// Memory composition: target-selected resource, runtime and media domains are
+// required capabilities. Pass each to its owner before work starts; retained
+// catalog/sample/context storage keeps the capability through final release. No
+// native backing choice or historical aggregate budget is inferred here. R.1
+// (#rr-raii) and MEM.6 (guidelines/memory/
 // MEM.6-inject-allocators-behind-one-interface.md), read in both phases, keep
 // exception cleanup and injection explicit. No per-frame composition work.
 // Front-end extension: SaveStorage is borrowed for the whole run alongside
@@ -63,6 +69,7 @@
 #include "bw/render/view.hpp"
 #include "bw/video/player.hpp"
 #include "game/mission_audio.hpp"
+#include "game/mission_player_state.hpp"
 
 namespace bw::framework {
 struct StartupOptions {
@@ -72,6 +79,8 @@ struct StartupOptions {
   std::optional<int> maximum_seconds;
   bool verify{};
   bool capture{};
+  game::ConceptProfile concept_profile{
+      game::ConceptProfile::development_completed};
   platform::WindowOptions window;
   std::optional<render::ViewPose> inspection_camera;
 };

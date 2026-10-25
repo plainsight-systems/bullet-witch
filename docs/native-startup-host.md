@@ -405,3 +405,22 @@ the previous black sky and clipped-ground captures remain historical failures.
 Full shadows, visibility, generated texture mip chains and animated/placed
 objects remain later presentation work. See the
 [completion record](../research/engine/subsystems/stage-view-completion.md).
+
+
+## Concept mission progression
+
+The current early-access concept route defaults to an explicit, nonpersistent
+**development completed-game profile**: all weapons/spells acquired at level one,
+stat levels one and no upgrade points. This preserves the accepted traversal
+capabilities without changing the real save or fabricating achievements. It is
+an authored development baseline, not the original game's universal completion
+state. To inherit the actual loaded profile instead, run:
+
+```sh
+./run --concept-profile saved
+```
+
+`--concept-profile development-completed` explicitly selects the default.
+Both routes initialize the same mission player owner. Campaign progression is
+unchanged; mission restrictions remain owned by original Lua, and full mission
+startup is still incomplete. See [progression architecture](architecture/player-progression.md).

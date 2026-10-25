@@ -30,6 +30,14 @@ signatures, extensions, record tags and script binding strings at compatibility
 boundaries, and document the original-to-engine mapping in
 `docs/architecture/file-mapping.md`. Do not guess acronym expansions.
 
+Decompose the original game's engine ownership and layout as well as its
+algorithms. Trace the actual persistent, session, mission, actor and platform
+owners before choosing reconstructed boundaries; unknown Cavia class names do
+not justify inventing an unrelated framework. When a bounded trace cannot
+establish an ownership/interface contract, inspect the concrete pinned Unreal
+implementation, adopt the applicable boundary, and record that inference. This
+reference requirement applies to architecture decisions as well as local code.
+
 File headers carry implementation design; there are no separate implementation
 packets. Formatting-only passes preserve existing contracts and citations.
 

@@ -14,6 +14,7 @@
 #include <vector>
 
 void profile_load_flow_contracts();
+void progression_contracts();
 
 namespace {
 void require(bool condition, const char* message) {
@@ -164,6 +165,7 @@ int main() {
     installed_content_refresh();
     checkpoint_owned_bytes();
     profile_load_flow_contracts();
+    progression_contracts();
   } catch (const std::exception&) {
     return 1;
   }

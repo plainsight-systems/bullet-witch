@@ -1,11 +1,16 @@
-// Memory migration: share the root through its injected allocator and route
-// scheduler nodes/snapshot through the same runtime domain. Exceptions unwind
-// acquired owners; native paths never retry on the legacy heap. R.1 (#rr-raii)
-// and MEM.6 (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md)
-// were read in design and implementation. Setup ownership adds no tick copies.
-// Front-end extension follows the header lifetime and owned handoff contract.
-// Keep Lua dispatch authoritative, validate native slot values, and retain a
-// pending mission wait after capturing the request. Design MCP I.30
+// Mission requests own the current Profile progression snapshot, including
+// concept routes; no concept grant modifies permanent data. Single setup copy.
+// Design C.9/I.30, implementation E.4 (#re-design-invariants); both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) preserves bounded
+// work. Memory migration: share the root through its injected allocator and
+// route scheduler nodes/snapshot through the same runtime domain. Exceptions
+// unwind acquired owners; native paths never retry on the legacy heap. R.1
+// (#rr-raii) and MEM.6
+// (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) were read
+// in design and implementation. Setup ownership adds no tick copies. Front-end
+// extension follows the header lifetime and owned handoff contract. Keep Lua
+// dispatch authoritative, validate native slot values, and retain a pending
+// mission wait after capturing the request. Design MCP I.30
 // (#ri-encapsulate), implementation E.6 (#re-raii), cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserve explicit
 // ownership; only the handoff copies checkpoint bytes. No frame-loop copies.
@@ -320,8 +325,11 @@ void StartupSession::start_mission(std::string_view mission) {
     const auto number = std::to_string(selection.stage);
     const auto script =
         std::string("cm") + (selection.stage < 10 ? "0" : "") + number + "_00";
-    gameplay_request_ =
-        GameplayRequest{std::string(mission), selection, {}, script};
+    gameplay_request_ = GameplayRequest{std::string(mission),
+                                        selection,
+                                        {},
+                                        script,
+                                        frontend_->profile().progression()};
     return;
   }
   if (selection.action != MenuAction::new_game &&
@@ -337,8 +345,11 @@ void StartupSession::start_mission(std::string_view mission) {
        (!replay_mode_ || replay_stage_ != selection.stage))) {
     throw std::runtime_error("Lua mission route disagrees with menu selection");
   }
-  GameplayRequest request{
-      std::string(mission), selection, {}, std::string(mission)};
+  GameplayRequest request{std::string(mission),
+                          selection,
+                          {},
+                          std::string(mission),
+                          frontend_->profile().progression()};
   // Own checkpoint bytes at handoff so the request can outlive front-end state.
   if (selection.action == MenuAction::continue_game) {
     const auto checkpoint = frontend_->profile().checkpoint();

@@ -1,3 +1,7 @@
+// Progression handoff observations verify the request owns its snapshot across
+// later Profile mutation. Core C.9/I.30 design, E.4 (#re-design-invariants)
+// implementation and both-phase MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) keep this fixed-value in-process check.
 // V1: in-process startup-session lifecycle and title readiness contracts.
 // Controlled media/surface owners outlive each session. Inputs are explicit
 // frame deltas, pressed actions and resource readiness; observe visibility,
@@ -126,16 +130,24 @@ void frontend_handoff() {
   rejects([&] { session.start_mission("st02_00"); },
           "Mismatched Lua mission rejected");
   session.start_mission("st01_00");
-  require(session.gameplay_request() &&
-              session.gameplay_request()->mission == "st01_00" &&
-              session.gameplay_request()->selection.difficulty == 1 &&
-              session.gameplay_request()->checkpoint.empty() &&
-              session.mission_pending(),
-          "Owned new-game request preserves choice without inventing "
-          "checkpoint or mission success");
+  require(
+      session.gameplay_request() &&
+          session.gameplay_request()->mission == "st01_00" &&
+          session.gameplay_request()->selection.difficulty == 1 &&
+          session.gameplay_request()->checkpoint.empty() &&
+          session.gameplay_request()->progression == profile.progression() &&
+          session.mission_pending(),
+      "Owned new-game request preserves choice without inventing "
+      "checkpoint or mission success");
+  const auto& captured_request = session.gameplay_request();
+  if (!captured_request) throw std::runtime_error("Missing captured request");
+  const auto captured_progression = captured_request->progression;
+  (void)profile.award_result({0, 0, bw::game::MissionRewardMode::campaign});
   profile.set_current_difficulty(2);
   require(session.gameplay_request() &&
-              session.gameplay_request()->selection.difficulty == 1,
+              session.gameplay_request()->selection.difficulty == 1 &&
+              session.gameplay_request()->progression == captured_progression &&
+              profile.progression() != captured_progression,
           "Captured request is independent of later profile changes");
   rejects([&] { session.start_mission("st01_00"); },
           "Duplicate handoff rejected");

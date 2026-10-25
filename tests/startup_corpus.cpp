@@ -1,5 +1,11 @@
-// Caster regression: both-phase I.1 (#ri-explicit) checks source pass admission
-// against retained original chunk metadata; GPU.1 (guidelines/gpu/
+// Progression extension remains within this existing original-root integration
+// scenario. Save a source-rule purchase, load through the actual front end,
+// inspect immutable handoff and initialize source resident weapon classes from
+// mission authority. Controlled renderer does not imply native device parity.
+// Design C.9/I.30, implementation E.4 (#re-design-invariants); both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds added value
+// work. Caster regression: both-phase I.1 (#ri-explicit) checks source pass
+// admission against retained original chunk metadata; GPU.1 (guidelines/gpu/
 // GPU.1-keep-data-on-device.md) adds no production readback or frame-time work.
 // Required output-policy observation applies C.128 (#rh-override): the fixture
 // explicitly retains authored settings and checks publication. GPU.9
@@ -1462,6 +1468,103 @@ void prepared_game_audio(bw::resources::ResourceService& resources,
   std::cout << "Prepared common/voice audio: " << count << " waves, " << total
             << " samples\n";
 }
+// Initial equipment admission belongs to the existing original-root corpus;
+// each acquired-class fixture prepares its real owner and verifies attachment.
+void initial_weapon_admission(bw::resources::ResourceService& resources,
+                              const bw::platform::Files& files,
+                              WorldOutput& world,
+                              const bw::game::Progression& progression,
+                              std::size_t retained_models,
+                              std::size_t retained_textures) {
+  // Initial admission uses each original weapon owner; it must not resolve
+  // class-specific animation through WA0 or admit a live replacement.
+  std::size_t weapon_motion_count = 0;
+  for (unsigned weapon_class = 0; weapon_class < 4; ++weapon_class) {
+    {
+      bw::game::MissionLoading selected(files, resources.catalogs(),
+                                        resources.memory_domain(), &world);
+      auto entry_progression = progression;
+      entry_progression.levels.weapons.fill(0);
+      entry_progression.levels.weapons.at(weapon_class) = 1;
+      const bw::game::MissionPlayerState selected_state(
+          {entry_progression, std::nullopt, false,
+           bw::game::ConceptProfile::saved});
+      if (selected_state.selected_weapon() != weapon_class) {
+        throw std::runtime_error("Initial mission equipment selection differs");
+      }
+      selected.prepare_player(0, selected_state.selected_weapon());
+      const auto weapon = selected.resident_weapon();
+      const auto expected_name =
+          std::string("wa") + static_cast<char>('0' + weapon_class);
+      const auto models = world.live_models;
+      const auto textures = world.live_textures;
+      selected.prepare_player(0, weapon_class);
+      bool replacement_rejected = false;
+      try {
+        selected.prepare_player(0, (weapon_class + 1) % 4);
+      } catch (const std::logic_error&) {
+        replacement_rejected = true;
+      }
+      if (weapon.name != expected_name || !replacement_rejected ||
+          selected.resident_weapon().handle != weapon.handle ||
+          world.live_models != models || world.live_textures != textures) {
+        throw std::runtime_error(
+            "Initial weapon class admission changed owners");
+      }
+      bw::game::PlayerActor selected_actor(
+          {selected.resident_player(), weapon, selected.player_support(),
+           selected.weapon_support(), kFixtureInitialPose},
+          resources.memory_domain());
+      // Both original weapon half-turns cancel before the completed hand
+      // attachment. Compare published GPU palettes with that source frame,
+      // independently from the actor's attachment implementation.
+      const auto& weapon_definition = weapon.definition.get();
+      bw::animation::SkeletonPose expected_weapon(
+          weapon_definition.skeleton().value(), resources.memory_domain());
+      const auto* weapon_clock =
+          selected_actor.animation_state(bw::game::CharacterMotionBank::weapon);
+      if (weapon_clock == nullptr) {
+        throw std::runtime_error("Initial weapon has no motion owner");
+      }
+      const auto hand = std::ranges::find(
+          selected_actor.source().body.definition.get().bone_names(),
+          "RightWeapon", &bw::formats::ModelBoneName::name);
+      expected_weapon.evaluate(*weapon_clock->clip, weapon_clock->seconds,
+                               selected_actor.body_bones()[hand->bone]);
+      for (std::size_t draw = 0; draw < weapon_definition.draws().size();
+           ++draw) {
+        if (!selected_actor.includes_draw(true, draw)) continue;
+        const auto palette = selected_actor.draw_palette(true, draw);
+        const auto& material = weapon_definition.materials().at(
+            weapon_definition.draws().at(draw).material);
+        for (const auto& binding : material.matrices) {
+          const auto& expected =
+              expected_weapon.skin_transforms()[binding.source_matrix];
+          const auto& actual = palette[binding.destination_matrix];
+          for (std::size_t row = 0; row < 4; ++row) {
+            for (std::size_t column = 0; column < 4; ++column) {
+              if (std::abs(actual.at(row).at(column) -
+                           expected.at(column).at(row)) > .00001F) {
+                throw std::runtime_error(
+                    "Weapon render conversion reverses its hand frame");
+              }
+            }
+          }
+        }
+      }
+      weapon_motion_count +=
+          selected_actor.weapon_animations().motions().size();
+    }
+    if (world.live_models != retained_models ||
+        world.live_textures != retained_textures) {
+      throw std::runtime_error("Initial weapon admission retained resources");
+    }
+  }
+  if (weapon_motion_count != 26) {
+    throw std::runtime_error(
+        "Four weapon catalogs lost original clip coverage");
+  }
+}
 void reconstructed_session(bw::resources::ResourceService& resources,
                            const bw::platform::Files& files, bool concept_route,
                            const std::filesystem::path& game) {
@@ -1479,6 +1582,14 @@ void reconstructed_session(bw::resources::ResourceService& resources,
   }
   auto storage = bw::platform::make_save_storage(directory);
   bw::game::Profile profile;
+  // Existing native storage route now carries actual progression mutations.
+  (void)profile.award_result({0, 0, bw::game::MissionRewardMode::campaign});
+  if (profile.purchase({bw::game::UpgradeCategory::weapon, 1}) !=
+          bw::game::PurchaseResult::purchased ||
+      profile.save(*storage).status != bw::platform::SaveStatus::ok) {
+    throw std::runtime_error("Corpus progression seed failed");
+  }
+  const auto expected_progression = profile.progression();
   ObservedMenu menu(resources, output);
   bw::game::FrontEnd frontend(profile, *storage, media, menu, {});
   {
@@ -1540,6 +1651,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         session.gameplay_request()->mission !=
             (concept_route ? "concept" : "st01_00") ||
         session.gameplay_request()->selection.costume != 5 ||
+        session.gameplay_request()->progression != expected_progression ||
         !session.mission_pending() || media.opened != expected ||
         media.stops != 4 ||
         session.progress(Screen::company_logo).status !=
@@ -1563,6 +1675,21 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           session.status(Screen::title_menu) != 6 || session.global(3) != 1) {
         throw std::runtime_error(
             "Original root concept accessor/alias mismatch");
+      }
+      if (!request.checkpoint.empty()) {
+        throw std::runtime_error("Concept entry inherited campaign checkpoint");
+      }
+      bw::game::MissionPlayerState saved_player(
+          {request.progression, std::nullopt, true,
+           bw::game::ConceptProfile::saved});
+      bw::game::MissionPlayerState development_player(
+          {request.progression, std::nullopt, true,
+           bw::game::ConceptProfile::development_completed});
+      if (saved_player.next_weapon() != 1 || saved_player.weapon_available(2) ||
+          !development_player.weapon_available(2) ||
+          profile.progression() != expected_progression) {
+        throw std::runtime_error(
+            "Concept profile selection changed inheritance");
       }
       WorldOutput world;
       {
@@ -1811,19 +1938,22 @@ void reconstructed_session(bw::resources::ResourceService& resources,
               "Sky must retain original white harmonics without ambient "
               "substitution");
         }
+        // The accepted live AREA producer replaces raw white CSTM ambient
+        // at this cave view. The original area-update witness proves zero
+        // ambient, exposure .13 and gamma 2.1; sky remains white above. See
+        // character-material-brightness-audit.md, runtime environment producer.
+        std::array<std::array<float, 4>, 7> cave_irradiance{};
+        cave_irradiance.back() = {0, 0, 0, 1};
         if (stage->environment->ambient_color !=
                 std::array<float, 3>{1, 1, 1} ||
-            world.world_parameters.irradiance_coefficients !=
-                white_irradiance ||
+            world.world_parameters.irradiance_coefficients != cave_irradiance ||
             world.harmonic_draws != world.submitted) {
           throw std::runtime_error(
-              "Ordinary stage objects lost authored spherical-harmonic "
-              "lighting");
+              "Ordinary stage objects lost source cave environment lighting");
         }
         if (!world.output_parameters.tone_mapping_enabled ||
-            world.output_parameters.exposure_key !=
-                authored_output.exposure_key ||
-            world.output_parameters.gamma != authored_output.gamma ||
+            world.output_parameters.exposure_key != .13F ||
+            world.output_parameters.gamma != 2.1F ||
             world.output_parameters.bloom_enabled !=
                 authored_output.bloom_enabled ||
             world.output_parameters.exposure.history_window !=
@@ -1845,86 +1975,8 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         throw std::runtime_error(
             "Inspection retained device owners after teardown");
       }
-      // Initial admission uses each original weapon owner; it must not resolve
-      // class-specific animation through WA0 or admit a live replacement.
-      std::size_t weapon_motion_count = 0;
-      for (unsigned weapon_class = 0; weapon_class < 4; ++weapon_class) {
-        {
-          bw::game::MissionLoading selected(files, resources.catalogs(),
-                                            resources.memory_domain(), &world);
-          selected.prepare_player(0, weapon_class);
-          const auto weapon = selected.resident_weapon();
-          const auto expected_name =
-              std::string("wa") + static_cast<char>('0' + weapon_class);
-          const auto models = world.live_models;
-          const auto textures = world.live_textures;
-          selected.prepare_player(0, weapon_class);
-          bool replacement_rejected = false;
-          try {
-            selected.prepare_player(0, (weapon_class + 1) % 4);
-          } catch (const std::logic_error&) {
-            replacement_rejected = true;
-          }
-          if (weapon.name != expected_name || !replacement_rejected ||
-              selected.resident_weapon().handle != weapon.handle ||
-              world.live_models != models || world.live_textures != textures) {
-            throw std::runtime_error(
-                "Initial weapon class admission changed owners");
-          }
-          bw::game::PlayerActor selected_actor(
-              {selected.resident_player(), weapon, selected.player_support(),
-               selected.weapon_support(), kFixtureInitialPose},
-              resources.memory_domain());
-          // Both original weapon half-turns cancel before the completed hand
-          // attachment. Compare published GPU palettes with that source frame,
-          // independently from the actor's attachment implementation.
-          const auto& weapon_definition = weapon.definition.get();
-          bw::animation::SkeletonPose expected_weapon(
-              weapon_definition.skeleton().value(), resources.memory_domain());
-          const auto* weapon_clock = selected_actor.animation_state(
-              bw::game::CharacterMotionBank::weapon);
-          if (weapon_clock == nullptr) {
-            throw std::runtime_error("Initial weapon has no motion owner");
-          }
-          const auto hand = std::ranges::find(
-              selected_actor.source().body.definition.get().bone_names(),
-              "RightWeapon", &bw::formats::ModelBoneName::name);
-          expected_weapon.evaluate(*weapon_clock->clip, weapon_clock->seconds,
-                                   selected_actor.body_bones()[hand->bone]);
-          for (std::size_t draw = 0; draw < weapon_definition.draws().size();
-               ++draw) {
-            if (!selected_actor.includes_draw(true, draw)) continue;
-            const auto palette = selected_actor.draw_palette(true, draw);
-            const auto& material = weapon_definition.materials().at(
-                weapon_definition.draws().at(draw).material);
-            for (const auto& binding : material.matrices) {
-              const auto& expected =
-                  expected_weapon.skin_transforms()[binding.source_matrix];
-              const auto& actual = palette[binding.destination_matrix];
-              for (std::size_t row = 0; row < 4; ++row) {
-                for (std::size_t column = 0; column < 4; ++column) {
-                  if (std::abs(actual.at(row).at(column) -
-                               expected.at(column).at(row)) > .00001F) {
-                    throw std::runtime_error(
-                        "Weapon render conversion reverses its hand frame");
-                  }
-                }
-              }
-            }
-          }
-          weapon_motion_count +=
-              selected_actor.weapon_animations().motions().size();
-        }
-        if (world.live_models != retained_models ||
-            world.live_textures != retained_textures) {
-          throw std::runtime_error(
-              "Initial weapon admission retained resources");
-        }
-      }
-      if (weapon_motion_count != 26) {
-        throw std::runtime_error(
-            "Four weapon catalogs lost original clip coverage");
-      }
+      initial_weapon_admission(resources, files, world, request.progression,
+                               retained_models, retained_textures);
       {
         bw::game::MissionLoading selected(files, resources.catalogs(),
                                           resources.memory_domain(), &world);
@@ -2733,6 +2785,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
     bw::game::Profile reloaded;
     if (reloaded.load(*storage).status != bw::platform::SaveStatus::ok ||
         reloaded.costume() != 5 ||
+        reloaded.progression() != expected_progression ||
         std::filesystem::exists(directory / "BulletWitchSaveData")) {
       throw std::runtime_error(
           "Native profile round trip lost costume or invented checkpoint");

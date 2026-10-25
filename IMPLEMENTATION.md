@@ -117,6 +117,36 @@ flowchart LR
 
 The arrows describe the chosen development approach, not an already working port.
 
+## Next gameplay-state slices after accepted traversal
+
+October 24, 2026. The historical SRC-03 numbering below remains the mission
+milestone map; this four-slice sequence closes its prerequisites before further
+mission expansion.
+
+1. **Authoritative progression and entry state (implemented for review).**
+   Decompose the original Record/power-up/result/mission/save owners. Preserve
+   fresh defaults and source upgrade rules; persist purchases and source-ranked
+   campaign point awards. Saved concept missions inherit completed-profile values
+   rather than resetting to fresh values or granting every maximum upgrade.
+   Current early access has an explicit nonpersistent development completed-game
+   profile. Mission state drives weapon preparation/selection. See the
+   [drill-in](docs/architecture/player-progression.md) for contracts and limits.
+2. **World timing, gameplay input and pause.** Recover the original update
+   schedule and establish authority across world updates, local animation cursors,
+   input and menu time. Resume must not jump time or replay consumed actions.
+3. **Player resources, HUD and menus.** Bind health, magic, ammo, supported actions,
+   power-up transactions and pause operations to authoritative state. Implement
+   original result/story-grant producers as their genuine lifecycle arrives;
+   do not credit speculative results or fake an operational HUD.
+4. **Genuine mission startup and outcomes.** Replace the initial-position shim
+   through real original startup/entities, then implement combat, objectives,
+   checkpoints, death/retry and return-to-menu in bounded steps. Full world save
+   schema/restoration remains a prerequisite to a compatible gameplay save writer.
+
+No new clock, combat, HUD or world serialization implementation is implied by
+slice 1. All work follows original source, with concrete pinned Unreal guidance
+for bounded ambiguity; architecture diagrams track the resulting ownership.
+
 ## SRC-03: One Shot Kill delivery breakdown
 
 **Target selected October 23, 2026; slices 1–5 are authorized, with distinct

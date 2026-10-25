@@ -1,5 +1,28 @@
 # Current engineering decisions
 
+- The user accepted the progression/state slice for commit. Progression is
+  decomposed from the original Record, power-up/result, mission
+  application and save-task owners. Profile's retained Record is the sole
+  permanent authority; typed snapshots and checked mutations avoid a competing
+  mirror. MissionPlayerState owns effective inherited levels, selected weapon
+  and separate script/context disabled-spell masks. Weapon preparation/cycling
+  and paused selection consume this owner and commit only after resource/action
+  success. Saved concept entry inherits Record and ignores campaign checkpoints.
+  The explicit current-host default `--concept-profile development-completed`
+  supplies minimum acquired weapon/spell levels without changing real saves or
+  achievements; `--concept-profile saved` selects exact persistent inheritance.
+  Completion does not imply maximum optional upgrades. Original costs, six
+  purchasable spell rows, result table and campaign-only wallet cap are mapped.
+  Purchases/persistence are callable; power-up UI, result/story-grant producers,
+  combat resource ownership and full checkpoint restoration remain future work.
+  Original Lua owns mask publication; do not preapply One Shot Kill's mask while
+  genuine start gates remain blocked. Full `check.py all`, final formatting and
+  the existing original-root corpus pass. The approximately 36-minute corpus
+  includes the pre-existing traversal/animation acceptance route and controlled
+  renderer; it is not an in-game performance measurement or native gameplay
+  parity claim. Native profile storage round trip and zero live tracked CPU
+  memory after teardown pass. See `docs/architecture/player-progression.md`.
+
 - Public-demo catchup uses `./run --capture`: ordinary fullscreen startup/audio
   and 60 Hz host cadence, with developer status and review-only pause entries
   hidden. Build/runtime diagnostics go to ignored

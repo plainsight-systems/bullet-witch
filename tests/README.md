@@ -71,6 +71,14 @@ buffers and a controlled storage capability to verify exact-size rejection,
 unknown-byte preservation, defaults, dirty-file error handling, checkpoint bounds,
 and the recovered Steam costume/extra availability refresh. `ProfileLoadFlow`
 checks readiness/fades and retry versus explicit continuation without saving.
+`progression_test.cpp` adds seven in-process contract cases: defaults/purchases,
+classified result rewards/completion predicate, mission inheritance/merge,
+weapon selection/spell masks, Record codec, checkpoint player codec, and Profile
+mutation/save/reload. They use in-memory storage and no original assets.
+The existing original-root integration now carries a purchased upgrade through
+real storage, the actual front end and owned campaign/concept requests. Its
+initial four-weapon resource admissions are supplied by effective mission state;
+this adds coverage inside the same provisioned scenario, not another scenario.
 
 `menu_flow_test.cpp` adds four in-process behavioral cases to the existing
 runtime suite: wrapping/skipping and new-game selection; absent Continue data

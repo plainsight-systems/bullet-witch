@@ -1,3 +1,9 @@
+// Mission spell restriction binding borrows the explicit mission player owner
+// through VM teardown. Only unchanged Lua publication changes the mask: load
+// completion does not run start() or preapply mission-specific constants.
+// Core I.30/C.9 design and E.4 (#re-design-invariants) implementation validate
+// before publication; both-phase MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) adds no frame storage allocation.
 // MissionDriver implements the header's script/load ownership boundary.
 // Preserve the original VM load order and 256 KiB heap; load completion stops
 // before the original actor/world setup gates. Unsupported work remains pending
@@ -37,14 +43,16 @@ std::string_view name(std::span<const script::Value> args) {
 MissionDriver::MissionDriver(
     resources::ResourceService& resources, MissionLoadServices& loads,
     resources::ResourceTag tag, std::string_view script_name,
-    const std::shared_ptr<memory::Domain>& runtime_memory)
+    const std::shared_ptr<memory::Domain>& runtime_memory,
+    MissionPlayerState* player)
     : resources_(resources),
       loads_(loads),
       tag_(tag),
       memory_(runtime_memory),
       script_name_(script_name, memory::Allocator<char>(runtime_memory)),
       package_name_(memory::Allocator<char>(runtime_memory)),
-      stage_name_(memory::Allocator<char>(runtime_memory)) {
+      stage_name_(memory::Allocator<char>(runtime_memory)),
+      player_(player) {
   if (script_name.empty() || script_name.size() > kMaximumScriptName ||
       script_name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") !=
           std::string_view::npos) {
@@ -85,6 +93,17 @@ void MissionDriver::bindings() {
   if (!context_) {
     throw std::logic_error("Mission context is not live");
   }
+  context_.value().bind("_SetMagicMask", [this](auto args) {
+    count(args, 1);
+    const auto* value = std::get_if<double>(&args[0]);
+    constexpr unsigned kAllSpellBits = 0x1ff;
+    if (player_ == nullptr || value == nullptr || !std::isfinite(*value) ||
+        *value < 0 || *value > kAllSpellBits || std::floor(*value) != *value) {
+      throw std::invalid_argument("Invalid mission spell restriction");
+    }
+    player_->set_script_disabled_spells(static_cast<std::uint32_t>(*value));
+    return script::Reply{};
+  });
   context_.value().bind("_GetCheckPoint", [](auto args) {
     count(args, 0);
     // This driver currently admits fresh concept missions, never Continue

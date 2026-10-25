@@ -14,7 +14,10 @@ CAPTURE_LOG = Path('research/evidence/capture/latest.log')
 def main():
     parser = argparse.ArgumentParser(
         description='Build and launch Bullet Witch fullscreen on macOS.',
-        epilog='Host options pass through, for example: ./run --windowed',
+        epilog='Host options pass through, for example: ./run --windowed. '
+               'Concept missions default to a nonpersistent DEVELOPMENT '
+               'completed-game profile. Use --concept-profile saved to inherit '
+               'your saved progression.',
         allow_abbrev=False,
     )
     parser.add_argument(

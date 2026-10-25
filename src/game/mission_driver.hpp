@@ -1,3 +1,9 @@
+// Mission spell restriction binding borrows the explicit mission player owner
+// through VM teardown. Only unchanged Lua publication changes the mask: load
+// completion does not run start() or preapply mission-specific constants.
+// Core I.30/C.9 design and E.4 (#re-design-invariants) implementation validate
+// before publication; both-phase MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) adds no frame storage allocation.
 // Game mission-script lifetime and load orchestration. Own one Lua context and
 // an exclusive resource tag; borrow resources and load services through
 // teardown. Calls are single-threaded. Encoded publication, native load
@@ -18,6 +24,7 @@
 #include "bw/formats/named_file_package.hpp"
 #include "bw/resources/service.hpp"
 #include "bw/script/context.hpp"
+#include "game/mission_player_state.hpp"
 
 namespace bw::game {
 enum class MissionLoadKind : std::uint8_t {
@@ -76,7 +83,8 @@ class MissionDriver {
   MissionDriver(resources::ResourceService& resources,
                 MissionLoadServices& loads, resources::ResourceTag tag,
                 std::string_view script_name,
-                const std::shared_ptr<memory::Domain>& runtime_memory);
+                const std::shared_ptr<memory::Domain>& runtime_memory,
+                MissionPlayerState* player = nullptr);
   ~MissionDriver();
   MissionDriver(const MissionDriver&) = delete;
   MissionDriver& operator=(const MissionDriver&) = delete;
@@ -104,6 +112,7 @@ class MissionDriver {
   std::shared_ptr<memory::Domain> memory_;
   memory::String script_name_, package_name_, stage_name_;
   MissionProgress progress_;
+  MissionPlayerState* player_{};
   std::optional<script::Context> context_;
 };
 }  // namespace bw::game

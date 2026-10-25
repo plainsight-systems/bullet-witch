@@ -598,3 +598,17 @@ source transition policy without moving engine state into a controller.
 `scene/lighting/scene_lighting` receives resulting light definitions/intensities;
 portable world-view/output packets carry fog, sky, shadow and pre-tone color
 state to the native renderer. See [scene lighting](lighting.md).
+
+
+### Permanent progression and mission player state
+
+The [progression drill-in](player-progression.md) decomposes the original Record,
+power-up/result, mission application and save-task responsibilities. `src/game/progression.*`
+owns fixed typed values and source rules; `progression_save.*` owns only mapped
+Record/checkpoint compatibility; `Profile` remains the sole permanent authority.
+`mission_player_state.*` owns effective mission levels, selected equipment and
+script/context restrictions. These are game policies in `bw_profiles`, not new
+engine storage or rendering responsibilities. `StartupSession` captures permanent
+values in its owned request; the framework selects the explicit entry profile,
+then publishes weapon selection only after resource/action success. Engine
+`SaveStorage` continues to know only filenames and bytes.

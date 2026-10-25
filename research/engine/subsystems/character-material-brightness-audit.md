@@ -303,3 +303,41 @@ open physical-acceptance status in the investigation entries above. No further
 brightness tuning was applied. The observation remains a future source/footage
 comparison point; acceptance does not establish full-game visual parity or
 resolve the explicitly unproven source initialization details.
+
+The later progression review specifically identifies Alicia's green hair on the
+default costume as too dark. Its color and readability are signature visual
+details. Preserve this observation for a lighting review closer to gameplay,
+when more original source/runtime evidence is available; no lighting adjustment
+is part of the progression slice.
+
+## Original-root fixture correction — October 24, 2026
+
+The subsequent progression integration run stopped at the static-stage assertion
+that ordinary draws retained white irradiance. That assertion and the following
+raw exposure/gamma comparison are unchanged in committed baseline `2e04307`.
+No lighting production code changed in the progression slice. An isolated copy
+of the corpus, linked against the current libraries with diagnostic output,
+established the exact mismatch:
+
+| Observation | Fixture expected | Actual publication |
+| --- | --- | --- |
+| Raw stage ambient | `(1,1,1)` | `(1,1,1)` |
+| Ordinary static SH | White constant coefficients | Zero coefficients, retaining final homogeneous coefficient one |
+| SH-enabled draw count | All 4,775 draws | All 4,775 draws |
+| Exposure key | Raw CSTM `0.18` | Effective cave AREA `0.13` |
+| Gamma | Raw CSTM `2.2` | Effective cave AREA `2.1` |
+
+The actual values match the independently executed original-code witness
+`character-light/scene-producers/area-update-witness.json`, first case: the
+initial cave camera selects AREA row one/key one, and source publication changes
+CSTM ambient RGB to zero, exposure to `0.13` and gamma to `2.1`. The accepted
+scene-ready snap applies these values before the first draw. Sky uses its
+separate white-irradiance policy and must retain that assertion. Bloom-enabled
+and history-window values are unchanged by this witness.
+
+Correct the fixture to check these effective source values while preserving its
+raw-input, sky and shader-feature assertions. Do not change lighting to satisfy
+the old oracle. Diagnostics are retained under
+`research/evidence/reconstruction/progression/lighting-diagnostic/`. This
+diagnosis compared baseline source, not a separately rebuilt baseline executable;
+it does not claim a new native visual validation or a prior full-corpus pass.

@@ -1,3 +1,8 @@
+// Progression mutations decode one candidate, validate the complete operation,
+// then encode only mapped Record fields. Unknown bytes remain unchanged.
+// Design C.9/I.30; implementation E.4 (#re-design-invariants) preserves state;
+// both-phase MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// confines costs to fixed fields and avoids frame-time profile copies.
 // Profile format implementation. Validate all bounded file inputs before
 // publishing a candidate; retain unknown bytes and change only mapped fields.
 // Original defaults: 0x4bb800/0x4bb900, persistence 0x4c2eb0/0x4c3050.
@@ -140,6 +145,11 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
         std::to_integer<unsigned>(record.bytes[1]) > kMaximumCostume) {
       return {platform::SaveStatus::invalid, kRecord};
     }
+    try {
+      (void)decode_record_progression(record.bytes);
+    } catch (const std::invalid_argument&) {
+      return {platform::SaveStatus::invalid, kRecord};
+    }
     std::ranges::copy(record.bytes, candidate.record_.begin());
   } else if (record.status == platform::SaveStatus::missing) {
     candidate.record_dirty_ = true;
@@ -149,6 +159,11 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
   auto checkpoint = storage.read(kCheckpoint, kCheckpointBytes);
   if (checkpoint.status == platform::SaveStatus::ok) {
     if (!valid_checkpoint(checkpoint.bytes)) {
+      return {platform::SaveStatus::invalid, kCheckpoint};
+    }
+    try {
+      (void)decode_checkpoint_player(checkpoint.bytes);
+    } catch (const std::invalid_argument&) {
       return {platform::SaveStatus::invalid, kCheckpoint};
     }
     candidate.checkpoint_ = std::move(checkpoint.bytes);
@@ -176,6 +191,39 @@ ProfileResult Profile::save(platform::SaveStorage& storage) {
     record_dirty_ = false;
   }
   return {};
+}
+Progression Profile::progression() const {
+  return decode_record_progression(record_);
+}
+PurchaseResult Profile::purchase(UpgradeSelection selection) {
+  auto candidate = progression();
+  const auto result = purchase_upgrade(candidate, selection);
+  if (result != PurchaseResult::purchased) return result;
+  // First spell acquisition opens its original tutorial/book bit. Complete
+  // validation precedes the only writes; there are no fallible operations
+  // after.
+  const bool acquired_spell = selection.category == UpgradeCategory::spell &&
+                              candidate.levels.spells.at(selection.index) == 1;
+  encode_record_progression(record_, candidate);
+  if (acquired_spell) mark_spell_acquired(record_, selection.index);
+  record_dirty_ = true;
+  return result;
+}
+std::uint32_t Profile::award_result(MissionResultReward result) {
+  const auto awarded = mission_reward_points(result);
+  auto candidate = progression();
+  const auto credited =
+      std::min(awarded, maximum_upgrade_points - candidate.points);
+  if (credited != 0) {
+    candidate.points += credited;
+    encode_record_progression(record_, candidate);
+    record_dirty_ = true;
+  }
+  return credited;
+}
+std::optional<CheckpointPlayer> Profile::checkpoint_player() const {
+  return has_checkpoint() ? decode_checkpoint_player(checkpoint_)
+                          : std::nullopt;
 }
 unsigned Profile::current_difficulty() const {
   return std::to_integer<unsigned>(record_[0]);

@@ -1,15 +1,20 @@
-// Capture suppresses developer presentation at composition boundaries while
-// retaining ordinary input, simulation, media and loading. Optional launch
-// budgets bound only explicitly timed/verification runs. Both MCP phases:
-// Core I.1 (#ri-explicit) supplies immutable launch policy; performance MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) adds no frame storage.
-// Interactive presentation review forwards captured intent to Stage and keeps
-// external review observations explicit. Paused transactions rebind catalog
-// borrowers after publication, report failures without advancing the game, and
-// rebase wall deadlines. Ordinary next-weapon activates mission-resident assets
-// without pausing audio/world or consuming a UI-only frame; source model
-// instance recreation is separate from immutable resource acquisition
-// (R.20/I.11/CDSA.32). Both MCP phases I.1 (#ri-explicit) preserve
+// Concept progression selection is an explicit development policy. Saved
+// mode inherits the owned handoff; development mode supplies a nonpersistent
+// completed-game capability profile at entry. Neither edits permanent saves.
+// Design C.9/I.30, implementation E.4 (#re-design-invariants); both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds entry-only
+// work. Capture suppresses developer presentation at composition boundaries
+// while retaining ordinary input, simulation, media and loading. Optional
+// launch budgets bound only explicitly timed/verification runs. Both MCP
+// phases: Core I.1 (#ri-explicit) supplies immutable launch policy; performance
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) adds no frame
+// storage. Interactive presentation review forwards captured intent to Stage
+// and keeps external review observations explicit. Paused transactions rebind
+// catalog borrowers after publication, report failures without advancing the
+// game, and rebase wall deadlines. Ordinary next-weapon activates
+// mission-resident assets without pausing audio/world or consuming a UI-only
+// frame; source model instance recreation is separate from immutable resource
+// acquisition (R.20/I.11/CDSA.32). Both MCP phases I.1 (#ri-explicit) preserve
 // admission/composition boundaries; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps notices and
 // per-frame orchestration fixed values; resource work occurs only on requests.
@@ -153,6 +158,7 @@ int run_startup(const StartupOptions& configuration,
   // catalogs.
   std::optional<resources::ResourceService> mission_resources;
   std::optional<game::MissionLoading> mission_loading;
+  std::optional<game::MissionPlayerState> mission_player;
   std::optional<game::MissionDriver> mission;
   game::SourceRandom random;
   std::optional<game::MissionAudio> mission_audio;
@@ -165,6 +171,7 @@ int run_startup(const StartupOptions& configuration,
     const auto* body = stage_inspection.value().review_catalog(false);
     const auto* weapon = stage_inspection.value().review_catalog(true);
     if (body != nullptr && weapon != nullptr) {
+      pause.value().set_available_weapons(mission_player->levels().weapons);
       pause.value().bind_review_catalogs(
           *body, *weapon, mission_loading.value().current_weapon_class(),
           stage_inspection.value().review_pose_semantics(false),
@@ -265,7 +272,11 @@ int run_startup(const StartupOptions& configuration,
       if (const auto weapon_class = pause->requested_weapon()) {
         bool success = false;
         try {
+          if (!mission_player->weapon_available(*weapon_class)) {
+            throw std::invalid_argument("Weapon has not been acquired");
+          }
           stage_inspection->change_weapon(*mission_loading, *weapon_class);
+          mission_player->select_weapon(*weapon_class);
           success = true;
         } catch (const std::exception& error) {
           mission_loading->discard_weapon_class();
@@ -293,18 +304,26 @@ int run_startup(const StartupOptions& configuration,
           // advances world/audio and retains elapsed host time.
           bool success = false;
           try {
-            constexpr unsigned kWeaponClasses = 4;
-            const auto next_weapon =
-                (mission_loading->current_weapon_class() + 1) % kWeaponClasses;
-            stage_inspection->switch_weapon(*mission_loading, next_weapon);
-            success = true;
+            if (mission_player->selected_weapon() !=
+                mission_loading->current_weapon_class()) {
+              throw std::logic_error("Player and resident weapon disagree");
+            }
+            const auto next_weapon = mission_player->next_weapon();
+            if (next_weapon != mission_player->selected_weapon()) {
+              stage_inspection->switch_weapon(*mission_loading, next_weapon);
+              // Publish authoritative equipment only after preparation and
+              // action admission succeed; rejection retains the old selection.
+              mission_player->select_weapon(next_weapon);
+              success = true;
+            }
           } catch (const std::exception& error) {
             mission_loading->discard_weapon_class();
             std::cerr << "Weapon preview change: " << error.what() << '\n';
           }
           if (success) {
             bind_review_catalogs();
-            live_notice = "Weapon switch animation - no inventory change.";
+            live_notice =
+                "Acquired weapon selected; combat resources remain pending.";
           } else {
             live_notice =
                 "Weapon preview unavailable; current weapon retained.";
@@ -407,6 +426,15 @@ int run_startup(const StartupOptions& configuration,
           request.script_name != "cm01_00") {
         return 0;
       }
+      mission_player.emplace(
+          game::MissionPlayerEntry{request.progression, std::nullopt, true,
+                                   configuration.concept_profile});
+      std::cerr << "Concept progression: "
+                << (mission_player->origin() ==
+                            game::ProgressionOrigin::development_completed
+                        ? "development completed-game profile (not saved)"
+                        : "inherited saved profile")
+                << '\n';
       // Mount the selected concept catalog with its original alias priority.
       resources::CatalogSet selected_catalogs(memory.resources);
       selected_catalogs.mount(
@@ -443,7 +471,8 @@ int run_startup(const StartupOptions& configuration,
                                    true});
       constexpr resources::ResourceTag kMissionScriptTag = 100;
       mission.emplace(mission_resources.value(), mission_loading.value(),
-                      kMissionScriptTag, request.script_name, memory.runtime);
+                      kMissionScriptTag, request.script_name, memory.runtime,
+                      &mission_player.value());
     }
     if (mission && !ui_frame) {
       const auto& progress = mission->advance();
@@ -474,7 +503,8 @@ int run_startup(const StartupOptions& configuration,
         const auto background_models = mission_loading->resident_dependencies();
         const auto& background = mission_loading->background();
         mission_loading->prepare_player(
-            session.gameplay_request()->selection.costume);
+            session.gameplay_request()->selection.costume,
+            mission_player->selected_weapon());
         // Original common/voice banks prepare once under loading progress;
         // the target chooses the native cue backend through its factory.
         constexpr audio::Limits kMissionAudioLimits{

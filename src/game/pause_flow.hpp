@@ -1,7 +1,12 @@
-// Developer review visibility is fixed at construction. Hiding its root entries
-// leaves normal Resume/Costume input and transactions unchanged. No capture
-// dependency reaches the simulation. Both MCP phases: Core I.1 (#ri-explicit)
-// keeps the input explicit; MEM.9 (guidelines/memory/
+// Weapon rows observe mission-owned acquired levels; a disabled row cannot
+// submit a preview request. Rebinding updates bounded presentation only and
+// does not mutate permanent progression or resident equipment. Core C.9 design,
+// E.4 (#re-design-invariants) implementation and both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) preserve this
+// boundary. Developer review visibility is fixed at construction. Hiding its
+// root entries leaves normal Resume/Costume input and transactions unchanged.
+// No capture dependency reaches the simulation. Both MCP phases: Core I.1
+// (#ri-explicit) keeps the input explicit; MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md) retains fixed menu storage.
 // Review pages retain prepared pose semantics beside borrowed clip labels.
 // Unknown or incompatible entries remain visible but disabled; actual
@@ -49,6 +54,9 @@ class PauseFlow {
       const animation::PreparedClipCatalog& weapon, unsigned current_weapon,
       std::span<const MotionPoseSemantics> body_semantics = {},
       std::span<const MotionPoseSemantics> weapon_semantics = {});
+  // Mission authority supplies acquired levels; preview selection cannot
+  // bypass the same equipment availability used by gameplay cycling.
+  void set_available_weapons(const std::array<std::uint8_t, 4>& levels);
   bool update(bool pause_pressed, MenuInput input);
   bool paused() const { return paused_; }
   std::optional<unsigned> requested_costume() const { return request_; }
@@ -75,6 +83,7 @@ class PauseFlow {
   const animation::PreparedClipCatalog* body_{};
   const animation::PreparedClipCatalog* weapon_{};
   unsigned weapon_class_{};
+  std::array<bool, 4> available_weapons_{true, true, true, true};
   std::span<const MotionPoseSemantics> body_semantics_, weapon_semantics_;
   std::optional<unsigned> weapon_request_;
   std::optional<AnimationReviewRequest> review_request_;

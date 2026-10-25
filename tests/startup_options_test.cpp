@@ -44,6 +44,15 @@ void startup_options_tests() {
           "Normal launch must retain the source camera and fullscreen");
   require(!normal.maximum_seconds && !normal.capture,
           "Interactive launches must not have an implicit timeout");
+  require(
+      normal.concept_profile == bw::game::ConceptProfile::development_completed,
+      "Early concept access must declare its development profile");
+  const auto saved =
+      parse({"host", "--game", "owned-game", "--concept-profile", "saved"});
+  require(saved.concept_profile == bw::game::ConceptProfile::saved,
+          "Saved progression entry must be selectable");
+  reject({"host", "--game", "owned-game", "--concept-profile", "all-max"});
+  reject({"host", "--game", "owned-game", "--concept-profile"});
   const auto capture = parse({"host", "--game", "owned-game", "--capture"});
   require(capture.capture && capture.window.fullscreen &&
               !capture.maximum_seconds && !capture.inspection_camera &&

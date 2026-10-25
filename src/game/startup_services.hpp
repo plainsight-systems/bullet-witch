@@ -1,7 +1,13 @@
-// Memory migration: native runtime domain owns scheduler storage and the shared
-// root/control block; Lua owns bounded backing from that domain. Legacy tests
-// may omit the domain. Callbacks retire before root/flow destruction.
-// Design/implementation R.1 (#rr-raii) and MEM.6 (guidelines/memory/
+// Gameplay handoff captures a typed permanent progression snapshot at the
+// original StartMission boundary. It is immutable input to mission state, never
+// a second permanent authority. Core C.9/I.30 (design), E.4 (implementation)
+// preserve ownership; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds the added copy
+// to 15 level bytes and currency, once per entry. Memory migration: native
+// runtime domain owns scheduler storage and the shared root/control block; Lua
+// owns bounded backing from that domain. Legacy tests may omit the domain.
+// Callbacks retire before root/flow destruction. Design/implementation R.1
+// (#rr-raii) and MEM.6 (guidelines/memory/
 // MEM.6-inject-allocators-behind-one-interface.md) govern ordered ownership.
 // Front-end extension: FrontEnd is borrowed through session destruction. Lua
 // remains the route owner; StartMission validates its identifier against the
@@ -61,6 +67,7 @@ struct GameplayRequest {
   // Selected concept package/member alias; mission retains the original Lua
   // name.
   std::string script_name;
+  Progression progression;
 };
 class StartupSession final : public StartupServices {
  public:

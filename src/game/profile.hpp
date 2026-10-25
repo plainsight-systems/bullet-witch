@@ -1,3 +1,9 @@
+// Progression remains authoritative in the retained Record bytes. Typed
+// observations own snapshots; purchases/rewards validate then encode mapped
+// fields atomically. No caller can mutate a competing permanent mirror.
+// Design C.9/I.30; implementation E.4 (#re-design-invariants) preserves state
+// on rejection. Both-phase MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) keeps all progression work fixed-size.
 // Game profile compatibility boundary: retained original System/Record bytes
 // with named, verified menu fields. Unknown bytes survive load/save unchanged.
 // Inputs are exact-sized original files through a borrowed storage capability;
@@ -21,6 +27,7 @@
 #include <vector>
 
 #include "bw/platform/save_storage.hpp"
+#include "game/progression_save.hpp"
 
 namespace bw::game {
 struct ProfileResult {
@@ -35,6 +42,12 @@ class Profile {
   // Persist dirty System/Record files independently; checkpoints remain
   // read-only.
   ProfileResult save(platform::SaveStorage& storage);
+  Progression progression() const;
+  PurchaseResult purchase(UpgradeSelection selection);
+  // Call once from the result task's publication phase; this is not a result
+  // ledger. Returns points actually credited after the original wallet cap.
+  std::uint32_t award_result(MissionResultReward result);
+  std::optional<CheckpointPlayer> checkpoint_player() const;
   unsigned current_difficulty() const;
   void set_current_difficulty(unsigned value);
   // Original PC operation 2300 refreshes installed extra missions/costumes.

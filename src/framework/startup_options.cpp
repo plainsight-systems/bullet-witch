@@ -1,18 +1,23 @@
-// Capture rejects incompatible developer/view overrides before native startup;
-// positive explicit deadlines remain available. Default verification is
-// bounded, interactive runs are not. Core I.1 and performance MEM.9 (references
-// below), read in both phases, keep parsing explicit and out of frame work.
-// Parse owned launch configuration before any native window or file access.
-// Arguments are borrowed only for this call; invalid/missing numeric fields
-// throw runtime_error without publishing a partial result. The optional static
-// inspection camera accepts finite XYZ and yaw/pitch degrees, preserves the
-// original projection, and never changes the scripted player. Algorithm: walk
-// arguments once, validate full numeric fields, normalize yaw and compose an
-// orthonormal positive-forward-Z pose. Cost O(argument bytes), with path/string
-// storage only during setup. No global configuration or repeated frame parsing.
-// Both MCP phases: I.1 (#ri-explicit) exposes the optional override; MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) confines work to
-// setup.
+// Concept progression selection is an explicit development policy. Saved
+// mode inherits the owned handoff; development mode supplies a nonpersistent
+// completed-game capability profile at entry. Neither edits permanent saves.
+// Design C.9/I.30, implementation E.4 (#re-design-invariants); both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds entry-only
+// work. Capture rejects incompatible developer/view overrides before native
+// startup; positive explicit deadlines remain available. Default verification
+// is bounded, interactive runs are not. Core I.1 and performance MEM.9
+// (references below), read in both phases, keep parsing explicit and out of
+// frame work. Parse owned launch configuration before any native window or file
+// access. Arguments are borrowed only for this call; invalid/missing numeric
+// fields throw runtime_error without publishing a partial result. The optional
+// static inspection camera accepts finite XYZ and yaw/pitch degrees, preserves
+// the original projection, and never changes the scripted player. Algorithm:
+// walk arguments once, validate full numeric fields, normalize yaw and compose
+// an orthonormal positive-forward-Z pose. Cost O(argument bytes), with
+// path/string storage only during setup. No global configuration or repeated
+// frame parsing. Both MCP phases: I.1 (#ri-explicit) exposes the optional
+// override; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// confines work to setup.
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -61,6 +66,17 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
                            {cy, 0, -sy},
                            {-sy * sp, cp, -cy * sp},
                            {sy * cp, sp, cy * cp}};
+    } else if (argument == "--concept-profile" &&
+               index + 1 < arguments.size()) {
+      const std::string_view value(arguments[++index]);
+      if (value == "saved") {
+        result.concept_profile = game::ConceptProfile::saved;
+      } else if (value == "development-completed") {
+        result.concept_profile = game::ConceptProfile::development_completed;
+      } else {
+        throw std::runtime_error(
+            "--concept-profile requires saved or development-completed");
+      }
     } else if (argument == "--capture") {
       result.capture = true;
     } else if (argument == "--windowed") {
@@ -97,6 +113,7 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
       throw std::runtime_error(
           "Usage: bw-startup --game GAME_DIRECTORY [--profile SAVE_DIRECTORY] "
           "[--verify-startup] [--capture] "
+          "[--concept-profile saved|development-completed] "
           "[--max-seconds N] [--windowed] [--window-width N] [--window-height "
           "N] [--inspect-camera X Y Z YAW PITCH]");
     }

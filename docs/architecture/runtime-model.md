@@ -3,6 +3,10 @@
 **Target architecture · working baseline · October 22, 2026.**
 [Engine architecture](logical-overview.md) · [Execution contracts](execution-contracts.md).
 
+Implemented permanent/mission player authority is detailed in
+[player progression](player-progression.md). The broader world model below
+retains its stated proposed boundaries.
+
 Names below describe reconstruction responsibilities, not recovered Cavia class
 names or finalized C++ declarations. Ownership means responsibility for destruction
 and outstanding work. It does not prescribe `shared_ptr` for every relationship.

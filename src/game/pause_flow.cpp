@@ -1,6 +1,11 @@
-// Optional developer entries are omitted when constructing the root page;
-// ordinary pause/costume behavior is identical. Core I.1 and performance MEM.9
-// (references below), read in both phases, keep this bounded presentation
+// Weapon rows observe mission-owned acquired levels; a disabled row cannot
+// submit a preview request. Rebinding updates bounded presentation only and
+// does not mutate permanent progression or resident equipment. Core C.9 design,
+// E.4 (#re-design-invariants) implementation and both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) preserve this
+// boundary. Optional developer entries are omitted when constructing the root
+// page; ordinary pause/costume behavior is identical. Core I.1 and performance
+// MEM.9 (references below), read in both phases, keep this bounded presentation
 // policy independent of gameplay state and clocks. Prepared clip semantics keep
 // incompatible pose representations visible but disabled without changing
 // catalog identity (Core I.1/E.4, CDSA.32). Pause navigation publishes explicit
@@ -71,6 +76,12 @@ PauseFlow::PauseFlow(unsigned costume, bool developer_review)
   }
   populate(Page::root);
 }
+void PauseFlow::set_available_weapons(
+    const std::array<std::uint8_t, 4>& levels) {
+  std::ranges::transform(levels, available_weapons_.begin(),
+                         [](std::uint8_t level) { return level != 0; });
+  populate(page_);
+}
 void PauseFlow::bind_review_catalogs(
     const animation::PreparedClipCatalog& body,
     const animation::PreparedClipCatalog& weapon, unsigned current_weapon,
@@ -121,7 +132,9 @@ void PauseFlow::populate(Page page) {
   } else if (page == Page::weapons) {
     presentation_.title = "Weapon class - preview";
     presentation_.selected = weapon_class_;
-    for (unsigned i = 0; i < kWeapons; ++i) append(kWeaponNames.at(i), i);
+    for (unsigned i = 0; i < kWeapons; ++i) {
+      append(kWeaponNames.at(i), i, available_weapons_.at(i));
+    }
   } else if (page == Page::review) {
     presentation_.title = "Animation review";
     for (std::size_t i = 0; i < kReviews.size(); ++i) {

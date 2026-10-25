@@ -1,5 +1,19 @@
 # Remaining work
 
+- The progression/state slice is accepted for commit. It implements
+  permanent snapshots/mutations, source costs/rewards, compatible Record save,
+  bounded checkpoint-player decoding/merge, explicit concept entry and real
+  weapon availability. It does not implement full gameplay save/world restore,
+  earned-result production, story-grant bindings, HUD or power-up presentation.
+  Current design: `docs/architecture/player-progression.md`.
+- Next agreed slices: (2) recover authoritative world timing, gameplay input and
+  pause ownership; (3) wire real player/weapon resources, controls, HUD, power-up
+  transactions and supported pause operations; (4) genuine One Shot Kill startup,
+  authored entities and mission lifecycle, broken into reviewable steps. Preserve
+  the source-owned decomposition and use inspected pinned Unreal implementations
+  for bounded unresolved contracts, not local patches or a generic new framework.
+
+
 - Diagnose intermittent native fullscreen startup if it recurs. Two launches
   failed before a diagnostic-only rebuild subsequently entered fullscreen and
   movie playback. Failure logs now distinguish delegate rejection from a pending
@@ -14,8 +28,10 @@
   `research/reports/2026-10-24-public-demo.md`.
 
 - Retain the accepted lighting baseline. On October 24, 2026, the user accepted
-  this slice for commit while noting it may be slightly too dark. Do not tune
-  brightness from that observation alone. Original initial texture contents and
+  this slice for commit while noting it may be slightly too dark. Alicia's green
+  hair on the default costume is specifically too dark; its color and readability
+  are signature visual details. Revisit lighting closer to gameplay with more
+  source/runtime evidence; do not tune it now. Original initial texture contents and
   timing, exact outdoor appearance and the historical specific controller/visual
   comparisons below remain fidelity questions, not blockers to this accepted
   slice. Missing AREA activation/live environment publication, source pre-tone
