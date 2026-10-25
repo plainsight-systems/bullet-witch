@@ -1,5 +1,15 @@
 # Current engineering decisions
 
+- Offline asset-upgrade experiments are authorized in parallel with the faithful
+  port, starting with Alicia's original outfit. The first repeatable extraction
+  and texture/material pipeline preserves source bytes and resource provenance,
+  compares bicubic, Real-ESRGAN and PBRify, and saves isolated candidate maps and
+  review crops. The real body/face pilot and alpha-preservation control pass;
+  visual acceptance and runtime integration remain separate. Keep original
+  meshes, rigs and animation as masters. This does not reorder engine work or
+  approve replacement assets. See
+  `research/reports/2026-10-25-asset-upgrade-pipeline.md`.
+
 - Lighting redesign and its native surface-sampling repair were accepted by
   the user on October 25, 2026; commit is authorized. The final full gate and
   independent implementation/ownership review pass. Residual angle-dependent

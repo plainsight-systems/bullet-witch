@@ -1,5 +1,13 @@
 # Remaining work
 
+- Separate offline asset-upgrade track: review Alicia's first body/face texture
+  candidates from `research/reports/2026-10-25-asset-upgrade-pipeline.md`.
+  Establish mesh/UV and moving-light comparison before accepting materials or
+  batching. Raw inferred normal/roughness maps are uncalibrated candidates;
+  preserve original meshes/rigs. Hunyuan runtime setup and later donor-mesh
+  experiments remain future work; TRELLIS also needs authorized dependencies.
+  Do not import experimental assets into the faithful baseline implicitly.
+
 - Lighting redesign and its native surface-sampling repair were accepted by
   the user on October 25, 2026; commit is authorized. The final full gate and
   independent implementation/ownership review pass. Residual angle-dependent
