@@ -1,3 +1,8 @@
+// Gameplay extension brackets actual actor requests with one resource frame;
+// successful resident switches publish mission selection before later actions.
+// Original CSTM values and consumed ammunition guard against presentation-only
+// fire passing this existing scenario. No additional resource mutation API.
+// Both-phase E.4 and MEM.9 preserve transaction order and fixed owner storage.
 // Lighting fixture publication uses a setup-only index (I.1/MEM.9) so the
 // corpus exercises full production batches without quadratic observer work.
 // Progression extension remains within this existing original-root integration
@@ -59,6 +64,7 @@
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/mission_audio.hpp"
 #include "game/mission_control.hpp"
+#include "game/mission_gameplay.hpp"
 #include "game/mission_loading.hpp"
 #include "game/root_driver.hpp"
 #include "game/source_random.hpp"
@@ -602,6 +608,26 @@ void unknown_pose_admission(const bw::content::CharacterSupport& original,
 struct CorpusWorldTime {
   bw::world::WorldClock clock;
   bw::game::MissionControl control;
+  std::optional<bw::game::MissionPlayerState> player;
+  std::optional<bw::game::PlayerResources> resources;
+  void bind_resources(const bw::game::PlayerResourceSettings& settings) {
+    player.emplace(bw::game::MissionPlayerEntry{
+        .concept_mission = true,
+        .concept_profile = bw::game::ConceptProfile::development_completed});
+    resources.emplace(settings, *player, clock);
+  }
+  // Mirror the host's successful resident-selection transaction explicitly;
+  // the actor has no authority to mutate effective mission selection.
+  void change_weapon(bw::game::StageInspection& scene,
+                     bw::game::MissionLoading& loading, unsigned weapon,
+                     bool normal = false) {
+    if (normal) {
+      scene.switch_weapon(loading, weapon);
+    } else {
+      scene.change_weapon(loading, weapon);
+    }
+    if (player) player->select_weapon(weapon);
+  }
   void set_paused(bw::game::StageInspection& scene, bool paused) {
     if (!control.set_user_paused(paused)) {
       throw std::logic_error("Fixture user-pause request was excluded");
@@ -610,11 +636,75 @@ struct CorpusWorldTime {
   }
   void advance(bw::game::StageInspection& scene, double seconds,
                bw::game::StageTraversalInput input = {}, bool ui = false) {
-    scene.advance(
-        clock.publish(static_cast<float>(seconds), control.admission(ui)),
-        input);
+    const auto frame =
+        clock.publish(static_cast<float>(seconds), control.admission(ui));
+    if (resources) resources->begin_frame(frame);
+    scene.advance(frame, input);
+    if (resources) resources->finish_frame();
   }
 };
+
+// Exercise the production mission coordinator in this existing original-content
+// scenario. Outputs observe publication only; this is not native rendering.
+void mission_gameplay_composition(CorpusWorldTime& time,
+                                  bw::game::StageInspection& stage,
+                                  bw::game::MissionLoading& loading,
+                                  bw::game::SourceRandom& random) {
+  struct Outputs final : bw::game::GameplayHudOutput, bw::game::MenuSurface {
+    unsigned hud_shows{}, menu_shows{}, clears{};
+    void show(const bw::game::GameplayHud& hud, std::string_view) override {
+      if (hud.commands().empty()) {
+        throw std::runtime_error("Coordinator omitted cockpit publication");
+      }
+      ++hud_shows;
+    }
+    void hide() noexcept override { ++clears; }
+    void begin() override {}
+    bool ready() override { return true; }
+    void show(const bw::game::MenuPresentation&) override { ++menu_shows; }
+    void end() noexcept override {}
+  } output;
+  if (!time.player || !time.resources) {
+    throw std::logic_error("Coordinator fixture resources absent");
+  }
+  bw::game::MissionGameplay gameplay(
+      time.clock, time.control, *time.player, *time.resources, loading, stage,
+      output, output, random, true, bw::game::CockpitActivation::inspection);
+  const auto rejects = [](auto operation) {
+    bool rejected = false;
+    try {
+      operation();
+    } catch (const std::logic_error&) {
+      rejected = true;
+    }
+    if (!rejected) {
+      throw std::runtime_error("Coordinator accepted invalid phase order");
+    }
+  };
+  rejects([&] { gameplay.advance(); });
+  (void)gameplay.begin(0, {});
+  rejects([&] { (void)gameplay.begin(0, {}); });
+  rejects([&] { gameplay.present(false); });
+  gameplay.advance();
+  rejects([&] { gameplay.advance(); });
+  gameplay.present(false);
+  const auto before_pause = time.resources->snapshot();
+  const auto paused = gameplay.begin(0, {.pause_pressed = true});
+  gameplay.advance();
+  gameplay.present(false);
+  const auto resumed = gameplay.begin(0, {.pause_pressed = true});
+  gameplay.advance();
+  gameplay.present(false);
+  if (!paused.ui_consumed || !resumed.ui_consumed || output.hud_shows != 2 ||
+      output.menu_shows != 1 || output.clears != 0 ||
+      time.control.user_paused() || time.clock.simulation_seconds() != 0 ||
+      time.resources->snapshot().magic != before_pause.magic) {
+    throw std::runtime_error(
+        "Coordinator pause/resume publication or phase authority mismatch");
+  }
+  std::cerr << "Gameplay coordinator: phase guards, pause retention and resume "
+               "output passed\n";
+}
 
 void model_cancellation_substeps(CorpusWorldTime& time,
                                  bw::game::StageInspection& inspection) {
@@ -840,6 +930,10 @@ void stage_review_acceptance(
     bw::game::MissionLoading& loading, WorldOutput& world,
     CorpusAudioOutput& audio,
     const std::shared_ptr<bw::memory::Domain>& domain) {
+  if (!time.resources) {
+    throw std::logic_error("Actor review requires live resources");
+  }
+  auto& resource_owner = *time.resources;
   using Kind = bw::game::AnimationReviewKind;
   using Bank = bw::game::CharacterMotionBank;
   auto require = [](bool valid, const char* message) {
@@ -995,7 +1089,7 @@ void stage_review_acceptance(
   world.reject_next_replacement = true;
   bool failed = false;
   try {
-    scene.change_weapon(loading, 1);
+    time.change_weapon(scene, loading, 1);
   } catch (const std::runtime_error&) {
     failed = true;
   }
@@ -1007,7 +1101,7 @@ void stage_review_acceptance(
     const auto camera = scene.camera_state()->pose;
     const std::vector frozen(scene.player_world_pose().begin(),
                              scene.player_world_pose().end());
-    scene.change_weapon(loading, weapon_class);
+    time.change_weapon(scene, loading, weapon_class);
     require(loading.current_weapon_class() == weapon_class &&
                 loading.resident_player().handle == body_handle &&
                 scene.player_state()->pose.position == physical.pose.position &&
@@ -1040,7 +1134,7 @@ void stage_review_acceptance(
   world.reject_next_replacement = true;
   failed = false;
   try {
-    scene.switch_weapon(loading, 1);
+    time.change_weapon(scene, loading, 1, true);
   } catch (const std::runtime_error&) {
     failed = true;
   }
@@ -1059,7 +1153,7 @@ void stage_review_acceptance(
                              scene.player_world_pose().end());
     time.set_paused(scene, false);
     const auto switch_pause_calls = audio.pause_calls;
-    scene.switch_weapon(loading, weapon_class);
+    time.change_weapon(scene, loading, weapon_class, true);
     require(!scene.paused() && !audio.paused &&
                 audio.pause_calls == switch_pause_calls,
             "Ordinary selection paused unrelated simulation or audio");
@@ -1095,7 +1189,7 @@ void stage_review_acceptance(
   time.set_paused(scene, true);
   stop();
   const auto lowered_body = scene.player_animation_state(Bank::body)->binding;
-  scene.switch_weapon(loading, 1);
+  time.change_weapon(scene, loading, 1, true);
   require(
       !scene.player_state()->weapon_raised &&
           scene.player_animation_state(Bank::weapon)->binding == 1 &&
@@ -1103,7 +1197,7 @@ void stage_review_acceptance(
               (0x130U | (lowered_body & 0xfU)),
       "Lowered normal switch selected the wrong weapon rest or upper motion");
   run(80);
-  scene.change_weapon(loading, 0);
+  time.change_weapon(scene, loading, 0);
 
   // The real raise/turn/fire sequence must retain grounded contact when its
   // authored root interval contains a positive vertical component. Ballistic
@@ -1129,10 +1223,15 @@ void stage_review_acceptance(
   grounded_frames(30, {});
   grounded_frames(25, {.look = {0, 1}});
   grounded_frames(30, {});
+  const auto ammunition_before_fire =
+      resource_owner.snapshot().weapons.at(0).ammunition;
   grounded_frames(30, {.look = {1, 0}, .presentation = {.fire_trigger = 1}});
   grounded_frames(30, {.look = {-1, 0}, .presentation = {.fire_trigger = 1}});
   grounded_frames(25, {.look = {0, 1}, .presentation = {.fire_trigger = 1}});
   grounded_frames(50, {.look = {0, -1}, .presentation = {.fire_trigger = 1}});
+  require(resource_owner.snapshot().weapons.at(0).ammunition <
+              ammunition_before_fire,
+          "Live fire sequence did not consume authoritative ammunition");
   // Stop is scoped to an existing preview, never a general player reset.
   // The preceding live turn/fire path has no preview session to retire.
   time.set_paused(scene, true);
@@ -1168,7 +1267,7 @@ void lower_melee_acceptance(CorpusWorldTime& time,
   };
   for (unsigned weapon = 0; weapon < 4; ++weapon) {
     time.set_paused(scene, true);
-    scene.change_weapon(loading, weapon);
+    time.change_weapon(scene, loading, weapon);
     time.set_paused(scene, false);
     // Same-class selection is intentionally a no-op; the preceding live test
     // may still own target mode. Exit it through its real input before setup.
@@ -1218,7 +1317,7 @@ void lower_melee_acceptance(CorpusWorldTime& time,
     for (unsigned frame = 0; frame < 100; ++frame) tick();
   }
   time.set_paused(scene, true);
-  scene.change_weapon(loading, 0);
+  time.change_weapon(scene, loading, 0);
   time.set_paused(scene, false);
   std::cerr << "Live melee: all four lowering interruptions and forced "
                "target/posture exits passed\n";
@@ -1245,7 +1344,7 @@ void grounded_action_exit_acceptance(CorpusWorldTime& time,
   // A different paused class selection gives each trial neutral ownership.
   for (unsigned family = 0; family < 4; ++family) {
     time.set_paused(scene, true);
-    scene.change_weapon(loading, (family + 1) % 4);
+    time.change_weapon(scene, loading, (family + 1) % 4);
     time.set_paused(scene, false);
     for (unsigned frame = 0; frame < 60; ++frame) tick();
     tick({.presentation = {.aim_mode_pressed = true}});
@@ -1301,7 +1400,7 @@ void grounded_action_exit_acceptance(CorpusWorldTime& time,
   }
   for (unsigned forced = 0; forced < 2; ++forced) {
     time.set_paused(scene, true);
-    scene.change_weapon(loading, forced + 1);
+    time.change_weapon(scene, loading, forced + 1);
     time.set_paused(scene, false);
     for (unsigned frame = 0; frame < 60; ++frame) tick();
     tick({.presentation = {.aim_mode_pressed = true}});
@@ -1352,7 +1451,7 @@ void grounded_action_exit_acceptance(CorpusWorldTime& time,
             "Exclusive action consumed ordinary targeting/fire input");
   }
   time.set_paused(scene, true);
-  scene.change_weapon(loading, 0);
+  time.change_weapon(scene, loading, 0);
   time.set_paused(scene, false);
   for (unsigned frame = 0; frame < 60; ++frame) tick();
   tick({.presentation = {.aim_mode_pressed = true}});
@@ -1380,8 +1479,8 @@ void grounded_action_exit_acceptance(CorpusWorldTime& time,
   // active.
   for (unsigned timed = 0; timed < 2; ++timed) {
     time.set_paused(scene, true);
-    scene.change_weapon(loading, 0);
-    scene.change_weapon(loading, 3);
+    time.change_weapon(scene, loading, 0);
+    time.change_weapon(scene, loading, 3);
     time.set_paused(scene, false);
     for (unsigned frame = 0; frame < 60; ++frame) tick();
     tick({.presentation = {.aim_mode_pressed = true}});
@@ -1408,7 +1507,7 @@ void grounded_action_exit_acceptance(CorpusWorldTime& time,
             "Source spell timed-update registration was not preserved");
   }
   time.set_paused(scene, true);
-  scene.change_weapon(loading, 1);
+  time.change_weapon(scene, loading, 1);
   time.set_paused(scene, false);
   for (unsigned frame = 0; frame < 60; ++frame) tick();
   tick({.presentation = {.aim_mode_pressed = true}});
@@ -1437,7 +1536,7 @@ void grounded_action_exit_acceptance(CorpusWorldTime& time,
       "Grounded-only action admission altered an airborne source owner");
   for (unsigned frame = 0; frame < 180; ++frame) tick();
   time.set_paused(scene, true);
-  scene.change_weapon(loading, 0);
+  time.change_weapon(scene, loading, 0);
   time.set_paused(scene, false);
   std::cerr << "Grounded action exit: damage, common magic, Thunder, death and "
                "airborne rejection passed\n";
@@ -1615,12 +1714,406 @@ void prepared_game_audio(bw::resources::ResourceService& resources,
   std::cerr << "Prepared common/voice audio: " << count << " waves, " << total
             << " samples\n";
 }
+// Exercise complete weapon-local animation blends against the source's
+// identity-root attachment policy, including actual receiver admission. This
+// is the existing original-content scenario, not a visual grip-quality oracle.
+void discharge_attachment_trajectory(
+    const bw::game::PlayerActorSource& source,
+    const bw::game::MissionPlayerState& mission,
+    const bw::game::PlayerResourceSettings& settings,
+    const std::shared_ptr<bw::memory::Domain>& domain) {
+  constexpr double kStep = 1.0 / 60;
+  constexpr std::array<std::string_view, 7> kWeaponSlots{
+      "defaultmotion", "stand_l",   "shoot_l",    "stand_reload",
+      "shoot_reload",  "shoot_end", "shoot_after"};
+  const auto& model = source.weapon.definition.get();
+  const auto& names = source.body.definition.get().bone_names();
+  const auto hand = std::ranges::find(names, "RightWeapon",
+                                      &bw::formats::ModelBoneName::name);
+  const auto support =
+      std::ranges::find(names, "LeftHand", &bw::formats::ModelBoneName::name);
+  if (hand == names.end() || support == names.end()) {
+    throw std::runtime_error("Discharge fixture lacks hand bindings");
+  }
+  for (const auto stance :
+       {bw::game::AliciaStance::standing, bw::game::AliciaStance::crouched}) {
+    for (const float movement : {0.0F, .5F, 1.0F}) {
+      for (const bool aiming : {false, true}) {
+        bw::game::PlayerActor actor(source, domain);
+        bw::world::WorldClock clock;
+        bw::game::PlayerResources resources(settings, mission, clock);
+        auto actions = resources.actions();
+        bw::animation::PlaybackRing weapon_clock(4, domain);
+        bw::animation::SkeletonPose expected(*model.skeleton(), domain);
+        const auto& catalog = actor.weapon_animations().motions();
+        const auto request_weapon =
+            [&](const bw::game::ActionMotionRequest& request) {
+              const auto clip = catalog.find(kWeaponSlots.at(request.slot));
+              if (!clip) return;
+              weapon_clock.request({.clip = &catalog.clip(*clip),
+                                    .binding = request.slot,
+                                    .blend_seconds = request.blend_seconds,
+                                    .fresh = request.fresh});
+            };
+        unsigned rest = 1;
+        request_weapon({.bank = bw::game::ActionMotionBank::weapon,
+                        .slot = rest,
+                        .fresh = true});
+        const auto apply = [&](const bw::game::ActionMotionPlan& plan) {
+          (void)actor.apply_action_plan(plan);
+          if (plan.weapon_rest_slot) rest = *plan.weapon_rest_slot;
+          for (const auto& request : plan.motions()) {
+            if (request.bank == bw::game::ActionMotionBank::weapon) {
+              request_weapon(request);
+            }
+          }
+        };
+        unsigned accepted_shots = 0;
+        for (unsigned frame = 0; frame < 210; ++frame) {
+          resources.begin_frame(clock.publish(static_cast<float>(kStep), {}));
+          const bool raised = frame >= 30 && frame < 165;
+          const auto* body =
+              actor.animation_state(bw::game::CharacterMotionBank::body);
+          if (frame == 30 || frame == 165) {
+            apply(bw::game::change_weapon_raised(
+                stance, static_cast<std::uint32_t>(body->binding), !raised,
+                raised));
+          }
+          if (frame >= 60 && frame < 150 &&
+              !actor.animation_state(
+                  bw::game::CharacterMotionBank::upper_body) &&
+              actions.try_fire().status == bw::game::ShotStatus::accepted) {
+            apply(bw::game::accepted_shot(
+                {stance, static_cast<std::uint32_t>(body->binding),
+                 mission.selected_weapon(), true}));
+            ++accepted_shots;
+          }
+          bw::game::GroundMotionInput input{.stance = stance,
+                                            .magnitude = movement,
+                                            .movement_world = {0, 0, 1},
+                                            .weapon_raised = raised};
+          if (const auto* upper = actor.animation_state(
+                  bw::game::CharacterMotionBank::upper_body)) {
+            input.upper_slot = static_cast<std::uint32_t>(upper->binding);
+            input.upper_sampled_seconds = upper->seconds;
+          }
+          bw::game::ActionMotionPlan ground;
+          ground.requests[0] = bw::game::select_ground_motion(input).motion;
+          ground.count = 1;
+          apply(ground);
+          actor.set_aim_posture({0, 0, 1}, aiming && raised);
+          const auto& current =
+              weapon_clock.state(*weapon_clock.current_slot());
+          if (const auto completed = bw::game::completed_weapon_motion(
+                  current.clip->repeating(), current.completed, rest)) {
+            request_weapon(*completed);
+          }
+          weapon_clock.advance(kStep);
+          (void)actor.advance_motion(kStep);
+          actor.complete_model_step(source.placement,
+                                    bw::animation::kIdentityMatrix, .5F);
+          expected.evaluate_layers({weapon_clock.layers(), {}},
+                                   actor.body_bones()[hand->bone],
+                                   bw::animation::RootPosePolicy::identity);
+          for (std::size_t draw = 0; draw < model.draws().size(); ++draw) {
+            const auto palette = actor.draw_palette(true, draw);
+            const auto& material =
+                model.materials().at(model.draws().at(draw).material);
+            for (const auto& binding : material.matrices) {
+              const auto& reference =
+                  expected.skin_transforms()[binding.source_matrix];
+              const auto& actual = palette[binding.destination_matrix];
+              for (std::size_t row = 0; row < 4; ++row) {
+                for (std::size_t column = 0; column < 4; ++column) {
+                  if (std::abs(actual.at(row).at(column) -
+                               reference.at(column).at(row)) > .00001F) {
+                    throw std::runtime_error(
+                        "Discharge applies weapon root twice");
+                  }
+                }
+              }
+            }
+          }
+          // Finite combined hand observations detect corrupt output, without
+          // inventing a fixed grip invariant for authored recoil motion.
+          const auto inverse =
+              bw::math::inverse_affine(actor.body_bones()[hand->bone]);
+          if (!inverse || !bw::math::all_finite(bw::math::multiply(
+                              actor.body_bones()[support->bone], *inverse))) {
+            throw std::runtime_error("Discharge hand relationship is singular");
+          }
+          weapon_clock.finish_frame();
+          resources.finish_frame();
+        }
+        if (accepted_shots == 0) {
+          throw std::runtime_error("Discharge trajectory never admitted fire");
+        }
+      }
+    }
+  }
+}
+
+// The authorized support-arm improvement consumes real weapon control points.
+// Verify its world-space binding and the single publication shared with cloth;
+// this deliberately tests the new constraint, not parity with the empty PC IK.
+void support_arm_content_contracts(
+    const bw::game::ResidentModelView& body_source,
+    const bw::game::ResidentModelView& weapon_source,
+    const std::shared_ptr<bw::memory::Domain>& domain) {
+  const auto& body_model = body_source.definition.get();
+  const auto& weapon_model = weapon_source.definition.get();
+  const auto& body_skeleton = body_model.skeleton();
+  const auto& weapon_skeleton = weapon_model.skeleton();
+  if (!body_skeleton || !weapon_skeleton) {
+    throw std::runtime_error("Support-arm fixture requires both skeletons");
+  }
+  bw::animation::SkeletonPose body(*body_skeleton, domain);
+  bw::animation::SkeletonPose weapon(*weapon_skeleton, domain);
+  body.bind_pose(bw::animation::kIdentityMatrix);
+  const auto& names = body_model.bone_names();
+  const auto index = [&](std::string_view name) {
+    const auto found =
+        std::ranges::find(names, name, &bw::formats::ModelBoneName::name);
+    if (found == names.end()) {
+      throw std::runtime_error("Missing support-arm bone");
+    }
+    return found->bone;
+  };
+  const std::array chain{index("LeftArm"), index("LeftForeArm"),
+                         index("LeftHand")};
+  weapon.bind_pose(body.bone_transforms()[index("RightWeapon")]);
+  bw::game::AliciaSupportArm arm(
+      {.body = body_model,
+       .weapon = weapon_model,
+       .weapon_control_points = weapon_source.control_points},
+      domain);
+  bw::game::AliciaSecondaryMotion secondary(body_model,
+                                            body_source.control_points, domain);
+  secondary.reset(body);
+  const auto targets = bw::formats::ControlPointDefinition::parse(
+      weapon_source.control_points, weapon_skeleton->bones().size(), domain);
+  bw::memory::Vector<bw::animation::Matrix> target_frames(
+      targets.frames().size(), bw::animation::kIdentityMatrix,
+      bw::memory::Allocator<bw::animation::Matrix>(domain));
+  bw::animation::evaluate_control_points(targets, weapon.skin_transforms(),
+                                         target_frames);
+  const auto before = domain->snapshot();
+  if (arm.evaluate({.body = body, .weapon = weapon}, 0)) {
+    throw std::runtime_error("Zero grip weight must not publish overrides");
+  }
+  const auto originals = std::array{body.bone_transforms()[chain[0]],
+                                    body.bone_transforms()[chain[1]],
+                                    body.bone_transforms()[chain[2]]};
+  const auto solved = arm.evaluate({.body = body, .weapon = weapon}, 1);
+  if (!solved) {
+    throw std::runtime_error("Authored support targets did not solve");
+  }
+  const auto target = bw::math::translation(target_frames.at(100));
+  const auto root = bw::math::translation(originals[0]);
+  const auto upper_length = bw::math::length(
+      bw::math::subtract(bw::math::translation(originals[1]), root));
+  const auto lower_length =
+      bw::math::length(bw::math::subtract(bw::math::translation(originals[2]),
+                                          bw::math::translation(originals[1])));
+  const auto distance = bw::math::length(bw::math::subtract(target, root));
+  const auto expected_distance =
+      std::clamp(distance, std::abs(upper_length - lower_length),
+                 upper_length + lower_length);
+  const auto expected_hand =
+      bw::math::add(root, bw::math::scale(bw::math::subtract(target, root),
+                                          expected_distance / distance));
+  if (bw::math::length(bw::math::subtract(
+          bw::math::translation(solved->at(2).world), expected_hand)) >
+      0.00001F) {
+    throw std::runtime_error("Support hand missed authored weapon target100");
+  }
+  const auto cloth = secondary.advance(1.0F / 60, 0, body);
+  std::array<bw::animation::BoneWorldOverride, 128> combined{};
+  if (cloth.size() + solved->size() > combined.size()) {
+    throw std::runtime_error("Support/cloth fixture batch capacity");
+  }
+  std::ranges::copy(cloth, combined.begin());
+  std::ranges::copy(*solved, std::span(combined).subspan(cloth.size()).begin());
+  body.apply_world_overrides(
+      std::span(combined).first(cloth.size() + solved->size()));
+  const auto after = domain->snapshot();
+  if (before.live_allocations != after.live_allocations ||
+      before.live_bytes != after.live_bytes) {
+    throw std::runtime_error("Support-arm frame allocated retained storage");
+  }
+  for (const auto& override : cloth) {
+    if (body.bone_transforms()[override.bone] != override.world) {
+      throw std::runtime_error("Support arm discarded costume correction");
+    }
+  }
+  for (std::size_t segment = 0; segment < 2; ++segment) {
+    const auto original_length = bw::math::length(
+        bw::math::subtract(bw::math::translation(originals.at(segment + 1)),
+                           bw::math::translation(originals.at(segment))));
+    const auto final_length = bw::math::length(bw::math::subtract(
+        bw::math::translation(body.bone_transforms()[chain.at(segment + 1)]),
+        bw::math::translation(body.bone_transforms()[chain.at(segment)])));
+    if (std::abs(original_length - final_length) > 0.00001F) {
+      throw std::runtime_error("Support-arm constraint stretches a segment");
+    }
+  }
+  for (std::size_t row = 0; row < 3; ++row) {
+    if (body.bone_transforms()[chain[2]].at(row) != originals[2].at(row)) {
+      throw std::runtime_error(
+          "Support-arm constraint changed authored hand orientation");
+    }
+  }
+}
+// Observe actual Stage/PlayerController dispatch, resource admission and grip.
+// Settled raised frames must reach authored target100 (or its reachable clamp).
+// This is the authorized PC improvement, not original-game visual equivalence.
+void live_discharge_trajectories(const WorldOutput& original_output,
+                                 bw::game::MissionLoading& loading,
+                                 bw::resources::ResourceService& resources,
+                                 const bw::platform::Files& files,
+                                 bool texture_mips) {
+  const auto& definition = *loading.stage();
+  const auto settings = bw::game::PlayerResourceSettings::parse(
+      bw::formats::CustomizationDefinition::parse(
+          definition.customization_bytes(), resources.memory_domain()));
+  for (unsigned weapon = 0; weapon < 4; ++weapon) {
+    WorldOutput output(texture_mips);
+    output.records = original_output.records;
+    output.model_chunks = original_output.model_chunks;
+    bw::game::MissionLoading player_assets(
+        files, resources.catalogs(), resources.memory_domain(), &output,
+        bw::game::MissionLoadOptions{.texture_mips = texture_mips});
+    player_assets.prepare_player(0, weapon);
+    support_arm_content_contracts(player_assets.resident_player(),
+                                  player_assets.resident_weapon(),
+                                  resources.memory_domain());
+    const auto& names =
+        player_assets.resident_player().definition.get().bone_names();
+    const auto support =
+        std::ranges::find(names, "LeftHand", &bw::formats::ModelBoneName::name);
+    const auto hand = std::ranges::find(names, "RightWeapon",
+                                        &bw::formats::ModelBoneName::name);
+    if (support == names.end() || hand == names.end()) {
+      throw std::runtime_error("Live discharge has no hand bindings");
+    }
+    const auto shoulder =
+        std::ranges::find(names, "LeftArm", &bw::formats::ModelBoneName::name);
+    const auto elbow = std::ranges::find(names, "LeftForeArm",
+                                         &bw::formats::ModelBoneName::name);
+    if (shoulder == names.end() || elbow == names.end()) {
+      throw std::runtime_error("Live discharge has no support chain");
+    }
+    const auto weapon_view = player_assets.resident_weapon();
+    const auto& weapon_skeleton = *weapon_view.definition.get().skeleton();
+    const auto controls = bw::formats::ControlPointDefinition::parse(
+        weapon_view.control_points, weapon_skeleton.bones().size(),
+        resources.memory_domain());
+    const auto& grip = controls.frames().at(100);
+    const auto influences = controls.influences(grip);
+    if (influences.size() != 1 || influences[0].bone != 0 ||
+        influences[0].weight != 1) {
+      throw std::runtime_error(
+          "Live grip fixture requires authored root target");
+    }
+    const auto inverse_bind = bw::math::homogeneous(
+        weapon_skeleton.bones().at(0).inverse_bind_matrix);
+    for (const bool moving : {false, true}) {
+      for (const bool targeting : {false, true}) {
+        CorpusWorldTime time;
+        time.bind_resources(settings);
+        time.player->select_weapon(weapon);
+        bw::game::StageInspection scene(
+            time.clock, time.control, output,
+            {definition, loading.resident_models(),
+             loading.resident_textures()},
+            {*loading.sky(), loading.sky_resident_models()},
+            resources.memory_domain(), std::nullopt,
+            {&*loading.background(), loading.resident_dependencies()},
+            bw::game::PlayerActorSource{
+                player_assets.resident_player(),
+                player_assets.resident_weapon(), player_assets.player_support(),
+                player_assets.weapon_support(), kFixtureInitialPose},
+            {}, {loading.character_light(), loading.enemy_light()});
+        scene.bind_action_resources(time.resources->actions());
+        const auto initial_ammunition =
+            time.resources->snapshot().weapons.at(weapon).ammunition;
+        bw::animation::Matrix previous = bw::animation::kIdentityMatrix;
+        float maximum_relative_step = 0;
+        unsigned verified_grip_frames = 0;
+        for (unsigned frame = 0; frame < 240; ++frame) {
+          bw::game::StageTraversalInput input;
+          input.presentation.aim_mode_pressed = targeting && frame == 1;
+          input.presentation.fire_trigger =
+              frame >= 90 && frame < 210 ? 1.0F : 0.0F;
+          if (moving && frame >= 60) input.movement.direction = {.5F, 0};
+          time.advance(scene, 1.0 / 60, input);
+          const auto pose = scene.player_world_pose();
+          const auto inverse = bw::math::inverse_affine(pose[hand->bone]);
+          if (!inverse) throw std::runtime_error("Live attachment is singular");
+          const auto relative =
+              bw::math::multiply(pose[support->bone], *inverse);
+          if (!bw::math::all_finite(relative)) {
+            throw std::runtime_error(
+                "Live discharge publishes invalid support hand");
+          }
+          const auto* upper = scene.player_animation_state(
+              bw::game::CharacterMotionBank::upper_body);
+          const auto upper_slot =
+              upper ? std::optional(static_cast<std::uint32_t>(upper->binding))
+                    : std::nullopt;
+          if (frame >= 170 && frame < 210 &&
+              scene.player_state()->weapon_raised &&
+              bw::game::permits_support_hand(upper_slot)) {
+            const auto target = bw::math::transform_point_basis_first(
+                grip.points[0],
+                bw::math::multiply(inverse_bind, pose[hand->bone]));
+            const auto root = bw::math::translation(pose[shoulder->bone]);
+            const auto joint = bw::math::translation(pose[elbow->bone]);
+            const auto end = bw::math::translation(pose[support->bone]);
+            const auto a = bw::math::length(bw::math::subtract(joint, root));
+            const auto b = bw::math::length(bw::math::subtract(end, joint));
+            const auto direction = bw::math::subtract(target, root);
+            const auto distance = bw::math::length(direction);
+            const auto reach = std::clamp(distance, std::abs(a - b), a + b);
+            const auto expected = bw::math::add(
+                root, bw::math::scale(direction, reach / distance));
+            if (bw::math::length(bw::math::subtract(end, expected)) > .0001F) {
+              throw std::runtime_error(
+                  "Live support hand misses authored reachable grip");
+            }
+            ++verified_grip_frames;
+          }
+          if (frame >= 90 && frame < 210) {
+            maximum_relative_step = std::max(
+                maximum_relative_step, bw::math::length(bw::math::subtract(
+                                           bw::math::translation(relative),
+                                           bw::math::translation(previous))));
+          }
+          previous = relative;
+        }
+        const auto final_ammunition =
+            time.resources->snapshot().weapons.at(weapon).ammunition;
+        if (final_ammunition >= initial_ammunition ||
+            verified_grip_frames == 0) {
+          throw std::runtime_error(
+              "Live discharge trajectory did not admit firing");
+        }
+        std::cerr << "Live discharge trajectory: class=" << weapon
+                  << " moving=" << moving << " targeted=" << targeting
+                  << " ammunition=" << initial_ammunition - final_ammunition
+                  << " max_relative_step=" << maximum_relative_step << '\n';
+      }
+    }
+  }
+}
+
 // Initial equipment admission belongs to the existing original-root corpus;
 // each acquired-class fixture prepares its real owner and verifies attachment.
 void initial_weapon_admission(bw::resources::ResourceService& resources,
                               const bw::platform::Files& files,
                               WorldOutput& world,
                               const bw::game::Progression& progression,
+                              const bw::game::PlayerResourceSettings& settings,
                               std::size_t retained_models,
                               std::size_t retained_textures,
                               bool texture_mips) {
@@ -1701,6 +2194,8 @@ void initial_weapon_admission(bw::resources::ResourceService& resources,
           }
         }
       }
+      discharge_attachment_trajectory(selected_actor.source(), selected_state,
+                                      settings, resources.memory_domain());
       weapon_motion_count +=
           selected_actor.weapon_animations().motions().size();
     }
@@ -1994,13 +2489,30 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         }
         const auto settings_tree = bw::formats::CustomizationDefinition::parse(
             stage->customization_bytes(), resources.memory_domain());
+        const auto resource_settings =
+            bw::game::PlayerResourceSettings::parse(settings_tree);
+        constexpr std::array<unsigned, 4> expected_capacities{80, 16, 24, 400};
+        constexpr std::array<float, 4> expected_recharge{20, 40, 40, 40};
+        if (resource_settings.maximum_health != 5000 ||
+            resource_settings.magic_recovery_seconds !=
+                std::array{60.0F, 50.0F, 40.0F, 30.0F}) {
+          throw std::runtime_error("Original player resource settings differ");
+        }
         constexpr std::array<float, 4> expected_rates{10, 1, 1.8F, 60};
         for (unsigned weapon_class = 0; weapon_class < 4; ++weapon_class) {
           const auto settings = bw::game::WeaponPresentationSettings::parse(
               settings_tree, weapon_class);
           const auto expected_scale = weapon_class == 3 ? .9F : 1.0F;
+          const auto& weapon_resources =
+              resource_settings.weapons.at(weapon_class);
           if (settings.rate_per_second != expected_rates.at(weapon_class) ||
-              settings.movement_scale != expected_scale) {
+              settings.movement_scale != expected_scale ||
+              weapon_resources.rate_per_second !=
+                  expected_rates.at(weapon_class) ||
+              weapon_resources.capacity !=
+                  expected_capacities.at(weapon_class) ||
+              weapon_resources.recharge_cost !=
+                  expected_recharge.at(weapon_class)) {
             throw std::runtime_error(
                 "Original weapon presentation settings differ");
           }
@@ -2137,7 +2649,13 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         throw std::runtime_error(
             "Inspection retained device owners after teardown");
       }
+      live_discharge_trajectories(world, loading, resources, files,
+                                  texture_mips);
       initial_weapon_admission(resources, files, world, request.progression,
+                               bw::game::PlayerResourceSettings::parse(
+                                   bw::formats::CustomizationDefinition::parse(
+                                       loading.stage()->customization_bytes(),
+                                       resources.memory_domain())),
                                retained_models, retained_textures,
                                texture_mips);
       {
@@ -2385,6 +2903,11 @@ void reconstructed_session(bw::resources::ResourceService& resources,
                 loading.player_support(), loading.weapon_support(),
                 kFixtureInitialPose},
             {}, {loading.character_light(), loading.enemy_light()});
+        const auto resource_settings = bw::game::PlayerResourceSettings::parse(
+            bw::formats::CustomizationDefinition::parse(
+                stage->customization_bytes(), resources.memory_domain()));
+        time.bind_resources(resource_settings);
+        mission_gameplay_composition(time, inspection, loading, scene_random);
         require_initial_local_light_clear(world,
                                           loading.resident_player().handle);
         inspection.bind_audio(scene_audio.prepared(), *scene_audio.output(),

@@ -84,6 +84,13 @@ owners and retire first. World frames are immutable values tied to their clock
 and sequence. Stage rejects foreign or repeated frames before updating; a frame
 is not a worker synchronization token or a replacement for render completion.
 
+Live mission sequencing now belongs to `game::MissionGameplay`: it applies
+interaction admission, publishes one world frame, opens the resource action
+window, advances the actor, finishes resource recovery and publishes cockpit
+observations. The launch framework supplies the presentation interval and
+delegates these phases; it does not interpret pause/ring/resource policy.
+See [live gameplay ownership](player-gameplay.md).
+
 ### Mutation authority
 
 The original native pause task changes user pause; it does not own frame

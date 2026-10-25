@@ -13,6 +13,9 @@
 // focus loss clears held state. Design I.1 (#ri-explicit) keeps that boundary
 // explicit; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps
 // the added edge history in fixed inline storage without per-pump allocation.
+// Physical shoulder/face observations apply both-phase Core I.1 (#ri-explicit):
+// the platform publishes sampled positions without interpreting game gestures.
+// MEM.9 keeps these copied booleans and edge history inline.
 // Component draw replacement applies I.1 (#ri-explicit), C.85
 // (#rc-swap-noexcept), and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md):
 // prepare discrete changes before nonthrowing publication, retaining unrelated
@@ -75,6 +78,8 @@ struct StartupInput {
   std::uint32_t pressed_actions{};
   std::uint32_t repeated_actions{};
   bool close_requested{};
+  // Device availability observation for honest platform button prompts.
+  bool controller_connected{};
   // Raw normalized axes, held evade and pause edge. Gameplay owns dead zones,
   // rates, motion selection and pause policy; menu repeats remain independent.
   std::array<float, 2> movement{}, look{};
@@ -85,6 +90,13 @@ struct StartupInput {
   // down/up pair drained in one pump. These are not menu-repeat actions.
   bool reload_pressed{}, attack_pressed{}, weapon_cycle_pressed{},
       aim_mode_pressed{};
+  // Physical positions only: LB/RB (desktop [ / ]) and Y/B/A/X
+  // (desktop Y/Q/E/R). Holds and edges remain separate observations; game
+  // policy decides chords, selection priority and consumption.
+  bool shoulder_left_pressed{}, shoulder_right_pressed{};
+  bool shoulder_left_held{}, shoulder_right_held{};
+  bool face_north_pressed{}, face_east_pressed{}, face_south_pressed{},
+      face_west_pressed{};
 };
 inline constexpr std::uint32_t kDefaultWindowWidth = 1280;
 inline constexpr std::uint32_t kDefaultWindowHeight = 720;

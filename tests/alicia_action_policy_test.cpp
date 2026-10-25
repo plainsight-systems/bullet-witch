@@ -115,6 +115,17 @@ void paired_receivers() {
               reload.requests[1].slot == 0x1aa && !reload.requests[1].fresh,
           "Reload preserves source order, class, stance and low direction");
   const auto shot = accepted_shot({AliciaStance::standing, 0x19, 2, true});
+  require(bw::game::permits_support_hand(std::nullopt) &&
+              bw::game::permits_support_hand(shot.requests[0].slot) &&
+              !bw::game::permits_support_hand(reload.requests[1].slot) &&
+              !bw::game::permits_support_hand(raise.requests[0].slot) &&
+              !bw::game::permits_support_hand(lower.requests[0].slot) &&
+              !bw::game::permits_support_hand(
+                  accepted_weapon_change(AliciaStance::standing, 12)
+                      .requests[0]
+                      .slot) &&
+              !bw::game::permits_support_hand(0xffff),
+          "Grip releases for non-discharge upper owners, including unknown");
   require(shot.motions().size() == 3 && shot.requests[0].slot == 0x219 &&
               shot.requests[1].slot == 6 && shot.requests[2].slot == 0x119 &&
               shot.requests[2].bank == ActionMotionBank::additive &&
@@ -189,43 +200,9 @@ void idle_lifecycle() {
   require(!idle.advance(input, 767, false, 0).special_idle,
           "Standing-state exit resets both armed variation and timer");
 }
-void weapon_cadence() {
-  bw::game::WeaponPresentationGate gate(10);
-  require(
-      !gate.try_shot(true, false, false) && !gate.try_shot(true, true, true) &&
-          !gate.try_shot(false, false, true),
-      "Trigger, current upper owner and acceptance independently gate fire");
-  require(gate.try_shot(true, false, true) && !gate.try_shot(true, false, true),
-          "First accepted held shot starts cooldown");
-  gate.advance(.25F);
-  require(gate.try_shot(true, false, true), "Negative residual catches up");
-  gate.advance(.025F);
-  require(!gate.try_shot(true, false, true),
-          "Catch-up retains positive residual instead of restarting interval");
-  gate.advance(.026F);
-  require(gate.try_shot(true, false, true),
-          "Residual cadence admits held input");
-  gate.advance(.25F);
-  gate.advance(0);
-  require(gate.try_shot(true, false, true), "Nonpositive update discards debt");
-  gate.advance(.05F);
-  require(!gate.try_shot(true, false, true),
-          "Discarded debt uses full interval");
-  bool rejected = false;
-  try {
-    gate.advance(-1);
-  } catch (const std::invalid_argument&) {
-    rejected = true;
-  }
-  require(rejected && !gate.try_shot(true, false, true),
-          "Rejected delta preserves existing cooldown");
-  gate.reset();
-  require(gate.try_shot(true, false, true), "Accepted reload clears cooldown");
-}
 }  // namespace
 void alicia_action_policy_tests() {
   ground_selection();
   paired_receivers();
   idle_lifecycle();
-  weapon_cadence();
 }

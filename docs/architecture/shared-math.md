@@ -14,6 +14,7 @@ flowchart LR
   Render[Camera and shadow transforms] --> Math
   Math --> Vector[Typed fixed vectors]
   Math --> Matrix[Row-vector affine and homogeneous matrices]
+  Math --> Limb[Analytic two-bone geometry]
 ```
 
 `vector.hpp` owns component arithmetic, dot/cross products, length and finite
@@ -43,3 +44,13 @@ See [source comparison and numerical contracts](../../research/engine/subsystems
 channels and shape deltas (including the source finite exponent31 behavior).
 `scalar.hpp` owns linear interpolation arithmetic; callers choose endpoint and
 clamping policy. Neither decoder owns a second conversion or interpolation formula.
+
+`two_bone.hpp` owns allocation-free analytic two-link geometry and shortest-arc
+segment rotations. It accepts a complete value request in one explicit space,
+returns solved values without mutating a pose, clamps inner and outer reach
+without stretching, and rejects invalid inputs atomically. Authored grip/pole
+selection, action permission and pose publication belong to the game actor;
+shared math knows no weapon, bone index or world clock. The
+[support-arm design](../../research/engine/subsystems/support-arm-constraint.md)
+records the pinned established reference and the authorized improvement over
+the original PC's inactive solver.

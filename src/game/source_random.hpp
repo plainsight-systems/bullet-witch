@@ -25,6 +25,12 @@ class SourceRandom {
   }
   std::uint32_t state() const { return state_; }
   std::uint32_t draws() const { return draws_; }
+  // Source5df900 draws from the same stream, performs signed-positive modulo
+  // 0x7fffffff, then float conversion and multiplication by exact 2^-31.
+  float unit() {
+    constexpr float kUnitScale = 0x1p-31F;
+    return static_cast<float>(next(kPositiveMask)) * kUnitScale;
+  }
 
  private:
   static constexpr std::uint32_t kMultiplier = 0x10dcd,

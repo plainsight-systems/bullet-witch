@@ -50,6 +50,10 @@ struct Color {
   float blue{1};
   float alpha{1};
 };
+// Source UI chooses straight-alpha composition or SRCALPHA/ONE additive
+// highlight per ordered quad. Backends retain both pipelines at setup; this is
+// a render command, never a HUD-specific shader or a gameplay mutation.
+enum class SpriteBlend : std::uint8_t { alpha, additive };
 enum class TextureChannel : std::uint8_t { rgba, red, green, blue, alpha };
 // Destination uses the logical canvas; UVs address the selected texture.
 struct Sprite {
@@ -64,6 +68,7 @@ struct Sprite {
   // GPU.1 keeps the image resident while only constants change.
   float rotation_radians{};
   float rotation_origin_x{}, rotation_origin_y{};
+  SpriteBlend blend{SpriteBlend::alpha};
 };
 class SpriteOutput {
  public:

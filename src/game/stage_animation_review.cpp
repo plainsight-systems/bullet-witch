@@ -26,7 +26,6 @@ constexpr std::string_view kPresentation =
     "Presentation controls - no combat outcomes | Menu: Animation Review";
 constexpr float kTriggerThreshold = .8F;
 constexpr float kSelectionMidpoint = .5F;
-constexpr double kMaximumPresentationStep = .25;
 constexpr std::size_t kLastExpression = 6, kFirstRaisedJump = 8,
                       kLastRaisedJump = 11, kDamageVariants = 12,
                       kDeathVariants = 11, kSpellVariants = 8,
@@ -88,12 +87,6 @@ void StageInspection::replace_weapon(MissionLoading& loading,
       !actor.body_animations().motions().alias(plan.requests[0].slot).clip) {
     throw std::logic_error("Authored switch motion is absent");
   }
-  WeaponPresentationGate gate(
-      weapon_settings_.at(weapon_class).rate_per_second);
-  const auto& cached_gate = inactive_weapon_gates_.at(weapon_class);
-  if (animate_switch && cached_gate) {
-    gate = *cached_gate;
-  }
   loading.prepare_weapon_class(weapon_class);
   try {
     auto source = actor.source();
@@ -121,10 +114,7 @@ void StageInspection::replace_weapon(MissionLoading& loading,
     actor.adopt_appearance(std::move(candidate));
     loading.commit_weapon_class();
     player_draws_ = player_draws_ - old_draws + draws.size();
-    inactive_weapon_gates_.at(weapon_class_) = weapon_gate_;
-    inactive_weapon_gates_.at(weapon_class).reset();
     weapon_class_ = weapon_class;
-    weapon_gate_ = gate;
     if (animate_switch) {
       // 62ed80 changes selected weapon before dispatching the upper request.
       // Body clocks and controller ownership survive that publication.
@@ -170,7 +160,6 @@ void StageInspection::reset_review_presentation(
   review_thunder_striking_ = false;
   review_spell_.reset();
   targeting_.select_for_review(false);
-  if (weapon_gate_) weapon_gate_->reset();
   player.publish_pose(controller.state().pose, controller.state().orientation,
                       controller.body_radius(), output_);
   set_review_status(kPresentation);
@@ -399,29 +388,24 @@ void StageInspection::prepare_review_observations(
   value.spell.cinematic_segment_finished = review_next_phase_;
   value.spell.meteor_world_finished = review_next_phase_;
 }
+void StageInspection::bind_action_resources(PlayerActionResources resources) {
+  if (action_resources_) {
+    throw std::logic_error("Player action resources are already bound");
+  }
+  action_resources_ = resources;
+}
 void StageInspection::present_input(PlayerPresentationInput input,
-                                    PlayerMovementInput movement,
-                                    double seconds) {
-  if (!player_ || !controller_ || !weapon_gate_ || !camera_) return;
+                                    PlayerMovementInput movement) {
+  if (!player_ || !controller_ || !camera_) return;
   auto& actor = player_.value();
   auto& controller = controller_.value();
-  auto& gate = weapon_gate_.value();
   const auto& camera = camera_.value();
   if (!std::isfinite(input.fire_trigger) || input.fire_trigger < 0 ||
       input.fire_trigger > 1) {
     throw std::invalid_argument("Invalid presentation trigger");
   }
-  // Original weapon entities retain and update cooldown even without a model.
-  for (auto& inactive : inactive_weapon_gates_) {
-    if (inactive) {
-      inactive->advance(
-          static_cast<float>(std::min(seconds, kMaximumPresentationStep)));
-    }
-  }
   if (review_fixed_pose_ || review_spell_ ||
       !controller.accepts_shooter_input()) {
-    gate.advance(
-        static_cast<float>(std::min(seconds, kMaximumPresentationStep)));
     return;
   }
   const auto* body = actor.animation_state(CharacterMotionBank::body);
@@ -439,32 +423,44 @@ void StageInspection::present_input(PlayerPresentationInput input,
         {direction[0], 0, direction[1]}, basis,
         {orientation[2][0], orientation[2][1], orientation[2][2]});
     (void)controller.action_owner().begin_close_attack(variant);
-    set_review_status(
-        "Presentation melee; no hit outcome | Menu: Animation Review");
-  } else if (input.reload_pressed && !upper) {
-    const auto admission = actor.apply_action_plan(
-        accepted_reload({.stance = controller.state().stance,
-                         .body_slot = slot,
-                         .weapon_class = weapon_class_}));
-    gate.reset();
-    set_review_status(
-        admission.unavailable > 0
-            ? "Presentation reload: absent authored slots; no ammo change | "
-              "Menu: Review"
-            : "Presentation reload; no ammo change | Menu: Animation Review");
-  } else if (gate.try_shot(input.fire_trigger > kTriggerThreshold, upper,
-                           controller.state().weapon_raised)) {
-    const auto admission = actor.apply_action_plan(
-        accepted_shot({.stance = controller.state().stance,
-                       .body_slot = slot,
-                       .weapon_class = weapon_class_,
-                       .grounded = controller.state().contact.grounded}));
-    set_review_status(admission.unavailable > 0
-                          ? "Presentation fire: absent authored slots; no "
-                            "projectiles | Menu: Review"
-                          : "Presentation fire; no ammo/projectiles | Menu: "
-                            "Animation Review");
+    set_review_status("Melee animation; world hit receiver not yet admitted");
+    return;
   }
-  gate.advance(static_cast<float>(std::min(seconds, kMaximumPresentationStep)));
+  if (upper || !action_resources_) return;
+  auto& resources = *action_resources_;
+  const auto recharge = [&] {
+    const auto result = resources.try_reload();
+    if (result == ResourceActionResult::committed) {
+      (void)actor.apply_action_plan(
+          accepted_reload({.stance = controller.state().stance,
+                           .body_slot = slot,
+                           .weapon_class = weapon_class_}));
+      set_review_status("Weapon recharged from magic");
+    } else if (result == ResourceActionResult::insufficient_magic) {
+      set_review_status("Not enough magic to recharge");
+    } else if (result == ResourceActionResult::magazine_full &&
+               input.reload_pressed) {
+      set_review_status("Weapon is fully charged");
+    }
+  };
+  if (input.reload_pressed) {
+    recharge();
+  } else if (input.fire_trigger > kTriggerThreshold &&
+             controller.state().weapon_raised) {
+    const auto shot = resources.try_fire();
+    if (shot.status == ShotStatus::accepted) {
+      (void)actor.apply_action_plan(
+          accepted_shot({.stance = controller.state().stance,
+                         .body_slot = slot,
+                         .weapon_class = weapon_class_,
+                         .grounded = controller.state().contact.grounded}));
+      set_review_status(
+          "Ammunition consumed; projectile receiver not yet admitted");
+    } else if (shot.status == ShotStatus::empty) {
+      // The source caller attempts recharge on empty, including a catch-up
+      // call that consumed its final rounds before returning that status.
+      recharge();
+    }
+  }
 }
 }  // namespace bw::game

@@ -21,6 +21,9 @@
 // bases are prepared once for verified traversal clips; live model height comes
 // from the validated body radius. I.1 keeps these game semantics out of generic
 // sampling.
+// Weapon root suppression follows the model constructor's source policy;
+// I.1/MEM.9 (both phases) make the attachment space explicit without extra
+// storage or clip-specific corrections. See weapon-discharge-attachment.md.
 #include "player_actor.hpp"
 
 #include <algorithm>
@@ -327,6 +330,7 @@ struct PlayerActor::Playback {
   AimPostureBlend aim_blend;
   math::Vector3<float> aim_target{0, 0, 1};
   bool aim_enabled{};
+  bool support_arm_permitted{};
   CharacterPresentationStatus status;
   std::uint32_t weapon_groups{std::numeric_limits<std::uint32_t>::max()};
   FacialAnimation* face{};
@@ -348,6 +352,8 @@ PlayerActor::PlayerActor(PlayerActorSource source,
       body_pose_(skeleton(source.body), domain),
       weapon_pose_(skeleton(source.weapon), domain),
       body_release_(skeleton(source.body).bones().size(), domain),
+      modifier_overrides_(
+          memory::Allocator<animation::BoneWorldOverride>(domain)),
       palettes_(memory::Allocator<Palette>(domain)),
       updates_(memory::Allocator<render::WorldPoseUpdate>(domain)),
       visibility_updates_(
@@ -502,6 +508,12 @@ PlayerActor::PlayerActor(PlayerActorSource source,
     }
   }
   secondary_motion_.emplace(body, source.body.control_points, domain);
+  support_arm_.emplace(
+      SupportArmSource{.body = body,
+                       .weapon = source.weapon.definition,
+                       .weapon_control_points = source.weapon.control_points},
+      domain);
+  modifier_overrides_.reserve(skeleton(source.body).bones().size());
   body_pose_.bind_pose(model_world_);
   secondary_motion_->reset(body_pose_);
   evaluate();
@@ -806,6 +818,7 @@ void PlayerActor::reset_animation_presentation() {
   shapes_->face.reset();
   playback_->aim_blend = {};
   playback_->aim_enabled = false;
+  playback_->support_arm_permitted = false;
   weapon_rest_slot_ = 1;
   pending_root_translation_ = {};
   pending_root_seconds_ = 0;
@@ -875,6 +888,8 @@ void PlayerActor::evaluate_body() {
 void PlayerActor::evaluate() {
   shapes_->evaluate(secondary_delta_);
   evaluate_body();
+  evaluate_weapon_pose();
+  modifier_overrides_.clear();
   // Animated anchors come from this clean evaluation, never last frame's
   // secondary output. Ground policy belongs to Alicia, not the shared solver.
   if (secondary_motion_) {
@@ -882,10 +897,28 @@ void PlayerActor::evaluate() {
     const auto overrides = secondary_motion_->advance(
         static_cast<float>(secondary_delta_),
         model_world_[3][1] + kSecondaryGroundOffset, body_pose_);
-    body_pose_.apply_world_overrides(overrides);
+    modifier_overrides_.insert(modifier_overrides_.end(), overrides.begin(),
+                               overrides.end());
     secondary_delta_ = 0;
   }
-  evaluate_attachment_palettes();
+  // Arm and costume solvers both consume the clean pose. Their disjoint world
+  // edits must publish together: separate calls would recompose prior edits
+  // from sampled local transforms. Weapon targets depend on the right chain.
+  const auto* upper = playback_->upper.current();
+  const std::optional<std::uint32_t> upper_slot =
+      upper ? std::optional(static_cast<std::uint32_t>(upper->binding))
+            : std::nullopt;
+  if (support_arm_ && playback_->support_arm_permitted &&
+      permits_support_hand(upper_slot)) {
+    if (const auto arm =
+            support_arm_->evaluate({.body = body_pose_, .weapon = weapon_pose_},
+                                   playback_->aim_blend.weight())) {
+      modifier_overrides_.insert(modifier_overrides_.end(), arm->begin(),
+                                 arm->end());
+    }
+  }
+  body_pose_.apply_world_overrides(modifier_overrides_);
+  fill_draw_palettes();
 }
 animation::Matrix PlayerActor::model_transform(bool weapon) const {
   if (!weapon) return model_world_;
@@ -899,10 +932,21 @@ animation::Matrix PlayerActor::model_transform(bool weapon) const {
                           body_pose_.bone_transforms()[attachment_bone_]));
 }
 void PlayerActor::evaluate_attachment_palettes() {
+  // Paused appearance snapshots are already complete. Reattach the weapon
+  // without applying a second partial constraint to that retained body pose.
+  evaluate_weapon_pose();
+  fill_draw_palettes();
+}
+void PlayerActor::evaluate_weapon_pose() {
   // Attach using the completed bone transform, not its inverse-bind skin form.
   // Wrapper-local activation and common render conversion are distinct.
   const auto weapon_world = model_transform(true);
-  weapon_pose_.evaluate_layers({weapon_playback_->layers(), {}}, weapon_world);
+  // The weapon model discards its exported root before applying the hand
+  // attachment. Internal joints still animate normally through every blend.
+  weapon_pose_.evaluate_layers({weapon_playback_->layers(), {}}, weapon_world,
+                               animation::RootPosePolicy::identity);
+}
+void PlayerActor::fill_draw_palettes() {
   for (auto& palette : palettes_) {
     const auto matrices = palette.weapon ? weapon_pose_.skin_transforms()
                                          : body_pose_.skin_transforms();
@@ -932,6 +976,9 @@ void PlayerActor::set_aim_posture(const math::Vector3<float>& direction,
   }
   if (enabled) playback_->aim_target = direction;
   playback_->aim_enabled = enabled;
+}
+void PlayerActor::set_support_arm_permission(bool permitted) noexcept {
+  playback_->support_arm_permitted = permitted;
 }
 float PlayerActor::aim_posture_weight() const {
   return playback_->aim_blend.weight();

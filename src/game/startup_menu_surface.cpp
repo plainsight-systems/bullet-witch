@@ -42,6 +42,7 @@
 #include "bw/formats/bitmap_font.hpp"
 #include "bw/formats/image.hpp"
 #include "bw/formats/world_texture.hpp"
+#include "sprite_text.hpp"
 namespace bw::game {
 namespace {
 memory::Allocator<std::byte> storage_for(
@@ -153,19 +154,7 @@ constexpr std::array<render::Rect, 6> kMainPositions{{{502, 135, 0, 0},
 constexpr std::array<unsigned, 4> kOrnaments{349, 350, 351, 352};
 constexpr std::array<render::Rect, 4> kOrnamentPositions{
     {{143, 264, 0, 0}, {168, 96, 0, 0}, {0, 0, 0, 0}, {308, 32, 0, 0}}};
-render::TextureChannel channel(formats::FontChannel value) {
-  switch (value) {
-    case formats::FontChannel::red:
-      return render::TextureChannel::red;
-    case formats::FontChannel::green:
-      return render::TextureChannel::green;
-    case formats::FontChannel::blue:
-      return render::TextureChannel::blue;
-    case formats::FontChannel::alpha:
-      return render::TextureChannel::alpha;
-  }
-  throw std::runtime_error("Invalid font channel");
-}
+
 unsigned sprite_id(std::span<const std::uint8_t> bytes, std::size_t index) {
   constexpr std::size_t word_bytes = 2;
   constexpr unsigned shift = 8;
@@ -193,7 +182,24 @@ struct StartupMenuSurface::State {
   render::TextureHandle font_texture;
   std::array<render::Sprite, render::kMaximumSprites> commands{};
   std::size_t count{};
-  bool requested{}, constructed{};
+  bool requested{}, constructed{}, pause_only{};
+  bool includes(std::string_view group) const noexcept {
+    return !pause_only ||
+           (group != "sprite.titlemenu" && group != "sprite.stageselect");
+  }
+  void begin(bool pause) {
+    end();
+    pause_only = pause;
+    requested = true;
+    for (const auto group : kGroups) {
+      if (!includes(group)) continue;
+      try {
+        resources.request(group, kMenuTag);
+      } catch (const std::exception& error) {
+        throw std::runtime_error(std::string(group) + ": " + error.what());
+      }
+    }
+  }
   State(resources::ResourceService& service, render::SpriteOutput& output)
       : allocator(storage_for(service)), resources(service), renderer(output) {
     for (auto& label : costume_labels) label = memory::String(allocator);
@@ -221,6 +227,7 @@ struct StartupMenuSurface::State {
     // Build device assets once from the published groups; draws reuse those
     // handles.
     for (std::size_t group = 0; group < kGroups.size(); ++group) {
+      if (!includes(kGroups.at(group))) continue;
       auto acquired = resources.acquire(kGroups.at(group));
       if (!acquired) {
         throw std::runtime_error("Missing menu resource: " +
@@ -303,42 +310,10 @@ struct StartupMenuSurface::State {
     throw std::runtime_error("Missing menu image identity");
   }
   void text(std::string_view value, TextPosition position, render::Color tint) {
-    if (!font) {
-      throw std::logic_error("Missing menu font");
-    }
-    const auto& metrics = *font;
-    const auto scale = position.size / static_cast<float>(metrics.pixel_size());
-    const auto atlas_width = static_cast<float>(metrics.atlas_width());
-    const auto atlas_height = static_cast<float>(metrics.atlas_height());
-    auto cursor = position.x;
-    auto baseline = position.y + static_cast<float>(metrics.baseline()) * scale;
-    for (const char character : value) {
-      const auto codepoint = static_cast<unsigned char>(character);
-      if (codepoint == '\n') {
-        cursor = position.x;
-        baseline += position.size;
-        continue;
-      }
-      if (codepoint >= kAsciiLimit) {
-        throw std::runtime_error("Menu label needs Unicode decoding");
-      }
-      const auto glyph = metrics.glyph(codepoint);
-      if (!glyph) throw std::runtime_error("Missing original menu font glyph");
-      if (!glyph->blank) {
-        const auto width = static_cast<float>(glyph->right - glyph->left);
-        const auto height = static_cast<float>(glyph->bottom - glyph->top);
-        append({font_texture,
-                {cursor + static_cast<float>(glyph->bearing_left) * scale,
-                 baseline + static_cast<float>(glyph->bearing_top) * scale,
-                 width * scale, height * scale},
-                {static_cast<float>(glyph->left) / atlas_width,
-                 static_cast<float>(glyph->top) / atlas_height,
-                 width / atlas_width, height / atlas_height},
-                tint,
-                channel(glyph->channel)});
-      }
-      cursor += static_cast<float>(glyph->advance) * scale;
-    }
+    if (!font) throw std::logic_error("Missing menu font");
+    count += append_sprite_text(*font, font_texture, value,
+                                {position.x, position.y, position.size}, tint,
+                                std::span(commands).subspan(count));
   }
 };
 StartupMenuSurface::StartupMenuSurface(resources::ResourceService& resources,
@@ -346,17 +321,8 @@ StartupMenuSurface::StartupMenuSurface(resources::ResourceService& resources,
     : state_(std::allocate_shared<State>(storage_for(resources), resources,
                                          renderer)) {}
 StartupMenuSurface::~StartupMenuSurface() = default;
-void StartupMenuSurface::begin() {
-  state_->end();
-  state_->requested = true;
-  for (const auto group : kGroups) {
-    try {
-      state_->resources.request(group, kMenuTag);
-    } catch (const std::exception& error) {
-      throw std::runtime_error(std::string(group) + ": " + error.what());
-    }
-  }
-}
+void StartupMenuSurface::begin() { state_->begin(false); }
+void StartupMenuSurface::begin_pause() { state_->begin(true); }
 bool StartupMenuSurface::ready() {
   auto& state = *state_;
   if (!state.requested) throw std::logic_error("Menu assets not requested");
@@ -375,6 +341,11 @@ void StartupMenuSurface::show(const MenuPresentation& presentation) {
   auto& state = *state_;
   if (!state.constructed || !state.font) {
     throw std::logic_error("Menu cannot draw before construction");
+  }
+  if (state.pause_only && presentation.page != MenuPage::options &&
+      presentation.page != MenuPage::costume &&
+      presentation.page != MenuPage::confirm) {
+    throw std::invalid_argument("Pause surface cannot present front-end pages");
   }
   if (presentation.count > presentation.rows.size() ||
       (presentation.count != 0 &&

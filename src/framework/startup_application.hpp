@@ -1,3 +1,7 @@
+// The launch API supplies services/configuration and delegates game-owned
+// input/resource/HUD phases to MissionGameplay. No spell arbitration, HUD lane
+// mapping or pause transaction policy belongs to this framework. Core I.1/C.9
+// and MEM.9 were read for the boundary repair; see player-gameplay.md.
 // Concept progression selection is an explicit development policy. Saved
 // mode inherits the owned handoff; development mode supplies a nonpersistent
 // completed-game capability profile at entry. Neither edits permanent saves.

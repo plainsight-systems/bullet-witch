@@ -12,6 +12,7 @@
 
 #include "bw/math/direction.hpp"
 #include "bw/math/matrix.hpp"
+#include "bw/math/two_bone.hpp"
 
 namespace {
 void require(bool value, const char* message) {
@@ -146,4 +147,93 @@ void math_tests() {
   require(
       math::transform_point<float>(Float{1, 1, 1}, combined) == Float{7, 9, 11},
       "Matrix product preserves ordered row-vector composition");
+  // Independently known triangles exercise the reach contract; rotation deltas
+  // must carry the old segment directions into the solved segments as well.
+  const auto solve = [](const math::TwoBoneRequest<double>& input) {
+    const auto result = math::solve_two_bone(input);
+    require(result.has_value(), "Finite valid two-bone input is solvable");
+    require(
+        std::abs(math::length(math::subtract(result->joint, input.root)) -
+                 input.upper_length) < 1e-10 &&
+            std::abs(math::length(math::subtract(result->end, result->joint)) -
+                     input.lower_length) < 1e-10,
+        "Two-bone solution preserves both lengths including unreachable goals");
+    const auto upper_matrix =
+        math::homogeneous_transform(math::TransformComponents<double>{
+            result->upper_rotation, {}, {1, 1, 1}});
+    const auto lower_matrix =
+        math::homogeneous_transform(math::TransformComponents<double>{
+            result->lower_rotation, {}, {1, 1, 1}});
+    const auto old_upper = math::subtract(input.joint, input.root);
+    const auto old_lower = math::subtract(input.end, input.joint);
+    const auto upper_direction = math::transform_direction<double>(
+        math::divide(old_upper, math::length(old_upper)), upper_matrix);
+    const auto lower_direction = math::transform_direction<double>(
+        math::divide(old_lower, math::length(old_lower)), lower_matrix);
+    require(math::length(math::subtract(
+                upper_direction,
+                math::divide(math::subtract(result->joint, input.root),
+                             input.upper_length))) < 1e-10 &&
+                math::length(math::subtract(
+                    lower_direction,
+                    math::divide(math::subtract(result->end, result->joint),
+                                 input.lower_length))) < 1e-10,
+            "Two-bone rotations preserve row-vector handedness and target "
+            "directions");
+    return *result;
+  };
+  math::TwoBoneRequest<double> limb{{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {1, 1, 0},
+                                    {0, 1, 0}, 1,         1};
+  const auto bent = solve(limb);
+  require(!bent.reach_clamped &&
+              math::length(math::subtract(bent.end, limb.target)) < 1e-12 &&
+              math::length(math::subtract(bent.joint, Double{0, 1, 0})) < 1e-12,
+          "A right triangle follows the authored pole side");
+  limb.pole = {1, -1, 0};
+  require(
+      math::length(math::subtract(solve(limb).joint, Double{1, 0, 0})) < 1e-12,
+      "Mirroring the pole selects the other elbow half-plane");
+  limb.target = {4, 0, 0};
+  require(solve(limb).reach_clamped && solve(limb).end == Double{2, 0, 0},
+          "Beyond-reach target extends without stretching");
+  limb.target = {0, 0, 0};
+  const auto folded = solve(limb);
+  require(!folded.reach_clamped && folded.end == Double{},
+          "Equal-length chain can fold to a coincident root target");
+  limb.upper_length = 2;
+  const auto inner = solve(limb);
+  require(inner.reach_clamped && inner.end == Double{1, 0, 0},
+          "Unequal chain clamps a too-close endpoint to its inner reachable "
+          "radius");
+  limb.upper_length = 1;
+  limb.lower_length = 2;
+  require(solve(limb).joint == Double{-1, 0, 0},
+          "Longer lower segment folds the upper segment in reverse");
+  limb.target = {1, 0, 0};
+  limb.pole = {8, 0, 0};
+  limb.lower_length = 1;
+  const auto collinear = solve(limb);
+  require(math::all_finite(collinear.upper_rotation) &&
+              math::all_finite(collinear.lower_rotation),
+          "Collinear pole and straight current chain retain finite "
+          "deterministic rotations");
+  limb.target = {-2, 0, 0};
+  (void)solve(limb);
+  limb.joint = limb.root;
+  require(!math::solve_two_bone(limb),
+          "A zero current segment is rejected atomically");
+  limb.joint = {1, 0, 0};
+  limb.upper_length = 0;
+  require(!math::solve_two_bone(limb),
+          "A nonpositive authored length is rejected");
+  limb.upper_length = 1;
+  limb.target[0] = std::numeric_limits<double>::infinity();
+  require(!math::solve_two_bone(limb),
+          "Nonfinite target cannot mutate the pose");
+  const auto float_solution = math::solve_two_bone(math::TwoBoneRequest<float>{
+      {3, 4, 5}, {4, 4, 5}, {5, 4, 5}, {4, 5, 5}, {3, 5, 5}, 1, 1});
+  require(float_solution && math::length(math::subtract(
+                                float_solution->joint, Float{3, 5, 5})) < 1e-5F,
+          "Float solver retains translated geometry without hidden origin "
+          "assumptions");
 }

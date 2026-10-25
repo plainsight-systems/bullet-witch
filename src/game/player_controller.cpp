@@ -167,11 +167,13 @@ PlayerController::PlayerController(PlayerActor& actor,
   }
 }
 void PlayerController::lower_review_weapon() noexcept {
+  actor_->set_support_arm_permission(false);
   raised_ = {};
   state_.weapon_raised = false;
 }
 void PlayerController::restore_review_state(
     const PlayerMovementState& snapshot) noexcept {
+  actor_->set_support_arm_permission(false);
   (void)action_.interrupt();
   scripted_jump_.interrupt();
   raised_ = {};
@@ -296,6 +298,7 @@ bool PlayerController::publishes_posture_motion() const noexcept {
           state_.phase == PlayerMovementPhase::grounded);
 }
 void PlayerController::force_shooter_posture(bool ordinary_camera) noexcept {
+  actor_->set_support_arm_permission(false);
   raised_ = {};
   state_.weapon_raised = false;
   targeting_->enter_forced_action(ordinary_camera);
@@ -324,6 +327,10 @@ bool PlayerController::update_raised(const PlayerAimObservation& aim,
   return is_raised;
 }
 void PlayerController::update_aim_target(const PlayerAimObservation& aim) {
+  // Action ownership vetoes the grip immediately; fading torso aim is not
+  // permission to hold a weapon during melee, evade, spell or damage motion.
+  actor_->set_support_arm_permission(raised_.active() &&
+                                     accepts_shooter_input());
   // The source target uses the physical model before the render half-turn.
   actor_->set_aim_posture(
       raised_.active()

@@ -225,7 +225,17 @@ void MissionLoading::discard_player_costume() noexcept {
 ResidentModelView MissionLoading::PlayerWeapon::view() const {
   if (!residency) throw std::logic_error("Weapon residency is not available");
   const auto& model = definition.models.front();
-  return {model.name, model.definition, residency->models.front(), {}};
+  // The selected weapon owner retains authored grip targets with its model.
+  // I.1/MEM.9 in both phases: expose an immutable setup-time byte borrow;
+  // the actor prepares its own metadata without another asset owner or read.
+  std::span<const std::uint8_t> control_points;
+  if (model.control_points) {
+    const auto& location = *model.control_points;
+    control_points =
+        definition.archives.at(location.archive).payload(location.record);
+  }
+  return {model.name, model.definition, residency->models.front(),
+          {},         nullptr,          control_points};
 }
 std::shared_ptr<MissionLoading::PlayerWeapon> MissionLoading::prepare_weapon(
     unsigned weapon_class, bool report_progress) {

@@ -5,6 +5,10 @@
 // Weapon publication composes activation-local and model-render half-turns
 // before the completed body attachment. I.1 names both source spaces; MEM.9
 // keeps their fixed matrix composition outside allocation paths.
+// Attached weapon models suppress the authored root after local animation
+// blending, before hierarchy composition. That root is an export-space frame,
+// not another offset from the completed hand. Both-phase I.1/MEM.9 retain the
+// explicit source root policy and reuse the prepared pose without allocation.
 // Facing reads the raw authored reference independently from displacement
 // correction. Both-phase I.1 (#ri-explicit) and MEM.9 expose distinct consumers
 // using immutable prepared samples without allocation or pose publication.
@@ -78,6 +82,7 @@
 #pragma once
 #include "alicia_action_policy.hpp"
 #include "alicia_secondary_motion.hpp"
+#include "alicia_support_arm.hpp"
 #include "bw/animation/pose.hpp"
 #include "bw/audio/output.hpp"
 #include "bw/content/character_support.hpp"
@@ -211,6 +216,11 @@ class PlayerActor {
   // Model-component unit direction, after the source target conversion. A
   // disabled request retains the last target while its weight fades out.
   void set_aim_posture(const math::Vector3<float>& direction, bool enabled);
+  // Game action owner grants a grip only while ordinary raised input is
+  // permitted. Exclusive actions revoke it immediately, independently of the
+  // torso's fading aim weight. Upper free-hand actions impose a second veto.
+  // Both-phase I.1/MEM.9: explicit value permission, no controller borrowing.
+  void set_support_arm_permission(bool permitted) noexcept;
   float aim_posture_weight() const;
   // Current selected body controller reference, before the pose resets it.
   animation::Matrix movement_reference() const;
@@ -304,6 +314,8 @@ class PlayerActor {
   void evaluate_body();
   void evaluate();
   void evaluate_attachment_palettes();
+  void evaluate_weapon_pose();
+  void fill_draw_palettes();
   void finish_model_step();
   CharacterMotionPlayer& motion_bank(CharacterMotionBank bank) const;
   void publish_visibility(render::WorldPresentation& output);
@@ -323,6 +335,8 @@ class PlayerActor {
   animation::SkeletonPose body_pose_, weapon_pose_;
   animation::PoseReleaseState body_release_;
   std::optional<AliciaSecondaryMotion> secondary_motion_;
+  std::optional<AliciaSupportArm> support_arm_;
+  memory::Vector<animation::BoneWorldOverride> modifier_overrides_;
   double secondary_delta_{};
   animation::BoneLocalBasisOverride direction_reference_;
   memory::Vector<Palette> palettes_;

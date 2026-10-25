@@ -50,6 +50,10 @@ void scripted_jump_policy_tests();
 void spell_presentation_policy_tests();
 void aim_posture_tests();
 void world_timing_contracts();
+void player_resource_contracts();
+void gameplay_hud_contracts();
+void gameplay_integration_contracts();
+void ammunition_hud_contracts();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -213,6 +217,10 @@ int main() {
     spell_presentation_policy_tests();
     aim_posture_tests();
     world_timing_contracts();
+    player_resource_contracts();
+    gameplay_hud_contracts();
+    gameplay_integration_contracts();
+    ammunition_hud_contracts();
     bridge_contract();
     failures();
     scheduling();

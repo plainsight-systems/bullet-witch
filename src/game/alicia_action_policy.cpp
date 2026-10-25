@@ -101,40 +101,12 @@ WeaponPresentationSettings WeaponPresentationSettings::parse(
   if (!std::isfinite(result.movement_scale) || result.movement_scale < 0) {
     throw std::invalid_argument("Invalid authored weapon movement scale");
   }
-  (void)WeaponPresentationGate(result.rate_per_second);
+  if (!std::isfinite(result.rate_per_second) || result.rate_per_second <= 0 ||
+      !std::isfinite(1.0F / result.rate_per_second)) {
+    throw std::invalid_argument("Invalid authored weapon cadence");
+  }
   return result;
 }
-WeaponPresentationGate::WeaponPresentationGate(float rate_per_second) {
-  if (!std::isfinite(rate_per_second) || rate_per_second <= 0 ||
-      rate_per_second > kRateSanityLimit ||
-      !std::isfinite(1.0F / rate_per_second)) {
-    throw std::invalid_argument("Invalid weapon presentation cadence");
-  }
-  interval_seconds_ = 1.0F / rate_per_second;
-}
-bool WeaponPresentationGate::try_shot(bool trigger, bool upper_present,
-                                      bool accepted_observation) {
-  if (!trigger || upper_present || !accepted_observation ||
-      cooldown_seconds_ > 0) {
-    return false;
-  }
-  // Original projectile catch-up contributes repeated intervals, but the
-  // Shooter submits its animation once after the weapon returns accepted.
-  while (cooldown_seconds_ <= 0) {
-    cooldown_seconds_ += interval_seconds_;
-  }
-  return true;
-}
-void WeaponPresentationGate::advance(float delta_seconds) {
-  constexpr float kMaximumConsumedDelta = .25F;
-  if (!std::isfinite(delta_seconds) || delta_seconds < 0 ||
-      delta_seconds > kMaximumConsumedDelta) {
-    throw std::invalid_argument("Invalid weapon presentation delta");
-  }
-  cooldown_seconds_ =
-      cooldown_seconds_ > 0 ? cooldown_seconds_ - delta_seconds : 0;
-}
-
 GroundMotionSelection select_ground_motion(const GroundMotionInput& input) {
   validate_stance(input.stance);
   if (!std::isfinite(input.magnitude) || input.magnitude < 0 ||
@@ -333,6 +305,16 @@ ActionMotionPlan accepted_weapon_change(AliciaStance stance,
       true);
   plan.count = 1;
   return plan;
+}
+
+bool permits_support_hand(std::optional<std::uint32_t> upper_slot) noexcept {
+  if (!upper_slot) return true;
+  // The eight standing/crouched discharge families own recoil while retaining
+  // a grip. Other upper owners need their authored free-hand motion.
+  constexpr std::uint32_t kDischargeFamilies = 8;
+  return *upper_slot >= kFirstDischargeFamily &&
+         *upper_slot <
+             kFirstDischargeFamily + kDischargeFamilies * kFamilyStride;
 }
 
 std::optional<ActionMotionRequest> adapt_upper_stance(

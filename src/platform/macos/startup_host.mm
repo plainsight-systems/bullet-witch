@@ -17,6 +17,8 @@
 // Action input extends the existing main-thread snapshot: retain keyboard taps,
 // sample controller holds, clear on focus loss, then derive one-shot edges.
 // RT/F stays normalized held fire intent; the game owns acceptance and cadence.
+// Shoulders and face buttons publish independent physical edges/holds. No
+// chord, selection priority or ring lifecycle is interpreted by this target.
 // Both MCP phases apply I.1 (#ri-explicit) to this platform/game boundary and
 // MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) to fixed masks.
 // No callback, allocation, repeat timer or gameplay service is added per action.
@@ -167,9 +169,13 @@ constexpr std::uint32_t kReload = macos::kReloadButton;
 constexpr std::uint32_t kAttack = macos::kAttackButton;
 constexpr std::uint32_t kWeaponCycle = macos::kWeaponButton;
 constexpr std::uint32_t kAimMode = macos::kTargetButton;
-constexpr std::uint32_t kActionPresses = kReload | kAttack | kWeaponCycle | kAimMode;
+constexpr std::uint32_t kShoulderLeft = macos::kShoulderLeftButton;
+constexpr std::uint32_t kShoulderRight = macos::kShoulderRightButton;
+constexpr std::uint32_t kFaceNorth = macos::kFaceNorthButton;
+constexpr std::uint32_t kActionPresses =
+    kReload | kAttack | kWeaponCycle | kAimMode | kShoulderLeft | kShoulderRight | kFaceNorth;
 std::uint32_t gameplay_key(unsigned short code) {
-  constexpr std::array<std::pair<unsigned short, std::uint32_t>, 13> bindings{{{13, kMoveForward},
+  constexpr std::array<std::pair<unsigned short, std::uint32_t>, 16> bindings{{{13, kMoveForward},
                                                                                {1, kMoveBackward},
                                                                                {0, kMoveLeft},
                                                                                {2, kMoveRight},
@@ -181,7 +187,10 @@ std::uint32_t gameplay_key(unsigned short code) {
                                                                                {15, kReload},
                                                                                {14, kAttack},
                                                                                {12, kWeaponCycle},
-                                                                               {17, kAimMode}}};
+                                                                               {17, kAimMode},
+                                                                               {33, kShoulderLeft},
+                                                                               {30, kShoulderRight},
+                                                                               {16, kFaceNorth}}};
   const auto found =
       std::ranges::find_if(bindings, [code](const auto& binding) { return binding.first == code; });
   return found == bindings.end() ? 0U : found->second;
@@ -239,6 +248,7 @@ struct StartupHost::State {
   std::shared_ptr<memory::DeviceBudget> device_budget;
   std::shared_ptr<macos::WorldRenderer> world;
   id<MTLRenderPipelineState> sprite_pipeline{};
+  id<MTLRenderPipelineState> sprite_additive_pipeline{};
   struct Texture {
     render::TextureHandle handle;
     macos::TextureAllocation native;
@@ -343,6 +353,14 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
                                                                          error:&error];
     if (state.sprite_pipeline == nil) {
       throw std::runtime_error("Could not initialize Metal sprite pipeline");
+    }
+    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
+    descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+    descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+    state.sprite_additive_pipeline = [state.device newRenderPipelineStateWithDescriptor:descriptor
+                                                                                  error:&error];
+    if (state.sprite_additive_pipeline == nil) {
+      throw std::runtime_error("Could not initialize additive sprite pipeline");
     }
     const NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                     NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
@@ -474,8 +492,12 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     bool crouch = false;
     float fire_trigger = (state.gameplay_keys & kFire) != 0 ? 1.0F : 0.0F;
     std::uint32_t action_holds = state.gameplay_keys & kActionPresses;
+    NSArray<GCController*>* controllers = [GCController controllers];
+    bool controller_connected = false;
+    for (NSUInteger index = 0; index < controllers.count; ++index) {
+      controller_connected = controller_connected || controllers[index].extendedGamepad != nil;
+    }
     if (NSApp.active && state.window.keyWindow) {
-      NSArray<GCController*>* controllers = [GCController controllers];
       for (NSUInteger index = 0; index < controllers.count; ++index) {
         GCController* controller = controllers[index];
         GCExtendedGamepad* pad = controller.extendedGamepad;
@@ -544,6 +566,7 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     return {.pressed_actions = pressed,
             .repeated_actions = repeated,
             .close_requested = !state.window.visible,
+            .controller_connected = controller_connected,
             .movement = movement,
             .look = look,
             .evade_held = evade_held,
@@ -553,7 +576,15 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
             .reload_pressed = (action_pressed & kReload) != 0,
             .attack_pressed = (action_pressed & kAttack) != 0,
             .weapon_cycle_pressed = (action_pressed & kWeaponCycle) != 0,
-            .aim_mode_pressed = (action_pressed & kAimMode) != 0};
+            .aim_mode_pressed = (action_pressed & kAimMode) != 0,
+            .shoulder_left_pressed = (action_pressed & kShoulderLeft) != 0,
+            .shoulder_right_pressed = (action_pressed & kShoulderRight) != 0,
+            .shoulder_left_held = (action_holds & kShoulderLeft) != 0,
+            .shoulder_right_held = (action_holds & kShoulderRight) != 0,
+            .face_north_pressed = (action_pressed & kFaceNorth) != 0,
+            .face_east_pressed = (action_pressed & macos::kFaceEastButton) != 0,
+            .face_south_pressed = (action_pressed & macos::kFaceSouthButton) != 0,
+            .face_west_pressed = (action_pressed & macos::kFaceWestButton) != 0};
   }
 }
 void StartupHost::upload(const video::VideoFrame& frame) {
@@ -662,9 +693,11 @@ bool StartupHost::draw(float opacity) {
     // Overlay ordered quads in the shared logical canvas with the same fade.
     if (state.sprite_count != 0) {
       [encoder setViewport:canvas_viewport];
-      [encoder setRenderPipelineState:state.sprite_pipeline];
       for (const auto& submitted : std::span(state.sprites).first(state.sprite_count)) {
         const auto& sprite = submitted.sprite;
+        [encoder setRenderPipelineState:sprite.blend == render::SpriteBlend::additive
+                                            ? state.sprite_additive_pipeline
+                                            : state.sprite_pipeline];
         const SpriteParameters parameters{
             .rectangle = {sprite.destination.x, sprite.destination.y, sprite.destination.width,
                           sprite.destination.height},
@@ -773,7 +806,8 @@ void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
         !valid_rectangle(uv) || !unit_value(uv.x) || !unit_value(uv.y) ||
         !unit_value(uv.x + uv.width) || !unit_value(uv.y + uv.height) || !unit_value(color.red) ||
         !unit_value(color.green) || !unit_value(color.blue) || !unit_value(color.alpha) ||
-        sprite.channel > render::TextureChannel::alpha) {
+        sprite.channel > render::TextureChannel::alpha ||
+        sprite.blend > render::SpriteBlend::additive) {
       throw std::runtime_error("Invalid sprite geometry or color");
     }
     const auto texture = std::ranges::find_if(state.textures, [&sprite](const auto& entry) {

@@ -2,9 +2,10 @@
 
 The running build connects traversal, aiming and weapon/attack presentation to
 live controls. The pause menu supplies explicit previews for reactions, spells,
-individual body/upper/additive/weapon clips, and expressions. This is presentation
-review in the existing scene: it does not create ammunition, hits, projectiles,
-spell effects or combat outcomes. The
+individual body/upper/additive/weapon clips, and expressions. Live fire and reload
+use authoritative ammunition and magic; explicit menu previews remain isolated
+presentation review. Neither route creates hits, projectiles, spell effects or
+combat outcomes. The
 [acceptance report](../research/engine/subsystems/alicia-animation-acceptance.md)
 separates native probe evidence from interactive review.
 
@@ -34,11 +35,14 @@ and the game window must have focus.
 | Look | Right stick | I up, K down, J left, L right |
 | Evasive leap | LT | Space |
 | Toggle crouch / stand while grounded | Left-stick click | C |
-| Fire presentation (held) | RT | F |
-| Reload presentation | X | R |
+| Fire (held) | RT | F |
+| Reload | X | R |
 | Melee presentation | A | E |
-| Switch weapon presentation (grounded) | B | Q |
+| Switch weapon (grounded) | B | Q |
 | Toggle ordinary / targeted camera mode | Right-stick click | T |
+| Open/page magic ring | Tap LB/RB | Tap `[` / `]` |
+| Ring right/bottom/left choice | B/A/X | Q/E/R |
+| Ring cancel | Y or right-stick click | Y or T |
 | Open pause / resume | Menu | Escape |
 | Menu navigation | D-pad or left stick | Arrow keys |
 | Menu confirm | A | Return or Space |
@@ -49,8 +53,11 @@ and the game window must have focus.
 LT/Space is the directional evasive leap, not a generic jump button. Release it
 between attempts: it is a held action and can request another evade after
 returning to a grounded state. RT is fire intent; LT is not aim. The desktop
-letters are host review aliases. LB, RB, Y and Xbox View remain unbound here;
-mouse look/attack remain unbound. RS/T cycles the two original unenchanted targeting modes. First click selects
+letters are host review aliases. Xbox View and mouse look/attack remain unbound.
+Release the shoulder after opening the magic ring, then tap again to page;
+holding one shoulder while pressing the other closes it. Face buttons select
+directly, after the opening/page transition settles; the sticks and D-pad do
+not navigate the ring. The user has confirmed these controls work. RS/T cycles the two original unenchanted targeting modes. First click selects
 the targeting camera; second click leaves targeting immediately and returns to
 the ordinary camera through the source quarter-second transition. Weapon posture
 can remain raised afterward; that separate post-fire/upper-animation lifetime is
@@ -88,8 +95,11 @@ While idle, the body follows that switch animation; while moving, locomotion
 continues underneath it. The selected weapon changes at the start of the action,
 as in the original. All four resource sets are retained during mission loading;
 normal switching activates a selected instance without pausing the scene or
-rebasing its clock. This remains presentation, independent of combat
-inventory/ammunition.
+rebasing its clock. Mission state owns selected availability/upgrade levels;
+each weapon retains its own magazine and cadence across switching. Reload spends
+magic according to the missing magazine fraction. Magic regenerates without an
+ordinary post-use delay, up to its current recoverable ceiling rather than the
+HUD maximum of 100.
 
 ## Checks and expected results
 
@@ -143,8 +153,15 @@ inventory/ammunition.
    pitch, Alicia should retain floor support, and no unsolicited jump should
    replace the aiming pose. Check the status line
    for unavailable animation
-   bindings rather than expecting a substituted clip. No ammunition or hit
-   result should be inferred from these animations.
+   bindings rather than expecting a substituted clip. The live HUD reports real
+   ammunition consumption; no hit result follows from these animations. The
+   current walkthrough found shotgun weapon displacement and stationary
+   support-hand jerking that was absent during movement. The duplicated Shotgun
+   root transform is repaired; the all-four-weapon firing and modifier audit is
+   recorded in [the firing report](../research/engine/subsystems/weapon-discharge-attachment.md).
+   The user confirmed the subsequent authored-target support-arm repair works.
+   That authorized improvement is documented separately from original parity;
+   the unfinished pause menu is not accepted with the HUD work.
 
    For the reported interruption, click RS/T to target, release, then click again
    to leave targeting. The camera should return to ordinary view independently
@@ -169,10 +186,13 @@ inventory/ammunition.
 ## Remaining gameplay boundaries
 
 There are no enemies or combat outcomes in this bounded traversal route.
-Presentation controls do not own ammunition, projectile spawning, damage,
-spell world effects, full targeting modes or dynamic death handoff. Original
-magic-wheel controls, campaign checkpoint selection, and full mission callbacks
-remain separate work. `--inspect-camera` changes a camera, not the checkpoint.
+PlayerResources owns live ammunition and magic; presentation consumes snapshots
+and a narrow action transaction capability. Projectile spawning, damage, spell
+world effects, full targeting modes and dynamic death handoff remain absent.
+The original magic-ring controls are connected; requests missing genuine target
+or world prerequisites report that boundary without spending magic or pretending
+to cast. Campaign checkpoint selection and full mission callbacks remain separate
+work. `--inspect-camera` changes a camera, not the checkpoint.
 
 The interactive route now reaches the prepared presentation mechanisms, but
 compilation, unit tests and offscreen probes are not substitutes for user review

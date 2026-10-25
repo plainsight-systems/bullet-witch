@@ -471,7 +471,9 @@ load-service captures and tagged scripts. See
 | `include/bw/formats/animation_definition.hpp`, `src/formats/animation_definition.cpp` | Bounded motion/shape relocation and skeleton bind-transform construction; no sampling |
 | `include/bw/content/character_support.hpp`, `src/content/character_support.cpp` | Native support-name aliases, ordered lists and retained archive/USER ownership |
 | `include/bw/animation/pose.hpp`, `src/animation/pose.cpp` | Prepared immutable channels, explicit-time sampling, reusable local/world/skin poses |
-| `src/game/player_actor.hpp/.cpp` | Selected costume, original locomotion/jump clip bindings, actor/model basis and bone-attached weapon |
+| `src/game/player_actor.hpp/.cpp` | Selected costume, original motion bindings, actor/model basis, right-hand weapon and one combined secondary/support-arm pose publication |
+| `src/game/alicia_support_arm.hpp/.cpp` | Prepared authored weapon grip/pole targets; value-only left-arm overrides under caller-owned action permission |
+| `include/bw/math/two_bone.hpp` | Reusable analytic two-link geometry and shortest-arc rotations, without actor state or pose mutation |
 | `src/game/mission_loading.hpp/.cpp` | Mission-owned body/weapon definitions, support and device residency |
 
 See [actors and animation](actors-and-animation.md). The actor presentation is
@@ -629,3 +631,32 @@ engine storage or rendering responsibilities. `StartupSession` captures permanen
 values in its owned request; the framework selects the explicit entry profile,
 then publishes weapon selection only after resource/action success. Engine
 `SaveStorage` continues to know only filenames and bytes.
+
+### Live player resources and native cockpit
+
+The [gameplay drill-in](player-gameplay.md) separates these original owners:
+
+The game integration adapters are `player_input_routing.*` (original player
+ring/input arbitration), `player_cockpit.*` (resource publication to cockpit),
+`mission_interaction.*` (pause/equipment transactions), and `mission_gameplay.*`
+(ordered mission phases). The framework invokes those phases and supplies
+neutral platform observations; it does not implement their decisions. This
+responsibility repair precedes the separate planned directory/layout discussion.
+
+| Reconstructed file | Responsibility |
+| --- | --- |
+| `src/game/player_resources.*` | Live health/magic lanes, all four weapons' ammunition/cadence and narrow action transactions |
+| `src/game/gameplay_hud.*`, `ammunition_hud.*` | Source native cockpit observations, gauge/notice/reticle/cartridge animation and ordered sprite commands |
+| `src/game/spell_selection.*` | Native ring navigation and typed selection requests; no resource or action authority |
+| `src/game/gameplay_hud_surface.*`, `sprite_text.*` | Prepared original sprite/font residency and shared text submission |
+| `src/game/power_up_flow.*` (separate unaccepted work; excluded from HUD commit) | Native post-result category/confirmation policy, UI transition ownership and restricted permanent purchase capability |
+| `src/game/power_up_presentation.hpp`, `power_up_surface.*` (separate unaccepted work; excluded from HUD commit) | Copied power-up observations and original art/font/localization/input-glyph rendering; no purchase or clock authority |
+
+The game coordinator brackets action dispatch with the existing world frame and
+the cockpit adapter publishes copied observations afterward. `StageInspection`
+borrows only action transactions;
+its former independent weapon cadence gate is removed. The engine sprite backend
+owns alpha/additive blend state; game UI supplies ordered values. Pause-only menu
+residency excludes frontend title/stage art so HUD, ring and costume assets share
+the existing texture budget. These names describe reconstructed responsibilities,
+not recovered original C++ class names.

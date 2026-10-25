@@ -1,84 +1,19 @@
-// Timing composition: native pacing waits on engine FrameClock; one engine
-// WorldClock publishes mission frames after game input/pause admission. Root
-// control work continues while normal world work is withheld; mission coroutine
-// pause is independent. No framework delta clamp, pause mirror or input rearm
-// state. Design C.9/I.1; implementation E.4 (#re-design-invariants); both-phase
-// MEM.9 keeps sampled frame/control storage fixed. See world-timing.md.
-// Concept progression selection is an explicit development policy. Saved
-// mode inherits the owned handoff; development mode supplies a nonpersistent
-// completed-game capability profile at entry. Neither edits permanent saves.
-// Design C.9/I.30, implementation E.4 (#re-design-invariants); both-phase MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds entry-only
-// work. Capture suppresses developer presentation at composition boundaries
-// while retaining ordinary input, simulation, media and loading. Optional
-// launch budgets bound only explicitly timed/verification runs. Both MCP
-// phases: Core I.1 (#ri-explicit) supplies immutable launch policy; performance
-// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) adds no frame
-// storage. Interactive presentation review forwards captured intent to Stage
-// and keeps external review observations explicit. Paused transactions rebind
-// catalog borrowers after publication, report failures without advancing the
-// game, and rebase wall deadlines. Ordinary next-weapon activates
-// mission-resident assets without pausing audio/world or consuming a UI-only
-// frame; source model instance recreation is separate from immutable resource
-// acquisition (R.20/I.11/CDSA.32). Both MCP phases I.1 (#ri-explicit) preserve
-// admission/composition boundaries; MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps notices and
-// per-frame orchestration fixed values; resource work occurs only on requests.
-// Pause composition routes UI input before game clocks, preserving a sampled
-// wall clock while simulation is frozen. A selected costume loads/publishes as
-// an explicit paused transaction; failure keeps the current appearance. Menu
-// resources are prepared at mission admission, not each pause. Both phases Core
-// I.1 (#ri-explicit), E.6 (#re-raii), performance MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md). See
-// research/engine/subsystems/pause-and-costume-switching.md.
-// Loading presentation uses explicit asset-boundary callbacks (design Core I.1
-// #ri-explicit, implementation E.6 #re-raii). Performance GPU.1 retains
-// uploads; callbacks pump only completed loading UI and never inspect partial
-// owners. An optional inspection pose is passed once to stage-view
-// construction. This development setting never replaces the original player
-// spawn or starts actor simulation. Both MCP phases: I.1 (#ri-explicit) keeps
-// the override in owned configuration; MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps parsing and view
-// construction outside repeated frame work. Memory composition: require
-// resource/runtime/media capabilities, construct catalogs and their service
-// with one resource identity, then inject runtime and media owners. Failure
-// unwinds without a default-heap retry. R.1
-// (#rr-raii) and MEM.6 (guidelines/memory/
-// MEM.6-inject-allocators-behind-one-interface.md), read in both phases,
-// govern ownership and startup-only capability propagation.
-// Front-end extension: mount the supplied costume catalogs, own Profile and
-// menu presentation, and inject borrowed SaveStorage into FrontEnd. Original
-// Lua drives screen transitions and mission routing. One Shot Kill owns its
-// original mission/load context and a separate static inspection after its
-// resource constructors complete. World setup remains a separate gate. Other
-// requests retain the handoff boundary;
-// never report a completed mission. Profile I/O occurs only at load/change,
-// and menu images allocate once per front-end activation. Design I.30
-// (#ri-encapsulate), implementation E.6 (#re-raii) and performance COPY.4 below
-// preserve explicit game composition and retirement order. See
-// research/engine/subsystems/frontend-integration.md.
-// Startup route extension: game policies borrow capabilities; composition owns
-// them through cleanup. Design MCP R.20 (#rr-owner) retains explicit lifetime;
-// implementation E.6 (#re-raii) unwinds on failures. cpp-performance COPY.4
-// (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) preserves
-// container ownership without per-frame payload copies. Shared presentation
-// contracts are described in
-// research/engine/subsystems/startup-title-integration.md. Shared startup
-// composition for this game/engine product; target entry points select and own
-// native services. See startup_application.hpp for the borrowed lifetime
-// contract and docs/native-startup-host.md for unchanged loop semantics.
-// Algorithm: parse owned configuration; mount read-only resources; own session
-// and playback; pump -> media/fade -> game tasks -> presentation; retire in
-// reverse order. Unsupported routes and verification failures throw to the
-// target entry. A monotonic 60 Hz deadline paces the loop; game delta caps at
-// recovered 0.1 s, media wall time is uncapped. Costs remain the composed
-// resource/media work; moving the selected factory does not copy decoder or
-// native owners. Design MCP: C.129 (#rh-kind) keeps codec choice outside shared
-// composition; I.27 (#ri-pimpl) hides the selected host implementation.
-// Implementation MCP: E.6 (#re-raii) preserves exception cleanup;
-// cpp-performance COPY.5
-// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
-// preserves unique ownership while transferring the decoder factory.
+// Application composition owns platform services and stable game lifetimes.
+// Sample/publish engine presentation timing, adapt neutral platform input,
+// advance media, delegate game phases and present native output.
+// MissionGameplay owns pause/action ordering and PlayerCockpit owns
+// resource-to-HUD policy; this layer never chooses ring actions, masks gameplay
+// commands or interprets resource receipts. A completed bounded resource
+// transaction requests deadline rebasing without exposing its game policy.
+// Resources precede Stage, which precedes its gameplay coordinator, preserving
+// reverse-order retirement. Capture suppresses developer presentation only; it
+// does not alter simulation. Existing loading callbacks pump presentation
+// without admitting world ticks. Core I.1 (#ri-explicit), C.9 (#rc-private),
+// implementation E.4
+// (#re-design-invariants), and both-phase performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) retain explicit phases and fixed
+// per-frame handoffs. See gameplay-integration-boundaries.md and
+// world-timing.md.
 #include "startup_application.hpp"
 
 #include <algorithm>
@@ -91,10 +26,12 @@
 
 #include "bw/timing/frame_clock.hpp"
 #include "bw/world/world_clock.hpp"
+#include "game/gameplay_hud_surface.hpp"
 #include "game/initial_placement_shim.hpp"
 #include "game/mission_control.hpp"
+#include "game/mission_gameplay.hpp"
 #include "game/mission_loading.hpp"
-#include "game/pause_flow.hpp"
+#include "game/player_resources.hpp"
 #include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
 #include "game/startup_loading_surface.hpp"
@@ -186,20 +123,10 @@ int run_startup(const StartupOptions& configuration,
   std::optional<game::MissionDriver> mission;
   game::SourceRandom random;
   std::optional<game::MissionAudio> mission_audio;
+  std::optional<game::PlayerResources> player_resources;
+  game::GameplayHudSurface hud_surface(resources, host);
   std::optional<game::StageInspection> stage_inspection;
-  std::optional<game::PauseFlow> pause;
-  std::string_view live_notice;
-  const auto bind_review_catalogs = [&] {
-    const auto* body = stage_inspection.value().review_catalog(false);
-    const auto* weapon = stage_inspection.value().review_catalog(true);
-    if (body != nullptr && weapon != nullptr) {
-      pause.value().set_available_weapons(mission_player->levels().weapons);
-      pause.value().bind_review_catalogs(
-          *body, *weapon, mission_loading.value().current_weapon_class(),
-          stage_inspection.value().review_pose_semantics(false),
-          stage_inspection.value().review_pose_semantics(true));
-    }
-  };
+  std::optional<game::MissionGameplay> mission_gameplay;
   std::optional<game::MissionPhase> reported_mission_phase;
   // Completed asset operations may pump only loading presentation. They never
   // reenter Lua, inspect a partial world or transfer native ownership threads.
@@ -246,100 +173,31 @@ int run_startup(const StartupOptions& configuration,
       }
       return 0;
     }
-    bool ui_frame = false;
-    game::GameplayInput gameplay;
-    if (input.pause_pressed || input.reload_pressed || input.attack_pressed ||
-        input.aim_mode_pressed || input.fire_trigger > 0) {
-      live_notice = {};
-    }
-    if (pause) {
-      ui_frame = pause->update(input.pause_pressed,
-                               {input.pressed_actions, input.repeated_actions});
-      gameplay = mission_control->route(
-          {.movement = input.movement,
-           .look = input.look,
-           .fire_trigger = input.fire_trigger,
-           .evade_held = input.evade_held,
-           .crouch_pressed = input.crouch_pressed,
-           .reload_pressed = input.reload_pressed,
-           .attack_pressed = input.attack_pressed,
-           .weapon_cycle_pressed = input.weapon_cycle_pressed,
-           .aim_mode_pressed = input.aim_mode_pressed},
-          ui_frame);
-      stage_inspection->synchronize_pause();
-      if (const auto costume = pause->requested_costume()) {
-        bool success = false;
-        try {
-          stage_inspection->change_costume(*mission_loading, *costume);
-          success = true;
-        } catch (const std::exception& error) {
-          mission_loading->discard_player_costume();
-          std::cerr << "Costume change: " << error.what() << '\n';
-        }
-        pause->complete_costume(success);
-        if (success) bind_review_catalogs();
-        // A bounded resource transaction is not simulation time on resume.
+    game::MissionFrameDisposition mission_frame;
+    if (mission_gameplay) {
+      mission_frame = mission_gameplay->begin(
+          presentation_delta,
+          {.player = {.movement = input.movement,
+                      .look = input.look,
+                      .fire_trigger = input.fire_trigger,
+                      .evade_held = input.evade_held,
+                      .crouch_pressed = input.crouch_pressed,
+                      .reload_pressed = input.reload_pressed,
+                      .attack_pressed = input.attack_pressed,
+                      .weapon_cycle_pressed = input.weapon_cycle_pressed,
+                      .aim_mode_pressed = input.aim_mode_pressed,
+                      .shoulder_left_pressed = input.shoulder_left_pressed,
+                      .shoulder_right_pressed = input.shoulder_right_pressed,
+                      .shoulder_left_held = input.shoulder_left_held,
+                      .shoulder_right_held = input.shoulder_right_held,
+                      .face_north_pressed = input.face_north_pressed,
+                      .face_east_pressed = input.face_east_pressed,
+                      .face_south_pressed = input.face_south_pressed,
+                      .face_west_pressed = input.face_west_pressed},
+           .pause_pressed = input.pause_pressed,
+           .menu = {input.pressed_actions, input.repeated_actions}});
+      if (mission_frame.resource_transaction) {
         frame_clock.rebase(std::chrono::steady_clock::now());
-      }
-      if (const auto weapon_class = pause->requested_weapon()) {
-        bool success = false;
-        try {
-          if (!mission_player->weapon_available(*weapon_class)) {
-            throw std::invalid_argument("Weapon has not been acquired");
-          }
-          stage_inspection->change_weapon(*mission_loading, *weapon_class);
-          mission_player->select_weapon(*weapon_class);
-          success = true;
-        } catch (const std::exception& error) {
-          mission_loading->discard_weapon_class();
-          std::cerr << "Weapon preview change: " << error.what() << '\n';
-        }
-        pause->complete_weapon(success);
-        if (success) bind_review_catalogs();
-        frame_clock.rebase(std::chrono::steady_clock::now());
-      }
-      if (const auto review = pause->requested_review()) {
-        pause->complete_review(stage_inspection->review(*review));
-        // Successful preview resumes the scene next frame; this confirmation
-        // remains entirely owned by the UI and cannot also fire an action.
-        stage_inspection->synchronize_pause();
-        live_notice = {};
-      }
-      if (gameplay.weapon_cycle_pressed) {
-        const auto* player = stage_inspection->player_state();
-        if (player == nullptr ||
-            player->phase != game::PlayerMovementPhase::grounded) {
-          live_notice = "Weapon preview change needs grounded Alicia.";
-        } else {
-          // Resident selection is an ordinary action. This frame still
-          // advances world/audio and retains elapsed host time.
-          bool success = false;
-          try {
-            if (mission_player->selected_weapon() !=
-                mission_loading->current_weapon_class()) {
-              throw std::logic_error("Player and resident weapon disagree");
-            }
-            const auto next_weapon = mission_player->next_weapon();
-            if (next_weapon != mission_player->selected_weapon()) {
-              stage_inspection->switch_weapon(*mission_loading, next_weapon);
-              // Publish authoritative equipment only after preparation and
-              // action admission succeed; rejection retains the old selection.
-              mission_player->select_weapon(next_weapon);
-              success = true;
-            }
-          } catch (const std::exception& error) {
-            mission_loading->discard_weapon_class();
-            std::cerr << "Weapon preview change: " << error.what() << '\n';
-          }
-          if (success) {
-            bind_review_catalogs();
-            live_notice =
-                "Acquired weapon selected; combat resources remain pending.";
-          } else {
-            live_notice =
-                "Weapon preview unavailable; current weapon retained.";
-          }
-        }
       }
     }
     // Advance transport before game policy observes completion and selects
@@ -381,37 +239,16 @@ int run_startup(const StartupOptions& configuration,
       longest_tick = 0;
       longest_pump = 0;
     }
-    // Normal world work precedes root/mission control as in the base game path.
-    // A control-only frame remains published, but Stage does not simulate it.
-    if (stage_inspection) {
-      const auto frame = world_clock->publish(
-          presentation_delta, mission_control->admission(ui_frame));
-      stage_inspection->advance(
-          frame,
-          {.movement = {gameplay.movement, gameplay.evade_held,
-                        gameplay.crouch_pressed},
-           .look = {gameplay.look[0], gameplay.look[1]},
-           .presentation = {.fire_trigger = gameplay.fire_trigger,
-                            .reload_pressed = gameplay.reload_pressed,
-                            .attack_pressed = gameplay.attack_pressed,
-                            .aim_mode_pressed = gameplay.aim_mode_pressed}});
-    }
+    // Game owns the admitted action/resource/presentation ordering; media
+    // transport remains a separate service between input and world phases.
+    if (mission_gameplay) mission_gameplay->advance();
     const auto actions =
         configuration.verify || stage_inspection ? 0U : input.pressed_actions;
     const auto result = session.advance(
         {presentation_delta, actions},
         configuration.verify || stage_inspection ? 0U : input.repeated_actions);
-    if (stage_inspection) {
-      if (pause && pause->paused()) {
-        menu_surface.show(pause->presentation());
-      } else {
-        // Clear the developer overlay without altering the world submission.
-        menu_surface.show_status(configuration.capture
-                                     ? std::string_view{}
-                                     : (live_notice.empty()
-                                            ? stage_inspection->review_status()
-                                            : live_notice));
-      }
+    if (mission_gameplay) {
+      mission_gameplay->present(!configuration.capture);
       // Inspection presents independently while the original mission load and
       // its black fade remain pending; this never advances script completion.
       (void)host.draw(1.0F);
@@ -488,7 +325,7 @@ int run_startup(const StartupOptions& configuration,
     }
     // The pause/resume UI owns this transition frame. Root/control tasks above
     // still run; the mission coroutine begins observing resume next frame.
-    if (mission && !ui_frame) {
+    if (mission && !mission_frame.ui_consumed) {
       const auto& progress = mission->advance();
       if (loading_close_requested) return 0;
       if (progress.phase == game::MissionPhase::failed) {
@@ -527,6 +364,12 @@ int run_startup(const StartupOptions& configuration,
                               configuration.game / "data/sound", memory.media,
                               audio_factory, kMissionAudioLimits,
                               loading_pulse);
+        const auto customization = formats::CustomizationDefinition::parse(
+            stage->customization_bytes(), memory.resources);
+        player_resources.emplace(
+            game::PlayerResourceSettings::parse(customization), *mission_player,
+            *world_clock);
+        hud_surface.prepare();
         stage_inspection.emplace(
             *world_clock, *mission_control, host,
             game::StageViewSource{stage.value(),
@@ -551,12 +394,13 @@ int run_startup(const StartupOptions& configuration,
                                             mission_loading->enemy_light()});
         stage_inspection->bind_audio(mission_audio->prepared(),
                                      *mission_audio->output(), random);
-        menu_surface.begin();
+        menu_surface.begin_pause();
         while (!menu_surface.ready()) loading_pulse();
-        pause.emplace(mission_control->user_pause_control(),
-                      mission_loading->current_player_costume(),
-                      !configuration.capture);
-        bind_review_catalogs();
+        mission_gameplay.emplace(
+            *world_clock, *mission_control, *mission_player, *player_resources,
+            *mission_loading, *stage_inspection, hud_surface, menu_surface,
+            random, !configuration.capture,
+            game::CockpitActivation::inspection);
         inspected_stage = true;
         loading_surface.end();
         // Loading wall time is not an initial simulation step.

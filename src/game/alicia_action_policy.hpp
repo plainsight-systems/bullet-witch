@@ -130,6 +130,13 @@ ActionMotionPlan accepted_shot(const AcceptedWeaponAction& action);
 ActionMotionPlan accepted_weapon_change(AliciaStance stance,
                                         std::uint32_t body_slot);
 
+// The support-hand improvement may coexist with discharge recoil, but must
+// release for every other upper action (reload, switch, raise/lower, unknown).
+// This classifies source binding families, never clip names or frame timing.
+// Empty upper ownership leaves permission with the controller's action gate.
+// Both-phase I.1/MEM.9: pure value policy, fixed work, no retained authority.
+bool permits_support_hand(std::optional<std::uint32_t> upper_slot) noexcept;
+
 // Decode the base weapon specification once, before the input loop. Native
 // 617260 resolves witch/weapon/waN/00_spec. Enchanted alternatives and
 // ammunition ownership are separate consumers; this immutable view does not
@@ -140,28 +147,8 @@ struct WeaponPresentationSettings {
       const formats::CustomizationDefinition& tree, unsigned weapon_class);
 };
 
-// Presentation-only cadence from 616530/617a30. The caller supplies an accepted
-// review/combat observation; holding a trigger alone never fabricates ammo or
-// recharge approval. Call try_shot before advance for the source parent/child
-// order. Positive cooldown subtracts delta; nonpositive cooldown becomes zero
-// at the next update, preserving one interval of catch-up. One true result
-// publishes one animation request even when source projectile catch-up repeats.
-// A prepared rate in (0,1000] and consumed delta in [0,.25] bound that loop to
-// 251 additions; no allocation. Pausing means no advance. Normal switching
-// retains a gate per class, including inactive decay; neutral menu replacement
-// may reset it. Reset only after accepted reload/explicit review reset.
-// Both design/implementation corpora E.4 preserve finite state on rejection;
-// MEM.9 stores only the prepared interval and current cooldown.
-class WeaponPresentationGate {
- public:
-  explicit WeaponPresentationGate(float rate_per_second);
-  bool try_shot(bool trigger, bool upper_present, bool accepted_observation);
-  void advance(float delta_seconds);
-  void reset() noexcept { cooldown_seconds_ = 0; }
-
- private:
-  float interval_seconds_{}, cooldown_seconds_{};
-};
+// Live cadence/ammunition now belong to PlayerResources. Animation policy
+// consumes its accepted action result; no second presentation cooldown exists.
 
 // Source 62e400 migrates existing upper-family standing/crouched variants
 // without restarting their phase. No request is produced outside its range.

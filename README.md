@@ -87,21 +87,32 @@ controls. Full mission behavior is still being reconstructed.
 | Look | Right stick | I/J/K/L |
 | Evasive leap | LT | Space |
 | Crouch/stand | Left stick click | C |
-| Fire presentation | RT held | F held |
-| Reload presentation | X | R |
+| Fire | RT held | F held |
+| Reload | X | R |
 | Melee presentation | A | E |
-| Switch weapon presentation | B | Q |
-| Aim presentation mode | Right stick click | T |
+| Switch weapon | B | Q |
+| Aim | Right stick click | T |
+| Open/page magic ring | Tap LB/RB | Tap `[` / `]` |
+| Ring choice: right/bottom/left | B/A/X | Q/E/R |
+| Cancel ring | Y or right stick click | Y or T |
 | Pause/resume | Menu | Escape |
 
-The pause menu offers Resume, Costume, Weapon Class, and Animation Review.
+Release the shoulder button after opening the ring, then tap again to page.
+Holding one shoulder while pressing the other closes it. Face buttons select
+spells directly; the sticks and D-pad do not navigate the ring. Wait for its
+opening/page transition to settle before selecting.
+
+The current inspection pause menu offers Resume, Costume, Weapon Class, and
+Animation Review. The original pause menu is still being reconstructed.
 Choose with the D-pad or arrow keys and confirm with A or Return. Animation
 Review runs selected actions and clips in the current scene; unavailable requests
 stay paused with an explanation. B/Q switches weapons with the original change
 animation, retaining body movement and aiming state; the paused Weapon Class
 selector resets presentation to neutral. Both preserve position and require
-Alicia to be grounded. These controls review presentation: ammunition, hits,
-projectiles, spell effects, and combat outcomes are not simulated.
+Alicia to be grounded. Ammunition and magic are live resources: firing consumes rounds and reloads
+spend magic, which recovers to its current ceiling while unpaused. Hits,
+projectiles, spell effects and combat outcomes are not simulated. Spell requests
+report missing target or world prerequisites rather than pretending to cast.
 See the [animation review checklist](docs/animation-review.md) for exact controls,
 input sequences, expected results and the boundary between live controls and
 explicit presentation previews.

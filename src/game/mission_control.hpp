@@ -33,6 +33,10 @@ struct GameplayInput {
   float fire_trigger{};
   bool evade_held{}, crouch_pressed{}, reload_pressed{}, attack_pressed{},
       weapon_cycle_pressed{}, aim_mode_pressed{};
+  bool shoulder_left_pressed{}, shoulder_right_pressed{};
+  bool shoulder_left_held{}, shoulder_right_held{};
+  bool face_north_pressed{}, face_east_pressed{}, face_south_pressed{},
+      face_west_pressed{};
 };
 enum class ScriptPause : std::uint8_t { simulation, input };
 class MissionControl;

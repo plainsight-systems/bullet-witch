@@ -1,5 +1,16 @@
 # Remaining work
 
+- The HUD/live-resource/ring and firing/support-hand work is accepted with
+  its necessary existing-pause integration. The user confirmed the hand repair
+  works and accepted the HUD, but explicitly did not accept the pause menu.
+  Finish the original pause task next, with the user's missing-behavior feedback
+  and a source-backed operation inventory. Keep post-result power-up work
+  outside the accepted commit unless separately accepted. The architecture/file
+  organization pass still follows this pre-gameplay work; full mission/casting
+  and persistence dependencies remain open.
+  Replace the current debug menu as the ordinary gameplay pause surface; retain
+  debug views only through explicit build parameters, off by default.
+
 - Separate offline asset-upgrade track: review Alicia's first body/face texture
   candidates from `research/reports/2026-10-25-asset-upgrade-pipeline.md`.
   Establish mesh/UV and moving-light comparison before accepting materials or
@@ -7,6 +18,34 @@
   preserve original meshes/rigs. Hunyuan runtime setup and later donor-mesh
   experiments remain future work; TRELLIS also needs authorized dependencies.
   Do not import experimental assets into the faithful baseline implicitly.
+
+- The reopened gameplay integration responsibility repair is implemented:
+  input arbitration, cockpit publication and mission sequencing are game-owned;
+  platform adapters publish neutral buttons. The previous review missed this
+  architecture defect. Replacement full gates, actual-content coordinator
+  verification and fresh independent responsibility review pass. Resolve the live
+  casting prerequisite boundary in `docs/architecture/player-gameplay.md` before
+  claiming live casting readiness. Native Wall admission needs an actual wall/placement owner;
+  Sacrifice needs an ally. Do not replace those with animation-review observations
+  or grant extra magic. Full world save/checkpoint routing and mission-owned
+  HUD activation remain explicit boundaries. Separate unaccepted working-tree
+  power-up art, input/purchase policy and native prompt/layout verification are implemented;
+  the repaired binary's final verification is recorded separately from the
+  superseded architectural clearance.
+  The user confirms the HUD generally works and accepts spell-ring navigation.
+  Shotgun's duplicated attached-root transform is repaired. The all-four-weapon
+  firing audit covers stationary/moving/aim transitions and original modifier
+  ownership; the original player arm hook is registered but has no effect in
+  this Steam image. The user authorized an established support-arm solver after
+  the bounded numerical source comparison. Shared two-bone geometry, authored
+  weapon-target integration and action-owned release are implemented and
+  independently verified across all four weapons and exclusive-action
+  transitions. This is an explicit improvement over the inactive PC solver;
+  some moving class-2 frames retain a documented no-stretch reach limit.
+  Final frozen-source gates and original-content verification pass; the user
+  confirmed the repair works and accepted the HUD scope, not the pause menu. See
+  `research/engine/subsystems/weapon-discharge-attachment.md`. Casting and the
+  broader pause/power-up scope remain unaccepted. Verification: `research/engine/subsystems/gameplay-hud-verification.md`.
 
 - Lighting redesign and its native surface-sampling repair were accepted by
   the user on October 25, 2026; commit is authorized. The final full gate and
@@ -33,11 +72,24 @@
   this timing acceptance.
   The lighting slice is now accepted. Next is the agreed slice 3: real
   player/weapon resource ownership, controls, HUD, power-up transactions and
-  supported pause operations. Slice 4 follows with genuine One Shot Kill
-  startup, authored entities and mission lifecycle. Preserve source-owned
+  supported pause operations. After the remaining agreed pre-gameplay work,
+  complete a final architecture/file-organization slice before genuine One Shot
+  Kill startup, authored entities and mission lifecycle. Discuss that layout with
+  the user at that point: decompose the flat game directory, verify engine/game
+  responsibility for scene code, and clarify lighting across layers. Directory
+  placement must follow ownership and dependency boundaries; do not assume scene
+  belongs under game or start moving files during the current slice. No final
+  layout is selected yet. Preserve the other agreed work in its existing order. Preserve source-owned
   boundaries and inspect pinned Unreal implementations where original contracts
   remain opaque. Lighting's named event/weather/particle/settings producers stay
   with those owning slices; acceptance does not claim they already exist.
+  Future gameplay acceptance includes the complete action: source input/admission
+  and entity outcome, animation, relevant particles/effects, sound events with
+  spatial placement/lifetime, HUD response, pause/timing and cleanup. Gunfire,
+  impacts, reload, foley, spells, enemies and environment audio belong with their
+  respective gameplay producers, reusing the existing backend. Silent/invisible
+  partial actions do not count as completed gameplay; track real dependencies.
+  This follows the organization pass and does not expand the present repair.
 
 
 

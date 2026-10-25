@@ -574,7 +574,6 @@ StageInspection::StageInspection(
       throw std::invalid_argument("Unknown admitted player weapon class");
     }
     weapon_class_ = static_cast<unsigned>(weapon_name[2] - '0');
-    weapon_gate_.emplace(weapon_settings_.at(weapon_class_).rate_per_second);
     constexpr std::array death_path{
         std::string_view("witch"), std::string_view("actor"),
         std::string_view("pw0"), std::string_view("body")};
@@ -1289,7 +1288,7 @@ void StageInspection::advance(const world::WorldFrame& frame,
           ordinary_shooter && input.presentation.aim_mode_pressed,
           ordinary_shooter && fire_targeting, automatic_targeting_camera_);
     }
-    present_input(input.presentation, input.movement, delta_seconds);
+    present_input(input.presentation, input.movement);
     // The current host exposes normal horizontal look. Use the source initial
     // sensitivity field for its raised turn animation, not camera angular
     // speed. Persisted inversion/sensitivity options remain an explicit input

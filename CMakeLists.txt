@@ -83,11 +83,11 @@ if(UNIX)
   bw_strict(bw_save_storage_posix)
 endif()
 add_library(bw_game src/game/mission_control.cpp src/game/pause_flow.cpp src/game/camera/initial_camera.cpp src/game/camera/player_camera.cpp src/game/placed_collision.cpp src/game/placed_lighting.cpp src/game/stage_inspection.cpp src/game/stage_animation_review.cpp src/game/stage_shadow.cpp src/game/mission_driver.cpp src/game/initial_placement_shim.cpp src/game/mission_loading.cpp src/game/mission_package_inputs.cpp src/game/npc_palette.cpp src/game/root_driver.cpp src/game/startup_flows.cpp src/game/startup_services.cpp src/game/advertise_flow.cpp src/game/title_flows.cpp src/game/menu_flow.cpp src/game/frontend.cpp)
-target_sources(bw_game PRIVATE src/game/stage_environment.cpp src/game/player_actor.cpp src/game/player_controller.cpp src/game/alicia_secondary_motion.cpp
+target_sources(bw_game PRIVATE src/game/stage_environment.cpp src/game/player_actor.cpp src/game/player_controller.cpp src/game/alicia_secondary_motion.cpp src/game/alicia_support_arm.cpp
   src/game/character_animations.cpp src/game/alicia_motion_bindings.cpp src/game/motion_presentation.cpp
   src/game/facial_animation.cpp src/game/character_audio.cpp src/game/mission_audio.cpp
   src/game/character_motion_player.cpp)
-target_sources(bw_game PRIVATE src/game/alicia_action_policy.cpp
+target_sources(bw_game PRIVATE src/game/ammunition_hud.cpp src/game/gameplay_hud.cpp src/game/spell_selection.cpp src/game/player_resources.cpp src/game/alicia_action_policy.cpp
   src/game/alicia_reaction_policy.cpp
   src/game/scripted_jump_policy.cpp
   src/game/spell_presentation_policy.cpp
@@ -100,7 +100,7 @@ add_library(bw_startup_playback src/game/startup_playback.cpp)
 target_link_libraries(bw_startup_playback PUBLIC bw_game bw_video)
 target_include_directories(bw_startup_playback PUBLIC src)
 bw_strict(bw_startup_playback)
-add_library(bw_startup_presentation src/game/startup_title_surface.cpp src/game/startup_menu_surface.cpp src/game/startup_loading_surface.cpp)
+add_library(bw_startup_presentation src/game/gameplay_hud_surface.cpp src/game/sprite_text.cpp src/game/startup_title_surface.cpp src/game/startup_menu_surface.cpp src/game/startup_loading_surface.cpp)
 target_link_libraries(bw_startup_presentation PUBLIC bw_game PRIVATE bw_images)
 target_include_directories(bw_startup_presentation PUBLIC src)
 # Display the target OS, including when a toolchain selects a cross-build target.
@@ -111,6 +111,10 @@ endif()
 target_compile_definitions(bw_startup_presentation PRIVATE
   BW_TARGET_PLATFORM_NAME="${bw_target_platform_name}")
 bw_strict(bw_startup_presentation)
+target_sources(bw_game PRIVATE src/game/player_input_routing.cpp
+  src/game/player_cockpit.cpp src/game/mission_interaction.cpp
+  src/game/mission_gameplay.cpp)
+
 add_library(bw_startup_framework src/framework/startup_application.cpp src/framework/startup_options.cpp)
 target_link_libraries(bw_startup_framework PUBLIC bw_startup_playback PRIVATE bw_startup_presentation)
 bw_strict(bw_startup_framework)
@@ -197,10 +201,11 @@ if(BUILD_TESTING)
   set_tests_properties(image-font PROPERTIES TIMEOUT 30)
   add_executable(runtime-tests tests/runtime_test.cpp tests/task_memory_test.cpp tests/lua_memory_test.cpp tests/startup_flows_test.cpp
     tests/startup_services_test.cpp tests/startup_playback_test.cpp tests/pcm_buffer_test.cpp tests/advertise_flow_test.cpp tests/title_flow_test.cpp tests/menu_flow_test.cpp tests/initial_camera_test.cpp tests/player_camera_test.cpp tests/placed_collision_test.cpp tests/startup_options_test.cpp tests/stage_shadow_test.cpp)
-  target_sources(runtime-tests PRIVATE tests/motion_presentation_test.cpp tests/world_timing_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/ammunition_hud_test.cpp tests/gameplay_hud_test.cpp tests/gameplay_integration_test.cpp tests/motion_presentation_test.cpp tests/world_timing_test.cpp)
   target_sources(runtime-tests PRIVATE tests/alicia_action_policy_test.cpp
     tests/alicia_reaction_policy_test.cpp
     tests/scripted_jump_policy_test.cpp
+    tests/player_resources_test.cpp
     tests/spell_presentation_policy_test.cpp
     tests/aim_posture_test.cpp)
   target_link_libraries(runtime-tests PRIVATE bw_startup_playback bw_startup_framework bw_input)

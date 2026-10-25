@@ -46,6 +46,7 @@
 #include "game/mission_control.hpp"
 #include "player_actor.hpp"
 #include "player_controller.hpp"
+#include "player_resources.hpp"
 #include "player_targeting.hpp"
 #include "resident_model.hpp"
 #include "stage_environment.hpp"
@@ -140,6 +141,9 @@ class StageInspection {
   // Mission-owned output/prepared policy and session RNG outlive this view.
   // Bind once after actor admission; pause and listener updates follow the
   // same stage clock as its animation event owners.
+  // Mission resources outlive this stage. Bind once before ordinary actions;
+  // this handle can spend accepted actions, never reset a resource or clock.
+  void bind_action_resources(PlayerActionResources resources);
   void bind_audio(const PreparedCharacterAudio& prepared,
                   audio::CueOutput& output, SourceRandom& random);
   // Explicit paused appearance transaction. Prepare/load candidate resources,
@@ -236,7 +240,7 @@ class StageInspection {
   void set_review_status(std::string_view text, std::string_view detail = {});
   void prepare_review_observations(PlayerActionObservations& observation);
   void present_input(PlayerPresentationInput input,
-                     PlayerMovementInput movement, double delta_seconds);
+                     PlayerMovementInput movement);
   std::optional<PlayerMovementState> review_entry_;
   bool review_fixed_pose_{}, review_next_phase_{}, review_thunder_striking_{};
   bool review_scripted_posture_{};
@@ -245,8 +249,7 @@ class StageInspection {
   static constexpr std::size_t kReviewMessageCapacity = 160;
   std::array<char, kReviewMessageCapacity> review_message_{};
   std::array<WeaponPresentationSettings, 4> weapon_settings_{};
-  std::optional<WeaponPresentationGate> weapon_gate_;
-  std::array<std::optional<WeaponPresentationGate>, 4> inactive_weapon_gates_;
+  std::optional<PlayerActionResources> action_resources_;
   unsigned weapon_class_{};
   AcceptedDeathPresentation review_death_;
   struct AnimatedMaterial {

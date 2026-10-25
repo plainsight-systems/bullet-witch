@@ -1,5 +1,17 @@
 # Current engineering decisions
 
+- The user accepted the HUD/live-resource work and confirmed the support-hand
+  repair works. This authorizes committing that accepted scope. The pause menu
+  is explicitly not accepted: complete its original native presentation and
+  supported operations next, before the agreed architecture/file-organization
+  pass. Existing pause admission, resource preservation and HUD retirement are
+  dependencies of the accepted HUD; this does not accept the current limited
+  Resume/Costume/developer-review menu as the finished pause task. Post-result
+  power-up work has no explicit acceptance and remains separate. Live casting,
+  mission startup/results and world persistence boundaries remain open.
+  Normal pause must become the original gameplay menu; debug views belong behind
+  explicit build parameters with a clean production default, not capture mode.
+
 - Offline asset-upgrade experiments are authorized in parallel with the faithful
   port, starting with Alicia's original outfit. The first repeatable extraction
   and texture/material pipeline preserves source bytes and resource provenance,
@@ -9,6 +21,57 @@
   meshes, rigs and animation as masters. This does not reorder engine work or
   approve replacement assets. See
   `research/reports/2026-10-25-asset-upgrade-pipeline.md`.
+
+- Before genuine mission/full-gameplay implementation, finish the current live
+  resources/HUD/controls/pause/power-up slice and remaining agreed pre-gameplay
+  work, then hold a final architecture/file-organization slice. The user will
+  discuss that layout when reached: the flat game directory, engine/game scene
+  ownership, and lighting across layers. Follow responsibility and dependency
+  boundaries; no assumption that engine scene moves into game, no final layout
+  or current-slice reorganization is authorized by this sequencing decision.
+  Subsequent gameplay slices are accepted as complete connected behaviors,
+  including source-driven sound, relevant effects/particles, animation, entity
+  outcomes and HUD response with correct timing, pause and cleanup. Reuse audio
+  services and trace event producers; silent/invisible actions and guessed cue
+  timing do not establish completed gameplay. This does not widen the current
+  HUD/animation repair scope.
+
+- Slice 3 live resources/HUD responsibility placement was reopened by user review:
+  game ring/cockpit policy leaked into framework and platform code. Prior
+  lifetime/const checks missed architecture. The repair gives input arbitration,
+  cockpit publication and mission sequencing explicit game owners. Fresh
+  responsibility review, full repository gates and actual-content coordinator
+  verification pass. See
+  `research/engine/subsystems/gameplay-integration-boundaries.md`.
+  The work remains based on accepted lighting
+  commit `3e985bc`. Source-derived health/magic lanes and all four magazines
+  remain mission-owned; HUD receives copied observations and action code a
+  restricted transaction handle. Power-up belongs to the original post-result
+  route, never a new pause purchase screen. The fresh magic ceiling is 20, not
+  100; completed learning does not grant resources. Native HUD/ring assets and
+  pause-only residency coexist within the unchanged texture budget. Live casting
+  still requires a decision about genuine prerequisite owners; no synthetic
+  effect/target success is permitted. See `docs/architecture/player-gameplay.md`
+  for current scope and unclosed acceptance. Earlier architectural clearance
+  is superseded by the fresh behavior-ownership review. The user confirms the
+  HUD generally works and accepts spell-ring navigation. Shotgun's duplicate
+  attached-root application is repaired; the all-four-weapon source/modifier
+  audit distinguishes the inert original player arm hook from unrelated active
+  NPC sway. It demonstrates no additional effective player-stage mismatch and
+  does not establish original visual parity. The user rejected closing the
+  stationary support-hand issue as a visual recheck. After bounded literal
+  original producer/pose/hierarchy comparisons, the user explicitly authorized
+  an established solver rather than more source-audit cycles. The implemented
+  shared analytic two-bone solver uses the pinned Unreal reference and Alicia's
+  authored weapon targets with action-owned activation. This is documented as an
+  improvement over the PC's registered but empty arm solver, not original
+  behavior parity. Independent actual-content review confirms stationary grip
+  and exclusive-action release, with a documented no-stretch reach limit for
+  some moving class-2 frames. Final frozen-source gates and original-content
+  verification pass. The user subsequently verified the hand repair and accepted
+  the HUD scope; pause completion and the casting prerequisite decision remain.
+  See `research/engine/subsystems/gameplay-hud-verification.md` for the acceptance
+  split and verification bounds.
 
 - Lighting redesign and its native surface-sampling repair were accepted by
   the user on October 25, 2026; commit is authorized. The final full gate and

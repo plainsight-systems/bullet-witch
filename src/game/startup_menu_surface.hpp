@@ -37,6 +37,10 @@ class StartupMenuSurface final : public MenuSurface {
   StartupMenuSurface(StartupMenuSurface&&) = delete;
   StartupMenuSurface& operator=(StartupMenuSurface&&) = delete;
   void begin() override;
+  // Retain only pause/costume/font groups while the gameplay HUD is resident.
+  // Title and stage-selection assets are released, not duplicated or loaded
+  // against a larger global texture budget. Same ready/end lifecycle.
+  void begin_pause();
   // Pump encoded resources and construct textures before reporting readiness.
   bool ready() override;
   void show(const MenuPresentation& presentation) override;
