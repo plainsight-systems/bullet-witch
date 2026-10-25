@@ -1,3 +1,6 @@
+// Unit-normal tests apply both-phase Core I.7 (#ri-post) and performance GPU.1
+// (guidelines/gpu/GPU.1-keep-data-on-device.md): verify the directional
+// postcondition through public native draws, with completion before readback.
 // Component replacement verification applies both-phase I.1/C.85 and GPU.1:
 // exercise transaction rollback and retained native state with device pixels.
 // Shadow footprint tests exercise the inferred UE receiver-plane adaptation:
@@ -21,6 +24,12 @@
 // (guidelines/gpu/GPU.1-keep-data-on-device.md), COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) preserve
 // ownership until GPU completion and bounded test storage. Readback is test-only.
+// Output lifecycle/receiver tests additionally apply both-phase E.4
+// (#re-design-invariants), GPU.1 and GPU.9: validate retained state through
+// completed native output, including tone toggles and independent instances.
+// Receiver cube/visibility additions retrieve E.4 and GPU.1 in both phases:
+// late batch failure preserves completed pixels, authored bindings retain
+// precedence, and updates reuse resident geometry and textures.
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -39,6 +48,9 @@
 #include "platform/macos/world_postprocess.hpp"
 #include "platform/macos/world_renderer.hpp"
 
+void BWTestFinalEdge(id<MTLDevice> device);
+void BWTestTextureMips(id<MTLDevice> device);
+void BWTestSceneReplay(id<MTLDevice> device);
 namespace {
 void require(bool condition, const char* message) {
   if (!condition) {
@@ -170,6 +182,508 @@ void reject_view_update(bw::platform::macos::WorldRenderer& renderer,
           "Invalid view/light packet preserves the prior complete presentation");
 }
 // Authored pixels exercise the recovered surface equations without game data.
+// Check receiver identity through native pixels while sharing immutable geometry.
+// The callable borrows the existing completed-readback fixture for this call only.
+template <class ReadPixel>
+void receiver_instance_contract(bw::platform::macos::WorldRenderer& renderer,
+                                const bw::render::WorldColorDraw& draw,
+                                const bw::render::WorldLightingUpdate& original_light,
+                                const ReadPixel& read_pixel, std::uint32_t extent) {
+  // Two scene instances share geometry and draw ordinal but retain separate
+  // receiver packets. A late invalid instance must reject the entire batch.
+  auto left_instance = draw;
+  auto right_instance = draw;
+  left_instance.instance = 1;
+  right_instance.instance = 2;
+  left_instance.parameters.clip_rows[0][0] *= .4F;
+  right_instance.parameters.clip_rows[0][0] *= .4F;
+  left_instance.parameters.clip_rows[0][3] -= .5F;
+  right_instance.parameters.clip_rows[0][3] += .5F;
+  const std::array instances{left_instance, right_instance};
+  renderer.set_world_draws(instances);
+  const auto left_lit = read_pixel(extent / 4, extent / 2);
+  const auto right_lit = read_pixel(3 * extent / 4, extent / 2);
+  require(left_lit[0] > 0 && right_lit[0] > 0, "Both receiver instances are visible");
+  auto left_dark = original_light;
+  left_dark.irradiance_coefficients = {};
+  left_dark.instance = 1;
+  renderer.update_world_lighting(std::span(&left_dark, 1));
+  const auto left_unlit = read_pixel(extent / 4, extent / 2);
+  require(left_unlit[0] < left_lit[0] && read_pixel(3 * extent / 4, extent / 2) == right_lit,
+          "Receiver update affects only its explicit scene instance");
+  auto left_restore = original_light;
+  left_restore.instance = 1;
+  auto absent_instance = original_light;
+  absent_instance.instance = 3;
+  const std::array instance_batch{left_restore, absent_instance};
+  bool rejected_light = false;
+  try {
+    renderer.update_world_lighting(instance_batch);
+  } catch (const std::invalid_argument&) {
+    rejected_light = true;
+  }
+  require(rejected_light && read_pixel(extent / 4, extent / 2) == left_unlit &&
+              read_pixel(3 * extent / 4, extent / 2) == right_lit,
+          "Absent instance rejects the whole batch without broadcasting");
+  renderer.update_world_lighting(std::span(&original_light, 1));
+  require(read_pixel(extent / 4, extent / 2) == left_lit &&
+              read_pixel(3 * extent / 4, extent / 2) == right_lit,
+          "Explicit broadcast still updates every matching instance");
+  renderer.set_world_draws(std::span(&draw, 1));
+}
+// Selected receiver maps supply the original default binding; authored LENV
+// remains later in source command order. Exercise both retained publication
+// paths and independent instances with completed pixels from the same fixture.
+struct ReflectionTextures {
+  bw::render::WorldTextureHandle cube, base, normal;
+};
+template <class ReadPixel>
+void receiver_reflection_contract(bw::platform::macos::WorldRenderer& renderer,
+                                  bw::render::WorldColorDraw draw,
+                                  const ReflectionTextures& textures,
+                                  bw::render::WorldModelHandle authored_model,
+                                  const ReadPixel& read_pixel, std::uint32_t extent) {
+  using bw::render::WorldLightingUpdate;
+  using bw::render::WorldTextureHandle;
+  constexpr std::array<std::uint8_t, 4> kBlack{0, 0, 0, 255}, kRed{0, 0, 255, 255};
+  WorldLightingUpdate selected{.model = draw.model,
+                               .draw = draw.draw,
+                               .irradiance_coefficients = draw.parameters.irradiance_coefficients,
+                               .reflection_texture = textures.cube};
+  renderer.update_world_lighting(std::span(&selected, 1));
+  require(read_pixel() == kRed, "Receiver cube replaces only the default environment binding");
+  auto unchanged = selected;
+  unchanged.reflection_texture.reset();
+  renderer.update_world_lighting(std::span(&unchanged, 1));
+  require(read_pixel() == kRed, "Omitted receiver cube preserves its current publication");
+  auto black = selected;
+  black.reflection_texture = WorldTextureHandle{};
+  renderer.update_world_lighting(std::span(&black, 1));
+  require(read_pixel() == kBlack, "Explicit zero receiver cube restores opaque black");
+  draw.reflection_texture = textures.cube;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == kRed, "Initial draw submission publishes the selected receiver cube");
+  for (const auto invalid_handle : {textures.base, WorldTextureHandle{999999}}) {
+    auto invalid = selected;
+    invalid.reflection_texture = invalid_handle;
+    const std::array updates{black, invalid};
+    bool rejected = false;
+    try {
+      renderer.update_world_lighting(updates);
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected && read_pixel() == kRed,
+            "Late wrong-shape or absent receiver cube rejects the whole lighting batch");
+    auto bad_draw = draw;
+    bad_draw.reflection_texture = invalid_handle;
+    rejected = false;
+    try {
+      renderer.set_world_draws(std::span(&bad_draw, 1));
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected && read_pixel() == kRed,
+            "Invalid initial receiver cube preserves the previous complete submission");
+  }
+  auto left = draw;
+  auto right = draw;
+  left.instance = 1;
+  right.instance = 2;
+  left.parameters.clip_rows[0][0] *= .4F;
+  right.parameters.clip_rows[0][0] *= .4F;
+  left.parameters.clip_rows[0][3] -= .5F;
+  right.parameters.clip_rows[0][3] += .5F;
+  right.reflection_texture = WorldTextureHandle{};
+  const std::array draws{left, right};
+  renderer.set_world_draws(draws);
+  require(read_pixel(extent / 4, extent / 2) == kRed &&
+              read_pixel(3 * extent / 4, extent / 2) == kBlack,
+          "Shared model instances retain independently selected receiver cubes");
+  black.instance = 1;
+  selected.instance = 2;
+  const std::array swap{black, selected};
+  renderer.update_world_lighting(swap);
+  require(read_pixel(extent / 4, extent / 2) == kBlack &&
+              read_pixel(3 * extent / 4, extent / 2) == kRed,
+          "Explicit receiver identities change only their own fallback cube");
+  auto restore_left = selected;
+  restore_left.instance = 1;
+  auto absent = black;
+  absent.instance = 3;
+  const std::array invalid_instances{restore_left, absent};
+  bool rejected = false;
+  try {
+    renderer.update_world_lighting(invalid_instances);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel(extent / 4, extent / 2) == kBlack &&
+              read_pixel(3 * extent / 4, extent / 2) == kRed,
+          "Absent receiver identity cannot partially publish a cube batch");
+  draw.model = authored_model;
+  draw.reflection_texture = WorldTextureHandle{};
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == kRed,
+          "Authored material LENV overrides an explicitly black receiver default");
+  black.model = authored_model;
+  black.instance.reset();
+  renderer.update_world_lighting(std::span(&black, 1));
+  require(read_pixel() == kRed,
+          "Retained receiver publication cannot erase an authored environment map");
+  const std::array<WorldTextureHandle, 4> wrong_environment{
+      textures.base, textures.normal, {}, textures.base};
+  renderer.bind_model_textures(authored_model, wrong_environment);
+  bool wrong_shape_rejected = false;
+  try {
+    renderer.set_world_draws(std::span(&draw, 1));
+  } catch (const std::invalid_argument&) {
+    wrong_shape_rejected = true;
+  }
+  require(wrong_shape_rejected, "Explicit LENV with wrong shape cannot use default fallback");
+  const std::array<WorldTextureHandle, 4> authored{
+      textures.base, textures.normal, {}, textures.cube};
+  renderer.bind_model_textures(authored_model, authored);
+}
+// Source caster admission is independent of visible color and uses the same
+// explicit scene identity as receiver publication. Late failures are atomic.
+template <class ReadPixel>
+void receiver_visibility_contract(bw::platform::macos::WorldRenderer& renderer,
+                                  bw::render::WorldColorDraw receiver,
+                                  bw::render::WorldColorDraw caster, const ReadPixel& read_pixel,
+                                  std::uint32_t extent) {
+  using bw::render::WorldVisibilityUpdate;
+  receiver.instance = 1;
+  caster.instance = 2;
+  receiver.parameters.clip_rows[0][0] *= .4F;
+  caster.parameters.clip_rows[0][0] *= .4F;
+  receiver.parameters.clip_rows[0][3] = -.5F;
+  caster.parameters.clip_rows[0][3] = .5F;
+  const std::array draws{receiver, caster};
+  renderer.set_world_draws(draws);
+  const auto shadowed = read_pixel(extent / 4, extent / 2);
+  const auto caster_color = read_pixel(3 * extent / 4, extent / 2);
+  require(shadowed == std::array<std::uint8_t, 4>{192, 128, 64, 255} && caster_color[0] > 0,
+          "Visible caster shadows the independent receiver instance");
+  WorldVisibilityUpdate update{.model = caster.model,
+                               .draw = caster.draw,
+                               .visible = true,
+                               .casts_shadow = false,
+                               .instance = 2};
+  renderer.update_world_visibility(std::span(&update, 1));
+  const auto lit = read_pixel(extent / 4, extent / 2);
+  require(lit == std::array<std::uint8_t, 4>{240, 160, 80, 255} &&
+              read_pixel(3 * extent / 4, extent / 2) == caster_color,
+          "Disabling caster admission preserves its visible color and lights the receiver");
+  update.visible = false;
+  update.casts_shadow.reset();
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel(extent / 4, extent / 2) == lit &&
+              read_pixel(3 * extent / 4, extent / 2) == std::array<std::uint8_t, 4>{},
+          "Instance visibility hides only the selected caster color");
+  update.visible = true;
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel(extent / 4, extent / 2) == lit &&
+              read_pixel(3 * extent / 4, extent / 2) == caster_color,
+          "Omitted casting update preserves disabled shadow membership when revealed");
+  update.casts_shadow = true;
+  update.visible = false;
+  auto invalid = update;
+  invalid.instance = 3;
+  const std::array updates{update, invalid};
+  bool rejected = false;
+  try {
+    renderer.update_world_visibility(updates);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel(extent / 4, extent / 2) == lit &&
+              read_pixel(3 * extent / 4, extent / 2) == caster_color,
+          "Late absent visibility identity preserves color and caster membership");
+  update.visible = true;
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel(extent / 4, extent / 2) == shadowed &&
+              read_pixel(3 * extent / 4, extent / 2) == caster_color,
+          "Reenabling caster membership restores only its shadow contribution");
+}
+// Color phase, not a depth-mask selector, owns the final alpha test.
+template <class ReadPixel>
+void color_coverage_contract(bw::platform::macos::WorldRenderer& renderer,
+                             bw::render::WorldColorDraw draw, const ReadPixel& read_pixel) {
+  draw.parameters.material_color[3] = 0.5F;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() != std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Opaque color phase does not inherit depth-mask coverage from the selector");
+  draw.color_phase = bw::render::WorldColorPhase::masked;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Masked color coverage rejects the final material alpha");
+  draw.parameters.material_color[3] = 1;
+  draw.parameters.indirect_color[3] = .25F;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Masked color tests indirect alpha that the depth texture cutout does not consume");
+}
+// Source setup/cull/bias affect the shared shadow pass, independently of the
+// color material. The receiver exposes depth-color changes through native
+// visibility; no test-only access to the renderer's private texture is needed.
+template <class ReadPixel>
+void source_shadow_state_contract(bw::platform::macos::WorldRenderer& renderer,
+                                  bw::render::WorldColorDraw receiver,
+                                  bw::render::WorldColorDraw caster, const ReadPixel& read_pixel) {
+  using bw::render::WorldViewUpdate;
+  constexpr std::array<std::uint8_t, 4> kShadowed{192, 128, 64, 255};
+  constexpr std::array<std::uint8_t, 4> kLit{240, 160, 80, 255};
+  caster.owner_opacity = 0;
+  const std::array draws{receiver, caster};
+  renderer.set_world_draws(draws);
+  WorldViewUpdate view{};
+  view.scene_passes = WorldViewUpdate::ScenePasses{false, false, true, {}};
+  view.shadow_pass = WorldViewUpdate::ShadowPass{};
+  renderer.update_world_view(view);
+  require(read_pixel() == kShadowed,
+          "Source shadow setup retains zero-color-opacity caster membership");
+  view.shadow_pass->depth_bias = -.625F;
+  renderer.update_world_view(view);
+  require(read_pixel() == kLit,
+          "Source constant bias changes stored depth independently of receiver lighting");
+  view.shadow_pass->setup_enabled = false;
+  view.shadow_pass->depth_bias = 0;
+  renderer.update_world_view(view);
+  require(read_pixel() == kLit,
+          "Disabled source setup retains the preceding shadow map instead of rebuilding it");
+  view.shadow_pass->setup_enabled = true;
+  renderer.update_world_view(view);
+  require(read_pixel() == kShadowed, "Reenabled shadow setup refreshes the retained map");
+  view.shadow_pass->cull = bw::render::WorldCull::clockwise;
+  renderer.update_world_view(view);
+  require(read_pixel() == kShadowed,
+          "Source clockwise culling retains the counter-clockwise fixture");
+  view.shadow_pass->cull = bw::render::WorldCull::counter_clockwise;
+  renderer.update_world_view(view);
+  require(read_pixel() == kLit,
+          "Source counter-clockwise culling removes the counter-clockwise fixture");
+  renderer.set_world_draws(draws);
+}
+// Receiver coordinates are derived values owned by the accepted view; rejected
+// bases cannot partially replace either the view or its pixel matrix pair.
+template <class ReadPixel>
+void receiver_projection_publication_contract(bw::platform::macos::WorldRenderer& renderer,
+                                              bw::render::WorldColorDraw receiver,
+                                              bw::render::WorldColorDraw caster,
+                                              const ReadPixel& read_pixel) {
+  receiver.view_space = bw::render::WorldViewSpace::world;
+  const std::array draws{receiver, caster};
+  renderer.set_world_draws(draws);
+  bw::render::WorldViewUpdate view{};
+  view.world.clip_rows = receiver.parameters.clip_rows;
+  view.world.world_rows = receiver.parameters.world_rows;
+  view.world.shadow_clip_rows = receiver.parameters.shadow_clip_rows;
+  renderer.update_world_view(view);
+  const auto baseline = read_pixel();
+  auto rejected_view = view;
+  rejected_view.world.world_rows[0][0] = 2;
+  rejected_view.world.clip_rows[0][3] = 4;
+  bool rejected = false;
+  try {
+    renderer.update_world_view(rejected_view);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel() == baseline,
+          "Unsupported receiver basis preserves the prior view and pixel projection");
+  auto rejected_draw = receiver;
+  rejected_draw.parameters.world_rows[1][0] = .5F;
+  rejected = false;
+  try {
+    renderer.set_world_draws(std::span(&rejected_draw, 1));
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel() == baseline,
+          "Unsupported fixed receiver basis preserves the prior scene");
+  // The shader does not consume the rejected basis when reception is disabled.
+  rejected_draw.parameters.shadow_parameters[0] = 0;
+  renderer.set_world_draws(std::span(&rejected_draw, 1));
+  renderer.update_world_view(rejected_view);
+  renderer.set_world_draws(draws);
+}
+// Exercise shared-owner preparation on the production HDR target, followed by
+// source integer-center raster placement. These are geometry survival tests,
+// separate from supplied-fragment shader arithmetic witnesses.
+template <class ReadPixel>
+void scene_preparation_contract(bw::platform::macos::WorldRenderer& renderer,
+                                bw::render::WorldColorDraw draw, const ReadPixel& read_pixel) {
+  using bw::render::WorldColorPhase;
+  using bw::render::WorldViewUpdate;
+  draw.state.depth_compare = bw::render::WorldDepthCompare::greater_equal;
+  draw.parameters.clip_rows[2] = {0, 0, 0, .75F};
+  draw.color_phase = WorldColorPhase::masked;
+  draw.parameters.indirect_color[3] = .25F;
+  WorldViewUpdate view{};
+  view.scene_passes = WorldViewUpdate::ScenePasses{true, true, false, {}};
+  renderer.set_world_draws(std::span(&draw, 1));
+  renderer.update_world_view(view);
+  require(read_pixel() == std::array<std::uint8_t, 4>{191, 191, 191, 255},
+          "Masked preparation writes depth color on restored HDR even when final color rejects");
+  view.scene_passes->masked_preparation = false;
+  renderer.update_world_view(view);
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 255},
+          "Disabling the source masked preparation gate removes its surviving depth color");
+  view.scene_passes->masked_preparation = true;
+  auto opaque = draw;
+  opaque.color_phase = WorldColorPhase::opaque;
+  opaque.parameters.indirect_color[3] = 1;
+  opaque.parameters.material_color = {1, 0, 0, 1};
+  const std::array ordered{draw, opaque};
+  renderer.set_world_draws(ordered);
+  renderer.update_world_view(view);
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 64, 255},
+          "Both preparation families precede either color family regardless of submission order");
+  opaque.parameters.material_color = {1, 1, 1, 1};
+  renderer.set_world_draws(std::span(&opaque, 1));
+  view.scene_passes = WorldViewUpdate::ScenePasses{false, false, false, {}};
+  renderer.update_world_view(view);
+  require(read_pixel(8, 15) == std::array<std::uint8_t, 4>{192, 128, 64, 255},
+          "Diagnostic half-integer samples cover the sloping triangle edge");
+  view.scene_passes->integer_pixel_centers = true;
+  renderer.update_world_view(view);
+  require(read_pixel(8, 15) == std::array<std::uint8_t, 4>{0, 0, 0, 255} &&
+              read_pixel(9, 15) == std::array<std::uint8_t, 4>{192, 128, 64, 255},
+          "Production integer samples move edge coverage without modifying material energy");
+}
+// Owner opacity selects a source section, replaces only published alpha, and
+// leaves shadow membership under the independent owner query.
+template <class ReadPixel>
+void owner_opacity_contract(bw::platform::macos::WorldRenderer& renderer,
+                            bw::render::WorldColorDraw draw, const ReadPixel& read_pixel) {
+  using bw::render::WorldColorPhase;
+  using bw::render::WorldVisibilityUpdate;
+  draw.state.depth_compare = bw::render::WorldDepthCompare::greater_equal;
+  draw.parameters.clip_rows[2] = {0, 0, 0, .75F};
+  draw.parameters.indirect_color[3] = .25F;
+  draw.owner_opacity = .5F;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{192, 160, 128, 255},
+          "Partial owner replaces indirect alpha once and blends after its source preparation");
+  draw.color_phase = WorldColorPhase::masked;
+  draw.parameters.clip_rows[2] = {0, 0, 0, .3F};
+  draw.parameters.material_color = {1, 0, 0, 1};
+  renderer.set_world_draws(std::span(&draw, 1));
+  constexpr std::array<std::uint8_t, 4> kPartial{38, 38, 70, 255};
+  require(read_pixel() == kPartial,
+          "Partial masked owner lowers fixed reference for both depth alpha and final alpha");
+  WorldVisibilityUpdate update{draw.model, draw.draw, true, {}, {}, 1};
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 64, 255},
+          "Full opacity returns to Main with its ordinary reference and unblended color");
+  update.owner_opacity = 0;
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 255},
+          "Zero opacity omits both owner preparation and color");
+  update.owner_opacity.reset();
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 255},
+          "Visibility-only publication retains zero owner opacity");
+  update.owner_opacity = .5F;
+  renderer.update_world_visibility(std::span(&update, 1));
+  auto invalid = update;
+  invalid.owner_opacity = std::nanf("");
+  update.owner_opacity = 0;
+  const std::array batch{update, invalid};
+  bool rejected = false;
+  try {
+    renderer.update_world_visibility(batch);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel() == kPartial,
+          "Late invalid opacity rejects the complete publication without hiding the first owner");
+  // Main late color precedes Trans early preparation, irrespective of caller
+  // order. Equal-depth Trans preparation must overwrite that Main late color.
+  auto late = draw;
+  late.owner_opacity = 1;
+  late.color_phase = WorldColorPhase::material_blended;
+  late.parameters.material_color = {0, 1, 0, 1};
+  const std::array order{draw, late};
+  renderer.set_world_draws(order);
+  require(read_pixel() == kPartial,
+          "All Main chunks finish before partial-owner preparation and color");
+  auto background = draw;
+  background.owner_opacity.reset();
+  background.color_phase = WorldColorPhase::background;
+  background.instance = 1;
+  draw.instance = 2;
+  const std::array mixed{background, draw};
+  renderer.set_world_draws(mixed);
+  update.instance = 2;
+  update.owner_opacity = .5F;
+  renderer.update_world_visibility(std::span(&update, 1));
+  require(read_pixel() == kPartial,
+          "Instance opacity validation ignores unrelated background instances of the same model");
+}
+template <class ReadPixel>
+void unit_shading_direction_contract(bw::platform::macos::WorldRenderer& renderer,
+                                     bw::render::WorldColorDraw draw,
+                                     bw::render::WorldTextureHandle base,
+                                     const bw::formats::WorldTextureImage& prototype,
+                                     const ReadPixel& read_pixel) {
+  // The first sample decodes to (1,-1,1), so its cosine is 1/sqrt(3).
+  // The second uses a sheared basis: normalized T=(.8,0,.6), N=(0,0,1).
+  // Its combined direction has Z cosine .9462734107 rather than the clamped
+  // unnormalized value 1. A third orthogonal basis preserves authored detail.
+  auto image = prototype;
+  draw.parameters.light_direction = {0, 0, -1, 0};
+  draw.parameters.light_diffuse = {.25F, .25F, .25F, 0};
+  image.pixels = {255, 255, 255, 255};
+  const auto outside_disk = renderer.upload_world_texture(image);
+  const std::array first_bindings{base, outside_disk};
+  renderer.bind_model_textures(draw.model, first_bindings);
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{220, 146, 73, 255},
+          "Outside-disk normal remains finite and becomes a unit lighting direction");
+  image.pixels = {191, 128, 255, 255};
+  const auto mapped = renderer.upload_world_texture(image);
+  const std::array second_bindings{base, mapped};
+  renderer.bind_model_textures(draw.model, second_bindings);
+  draw.parameters.world_rows[2][0] = .75F;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(
+      read_pixel() == std::array<std::uint8_t, 4>{237, 158, 79, 255},
+      "Nonorthogonal mapped basis is normalized before lighting without changing its direction");
+  draw.parameters.world_rows[2][0] = 0;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{234, 156, 78, 255},
+          "Unit mapped direction preserves its authored angular diffuse response");
+  // A spatially constant unit normal and aligned half-vector preserve the
+  // authored lobe peak for both positive and zero exponents. Black diffuse
+  // isolates the original reflection composition, including its alpha epsilon.
+  draw.parameters.world_rows = {{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 1, -1}}};
+  draw.parameters.material_color = {0, 0, 0, 1};
+  draw.parameters.light_diffuse = {};
+  draw.parameters.light_specular = {.4F, .2F, .1F, 1};
+  draw.parameters.specular = {32, .5F, 0, 0};
+  draw.parameters.reflection = {1, 0, 0, 0};
+  draw.parameters.fresnel = {0, 0, 1, 0};
+  renderer.set_world_draws(std::span(&draw, 1));
+  constexpr std::array<std::uint8_t, 4> kAuthoredPeak{13, 25, 51, 255};
+  require(read_pixel() == kAuthoredPeak,
+          "Constant normal footprint preserves the authored positive-power specular peak");
+  draw.parameters.specular[0] = 0;
+  renderer.set_world_draws(std::span(&draw, 1));
+  require(read_pixel() == kAuthoredPeak, "Zero-power lobe preserves its authored amplitude");
+  draw.parameters.specular[0] = -1;
+  bool rejected = false;
+  try {
+    renderer.set_world_draws(std::span(&draw, 1));
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && read_pixel() == kAuthoredPeak,
+          "Negative consumed exponent is rejected before replacing the retained draw");
+  renderer.release_world_texture(outside_disk);
+  renderer.release_world_texture(mapped);
+}
 void world_surface_contract(id<MTLDevice> device) {
   using bw::render::WorldColorDraw;
   using bw::render::WorldCull;
@@ -190,7 +704,7 @@ void world_surface_contract(id<MTLDevice> device) {
       bw::memory::Vector<std::uint8_t>(bw::memory::Allocator<std::uint8_t>(domain))};
   image.pixels = {64, 128, 192, 255};
   const auto base = renderer.upload_world_texture(image);
-  image.pixels = {255, 255, 255, 255};
+  image.pixels = {128, 128, 255, 255};
   const auto normal = renderer.upload_world_texture(image);
   const std::array<WorldTextureHandle, 3> bindings{base, normal, WorldTextureHandle{}};
   renderer.bind_model_textures(mesh, bindings);
@@ -292,6 +806,9 @@ void world_surface_contract(id<MTLDevice> device) {
   present_scene = true;
   require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 64, 255},
           "Production HDR presentation clears zero and preserves reversed-depth ordering");
+  scene_preparation_contract(renderer, draw, read_pixel);
+  owner_opacity_contract(renderer, draw, read_pixel);
+  renderer.set_world_draws(reverse_draws);
   present_scene = false;
   nearer.state.maximum_anisotropy = 0;
   bool rejected_anisotropy = false;
@@ -303,15 +820,21 @@ void world_surface_contract(id<MTLDevice> device) {
   require(rejected_anisotropy && read_pixel() == std::array<std::uint8_t, 4>{0, 0, 64, 255},
           "Invalid anisotropy preserves the previous valid native submission");
   clear_depth = 1;
-  // This authored normal sample is outside the tangent disk: original rsq uses abs.
+  unit_shading_direction_contract(renderer, draw, base, image, read_pixel);
+  renderer.bind_model_textures(mesh, bindings);
+  // A nearly flat unorm normal keeps shadow tests independent of tangent
+  // variance. The separate contract above covers outside-disk decoding.
   draw.parameters.light_direction = {0, 0, -1, 0};
   draw.parameters.light_diffuse = {0.25F, 0.25F, 0.25F, 0};
   renderer.set_world_draws(std::span(&draw, 1));
   require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
-          "Original reciprocal-square-root absolute semantics preserve finite diffuse lighting");
+          "Flat mapped surface preserves authored diffuse lighting");
   // A separate caster removes directional light without darkening baked
   // vertex illumination. Both passes use the same retained light map.
   auto receiver = draw;
+  // Source-enabled variant 1 consumes shadow depth independently of its
+  // directional term. The earlier inspection selector explicitly disables it.
+  receiver.effective_shader_flags = 0x00820a82;
   receiver.parameters.shadow_clip_rows = receiver.parameters.clip_rows;
   receiver.parameters.shadow_clip_rows[2] = {0, 0, 0, .25F};
   receiver.parameters.shadow_parameters = {1, 0, 0, 0};
@@ -323,6 +846,9 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.set_world_draws(shadow_draws);
   require(read_pixel() == std::array<std::uint8_t, 4>{192, 128, 64, 255},
           "Shadow map removes directional light while retaining baked illumination");
+  receiver_visibility_contract(renderer, receiver, caster, read_pixel, extent);
+  source_shadow_state_contract(renderer, receiver, caster, read_pixel);
+  receiver_projection_publication_contract(renderer, receiver, caster, read_pixel);
   shadow_draws[1].visible = false;
   renderer.set_world_draws(shadow_draws);
   require(read_pixel() == std::array<std::uint8_t, 4>{240, 160, 80, 255},
@@ -699,6 +1225,7 @@ void world_surface_contract(id<MTLDevice> device) {
           "Nonfinite lighting cannot contaminate retained rendering");
   renderer.update_world_lighting(std::span(&original_light, 1));
   require(read_pixel() == skin_pixel, "Spatial lighting restoration preserves skin pose and view");
+  receiver_instance_contract(renderer, draw, original_light, read_pixel, extent);
   // Exercise the original direct-light material path independently of SH.
   // One emitter in front of the surface contributes; moving it behind removes
   // that contribution. Invalid batches cannot partially replace either field.
@@ -1156,17 +1683,8 @@ void world_surface_contract(id<MTLDevice> device) {
   require(budget->snapshot().live_logical_bytes ==
               before_fallback.live_logical_bytes + kFallbackCubeBytes,
           "Fallback cube is retained across submissions");
-  const std::array<WorldTextureHandle, 4> wrong_environment{base, normal, {}, base};
-  renderer.bind_model_textures(reflective, wrong_environment);
-  draw.model = reflective;
-  bool wrong_shape_rejected = false;
-  try {
-    renderer.set_world_draws(std::span(&draw, 1));
-  } catch (const std::invalid_argument&) {
-    wrong_shape_rejected = true;
-  }
-  require(wrong_shape_rejected, "Explicit LENV with wrong shape cannot use default fallback");
-  renderer.bind_model_textures(reflective, reflective_bindings);
+  receiver_reflection_contract(renderer, draw, {cube, base, normal}, reflective, read_pixel,
+                               extent);
   image.shape = bw::formats::WorldTextureShape::two_dimensional;
   image.pixels = {64, 128, 192, 128};
   const auto translucent = renderer.upload_world_texture(image);
@@ -1207,10 +1725,7 @@ void world_surface_contract(id<MTLDevice> device) {
           .effective_shader_flags = 0x00e20883,
           .parameters = surface_parameters,
           .state = surface_state};
-  draw.parameters.material_color[3] = 0.5F;
-  renderer.set_world_draws(std::span(&draw, 1));
-  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
-          "Original depth-mask coverage rejects material times sampled alpha below one half");
+  color_coverage_contract(renderer, draw, read_pixel);
   for (auto handle : {geometric, layered, shadow_layered, local_lit, sky, reflective,
                       occluded_reflective, fallback_model, cutout}) {
     renderer.release_model(handle);
@@ -1247,6 +1762,7 @@ void world_surface_contract(id<MTLDevice> device) {
 // model decoding. Constants are the public shader ABI, with numerical expected
 // values derived from the original equations rather than renderer helpers.
 void world_output_contract(id<MTLDevice> device) {
+  BWTestFinalEdge(device);
   auto domain = bw::memory::Domain::create(bw::platform::macos::make_cpu_backing());
   auto budget = bw::memory::DeviceBudget::create(domain);
   auto source =
@@ -1392,17 +1908,20 @@ void world_output_contract(id<MTLDevice> device) {
   policy.global_color = {2, -4, .25F, 9};
   owner.configure(policy);
   parameters.global_color = {1, 1, 1, 1};
-  const auto render_frame = [&] {
+  const auto render_frame = [&](float elapsed = 1.0F / 60, bool paint_scene = true,
+                                std::array<float, 3> clear = {}) {
     auto command = [queue commandBuffer];
-    auto encoder = owner.begin_scene(command, 2, 2);
-    [encoder setRenderPipelineState:paint];
-    [encoder setFragmentTexture:source.get() atIndex:0];
-    [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
-    [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    auto encoder = owner.begin_scene(command, 2, 2, clear);
+    if (paint_scene) {
+      [encoder setRenderPipelineState:paint];
+      [encoder setFragmentTexture:source.get() atIndex:0];
+      [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
+      [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    }
     [encoder endEncoding];
     owner.prepare_output(command, library,
-                         {.wall_seconds = 1.0F / 60, .presentation_seconds = 1.0F / 60});
+                         {.wall_seconds = elapsed, .presentation_seconds = elapsed});
     auto* pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = output.get();
     pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
@@ -1461,6 +1980,89 @@ void world_output_contract(id<MTLDevice> device) {
   render_frame();
   require(std::abs(static_cast<int>(display.at(2)) - 111) <= 2,
           "No-history native output keeps the source unbounded GPU measurement");
+  // Establish real history from a uniform surface, then change the surface
+  // while tone mapping is disabled. Re-enable must consume the retained old
+  // measurement/history, not initialize again from the new image.
+  const auto upload_gray = [&](std::uint16_t gray) {
+    for (std::size_t i = 0; i < colors.size(); i += 4) {
+      colors.at(i) = gray;
+      colors.at(i + 1) = gray;
+      colors.at(i + 2) = gray;
+      colors.at(i + 3) = 0x3c00;
+    }
+    [source.get() replaceRegion:MTLRegionMake2D(0, 0, 2, 2)
+                    mipmapLevel:0
+                      withBytes:colors.data()
+                    bytesPerRow:8 * sizeof(std::uint16_t)];
+  };
+  owner.reset();
+  policy.global_color_mode = 0;
+  policy.exposure = {2, .005F, {}, {}};
+  owner.configure(policy);
+  upload_gray(0x3400);  // One quarter in IEEE binary16.
+  render_frame();
+  render_frame(1.0F / 30);
+  render_frame(1.0F / 30);
+  policy.tone_mapping_enabled = false;
+  owner.configure(policy);
+  upload_gray(0x3c00);  // One in IEEE binary16.
+  render_frame();
+  require(display.at(2) == 255, "Disabled tone mapping displays the current scene");
+  policy.tone_mapping_enabled = true;
+  owner.configure(policy);
+  render_frame(0);
+  require(std::abs(static_cast<int>(display.at(2)) - 183) <= 2,
+          "Tone re-enable preserves the real predecessor and retained history");
+  // Event reset keeps the already measured bright frame; full reset below
+  // initializes from actual current quarter-gray instead.
+  owner.reset_exposure_history();
+  upload_gray(0x3400);
+  render_frame(0);
+  require(std::abs(static_cast<int>(display.at(2)) - 11) <= 2,
+          "Event history reset retains the completed luminance predecessor");
+  upload_gray(0x3c00);
+  render_frame(0);
+  owner.release_scene_targets();
+  upload_gray(0x3400);
+  render_frame(0);
+  require(std::abs(static_cast<int>(display.at(2)) - 11) <= 2,
+          "Scene replacement preserves output history and the prior measured image");
+  owner.reset();
+  render_frame(0);
+  require(std::abs(static_cast<int>(display.at(2)) - 46) <= 2,
+          "Full output lifetime reset initializes from the actual first image");
+  policy.tone_mapping_enabled = false;
+  owner.configure(policy);
+  render_frame(0, false, {.25F, .5F, .75F});
+  require(display.at(0) == 191 && display.at(1) == 128 && display.at(2) == 64,
+          "Authored clear RGB reaches the HDR and native display path");
+  const auto before_invalid_clear = budget->snapshot().live_logical_bytes;
+  bool invalid_clear = false;
+  try {
+    owner.begin_scene([queue commandBuffer], 4, 4,
+                      { std::numeric_limits<float>::quiet_NaN(), 0, 0 });
+  } catch (const std::invalid_argument&) {
+    invalid_clear = true;
+  }
+  require(invalid_clear && budget->snapshot().live_logical_bytes == before_invalid_clear,
+          "Invalid clear rejects before scene allocation or retained mutation");
+  auto pending_output = [queue commandBuffer];
+  auto pending_encoder = owner.begin_scene(pending_output, 2, 2);
+  [pending_encoder endEncoding];
+  owner.prepare_output(pending_output, library, {});
+  policy.tone_mapping_enabled = true;
+  owner.configure(policy);
+  bool premature_reuse = false;
+  try {
+    owner.begin_scene([queue commandBuffer], 2, 2);
+  } catch (const std::logic_error&) {
+    premature_reuse = true;
+  }
+  require(premature_reuse, "Tone toggle cannot erase the outstanding GPU completion boundary");
+  [pending_output commit];
+  [pending_output waitUntilCompleted];
+  require(pending_output.status == MTLCommandBufferStatusCompleted,
+          "Outstanding output fixture completes before teardown");
   owner.reset();
   source.reset();
   reduced.reset();
@@ -1475,8 +2077,10 @@ void BWMacosTextureAllocationTests() {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     require(device != nil, "No Metal device for native memory acceptance");
     world_geometry_contract(device);
+    BWTestSceneReplay(device);
     world_surface_contract(device);
     world_output_contract(device);
+    BWTestTextureMips(device);
     auto domain = bw::memory::Domain::create(bw::platform::macos::make_cpu_backing());
     constexpr std::uint32_t width = 32, height = 16;
     constexpr std::size_t bytes = static_cast<std::size_t>(width) * height * 4;

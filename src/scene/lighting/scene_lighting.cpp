@@ -3,6 +3,9 @@
 // (#ri-explicit) rejects absent policies/fields before producing a packet;
 // performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // confines allocation to preparation and explicit emitter replacement.
+// Redesign implementation I.1 (#ri-explicit), R.20 (#rr-owner), CDSA.32 and
+// MEM.9 retain distinct source receiver policies over shared prepared data.
+// Per-instance cached SH never replaces per-observation direct-light selection.
 #include "bw/scene/lighting/scene_lighting.hpp"
 
 #include <algorithm>
@@ -23,6 +26,21 @@ PackedIrradiance constant_irradiance(const math::Vector3<float>& color) {
   }
   result.back()[3] = 1;
   return result;
+}
+// Overflow light coefficients already contain emitter attenuation and source
+// projection. Add them after spatial file/owner scaling, then pack once; they
+// must not inherit the field intensity or the retained receiver cache cadence.
+PackedIrradiance receiver_irradiance(IrradianceCoefficients sampled,
+                                     const SelectedLocalLights& lights) {
+  for (std::size_t coefficient = 0; coefficient < sampled.size();
+       ++coefficient) {
+    for (std::size_t channel = 0; channel < sampled.at(coefficient).size();
+         ++channel) {
+      sampled.at(coefficient).at(channel) +=
+          lights.residual_irradiance.at(coefficient).at(channel);
+    }
+  }
+  return pack_irradiance(sampled);
 }
 void validate_receiver(const LightingReceiver& receiver) {
   if (!math::all_finite(receiver.model_center) ||
@@ -56,7 +74,8 @@ DirectionalLighting prepare_directional(
 }  // namespace
 SceneLighting::SceneLighting(const SceneLightingSource& source,
                              const std::shared_ptr<memory::Domain>& domain)
-    : domain_(domain),
+    : reflections_(source.reflections),
+      domain_(domain),
       fields_(memory::Allocator<Field>(domain)),
       local_lights_(source.lights, source.local_settings, domain),
       local_settings_(source.local_settings) {
@@ -126,7 +145,58 @@ ReceiverLighting SceneLighting::evaluate(const LightingReceiver& receiver) {
   const auto center =
       math::transform_point<float>(receiver.model_center, receiver.model_world);
   const auto& field = fields_.at(receiver.field.index);
-  return {pack_irradiance(field.data.sample(center, field.intensity)),
-          local_lights_.select_active({center, receiver.model_radius})};
+  const auto lights =
+      local_lights_.select_active({center, receiver.model_radius});
+  return {
+      receiver_irradiance(field.data.sample(center, field.intensity), lights),
+      lights, reflections_ ? reflections_->slot_at(center) : std::nullopt};
+}
+RetainedLightingReceiver::RetainedLightingReceiver(SceneLighting& scene,
+                                                   LightingFieldId field)
+    : scene_(scene), field_(field) {
+  if (field_.index >= scene.fields_.size()) {
+    throw std::out_of_range("Placed lighting field identity exceeds scene");
+  }
+}
+ReceiverLighting RetainedLightingReceiver::evaluate(
+    const math::Vector3<float>& root_position, float radius) {
+  auto& scene = scene_.get();
+  if (!scene.view_) {
+    throw std::logic_error("Placed lighting view has not been published");
+  }
+  if (!math::all_finite(root_position) || !std::isfinite(radius) ||
+      radius < 0) {
+    throw std::invalid_argument("Invalid placed lighting observation");
+  }
+  const auto& field = scene.fields_.at(field_.index);
+  constexpr float kIntensityCoordinateScale = 10;
+  constexpr float kInvalidationDistanceSquared = .25F;
+  const math::Vector<float, 4> key{root_position[0], root_position[1],
+                                   root_position[2],
+                                   kIntensityCoordinateScale * field.intensity};
+  if (!math::all_finite(key)) {
+    throw std::invalid_argument("Placed lighting intensity key overflow");
+  }
+  bool refresh = !key_;
+  if (key_) {
+    const auto delta = math::subtract(*key_, key);
+    const float distance_squared = delta[1] * delta[1] + delta[0] * delta[0] +
+                                   delta[2] * delta[2] + delta[3] * delta[3];
+    refresh = distance_squared >= kInvalidationDistanceSquared;
+  }
+  // Local-light membership changes independently of the retained SH threshold.
+  const auto lights =
+      scene.local_lights_.select_active({root_position, radius});
+  if (refresh) {
+    const auto candidate = field.data.sample(
+        root_position, field.intensity, IrradianceSampling::first_containing);
+    const auto reflection = scene.reflections_
+                                ? scene.reflections_->slot_at(root_position)
+                                : std::nullopt;
+    irradiance_ = candidate;
+    reflection_slot_ = reflection;
+    key_ = key;
+  }
+  return {receiver_irradiance(irradiance_, lights), lights, reflection_slot_};
 }
 }  // namespace bw::scene

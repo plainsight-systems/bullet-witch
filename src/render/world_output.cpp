@@ -4,6 +4,9 @@
 // Design/implementation I.1 (#ri-explicit) exposes elapsed time and settings;
 // MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps the
 // per-frame path bounded with inline history rather than heap-backed samples.
+// Lifecycle redesign uses Core E.4 (#re-design-invariants), read in both
+// phases, to keep event/history reset separate from full lifetime reset; MEM.9
+// retains bounded storage and no reset-time allocation.
 #include "bw/render/world_output.hpp"
 
 #include <algorithm>
@@ -68,11 +71,8 @@ float ExposureController::advance(ExposureSample sample,
   // Changing the native sample-count setting resets temporal samples but not
   // the separately owned sampling clock. Reapplying the same count is inert.
   if (window != window_) {
-    history_.fill(0);
     window_ = window;
-    next_ = 0;
-    filled_ = false;
-    adapted_ = 0;
+    reset_history();
   }
   elapsed_ = elapsed;
   if (elapsed_ >= kSampleInterval) {
@@ -102,13 +102,16 @@ float ExposureController::advance(ExposureSample sample,
   if (upper) output = std::min(output, *upper);
   return output;
 }
-void ExposureController::reset() noexcept {
+void ExposureController::reset_history() noexcept {
   history_.fill(0);
-  window_ = 0;
   next_ = 0;
   filled_ = false;
-  elapsed_ = 0;
   adapted_ = 0;
+}
+void ExposureController::reset() noexcept {
+  reset_history();
+  window_ = 0;
+  elapsed_ = 0;
 }
 std::size_t ExposureController::sample_count() const noexcept {
   return filled_ ? window_ : next_;

@@ -70,7 +70,11 @@ void material_animation_tests();
 void customization_tests();
 void static_collision_tests();
 void irradiance_field_tests();
+void world_material_tests();
 void local_light_view_tests();
+void local_lights_tests();
+void reflection_field_tests();
+void shadow_casters_tests();
 void scalar_area_tests();
 namespace {
 class Checks {
@@ -874,7 +878,11 @@ int main() {
     customization_tests();
     static_collision_tests();
     irradiance_field_tests();
+    world_material_tests();
     local_light_view_tests();
+    local_lights_tests();
+    reflection_field_tests();
+    shadow_casters_tests();
     scalar_area_tests();
     section_table_tests(checks);
     text_table_tests(checks);

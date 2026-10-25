@@ -155,12 +155,12 @@ route; it does not automatically navigate the interactive menus.
 python3 scripts/check.py all
 python3 scripts/check.py corpus --game /path/to/BulletWitch-Steam
 python3 research/tools/verify_startup_runtime.py \
-  build/host-debug/startup-corpus /path/to/BulletWitch-Steam
+  build/host-debug/startup-corpus /path/to/BulletWitch-Steam --timeout 300
 cmake --preset host-ubsan
 cmake --build --preset host-ubsan --parallel 4
 ctest --preset host-ubsan
 python3 research/tools/verify_startup_runtime.py \
-  build/host-ubsan/startup-corpus /path/to/BulletWitch-Steam \
+  build/host-ubsan/startup-corpus /path/to/BulletWitch-Steam --timeout 600 \
   --output research/evidence/reconstruction/startup-ubsan
 ```
 
@@ -416,3 +416,18 @@ handoff boundary.
 Evidence and fidelity limits: [profile persistence](../research/engine/subsystems/profile-persistence.md),
 [menu policy](../research/engine/subsystems/front-end-menu-policy.md),
 [front-end integration](../research/engine/subsystems/frontend-integration.md).
+
+## Original texture mip option
+
+`./run --texture-mips on` enables the original launch-controlled full mip chain.
+The default is `off`, matching the original defaults and inspected Steam settings.
+The choice is fixed before texture preparation and applies to source DDS/DDSC
+world, character and front-end resources. Raw controller-icon PNGs and movie
+frames retain their separate base-only construction. Restart to change the
+choice; no live mutable settings object or mid-frame resource replacement is
+introduced. See [texture construction](../research/engine/subsystems/lighting-texture-mip-generation.md).
+
+The existing original-root corpus accepts `--texture-mips` through
+`research/tools/verify_startup_runtime.py` to exercise the enabled configuration;
+its output records the selected mode alongside hashes and timeout. It remains
+the same integration scenario with controlled renderer observations.

@@ -22,9 +22,28 @@
 // production reference: world-display-output.md. Fullscreen quad interpolation
 // reproduces original D3D9 pixel-center UVs through Metal sample coordinates;
 // dimensions are destination extents, including the final display viewport.
+// Output lifetime is separate from scene lifetime: tone toggles preserve
+// history and preceding measurements; release_scene_targets retires only scene
+// storage and temporary images. reset_exposure_history is the source event
+// operation; reset ends renderer/device lifetime. All release/reset calls
+// require completed GPU work and the same exclusive caller; no mutable history
+// is borrowed out. First use explicitly selects current GPU measurement, a
+// target inference from pinned Unreal valid view-state initialization, not
+// original first-byte parity. Design/implementation Core E.4
+// (#re-design-invariants) validates clear/input before mutation; GPU.9 and
+// GPU.1 retain storage and four-byte completed readback. See
+// output-lifecycle-redesign.md for the complete source/reference comparison.
+// Optional final edge filtering consumes the completed display image. A tone
+// pass first writes its original BGRA8 intermediate; without tone, the current
+// scene/filter image is sampled directly. The edge pass has its own original
+// integer-pixel UV convention, point/clamp predecessor sampling, and fixed
+// luminance decision algorithm. Its display intermediate is budgeted, reused,
+// and released with scene storage. Core I.1 / GPU.9 were read in both phases;
+// activation and exact source boundaries: lighting-final-edge-filter.md.
 #pragma once
 #import <Metal/Metal.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
@@ -44,10 +63,12 @@ class WorldPostprocess {
   WorldPostprocess(WorldPostprocess&&) = delete;
   WorldPostprocess& operator=(WorldPostprocess&&) = delete;
   void configure(const render::WorldOutputParameters& parameters);
+  void reset_exposure_history() noexcept;
+  void release_scene_targets() noexcept;
   void reset() noexcept;
-  id<MTLRenderCommandEncoder> begin_scene(id<MTLCommandBuffer> command,
-                                          std::uint32_t width,
-                                          std::uint32_t height);
+  id<MTLRenderCommandEncoder> begin_scene(
+      id<MTLCommandBuffer> command, std::uint32_t width, std::uint32_t height,
+      std::array<float, 3> clear_color = {});
   void prepare_output(id<MTLCommandBuffer> command, id<MTLLibrary> library,
                       timing::FrameTiming frame);
   void encode_display(id<MTLRenderCommandEncoder> encoder,

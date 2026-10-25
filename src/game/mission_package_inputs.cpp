@@ -110,9 +110,9 @@ void MissionLoading::preload_model(std::string_view name) {
     }
     dependency_definitions_.push_back(std::move(definition));
     if (renderer_ != nullptr) {
-      dependency_residencies_.emplace_back(*renderer_,
-                                           dependency_definitions_.back(),
-                                           memory_, options_.progress);
+      dependency_residencies_.emplace_back(
+          *renderer_, dependency_definitions_.back(), memory_,
+          options_.progress, options_.texture_mips);
     }
     dependency_names_.push_back(std::move(model));
   }
@@ -148,9 +148,17 @@ memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
           break;
         }
       }
+      // Control-point bytes share the retained dependency archive lifetime.
+      // The placed receiver prepares only its consumed control-frame origin.
+      std::span<const std::uint8_t> control_points;
+      if (model.control_points) {
+        const auto& location = *model.control_points;
+        control_points =
+            definition.archives.at(location.archive).payload(location.record);
+      }
       result.push_back({model.name, model.definition,
                         resident->models.at(index), body_joints,
-                        physics_collision});
+                        physics_collision, control_points});
     }
     ++resident;
   }
@@ -262,9 +270,9 @@ void MissionLoading::preload_character(std::string_view name) {
     }
     dependency_definitions_.push_back(std::move(definition));
     if (renderer_ != nullptr) {
-      dependency_residencies_.emplace_back(*renderer_,
-                                           dependency_definitions_.back(),
-                                           memory_, options_.progress);
+      dependency_residencies_.emplace_back(
+          *renderer_, dependency_definitions_.back(), memory_,
+          options_.progress, options_.texture_mips);
     }
     dependency_names_.push_back(std::move(model));
   }
@@ -288,7 +296,7 @@ void MissionLoading::load_npc_palette() {
       throw std::logic_error("NPC texture definition disappeared");
     }
     palette_residency_.emplace(*renderer_, palette_definition_.value(), memory_,
-                               options_.progress);
+                               options_.progress, options_.texture_mips);
     palette_ = make_npc_palette(palette_definition_.value(),
                                 palette_residency_->textures, memory_);
   }

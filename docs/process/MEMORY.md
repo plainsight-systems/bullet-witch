@@ -1,7 +1,45 @@
 # Current engineering decisions
 
+- Lighting redesign and its native surface-sampling repair were accepted by
+  the user on October 25, 2026; commit is authorized. The final full gate and
+  independent implementation/ownership review pass. Residual angle-dependent
+  speckling and coarse shadows are accepted baseline limitations, plausibly
+  original-era behavior but not established original-image correspondence.
+  Final-normal normalization and pixel-footprint specular filtering remain
+  explicit native adaptations. Stop this noise investigation; visual-quality
+  improvements belong to the upgrade pass unless a concrete new defect appears.
+  Latest reproduction references: October 25, 7:18:15 a.m. cave and 7:19:52 a.m.
+  outdoor school outfit. Images remain outside Git. See
+  `research/engine/subsystems/lighting-redesign-acceptance.md`.
+
 - User acceptance of scoped work authorizes committing that accepted scope.
   It does not authorize pushing; keep unrelated work out of that commit.
+
+- The accepted lighting redesign followed timing acceptance. The source
+  audit found structural deficiencies, not a need for brightness tweaks. Design
+  and implement distinct receiver policies/identity, complete material and
+  surface dependencies, source pass/coverage order, view/shadow publication and
+  output lifecycle. Carry every audit boundary through
+  `research/engine/subsystems/lighting-redesign-acceptance.md`; known missing
+  owners are implementation prerequisites, separate from original runtime
+  evidence limits. Keep authored values and the recovered legacy light model.
+  Current implementation includes exact material admission, strict/blended
+  receivers with per-instance cache/reflection ownership, CP0 placed origins,
+  overflow SH, source shadow selection/state, S/T and Main/Trans replay,
+  output-history lifetime and final edge filtering. The full integrated gate,
+  native contract checks and hash-bound original-root corpus pass. Visual
+  acceptance is complete after the subsequent walkthrough and surface repair.
+  An earlier failed fullscreen launch supplied no visual evidence. The user authorized
+  completion of graphics mip construction and an independent ownership review.
+  Immutable launch policy now covers world and front-end DDS resources, including
+  four-bit/odd base conversion and full native chain accounting. Numerical
+  original-DLL replay is exact; the full integrated gate and final actual-content
+  corpus in both modes pass. Independent review found and resolved broad
+  renderer authority, missing front-end mip coverage and witness truncation
+  checks; its final disposition is recorded in lighting-independent-review.md.
+  Renderer residency and presentation are separate borrower capabilities. Missing
+  mission/event/storm/particle/effect producers remain named upstream work, not
+  evidence-only blockers or silent substitutes.
 
 - The progression/state slice is accepted and committed as `7fc3ca9`. Progression is
   decomposed from the original Record, power-up/result, mission

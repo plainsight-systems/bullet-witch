@@ -2,6 +2,10 @@
 // sampling and packing. Header owns the source/cost contract. Implementation
 // SL.con.3 validates every source offset/index before admission; CDSA.32/MEM.9
 // use owned decoded coefficients and fixed per-query scratch, not byte parsing.
+// Redesign consultations I.1 (#ri-explicit), CDSA.32 and MEM.9 preserve
+// explicit strict/blended policies over the same immutable prepared field.
+// Source strict selection stops at its first containing zone; it never averages
+// zones.
 #include "bw/scene/lighting/irradiance_field.hpp"
 
 #include <algorithm>
@@ -255,10 +259,91 @@ IrradianceCoefficients IrradianceField::sample_zone(
   }
   return result;
 }
-IrradianceCoefficients IrradianceField::sample(const Vector& position,
-                                               float owner_intensity) const {
+// The strict receiver uses a different grid kernel from actor interpolation:
+// nearest source cell, central weight two, then four horizontal neighbors.
+// Original cell maxima exclude the terminal layer for neighbor admission, but
+// the central cell is unconditional; zero-dimensional axes therefore remain
+// meaningful. No exclusion-volume or trilinear weight is shared accidentally.
+IrradianceCoefficients IrradianceField::sample_strict_zone(
+    const Zone& zone, const Vector& position) const {
+  const auto local = point(position, zone.grid.to_local);
+  std::array<std::int64_t, 3> cell{};
+  constexpr float kSourceIntegerLimit = 2147483520.F;
+  for (std::size_t axis = 0; axis < cell.size(); ++axis) {
+    const auto count = static_cast<std::int64_t>(zone.divisions.at(axis));
+    const float extent = zone.grid.extent.at(axis);
+    const float coordinate =
+        extent > 0
+            ? ((1.F / extent) * local.at(axis) * static_cast<float>(count) +
+               static_cast<float>(count) + 1.F) *
+                  .5F
+            : 0;
+    if (!std::isfinite(coordinate) ||
+        std::abs(coordinate) > kSourceIntegerLimit) {
+      throw std::overflow_error(
+          "Strict light grid exceeds source integer range");
+    }
+    auto index = static_cast<std::int64_t>(coordinate);
+    if (coordinate < 0) --index;
+    index = std::max<std::int64_t>(index, 0);
+    if (count > 0 && index >= count) index = count - 1;
+    cell.at(axis) = index;
+  }
+  cell[2] = static_cast<std::int64_t>(zone.divisions[2]) - cell[2];
+  constexpr std::array<std::array<int, 2>, 5> kNeighbors{
+      {{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1}}};
+  IrradianceCoefficients result{};
+  float total = 0;
+  for (std::size_t index = 0; index < kNeighbors.size(); ++index) {
+    const auto x = cell[0] + kNeighbors.at(index)[0];
+    const auto z = cell[2] + kNeighbors.at(index)[1];
+    if (index != 0 &&
+        (x < 0 || x >= zone.divisions[0] || z < 0 || z >= zone.divisions[2])) {
+      continue;
+    }
+    const auto sample =
+        zone.first_sample +
+        ((zone.divisions[1] + 1ULL) * static_cast<std::size_t>(x) +
+         static_cast<std::size_t>(cell[1])) *
+            (zone.divisions[2] + 1ULL) +
+        static_cast<std::size_t>(z);
+    const float weight = index == 0 ? 2.F : 1.F;
+    accumulate(result, samples_.at(sample), weight);
+    total += weight;
+  }
+  const float reciprocal = 1.F / total;
+  for (auto& coefficient : result) {
+    for (auto& channel : coefficient) channel *= reciprocal;
+  }
+  return result;
+}
+IrradianceCoefficients IrradianceField::sample(
+    const Vector& position, float owner_intensity,
+    IrradianceSampling policy) const {
   if (!math::all_finite(position) || !std::isfinite(owner_intensity)) {
     throw std::invalid_argument("Nonfinite light query");
+  }
+  // Placed-object receivers use strict bounds and the first matching source
+  // zone, followed by its separate fixed-neighborhood grid evaluation.
+  if (policy == IrradianceSampling::first_containing) {
+    auto result = fallback_;
+    for (const auto& zone : zones_) {
+      const auto delta = math::subtract(position, zone.bounds.sphere_center);
+      if (math::dot(delta, delta) > zone.bounds.radius_squared) continue;
+      if (!inside(point(position, zone.bounds.to_local), zone.bounds.extent)) {
+        continue;
+      }
+      result = sample_strict_zone(zone, position);
+      break;
+    }
+    const float intensity = intensity_ * owner_intensity;
+    for (auto& coefficient : result) {
+      for (auto& channel : coefficient) channel *= intensity;
+    }
+    return result;
+  }
+  if (policy != IrradianceSampling::blended) {
+    throw std::invalid_argument("Unknown irradiance sampling policy");
   }
   std::array<IrradianceCoefficients, kMaximumZones + 1> values{};
   std::array<float, kMaximumZones + 1> weights{};

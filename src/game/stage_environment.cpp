@@ -56,6 +56,7 @@ constexpr std::size_t kShadowReceiverRadius = 77;
 constexpr std::size_t kShadowFarDistance = 81;
 constexpr std::size_t kShadowMinimumHeight = 82;
 constexpr std::size_t kShadowMaximumHeight = 83;
+constexpr std::size_t kShadowMinimumProjectedSize = 85;
 constexpr std::size_t kShadowAlignmentThreshold = 86;
 constexpr std::size_t kShadowParallelNearExtension = 87;
 constexpr std::size_t kShadowRasterDepthBias = 88;
@@ -64,6 +65,8 @@ constexpr std::size_t kShadowCastersEnabled = 140;
 constexpr std::size_t kColorRgb = 14;
 constexpr std::size_t kFogRgb = 51;
 constexpr std::size_t kAmbientRgb = 54;
+constexpr std::size_t kClearRgb = 57;
+constexpr std::size_t kCameraFar = 149;
 constexpr std::size_t kLightVector = 78;
 constexpr std::size_t kLightDiffuse = 90;
 constexpr std::size_t kLightSpecular = 94;
@@ -120,6 +123,7 @@ void fields(formats::StageEnvironment& value, std::uint32_t version,
   for (std::size_t component = 0; component < 3; ++component) {
     visit(kFogRgb + component, value.fog_color.at(component));
     visit(kAmbientRgb + component, value.ambient_color.at(component));
+    visit(kClearRgb + component, value.clear_color.at(component));
     visit(kLightVector + component, value.light_vector.at(component));
   }
   visit(kCharacterLightIntensity, value.character_light_intensity);
@@ -132,6 +136,7 @@ void fields(formats::StageEnvironment& value, std::uint32_t version,
   visit(kShadowFarDistance, shadow.far_distance);
   visit(kShadowMinimumHeight, shadow.minimum_height);
   visit(kShadowMaximumHeight, shadow.maximum_height);
+  visit(kShadowMinimumProjectedSize, shadow.minimum_projected_size);
   visit(kShadowAlignmentThreshold, shadow.alignment_threshold);
   visit(kShadowParallelNearExtension, shadow.parallel_near_extension);
   visit(kShadowRasterDepthBias, shadow.raster_depth_bias);
@@ -165,7 +170,10 @@ std::span<const std::uint8_t> input_bytes(const content::StageDefinition& stage,
 }  // namespace
 std::optional<scene::Environment> prepare_stage_environment(
     const content::StageDefinition& stage,
-    const std::shared_ptr<memory::Domain>& domain) {
+    const std::shared_ptr<memory::Domain>& domain, float initial_camera_far) {
+  if (!std::isfinite(initial_camera_far) || initial_camera_far <= 0) {
+    throw std::invalid_argument("Invalid initial environment camera far");
+  }
   const formats::AreaDefinition* area = nullptr;
   const formats::SectionTable* table = nullptr;
   const content::StageInput* animation = nullptr;
@@ -187,6 +195,8 @@ std::optional<scene::Environment> prepare_stage_environment(
   }
   animation::ScalarAnimation curve(input_bytes(stage, *animation), domain);
   scene::EnvironmentChannels initial;
+  initial.values.at(kCameraFar) = initial_camera_far;
+  initial.smooth.at(kCameraFar) = true;
   auto authored = *stage.environment;
   fields(authored, curve.version(),
          [&](std::size_t channel, const auto& value) {
@@ -233,5 +243,8 @@ formats::StageEnvironment stage_environment_snapshot(
     }
   });
   return result;
+}
+float stage_environment_camera_far(const scene::Environment& environment) {
+  return environment.values().at(kCameraFar);
 }
 }  // namespace bw::game

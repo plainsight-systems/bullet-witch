@@ -8,6 +8,8 @@
 // Fog fields preserve authored enable bytes and finite scalars independently;
 // view composition owns disabled defaults and coordinate conversion. The fog
 // extension reread R.2 and MEM.6 in both phases and adds no allocation.
+// Redesign I.1/CDSA.32/MEM.9 publishes clear RGB and owner-size threshold as
+// authored values, independently of ambient and shadow receiver filtering.
 #include "bw/formats/stage_environment.hpp"
 
 #include <bit>
@@ -23,6 +25,7 @@ using resources::detail::Reader;
 constexpr std::uint64_t kWordBytes = 4;
 constexpr std::uint64_t kEnvironmentBytes = 0x160;
 constexpr std::uint64_t kAmbientColor = 0;
+constexpr std::uint64_t kClearColor = 0xc;
 constexpr std::uint64_t kCharacterLightIntensity = 0x1c;
 constexpr std::uint64_t kEnemyLightIntensity = 0x20;
 constexpr std::uint64_t kSkyYaw = 0xc0, kSkyHeight = 0xc4;
@@ -30,6 +33,7 @@ constexpr std::uint64_t kLightDiffuse = 0xc8, kLightSpecular = 0xd8;
 constexpr std::uint64_t kLightVector = 0xf4;
 constexpr std::uint64_t kShadowCull = 0xe8, kShadowRadius = 0xec;
 constexpr std::uint64_t kShadowFar = 0x100, kShadowMinHeight = 0x108;
+constexpr std::uint64_t kShadowMinimumProjectedSize = 0x104;
 constexpr std::uint64_t kShadowMaxHeight = 0x10c, kShadowAlignment = 0x124;
 constexpr std::uint64_t kShadowNearExtension = 0x128;
 constexpr std::uint64_t kShadowSetup = 0x111, kShadowCasters = 0x113;
@@ -93,6 +97,7 @@ StageEnvironment StageEnvironment::parse(
   result.enemy_light_intensity = value(kEnemyLightIntensity);
   for (std::size_t i = 0; i < result.ambient_color.size(); ++i) {
     result.ambient_color.at(i) = value(kAmbientColor + i * kWordBytes);
+    result.clear_color.at(i) = value(kClearColor + i * kWordBytes);
   }
   result.sky_yaw_degrees = value(kSkyYaw);
   result.sky_height = value(kSkyHeight);
@@ -115,7 +120,8 @@ StageEnvironment StageEnvironment::parse(
       .minimum_height = value(kShadowMinHeight),
       .maximum_height = value(kShadowMaxHeight),
       .alignment_threshold = value(kShadowAlignment),
-      .parallel_near_extension = value(kShadowNearExtension)};
+      .parallel_near_extension = value(kShadowNearExtension),
+      .minimum_projected_size = value(kShadowMinimumProjectedSize)};
   result.surface_fog = fog(reader, {kSurfaceFog, 1});
   result.sky_fog = fog(reader, {kSkyFog, 0});
   for (std::size_t i = 0; i < result.fog_color.size(); ++i) {

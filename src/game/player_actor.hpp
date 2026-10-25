@@ -1,3 +1,7 @@
+// Actor publication borrows WorldPresentation only; it cannot upload, bind or
+// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
+// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
+// enforce the existing owner split without changing frame work or lifetimes.
 // Weapon publication composes activation-local and model-render half-turns
 // before the completed body attachment. I.1 names both source spaces; MEM.9
 // keeps their fixed matrix composition outside allocation paths.
@@ -237,10 +241,10 @@ class PlayerActor {
   // The live source actor places its model at negative effective body radius;
   // the constructor offset is superseded before publishing a physical pose.
   void publish_pose(const ScriptedPlayerPose& placement, float body_radius,
-                    render::WorldOutput& output);
+                    render::WorldPresentation& output);
   void publish_pose(const ScriptedPlayerPose& placement,
                     const animation::Matrix& orientation, float body_radius,
-                    render::WorldOutput& output);
+                    render::WorldPresentation& output);
   // Complete one child-model update before another parent step: corrected
   // transform, pose/secondary/attachments, events, then ring retirement. Does
   // not advance clocks again or submit GPU buffers. E.4 makes the phase
@@ -250,7 +254,7 @@ class PlayerActor {
                            float body_radius);
   // Publish the latest completed snapshot once after simulation subdivisions.
   // No pose evaluation, event dispatch or clock advancement occurs here.
-  void publish_completed_pose(render::WorldOutput& output);
+  void publish_completed_pose(render::WorldPresentation& output);
   bool motion_finished() const;
   // Authored cancellation entry stays latched until the current receiver
   // resets. Game states decide which exits permit cancellation; a marker does
@@ -259,7 +263,7 @@ class PlayerActor {
   // storage.
   bool motion_cancellable() const;
   PlayerMotion motion() const { return current_; }
-  void advance(double delta_seconds, render::WorldOutput& output);
+  void advance(double delta_seconds, render::WorldPresentation& output);
   const PlayerActorSource& source() const { return source_; }
   const CharacterAnimations& body_animations() const { return *body_catalog_; }
   const CharacterAnimations& weapon_animations() const {
@@ -302,7 +306,7 @@ class PlayerActor {
   void evaluate_attachment_palettes();
   void finish_model_step();
   CharacterMotionPlayer& motion_bank(CharacterMotionBank bank) const;
-  void publish_visibility(render::WorldOutput& output);
+  void publish_visibility(render::WorldPresentation& output);
   struct Playback;
   struct ShapeState;
   struct AudioState;

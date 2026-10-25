@@ -1,3 +1,10 @@
+// Texture construction policy is captured by value in immutable mission
+// options. Preparation alone consumes it; no renderer borrows mutable settings.
+// CPU mip candidates and native handles follow E.6 (#re-raii), I.11 (#ri-raw)
+// and COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md),
+// retrieved for design and implementation: validate then publish, and retain
+// current residents on candidate failure. No new frame work or shared mutation.
 // Weapon resources are mission-resident, separate from selected model
 // instances. Admission prepares all four definitions/support/device owners
 // once. Selection only borrows an existing stable entry; publication precedes
@@ -91,6 +98,7 @@ struct MissionLoadOptions {
   // thread at completed asset boundaries, never during native encoding.
   content::LoadProgress progress{};
   bool loading_presentation_ready{};
+  bool texture_mips{};
 };
 struct PlacementDefinition {
   explicit PlacementDefinition(const std::shared_ptr<memory::Domain>& domain)
@@ -103,7 +111,7 @@ class MissionLoading final : public MissionLoadServices {
   MissionLoading(const platform::Files& files,
                  const resources::CatalogSet& catalogs,
                  std::shared_ptr<memory::Domain> domain,
-                 render::WorldOutput* renderer = nullptr,
+                 render::WorldResources* renderer = nullptr,
                  MissionLoadOptions options = {});
   ~MissionLoading() override = default;
   MissionLoading(const MissionLoading&) = delete;
@@ -162,6 +170,13 @@ class MissionLoading final : public MissionLoadServices {
                                 sky_residency_->models)
                           : std::span<const render::WorldModelHandle>{};
   }
+  // Scene reflection bindings use this stable texture array through mission
+  // cancellation. The array follows StageDefinition::textures order.
+  std::span<const render::WorldTextureHandle> resident_textures() const {
+    return stage_residency_ ? std::span<const render::WorldTextureHandle>(
+                                  stage_residency_->textures)
+                            : std::span<const render::WorldTextureHandle>{};
+  }
   // Immutable authored light data borrows the mission residency lifetime.
   const content::UserDefinition* character_light() const noexcept {
     return character_light_ ? &*character_light_ : nullptr;
@@ -216,25 +231,26 @@ class MissionLoading final : public MissionLoadServices {
   void load_npc_palette();
   void preload_model(std::string_view name);
   struct ResidentDefinition {
-    ResidentDefinition(render::WorldOutput& renderer,
+    ResidentDefinition(render::WorldResources& renderer,
                        const content::StageDefinition& definition,
                        const std::shared_ptr<memory::Domain>& domain,
-                       const content::LoadProgress& progress = {});
+                       const content::LoadProgress& progress = {},
+                       bool texture_mips = false);
     ~ResidentDefinition();
     ResidentDefinition(const ResidentDefinition&) = delete;
     ResidentDefinition& operator=(const ResidentDefinition&) = delete;
     ResidentDefinition(ResidentDefinition&&) = delete;
     ResidentDefinition& operator=(ResidentDefinition&&) = delete;
     void release() noexcept;
-    render::WorldOutput& renderer;
+    render::WorldResources& renderer;
     memory::Vector<render::WorldModelHandle> models;
     memory::Vector<render::WorldTextureHandle> textures;
   };
   const platform::Files& files_;
   const resources::CatalogSet& catalogs_;
   std::shared_ptr<memory::Domain> memory_;
-  render::WorldOutput* renderer_{};
-  MissionLoadOptions options_;
+  render::WorldResources* renderer_{};
+  const MissionLoadOptions options_;
   memory::String request_name_, stage_name_;
   std::optional<MissionLoadKind> request_kind_;
   bool pending_{};

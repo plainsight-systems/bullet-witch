@@ -1,5 +1,17 @@
 # Remaining work
 
+- Lighting redesign and its native surface-sampling repair were accepted by
+  the user on October 25, 2026; commit is authorized. The final full gate and
+  independent implementation/ownership review pass. Residual angle-dependent
+  speckling and coarse shadows are accepted baseline limitations, plausibly
+  original-era behavior but not established original-image correspondence.
+  Final-normal normalization and pixel-footprint specular filtering remain
+  explicit native adaptations. Stop this noise investigation; visual-quality
+  improvements belong to the upgrade pass unless a concrete new defect appears.
+  Latest reproduction references: October 25, 7:18:15 a.m. cave and 7:19:52 a.m.
+  outdoor school outfit. Images remain outside Git. See
+  `research/engine/subsystems/lighting-redesign-acceptance.md`.
+
 - The progression/state slice is accepted and committed. It implements
   permanent snapshots/mutations, source costs/rewards, compatible Record save,
   bounded checkpoint-player decoding/merge, explicit concept entry and real
@@ -11,14 +23,14 @@
   `docs/architecture/world-timing.md` for verification and the remaining
   script/world integration and platform boundaries; those are not closed by
   this timing acceptance.
-  Next priority: design the lighting subsystem reconstruction to resolve the
-  audit's structural source-fidelity deficiencies. This is pending design work,
-  not brightness tuning or a general graphics upgrade. After lighting, retain
-  the agreed slices: (3) wire real player/weapon resources, controls, HUD, power-up
-  transactions and supported pause operations; (4) genuine One Shot Kill startup,
-  authored entities and mission lifecycle, broken into reviewable steps. Preserve
-  the source-owned decomposition and use inspected pinned Unreal implementations
-  for bounded unresolved contracts, not local patches or a generic new framework.
+  The lighting slice is now accepted. Next is the agreed slice 3: real
+  player/weapon resource ownership, controls, HUD, power-up transactions and
+  supported pause operations. Slice 4 follows with genuine One Shot Kill
+  startup, authored entities and mission lifecycle. Preserve source-owned
+  boundaries and inspect pinned Unreal implementations where original contracts
+  remain opaque. Lighting's named event/weather/particle/settings producers stay
+  with those owning slices; acceptance does not claim they already exist.
+
 
 
 - Diagnose intermittent native fullscreen startup if it recurs. Two launches
@@ -27,6 +39,9 @@
   transition timeout and record activation/key state; launch behavior is unchanged.
   This is unresolved, not fixed by the successful retry. See the current evidence
   in `research/engine/subsystems/sprite-presentation-design.md`.
+  The lighting-redesign walkthrough launch reproduced delegate rejection before
+  a frame (`rejected=1 pending=0 entered=0 active=0 key=0`); lighting's native
+  fixture checks pass, but this failed launch supplies no scene visual evidence.
 
 - Video work is parked. The actual title-screen still is externally hosted,
   verified and embedded in the README; the GitHub description is updated.
@@ -34,11 +49,13 @@
   Do not resume video recording/editing as part of this pass. See
   `research/reports/2026-10-24-public-demo.md`.
 
-- Retain the accepted lighting baseline. On October 24, 2026, the user accepted
+- The accepted lighting baseline is the comparison point for the now-authorized
+  source-faithful redesign. On October 24, 2026, the user accepted
   this slice for commit while noting it may be slightly too dark. Alicia's green
   hair on the default costume is specifically too dark; its color and readability
-  are signature visual details. Revisit lighting closer to gameplay with more
-  source/runtime evidence; do not tune it now. Original initial texture contents and
+  are signature visual details. The completed audit supersedes the earlier
+  deferral until gameplay: reconstruct the missing source contracts now without
+  tuning authored values to fit appearance. Original initial texture contents and
   timing, exact outdoor appearance and the historical specific controller/visual
   comparisons below remain fidelity questions, not blockers to this accepted
   slice. Missing AREA activation/live environment publication, source pre-tone

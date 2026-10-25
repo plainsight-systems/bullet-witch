@@ -43,6 +43,7 @@
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
+#include <utility>
 
 #include "bw/render/world_material.hpp"
 #include "formats/reader.hpp"
@@ -69,7 +70,6 @@ scene::LocalLightSettings local_light_settings(
 }
 
 constexpr std::uint32_t kVariantMask = 0xffff;
-constexpr std::uint32_t kInspectionFeatures = 0x00e00000;
 constexpr std::uint32_t kFogFeature = 0x00800000;
 constexpr std::size_t kJointPaletteCapacity = 32;
 constexpr std::uint32_t kGroupBitsPerWord = 32;
@@ -342,9 +342,14 @@ void environment_parameters(const formats::StageEnvironment& environment,
 // Presentation converts prepared engine values to backend-neutral bindings;
 // no scene sampling or field ownership belongs to the actor/controller.
 render::WorldLightingUpdate lighting_packet(
-    const scene::ReceiverLighting& lighting) {
+    const scene::ReceiverLighting& lighting,
+    const std::array<render::WorldTextureHandle, scene::kReflectionSlotCount>&
+        reflections) {
   render::WorldLightingUpdate update;
   update.irradiance_coefficients = lighting.irradiance;
+  update.reflection_texture = lighting.reflection_slot
+                                  ? reflections.at(*lighting.reflection_slot)
+                                  : render::WorldTextureHandle{};
   const auto& selected = lighting.local_lights;
   update.local_light_count = static_cast<std::uint32_t>(selected.count);
   for (std::size_t index = 0; index < selected.count; ++index) {
@@ -376,7 +381,7 @@ scene::LocalLightViewQuery lighting_view(const InitialPlayerCamera& camera) {
 }  // namespace
 StageInspection::StageInspection(
     const world::WorldClock& clock, const MissionControl& control,
-    render::WorldOutput& output, StageViewSource stage_source,
+    render::WorldPresentation& output, StageViewSource stage_source,
     StageViewSource sky_source, const std::shared_ptr<memory::Domain>& domain,
     const std::optional<render::ViewPose>& camera_pose,
     StageBackgroundSource background,
@@ -390,6 +395,11 @@ StageInspection::StageInspection(
       collision_(domain),
       static_lighting_updates_(
           memory::Allocator<render::WorldLightingUpdate>(domain)),
+      static_shadow_updates_(
+          memory::Allocator<render::WorldVisibilityUpdate>(domain)),
+      placed_lighting_(memory::Allocator<PlacedLighting>(domain)),
+      placed_lighting_updates_(
+          memory::Allocator<render::WorldLightingUpdate>(domain)),
       animated_curves_(memory::Allocator<AnimatedCurve>(domain)),
       animated_materials_(memory::Allocator<AnimatedMaterial>(domain)),
       texture_updates_(
@@ -398,23 +408,32 @@ StageInspection::StageInspection(
     throw std::invalid_argument(
         "Playerless inspection requires an explicit placement");
   }
-  if (player) {
-    if (light.character == nullptr) {
-      throw std::invalid_argument(
-          "Player requires authored character light field");
-    }
+  if ((player || (background.placements != nullptr &&
+                  !background.placements->placements().empty())) &&
+      light.character == nullptr) {
+    throw std::invalid_argument(
+        "Spatial receivers require authored character light field");
   }
   const auto& stage = stage_source.definition.get();
   if (!stage.environment) {
     throw std::runtime_error("Stage inspection requires authored environment");
   }
   environment_ = *stage.environment;
-  environment_channels_ = prepare_stage_environment(stage, domain);
   const auto& environment = *environment_;
   const auto customization = formats::CustomizationDefinition::parse(
       stage.customization_bytes(), domain);
   const auto camera_settings =
       formats::PlayerCameraSettings::parse_initial(customization);
+  constexpr std::array<std::string_view, 3> kSetupPath{"witch", "general",
+                                                       "setup"};
+  const resources::detail::Reader setup{customization.lookup(kSetupPath)};
+  constexpr std::size_t kOpaquePreparation = 0x24, kMaskedPreparation = 0x28;
+  scene_passes_ = {setup.u32(kOpaquePreparation) == 1,
+                   setup.u32(kMaskedPreparation) == 1,
+                   true,
+                   {}};
+  environment_channels_ =
+      prepare_stage_environment(stage, domain, camera_settings.far_plane);
   register_stage_collision(stage, collision_);
   memory::Vector<scene::LocalLight> emitters{
       memory::Allocator<scene::LocalLight>(domain)};
@@ -465,6 +484,9 @@ StageInspection::StageInspection(
     environment_channels_->update(camera.pose.eye, true);
     environment_ =
         stage_environment_snapshot(environment, *environment_channels_);
+    camera.perspective.far_plane =
+        stage_environment_camera_far(*environment_channels_);
+    fixed_view_ = camera;
   }
   std::array<scene::SceneLightFieldSource, 2> fields{};
   std::size_t field_count = 0;
@@ -478,6 +500,37 @@ StageInspection::StageInspection(
     fields.at(field_count++) = {light.enemy->bytes(),
                                 environment.enemy_light_intensity};
   }
+  // The original mandatory cube-zero gate is independent of camera AREA
+  // publication. Prepare receiver-space region/table lookup once, retaining
+  // native handles only in this scene-to-render adapter.
+  const formats::AreaDefinition* reflection_regions = nullptr;
+  const formats::SectionTable* reflection_table = nullptr;
+  for (const auto& input : stage.inputs) {
+    if (input.name.ends_with(".areadata.bin") && input.area) {
+      reflection_regions = &*input.area;
+    }
+    if (input.name.ends_with(".areadata.settbl") && input.table) {
+      reflection_table = &*input.table;
+    }
+  }
+  scene::ReflectionSlotResidency reflection_residency{};
+  for (std::size_t slot = 0; slot < stage.environment_textures.size(); ++slot) {
+    const auto index = stage.environment_textures.at(slot);
+    if (!index) continue;
+    if (*index >= stage_source.textures.size() ||
+        stage_source.textures[*index].value == 0) {
+      throw std::invalid_argument("Scene reflection texture is not resident");
+    }
+    reflection_textures_.at(slot) = stage_source.textures[*index];
+    reflection_residency.at(slot) = true;
+  }
+  if (reflection_regions != nullptr && reflection_table != nullptr) {
+    reflection_field_.emplace(scene::AreaRegions(*reflection_regions, domain),
+                              *reflection_table, reflection_residency, domain);
+  } else if (reflection_residency[0]) {
+    throw std::invalid_argument(
+        "Configured reflection field lacks receiver regions/table");
+  }
   lighting_.emplace(
       scene::SceneLightingSource{
           std::span(fields).first(field_count),
@@ -485,15 +538,19 @@ StageInspection::StageInspection(
           local_light_settings(customization),
           {environment.ambient_color,
            {environment.light_vector, environment.light_diffuse,
-            environment.light_specular}}},
+            environment.light_specular}},
+          reflection_field_ ? &*reflection_field_ : nullptr},
       domain);
   const auto directional = lighting_->directional_lighting();
   const auto& direction = directional.direction;
   lighting_->set_view(lighting_view(camera));
-  const auto static_lighting = lighting_packet(lighting_->evaluate(
-      {.policy = scene::ReceiverLightingPolicy::stage_ambient}));
-  const auto sky_lighting = lighting_packet(lighting_->evaluate(
-      {.policy = scene::ReceiverLightingPolicy::sky_white}));
+  const auto static_lighting = lighting_packet(
+      lighting_->evaluate(
+          {.policy = scene::ReceiverLightingPolicy::stage_ambient}),
+      reflection_textures_);
+  const auto sky_lighting = lighting_packet(
+      lighting_->evaluate({.policy = scene::ReceiverLightingPolicy::sky_white}),
+      reflection_textures_);
   audio_listener_ = {camera.pose.eye, camera.pose.forward, camera.pose.up};
   const auto view =
       render::make_view_transforms(camera.pose, camera.perspective);
@@ -545,6 +602,7 @@ StageInspection::StageInspection(
                           PlayerBodySettings::parse(customization), placement,
                           targeting_);
       camera_.emplace(camera_settings, placement, collision_);
+      camera_->set_far_distance(camera.perspective.far_plane);
     }
     capacity += player->body.definition.get().draws().size() +
                 player->weapon.definition.get().draws().size();
@@ -570,6 +628,11 @@ StageInspection::StageInspection(
     }
   }
   draws.reserve(capacity + background_capacity);
+  static_shadow_updates_.reserve(capacity);
+  placed_lighting_updates_.reserve(background_capacity);
+  if (background.placements != nullptr) {
+    placed_lighting_.reserve(background.placements->placements().size());
+  }
   // Palette storage stays stable until the native owner copies the complete
   // draw list. Allocate once for the bounded placement/draw census.
   using JointPalette =
@@ -587,6 +650,28 @@ StageInspection::StageInspection(
           "Stage view requires resident geometry and textures");
     }
     std::size_t selected = 0;
+    std::optional<std::size_t> placed_index;
+    auto model_light = sky ? sky_lighting : static_lighting;
+    if (placement != nullptr) {
+      if (resident == nullptr || background.placements == nullptr) {
+        throw std::logic_error("Placed lighting requires its resident owner");
+      }
+      const auto root_position = placed_receiver_position(
+          *resident,
+          std::span(background.placements->matrices())
+              .subspan(placement->first_matrix, placement->matrix_count));
+      const resources::detail::Reader header{model.header()};
+      constexpr std::size_t kGroupRadius = 0x40;
+      placed_index = placed_lighting_.size();
+      auto& observation = placed_lighting_.emplace_back(PlacedLighting{
+          scene::RetainedLightingReceiver(*lighting_, character_field_),
+          root_position, std::bit_cast<float>(header.u32(kGroupRadius)),
+          placed_lighting_updates_.size(), 0});
+      model_light =
+          lighting_packet(observation.receiver.evaluate(
+                              observation.root_position, observation.radius),
+                          reflection_textures_);
+    }
     for (std::size_t index = 0; index < model.draws().size(); ++index) {
       const auto group = model.draws().at(index).group;
       if (group >= kSourceGroupCount) {
@@ -600,37 +685,10 @@ StageInspection::StageInspection(
       }
       const auto& material =
           model.materials().at(model.draws().at(index).material);
-      auto flags = material.shader_selector[0] | kInspectionFeatures;
+      auto flags = material.shader_selector[0] | kFogFeature;
       const auto variant = static_cast<std::uint16_t>(
           material.shader_selector[1] & kVariantMask);
       auto lighting = render::WorldLightingPolicy::supplied;
-      // The source untextured surface consumes material and scene lighting,
-      // without a base sampler or texture coordinates.
-      if (material.shader_selector[0] == 0 && variant == 0) {
-        flags = kFogFeature;
-        lighting = render::WorldLightingPolicy::supplied;
-      }
-      constexpr std::uint32_t kLayeredFresnel = 0x00020882;
-      constexpr std::uint32_t kLocalLighting = 0x04200882;
-      constexpr std::uint16_t kLayeredVariant = 0x102;
-      constexpr std::uint32_t kAlphaSelector = 1;
-      const auto surface = material.shader_selector[0] & ~kAlphaSelector;
-      if ((surface == kLayeredFresnel && variant == kLayeredVariant) ||
-          (surface == kLocalLighting && variant == 1)) {
-        // These actual cached programs require their distinct selector;
-        // recovered light and shadow inputs now accompany the material terms.
-        constexpr std::uint32_t kCachedLayered = 0x00820882;
-        constexpr std::uint32_t kCachedLocal = 0x04a00882;
-        flags = (variant == kLayeredVariant ? kCachedLayered : kCachedLocal) |
-                (material.shader_selector[0] & kAlphaSelector);
-        lighting = render::WorldLightingPolicy::supplied;
-      }
-      if (placement != nullptr) {
-        // The cached prop vertex programs retain their rigid/two-joint input;
-        // ordinary static-world selector augmentation is not valid here.
-        flags = material.shader_selector[0] | kFogFeature;
-        lighting = render::WorldLightingPolicy::supplied;
-      }
       // Runtime irradiance remains enabled for every static object, including
       // families with independently omitted directional or shadow terms.
       constexpr std::uint32_t kSphericalHarmonics = 0x200;
@@ -638,7 +696,7 @@ StageInspection::StageInspection(
       const auto requirements =
           render::world_material_requirements(flags, variant, lighting);
       if (!requirements.supported) {
-        continue;
+        throw std::runtime_error("Unsupported source world material variant");
       }
       render::WorldColorDraw draw;
       draw.view_space =
@@ -648,16 +706,24 @@ StageInspection::StageInspection(
       environment_parameters(
           environment, sky ? sky_transform : view, sky, directional,
           -view.camera_relative_world_rows[1][3], draw.parameters);
-      const auto& model_light = sky ? sky_lighting : static_lighting;
+      draw.reflection_texture = model_light.reflection_texture;
       draw.parameters.irradiance_coefficients =
           model_light.irradiance_coefficients;
       draw.parameters.local_lights = model_light.local_lights;
       draw.parameters.local_light_meta[0] = model_light.local_light_count;
       if (!sky) {
-        auto update = static_lighting;
+        auto update = model_light;
         update.model = handle;
         update.draw = index;
-        static_lighting_updates_.push_back(update);
+        if (placed_index) {
+          draw.instance = *placed_index + 1;
+          update.instance = draw.instance;
+          placed_lighting_updates_.push_back(update);
+          ++placed_lighting_.at(*placed_index).update_count;
+        } else {
+          update.instance = draw.instance;
+          static_lighting_updates_.push_back(update);
+        }
       }
       if (placement != nullptr) {
         if (resident == nullptr || requirements.joint_influences == 0 ||
@@ -711,6 +777,7 @@ StageInspection::StageInspection(
       draw.effective_shader_flags = flags;
       draw.lighting = lighting;
       draw.color_phase = color_phase(model.draws().at(index).chunk, sky);
+      if (!sky) draw.owner_opacity = 1;
       // Later scene lists test the established opaque depth without writing it.
       // Their material blend records remain independent from phase ordering.
       draw.state = {render::WorldTextureFilter::anisotropic,
@@ -730,6 +797,10 @@ StageInspection::StageInspection(
         // shadows.
         draw.casts_shadow =
             placement == nullptr && model.draws().at(index).chunk <= 1;
+        if (draw.casts_shadow) {
+          static_shadow_updates_.push_back(
+              {handle, index, draw.visible, true, draw.instance});
+        }
       }
       // Capture the effective command state at this draw. Later TRST commands
       // reset subsequent draws; they must not erase this draw's TANM binding.
@@ -811,6 +882,7 @@ StageInspection::StageInspection(
         camera.pose, camera.perspective,
         initial_stage_shadow_settings(environment.shadow),
         {direction[0], direction[1], direction[2]});
+    shadow_projection_ = projection;
     constexpr float kShadowResolution =
         static_cast<float>(render::kDirectionalShadowExtent);
     for (auto& draw : draws) {
@@ -848,7 +920,8 @@ render::WorldLightingUpdate StageInspection::model_lighting(
         std::bit_cast<float>(reader.u32(kGroupCenter + axis * sizeof(float)));
   }
   receiver.model_radius = std::bit_cast<float>(reader.u32(kGroupRadius));
-  auto update = lighting_packet(lighting_->evaluate(receiver));
+  auto update =
+      lighting_packet(lighting_->evaluate(receiver), reflection_textures_);
   update.model = resident.handle;
   return update;
 }
@@ -917,10 +990,12 @@ void StageInspection::append_player_draws(
     draw.effective_shader_flags = flags;
     draw.lighting = render::WorldLightingPolicy::supplied;
     draw.color_phase = color_phase(source_draw.chunk, false);
+    draw.owner_opacity = 1;
     material_parameters(material, requirements, draw.parameters);
     require_textures(material, requirements);
     environment_parameters(environment, view, false, directional,
                            camera.pose.eye[1], draw.parameters);
+    draw.reflection_texture = lighting.reflection_texture;
     draw.parameters.irradiance_coefficients = lighting.irradiance_coefficients;
     draw.parameters.local_lights = lighting.local_lights;
     draw.parameters.local_light_meta[0] = lighting.local_light_count;
@@ -982,19 +1057,100 @@ void StageInspection::change_costume(MissionLoading& loading,
   }
 }
 StageInspection::~StageInspection() { output_.clear_world_draws(); }
+// Visibility consumes source owner bounds and the independent selection light
+// volume. It does not infer caster eligibility from a material or from shadow
+// reception. Static registration and actor pose/force state remain separate.
+void StageInspection::publish_shadow_owners(const InitialPlayerCamera& camera) {
+  using scene::visibility::make_shadow_selection_volume;
+  using scene::visibility::query_model_shadow_caster;
+  using scene::visibility::query_static_shadow_caster;
+  using scene::visibility::shadow_caster_admitted;
+  using scene::visibility::ShadowModelCaster;
+  using scene::visibility::ShadowSelectionCamera;
+  if (!environment_ || !environment_->shadow.setup_enabled) return;
+  const auto& shadow = environment_->shadow;
+  const bool static_admitted = shadow_caster_admitted(
+      query_static_shadow_caster(shadow.minimum_projected_size));
+  for (auto& update : static_shadow_updates_) {
+    update.casts_shadow = static_admitted;
+  }
+  if (!static_shadow_updates_.empty()) {
+    output_.update_world_visibility(static_shadow_updates_);
+  }
+  if (!player_) return;
+  const auto& pose = camera.pose;
+  const auto& perspective = camera.perspective;
+  const float height =
+      std::tan(perspective.vertical_fov_radians * .5F) * perspective.near_plane;
+  const float width = height * perspective.aspect;
+  const ShadowSelectionCamera selected_camera{
+      {pose.right, pose.up, pose.forward, pose.eye},
+      {-width, width, -height, height, perspective.near_plane,
+       perspective.far_plane}};
+  auto toward_light = environment_->light_vector;
+  constexpr float kSourceLightDirectionBias = .001F;
+  toward_light[2] += kSourceLightDirectionBias;
+  const auto volume = make_shadow_selection_volume(
+      selected_camera, shadow.far_distance, toward_light);
+  const auto& actor = *player_;
+  for (const bool weapon : {false, true}) {
+    const auto& resident = weapon ? actor.source().weapon : actor.source().body;
+    const auto transform = math::affine_part(actor.model_transform(weapon));
+    const resources::detail::Reader header{resident.definition.get().header()};
+    constexpr std::size_t kGroupCenter = 0x30, kGroupRadius = 0x40;
+    math::Vector3<float> group_center{};
+    for (std::size_t axis = 0; axis < group_center.size(); ++axis) {
+      group_center.at(axis) =
+          std::bit_cast<float>(header.u32(kGroupCenter + axis * sizeof(float)));
+    }
+    // Original model owner initializes a separate .95 projected sphere at
+    // local (0,.9,0). Its intersection sphere is authored GROUP0, unscaled.
+    const ShadowModelCaster owner{
+        {math::transform_point<float>({0, .9F, 0}, transform), .95F},
+        {math::transform_point<float>(group_center, transform),
+         std::bit_cast<float>(header.u32(kGroupRadius))},
+        true,
+        !weapon && controller_ &&
+            std::as_const(*controller_)
+                .action_owner()
+                .forces_model_visibility(),
+        false};
+    const bool admitted = shadow_caster_admitted(query_model_shadow_caster(
+        selected_camera, volume, shadow.minimum_projected_size, owner));
+    for (std::size_t index = 0;
+         index < resident.definition.get().draws().size(); ++index) {
+      if (!actor.includes_draw(weapon, index)) continue;
+      const auto& draw = resident.definition.get().draws().at(index);
+      const render::WorldVisibilityUpdate update{
+          resident.handle, index, actor.draw_visible(weapon, index),
+          admitted && draw.chunk <= 1, 0};
+      output_.update_world_visibility(std::span(&update, 1));
+    }
+  }
+}
 void StageInspection::publish_view() {
   if ((!camera_ && !fixed_view_) || !environment_ || !lighting_) return;
   const auto& camera = camera_ ? camera_->view() : *fixed_view_;
   const auto& environment = *environment_;
-  const auto directional = lighting_->directional_lighting();
+  auto& scene_lighting = *lighting_;
+  const auto directional = scene_lighting.directional_lighting();
   const auto& direction = directional.direction;
   const auto world =
       render::make_view_transforms(camera.pose, camera.perspective);
   const auto sky = sky_view(world, environment);
-  const auto shadow = render::make_directional_shadow_projection(
-      camera.pose, camera.perspective,
-      initial_stage_shadow_settings(environment.shadow),
-      {direction[0], direction[1], direction[2]});
+  if (environment.shadow.cull_selector > 2) {
+    throw std::invalid_argument("Unclassified source shadow cull policy");
+  }
+  if (environment.shadow.setup_enabled) {
+    shadow_projection_ = render::make_directional_shadow_projection(
+        camera.pose, camera.perspective,
+        initial_stage_shadow_settings(environment.shadow),
+        {direction[0], direction[1], direction[2]});
+  }
+  if (!shadow_projection_) {
+    throw std::logic_error("Shadow projection has not been initialized");
+  }
+  const auto& shadow = *shadow_projection_;
   const auto parameters = [&](bool background) {
     const auto& transform = background ? sky : world;
     render::WorldColorParameters fog;
@@ -1015,18 +1171,49 @@ void StageInspection::publish_view() {
            directional.direction, directional.diffuse, directional.specular,
            environment.shadow.receiver_radius /
                static_cast<float>(render::kDirectionalShadowExtent),
-           environment.shadow.casters_enabled}});
+           environment.shadow.casters_enabled},
+       render::WorldViewUpdate::ScenePasses{
+           scene_passes_.opaque_preparation, scene_passes_.masked_preparation,
+           scene_passes_.integer_pixel_centers, environment.clear_color},
+       render::WorldViewUpdate::ShadowPass{
+           environment.shadow.setup_enabled,
+           environment.shadow.cull_selector == 0 ? render::WorldCull::none
+           : environment.shadow.cull_selector == 1
+               ? render::WorldCull::clockwise
+               : render::WorldCull::counter_clockwise,
+           environment.shadow.raster_depth_bias,
+           environment.shadow.raster_slope_bias}});
+  publish_shadow_owners(camera);
   output_.set_world_output_parameters(
       display_parameters(environment.tone_mapping));
   if (!static_lighting_updates_.empty()) {
-    const auto packet = lighting_packet(lighting_->evaluate(
-        {.policy = scene::ReceiverLightingPolicy::stage_ambient}));
+    const auto packet = lighting_packet(
+        scene_lighting.evaluate(
+            {.policy = scene::ReceiverLightingPolicy::stage_ambient}),
+        reflection_textures_);
     for (auto& update : static_lighting_updates_) {
       update.irradiance_coefficients = packet.irradiance_coefficients;
       update.local_lights = packet.local_lights;
       update.local_light_count = packet.local_light_count;
+      update.reflection_texture = packet.reflection_texture;
     }
     output_.update_world_lighting(static_lighting_updates_);
+  }
+  for (auto& placed : placed_lighting_) {
+    const auto packet = lighting_packet(
+        placed.receiver.evaluate(placed.root_position, placed.radius),
+        reflection_textures_);
+    for (auto& update :
+         std::span(placed_lighting_updates_)
+             .subspan(placed.first_update, placed.update_count)) {
+      update.irradiance_coefficients = packet.irradiance_coefficients;
+      update.local_lights = packet.local_lights;
+      update.local_light_count = packet.local_light_count;
+      update.reflection_texture = packet.reflection_texture;
+    }
+  }
+  if (!placed_lighting_updates_.empty()) {
+    output_.update_world_lighting(placed_lighting_updates_);
   }
 }
 AliciaActionUpdate StageInspection::begin_player_scripted_jump(
@@ -1175,6 +1362,10 @@ void StageInspection::advance(const world::WorldFrame& frame,
     environment_ =
         stage_environment_snapshot(*environment_, *environment_channels_);
     const auto& value = *environment_;
+    const float far_distance =
+        stage_environment_camera_far(*environment_channels_);
+    if (camera_) camera_->set_far_distance(far_distance);
+    if (fixed_view_) fixed_view_->perspective.far_plane = far_distance;
     lighting_->set_parameters(
         {value.ambient_color,
          {value.light_vector, value.light_diffuse, value.light_specular}});

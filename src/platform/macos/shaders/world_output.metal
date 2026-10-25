@@ -158,3 +158,59 @@ fragment float4 world_display_output(OutputVertex in [[stage_in]],
   }
   return float4(color * p.opacity, 1);
 }
+
+// Original final-copy edge program: integer-pixel fullscreen UVs, distinct
+// from the quarter-pixel postprocess quad above. Shift raster geometry to
+// translate D3D9 integer centers to Metal half-integer centers.
+vertex OutputVertex world_final_edge_vertex(uint id [[vertex_id]],
+                                            constant OutputParameters& p
+                                            [[buffer(0)]]) {
+  constexpr float2 positions[] = {{-1, 1}, {-1, -1}, {1, 1}, {1, -1}};
+  constexpr float2 uvs[] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
+  const float2 position = positions[id] + float2(1, -1) * p.inverse_extent;
+  return {float4(position, 0, 1), uvs[id]};
+}
+fragment float4 world_final_edge(OutputVertex in [[stage_in]],
+                                 texture2d<float> image [[texture(0)]],
+                                 constant OutputParameters& p [[buffer(0)]]) {
+  // Preserve the original diagonal bias and bounded two/four-tap selection.
+  // The represented preceding tone/RGB passes leave slot0 point-clamped.
+  const float3 luminance = float3(.299, .587, .114);
+  const float2 half_step = .5f * p.inverse_extent;
+  const float nw =
+      dot(image.sample(point_clamp, in.uv - half_step).rgb, luminance);
+  const float ne =
+      dot(image.sample(point_clamp, in.uv + float2(half_step.x, -half_step.y))
+              .rgb,
+          luminance) +
+      .0026041669771f;
+  const float sw = dot(
+      image.sample(point_clamp, in.uv + float2(-half_step.x, half_step.y)).rgb,
+      luminance);
+  const float se =
+      dot(image.sample(point_clamp, in.uv + half_step).rgb, luminance);
+  const float2 gradient = float2((sw - ne) + (se - nw), (sw - ne) - (se - nw));
+  const float2 direction = gradient * rsqrt(dot(gradient, gradient));
+  const float2 outer_step =
+      clamp(direction / (8 * min(abs(direction.x), abs(direction.y))), -2.0f,
+            2.0f) *
+      (2 * p.inverse_extent);
+  const float4 outer = image.sample(point_clamp, in.uv + outer_step) +
+                       image.sample(point_clamp, in.uv - outer_step);
+  const float4 inner =
+      image.sample(point_clamp, in.uv + direction * half_step) +
+      image.sample(point_clamp, in.uv - direction * half_step);
+  const float4 four = (outer + inner) * .25f;
+  const float low = min(min(se, ne), min(sw, nw));
+  const float high = max(max(ne, se), max(nw, sw));
+  const float filtered_luminance = dot(four.rgb, luminance);
+  const float4 filtered = filtered_luminance < low || filtered_luminance > high
+                              ? inner * .5f
+                              : four;
+  const float4 center = image.sample(point_clamp, in.uv);
+  const float center_luminance = dot(center.rgb, luminance);
+  const float contrast =
+      max(high, center_luminance) - min(low, center_luminance);
+  const float4 color = contrast >= max(high * .125f, .05f) ? filtered : center;
+  return float4(color.rgb * p.opacity, color.a);
+}

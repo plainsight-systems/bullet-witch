@@ -1,3 +1,7 @@
+// Actor publication borrows WorldPresentation only; it cannot upload, bind or
+// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
+// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
+// enforce the existing owner split without changing frame work or lifetimes.
 // Complete balanced parent/model ticks; implementation E.4 preserves event
 // and root-interval invariants, MEM.9 adds no steady-state allocations. Both
 // corpora were read for design and implementation; see actor-model-clock-order.
@@ -425,7 +429,7 @@ bool PlayerController::step_scripted(MovementStep step,
 }
 double PlayerController::advance(PlayerMovementInput input,
                                  float camera_yaw_radians, double delta_seconds,
-                                 render::WorldOutput& output,
+                                 render::WorldPresentation& output,
                                  const PlayerActionObservations& observations) {
   if (!std::isfinite(delta_seconds) || delta_seconds < 0 ||
       delta_seconds > kMaximumElapsed || !std::isfinite(camera_yaw_radians) ||

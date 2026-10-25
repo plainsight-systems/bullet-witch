@@ -2,16 +2,22 @@
 // rotation and excluded neighbors. Actual executable comparison stays in
 // ignored integration evidence. Both phases SL.con.3/MEM.9 validate admission
 // and verify stable prepared storage; no proprietary source bytes are embedded.
+// Redesign I.1/CDSA.32/MEM.9 checks distinct strict sampling and per-receiver
+// invalidation, including equality and live intensity without new allocations.
 #include "bw/scene/lighting/irradiance_field.hpp"
 
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <type_traits>
 
 #include "bw/scene/lighting/local_lights.hpp"
 #include "bw/scene/lighting/scene_lighting.hpp"
 #include "camera_fixture.hpp"
 namespace {
+static_assert(!std::is_move_constructible_v<bw::scene::SceneLighting>);
+static_assert(
+    !std::is_copy_constructible_v<bw::scene::RetainedLightingReceiver>);
 using camera_fixture::require;
 using camera_fixture::scalar;
 using camera_fixture::word;
@@ -48,6 +54,75 @@ bw::resources::Bytes field_bytes() {
 void near(float actual, float expected) {
   require(std::abs(actual - expected) < .00001F,
           "Source irradiance expectation");
+}
+void strict_grid_contract(const std::shared_ptr<bw::memory::Domain>& domain) {
+  auto bytes = field_bytes();
+  bytes.resize(1400);
+  // Sixteen cells with asymmetric nonlinear X/Z values distinguish the
+  // five-point kernel, fixed Y layer and source terminal-neighbor exclusion.
+  constexpr std::size_t kStrictDictionary = 1100;
+  word(bytes, 16, 0);
+  word(bytes, 20, kStrictDictionary);
+  word(bytes, kGrid + 48, 3);
+  word(bytes, kGrid + 56, 3);
+  for (std::size_t x = 0; x < 4; ++x) {
+    for (std::size_t z = 0; z < 4; ++z) {
+      const auto index = x * 4 + z;
+      scalar(bytes, kStrictDictionary + index * 4,
+             static_cast<float>(x * 10 + z * z));
+      for (std::size_t channel = 0; channel < 27; ++channel) {
+        const auto offset = kGrid + 64 + index * 54 + channel * 2;
+        bytes.at(offset) = static_cast<std::uint8_t>(index);
+        bytes.at(offset + 1) = 0;
+      }
+    }
+  }
+  // This exclusion removes every actor-grid corner but is not a strict-path
+  // input. It cannot erase the placed receiver's five source samples.
+  word(bytes, kRecord + 8, 1);
+  word(bytes, kRecord + 12, 1300);
+  word(bytes, 1300, 1310);
+  for (std::size_t axis = 0; axis < 3; ++axis) {
+    scalar(bytes, 1310 + 16 + axis * 4, 100);
+  }
+  bw::scene::IrradianceField field(bytes, domain);
+  near(field.sample({0, 0, 0}, 1,
+                    bw::scene::IrradianceSampling::first_containing)[0][0],
+       97.F / 5.F);
+  near(field.sample({0, 0, 0})[0][0], 0);
+}
+void residual_publication_contract(
+    const std::shared_ptr<bw::memory::Domain>& domain) {
+  namespace scene = bw::scene;
+  auto bytes = field_bytes();
+  const std::array<scene::SceneLightFieldSource, 1> fields{{{bytes, 0}}};
+  const std::array<scene::LocalLight, 1> emitters{
+      {{{0, 0, 3}, {4, 2, 1}, {}, {1, .4F, .5F}}}};
+  scene::SceneLighting lighting({fields, emitters, {.05F, .15F, 0, true}, {}},
+                                domain);
+  const bw::math::Affine3<float> camera{
+      {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -5}}};
+  lighting.set_view({camera[3], bw::math::make_perspective_frustum(
+                                    camera, {-1, 1, -1, 1, 1, 100})});
+  const scene::LightingReceiver actor{
+      .policy = scene::ReceiverLightingPolicy::spatial,
+      .model_radius = .4F,
+      .field = {0}};
+  const auto packet = lighting.evaluate(actor);
+  require(packet.local_lights.count == 0 && packet.irradiance[0][3] != 0,
+          "Overflow survives zero spatial owner intensity with no direct light "
+          "slots");
+  require(packet.irradiance ==
+              scene::pack_irradiance(packet.local_lights.residual_irradiance),
+          "Overflow coefficients are added after owner scaling before packing");
+  scene::RetainedLightingReceiver placed(lighting, {0});
+  const auto before = placed.evaluate({0, 0, 0}, .4F);
+  lighting.replace_local_lights({});
+  require(before.irradiance[0][3] != 0 &&
+              placed.evaluate({0, 0, 0}, .4F).irradiance ==
+                  scene::pack_irradiance({}),
+          "Emitter retirement removes overflow even on a retained spatial "
+          "cache hit");
 }
 void local_light_tests(const std::shared_ptr<bw::memory::Domain>& domain) {
   using bw::scene::LocalLight;
@@ -89,13 +164,10 @@ void local_light_tests(const std::shared_ptr<bw::memory::Domain>& domain) {
       bounded.select({{4, 0, 0}, 0}).count == 0 &&
           bounded.select({{4, 0, 0}, .5F}).count == 1,
       "Model group radius participates in strict source influence admission");
-  bool rejected = false;
-  try {
-    bw::scene::LocalLights unsupported(lights, {.05F, .15F, 4, true}, domain);
-  } catch (const std::invalid_argument&) {
-    rejected = true;
-  }
-  require(rejected, "Unimplemented overflow projection is explicit");
+  bw::scene::LocalLights empty_overflow({}, {.05F, .15F, 4, true}, domain);
+  require(empty_overflow.select({}).residual_irradiance ==
+              bw::scene::IrradianceCoefficients{},
+          "Empty overflow selection retains zero irradiance");
 }
 // Exercise the scene publication boundary with independent field identities,
 // model observations and transactional updates, not private sampler structure.
@@ -162,6 +234,26 @@ void scene_lighting_tests(const std::shared_ptr<bw::memory::Domain>& domain) {
         bw::math::make_perspective_frustum(camera_world,
                                            {-1, 1, -1, 1, 1, 100})};
     scene.set_view(view);
+    bw::scene::RetainedLightingReceiver placed(scene, {0});
+    bw::scene::IrradianceCoefficients placed_expected;
+    placed_expected.fill({.5F, .5F, .5F});
+    const auto initial_placed = placed.evaluate({1.75F, 0, 0}, .4F);
+    require(initial_placed.irradiance ==
+                bw::scene::pack_irradiance(placed_expected),
+            "Placed receiver initializes independent strict-field state");
+    require(
+        placed.evaluate({2, 0, 0}, .4F).irradiance == initial_placed.irradiance,
+        "Sub-threshold root movement retains source SH");
+    placed_expected.fill({2.5F, 2.5F, 2.5F});
+    require(placed.evaluate({2.25F, 0, 0}, .4F).irradiance ==
+                bw::scene::pack_irradiance(placed_expected),
+            "Exact source squared-distance threshold refreshes SH");
+    scene.set_field_intensity({0}, .3125F);
+    placed_expected.fill({3.125F, 3.125F, 3.125F});
+    require(placed.evaluate({2.25F, 0, 0}, .4F).irradiance ==
+                bw::scene::pack_irradiance(placed_expected),
+            "Live intensity participates in the four-lane cache key");
+    scene.set_field_intensity({0}, .25F);
     const auto static_light = scene.evaluate(static_receiver);
     near(static_light.irradiance[0][3], .2F);
     near(static_light.irradiance[2][3], .4F);
@@ -274,6 +366,8 @@ void scene_lighting_tests(const std::shared_ptr<bw::memory::Domain>& domain) {
 void irradiance_field_tests() {
   auto domain =
       bw::memory::Domain::create(std::make_shared<camera_fixture::Backing>());
+  strict_grid_contract(domain);
+  residual_publication_contract(domain);
   local_light_tests(domain);
   scene_lighting_tests(domain);
   auto bytes = field_bytes();
@@ -288,6 +382,14 @@ void irradiance_field_tests() {
   near(field.sample({2, 0, 0})[0][0],
        8);  // cell value6, half-zone overlap with default10
   near(field.sample({3, 0, 0})[0][0], 10);  // strict expanded-volume edge
+  using bw::scene::IrradianceSampling;
+  near(field.sample({1.75F, 0, 0}, 1,
+                    IrradianceSampling::first_containing)[0][0],
+       2);
+  near(field.sample({2, 0, 0}, 1, IrradianceSampling::first_containing)[0][0],
+       10);
+  near(field.sample({-2, 0, 0}, 1, IrradianceSampling::first_containing)[0][0],
+       10);
   const auto live = domain->snapshot().live_bytes;
   for (int i = 0; i < 100; ++i) (void)field.sample({1, 0, 0});
   require(domain->snapshot().live_bytes == live,

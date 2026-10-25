@@ -79,6 +79,8 @@ struct StartupOptions {
   std::optional<int> maximum_seconds;
   bool verify{};
   bool capture{};
+  // Resolved before resource preparation; disabled is the original default.
+  bool texture_mips{};
   game::ConceptProfile concept_profile{
       game::ConceptProfile::development_completed};
   platform::WindowOptions window;

@@ -18,7 +18,8 @@ void spell_presentation_policy_tests() {
   for (const auto kind :
        {SpellPresentationKind::ancient_wall, SpellPresentationKind::will_power,
         SpellPresentationKind::sacrifice}) {
-    require(!spell_presentation_entry(kind).scope.shooter_update,
+    require(!spell_presentation_entry(kind).scope.shooter_update &&
+                spell_presentation_entry(kind).scope.force_model_visibility,
             "Source spell state replaces the timed Shooter callback");
   }
   require(spell_presentation_entry(SpellPresentationKind::thunder)
@@ -37,7 +38,8 @@ void spell_presentation_policy_tests() {
   entry = policy.begin(SpellPresentationKind::rose_bomb);
   require(entry.motion.requests[0].slot == 771 &&
               entry.motion.requests[0].start_frames == 0 &&
-              !entry.scope.common_entry && !entry.scope.camera_facing,
+              !entry.scope.common_entry && !entry.scope.camera_facing &&
+              !entry.scope.force_model_visibility,
           "Rose Bomb uses its separate frame0 entry rather than common facing");
   static_cast<void>(policy.interrupt());
   static_cast<void>(policy.begin(SpellPresentationKind::sacrifice));
@@ -80,7 +82,7 @@ void spell_presentation_policy_tests() {
   entry = policy.begin(SpellPresentationKind::thunder);
   require(entry.motion.requests[0].slot == 784 &&
               entry.motion.requests[0].start_frames == 0 &&
-              !entry.scope.common_entry,
+              !entry.scope.common_entry && entry.scope.force_model_visibility,
           "Thunder has a separate frame0 aim entry");
   require(policy.advance({.seconds = 11, .camera_owned = false}).outcome ==
               SpellPresentationOutcome::unchanged,

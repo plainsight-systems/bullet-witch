@@ -1,3 +1,7 @@
+// Source staging now includes NONE-filter zero padding for odd dimensions and
+// no-dither nearest RGBA4 quantization. Temporary storage uses the supplied
+// domain; publish after complete conversion. E.6/I.11 and COPY.5 (references
+// in texture_mips.hpp and texture-mip-filter.md) were read in both phases.
 // World texture pixel conversion contract in world_texture.hpp; native source
 // The original HDR texture constructor selects HALF4 storage and copies
 // bytes from an A8R8G8B8 surface of twice the declared width. Preserve bit
@@ -8,11 +12,12 @@
 // state. Both phases consulted SL.con.3 (#rsl-bounds), R.2 (#rr-use-ptr), MEM.6
 // (guidelines/memory/ MEM.6-inject-allocators-behind-one-interface.md).
 // Research source comparison and evidence: stage-content-decoding.md. No
-// guessed mip filtering is implemented.
+// guessed mip filtering is implemented here; texture_mips owns filtering.
 #include "bw/formats/world_texture.hpp"
 
 #include <algorithm>
 
+#include "bw/formats/texture_mips.hpp"
 #include "reader.hpp"
 namespace bw::formats {
 namespace {
@@ -76,29 +81,48 @@ WorldTextureImage decode_face(
   const bool cube = source.shape == WorldTextureShape::cube;
   const resources::detail::Reader description{metadata};
   const auto format = description.u32(kFormatOffset) & kFormatMask;
-  if (format == kPackedFourBitFormat && !cube) {
-    resources::detail::unsupported(
-        "World A4R4G4B4 conversion requires its native quantization contract");
-  }
   if (format == kHalfFormat) {
     packed_png_contract(encoded);
   }
   auto image = decode_png(encoded, {}, allocator);
   if (format != kHalfFormat) {
-    if ((image.width & 1U) != 0 || (image.height & 1U) != 0) {
-      resources::detail::unsupported(
-          "Odd world texture dimensions require native surface conversion");
-    }
+    auto width = image.width + (image.width & 1U);
+    auto height = image.height + (image.height & 1U);
     if (cube) {
       const auto raw_edge = description.u32(kSizeOffset) & kDimensionMask;
       const auto edge = raw_edge + (raw_edge & 1U);
-      if (image.width != edge || image.height != edge) {
+      if (edge == 0 || (image.width != raw_edge && image.width != edge) ||
+          (image.height != raw_edge && image.height != edge)) {
         resources::detail::malformed(
             "Cube face dimensions disagree with metadata");
       }
+      width = edge;
+      height = edge;
     }
-    return {image.width, image.height, WorldTextureFormat::rgba8,
-            std::move(image.rgba)};
+    // NONE conversion copies the source into the upper-left and explicitly
+    // zeroes rounded destination padding, as witnessed against original D3DX.
+    if (width != image.width || height != image.height) {
+      constexpr std::size_t kChannels = 4;
+      memory::Vector<std::uint8_t> padded(
+          static_cast<std::size_t>(width) * height * kChannels, 0, allocator);
+      for (std::uint32_t y = 0; y < image.height; ++y) {
+        const auto source =
+            std::span<const std::uint8_t>(image.rgba)
+                .subspan(static_cast<std::size_t>(y) * image.width * kChannels,
+                         static_cast<std::size_t>(image.width) * kChannels);
+        const auto destination = std::span(padded).subspan(
+            static_cast<std::size_t>(y) * width * kChannels, source.size());
+        std::ranges::copy(source, destination.begin());
+      }
+      image.rgba = std::move(padded);
+    }
+    WorldTextureImage result{width, height, WorldTextureFormat::rgba8,
+                             std::move(image.rgba)};
+    // The original 2D constructor uses NONE/no-dither for staging conversion;
+    // cubes retain eight-bit staging even when metadata names the four-bit
+    // code.
+    if (format == kPackedFourBitFormat && !cube) quantize_texture_rgba4(result);
+    return result;
   }
   const auto packed = description.u32(kSizeOffset);
   const auto raw_width = packed & kDimensionMask;

@@ -9,6 +9,13 @@
 // formats follow original construction; source equations live in standalone
 // shaders and world-display-output.md. Work is bounded by scene pixels and fixed
 // postprocess targets, with no steady-state device storage allocation.
+// Lifecycle redesign: both-phase Core E.4 (#re-design-invariants) validates
+// clear values and completion before mutation; GPU.9 preserves the measured
+// target across scene lifetime, GPU.1 retains only the source-required scalar
+// readback. No toggle, event or scene replacement invents a fresh measurement.
+// Final edge policy is explicit (Core I.1, both phases); GPU.9 keeps the
+// original display intermediate resident between frames. The edge shader runs
+// after tone quantization and before overlays; see lighting-final-edge-filter.md.
 #include "platform/macos/world_postprocess.hpp"
 #include <algorithm>
 #include <array>
@@ -47,6 +54,8 @@ enum class Pass : std::uint8_t {
   horizontal,
   vertical,
   display,
+  display_intermediate,
+  final_edge,
   count
 };
 constexpr std::size_t kTargets = static_cast<std::size_t>(Target::count);
@@ -73,13 +82,14 @@ struct WorldPostprocess::State {
       : device(native_device), budget(std::move(native_budget)) {}
   id<MTLDevice> device;
   std::shared_ptr<memory::DeviceBudget> budget;
-  TextureAllocation scene, depth, filtered_scene;
+  TextureAllocation scene, depth, filtered_scene, display_image;
   std::array<TextureAllocation, kTargets> targets;
   std::array<id<MTLRenderPipelineState>, kPasses> pipelines{};
   render::WorldOutputParameters parameters;
   render::ExposureController exposure;
   OutputUniforms uniforms;
   id<MTLCommandBuffer> previous{};
+  bool measurement_available{};
   TextureAllocation make_target(std::uint32_t width, std::uint32_t height, MTLPixelFormat format) {
     return TextureAllocation::create(device, budget, width, height, format, MTLTextureType2D,
                                      MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget);
@@ -93,12 +103,15 @@ struct WorldPostprocess::State {
         @"world_downsample",       @"world_downsample_luminance",
         @"world_reduce_luminance", @"world_bloom_extract",
         @"world_bloom_radial",     @"world_bloom_horizontal",
-        @"world_bloom_vertical",   @"world_display_output"};
+        @"world_bloom_vertical",   @"world_display_output",
+        @"world_display_output",   @"world_final_edge"};
     auto* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
-    descriptor.vertexFunction = [library newFunctionWithName:@"world_output_vertex"];
+    descriptor.vertexFunction =
+        [library newFunctionWithName:pass == Pass::final_edge ? @"world_final_edge_vertex"
+                                                              : @"world_output_vertex"];
     descriptor.fragmentFunction = [library newFunctionWithName:names.at(index(pass))];
     descriptor.colorAttachments[0].pixelFormat =
-        pass == Pass::display
+        (pass == Pass::display || pass == Pass::display_intermediate || pass == Pass::final_edge)
             ? MTLPixelFormatBGRA8Unorm
             : (pass == Pass::down_luminance || pass == Pass::reduce ? MTLPixelFormatR32Float
                                                                     : MTLPixelFormatRGBA16Float);
@@ -112,10 +125,10 @@ struct WorldPostprocess::State {
     [encoder setRenderPipelineState:pipeline(pass, library)];
     [encoder setCullMode:MTLCullModeNone];
     [encoder setFragmentTexture:input atIndex:0];
-    if (pass == Pass::extract || pass == Pass::display) {
+    if (pass == Pass::extract || pass == Pass::display || pass == Pass::display_intermediate) {
       [encoder setFragmentTexture:texture(Target::reduce1) atIndex:1];
     }
-    if (pass == Pass::display) {
+    if (pass == Pass::display || pass == Pass::display_intermediate) {
       [encoder setFragmentTexture:texture(Target::bloom_vertical) atIndex:2];
     }
     [encoder setVertexBytes:&values length:sizeof(values) atIndex:0];
@@ -172,27 +185,39 @@ void WorldPostprocess::configure(const render::WorldOutputParameters& parameters
     render::ExposureController validation;
     validation.advance({0, 0}, parameters.exposure);
   }
-  if (state_->parameters.tone_mapping_enabled != parameters.tone_mapping_enabled) {
-    state_->previous = nil;
-    state_->exposure.reset();
-  }
+  // Tone gating pauses adaptation; it does not end output/history lifetime.
   state_->parameters = parameters;
 }
-void WorldPostprocess::reset() noexcept {
+void WorldPostprocess::reset_exposure_history() noexcept { state_->exposure.reset_history(); }
+void WorldPostprocess::release_scene_targets() noexcept {
   auto& state = *state_;
   state.scene.reset();
   state.depth.reset();
   state.filtered_scene.reset();
-  for (auto& target : state.targets) target.reset();
+  state.display_image.reset();
+  // The completed 1x1 image and temporal state belong to output lifetime,
+  // not to whichever scene supplied the last measured image.
+  for (std::size_t i = 0; i < kTargets; ++i) {
+    if (i != index(Target::reduce1)) state.targets.at(i).reset();
+  }
+}
+void WorldPostprocess::reset() noexcept {
+  release_scene_targets();
+  auto& state = *state_;
+  state.targets.at(index(Target::reduce1)).reset();
   state.previous = nil;
+  state.measurement_available = false;
   state.exposure.reset();
 }
 id<MTLRenderCommandEncoder> WorldPostprocess::begin_scene(id<MTLCommandBuffer> command,
-                                                          std::uint32_t width,
-                                                          std::uint32_t height) {
+                                                          std::uint32_t width, std::uint32_t height,
+                                                          std::array<float, 3> clear_color) {
   auto& state = *state_;
   if (command == nil || command.device != state.device) {
     throw std::invalid_argument("Invalid world output command");
+  }
+  if (!std::ranges::all_of(clear_color, [](float value) { return std::isfinite(value); })) {
+    throw std::invalid_argument("Invalid world clear color");
   }
   if (state.previous != nil && state.previous.status != MTLCommandBufferStatusCompleted) {
     throw std::logic_error("World output reused before GPU completion");
@@ -208,7 +233,8 @@ id<MTLRenderCommandEncoder> WorldPostprocess::begin_scene(id<MTLCommandBuffer> c
   descriptor.colorAttachments[0].texture = state.scene.get();
   descriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
   descriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
-  descriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+  descriptor.colorAttachments[0].clearColor =
+      MTLClearColorMake(clear_color[0], clear_color[1], clear_color[2], 1);
   descriptor.depthAttachment.texture = state.depth.get();
   descriptor.depthAttachment.loadAction = MTLLoadActionClear;
   descriptor.depthAttachment.storeAction = MTLStoreActionDontCare;
@@ -226,6 +252,9 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
   auto& state = *state_;
   if (command == nil || library == nil || state.scene.get() == nil) {
     throw std::invalid_argument("Missing world output inputs");
+  }
+  if (state.previous != nil && state.previous.status != MTLCommandBufferStatusCompleted) {
+    throw std::logic_error("World output read before GPU completion");
   }
   // Only the previous completed measurement crosses to CPU; all image data stays native.
   auto& u = state.uniforms;
@@ -261,7 +290,7 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
         bounds.minimum_luminance.value_or(0),
         bounds.maximum_luminance.value_or(std::numeric_limits<float>::max()),
         bounds.measurement_floor, p.exposure.history_window > 0 ? 1.0F : 0.0F};
-    if (state.previous != nil && state.texture(Target::reduce1) != nil) {
+    if (state.measurement_available) {
       float measured{};
       [state.texture(Target::reduce1) getBytes:&measured
                                    bytesPerRow:sizeof(float)
@@ -301,6 +330,22 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
       state.run(command, library, Pass::vertical, state.texture(Target::bloom_horizontal),
                 Target::bloom_vertical);
     }
+    // Only a scheduled real reduction establishes a predecessor. Its use is
+    // guarded by the same completion check as every retained target reuse.
+    state.measurement_available = true;
+  }
+  // Source tone output has A8R8G8B8 storage before the final edge command.
+  // Keep that quantization boundary; filtering linear HDR first is different.
+  if (p.final_edge_filter_enabled && p.tone_mapping_enabled) {
+    const auto scene = state.scene.get();
+    if (state.display_image.get() == nil || state.display_image.get().width != scene.width ||
+        state.display_image.get().height != scene.height) {
+      state.display_image =
+          state.make_target(static_cast<std::uint32_t>(scene.width),
+                            static_cast<std::uint32_t>(scene.height), MTLPixelFormatBGRA8Unorm);
+    }
+    state.run(command, library, state.color_input(), Pass::display_intermediate,
+              state.display_image.get());
   }
   state.previous = command;
 }
@@ -314,6 +359,9 @@ void WorldPostprocess::encode_display(id<MTLRenderCommandEncoder> encoder, id<MT
   values.opacity = opacity;
   values.inverse_extent = {1.0F / static_cast<float>(state.scene.get().width),
                            1.0F / static_cast<float>(state.scene.get().height)};
-  state.bind(encoder, Pass::display, library, state.color_input(), values);
+  const bool edge = state.parameters.final_edge_filter_enabled;
+  const auto input = edge && state.parameters.tone_mapping_enabled ? state.display_image.get()
+                                                                   : state.color_input();
+  state.bind(encoder, edge ? Pass::final_edge : Pass::display, library, input, values);
 }
 }  // namespace bw::platform::macos

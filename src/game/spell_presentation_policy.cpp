@@ -32,6 +32,7 @@ SpellPresentationUpdate needs_observation() {
 SpellPresentationEntry spell_presentation_entry(SpellPresentationKind kind) {
   SpellPresentationEntry result;
   result.scope.common_entry = true;
+  result.scope.force_model_visibility = true;
   result.scope.camera_facing = true;
   result.scope.special_actor_update = true;
   std::uint32_t slot{};
@@ -54,6 +55,7 @@ SpellPresentationEntry spell_presentation_entry(SpellPresentationKind kind) {
       slot = kRoseBomb;
       first_frame = 0;
       result.scope.common_entry = false;
+      result.scope.force_model_visibility = false;
       result.scope.camera_facing = false;
       result.scope.retained_target = true;
       break;

@@ -23,6 +23,7 @@
 #include "bw/formats/image.hpp"
 #include "bw/formats/world_texture.hpp"
 #include "media_memory_fixture.hpp"
+void texture_mip_contracts();
 namespace {
 void check(bool condition, const char* message) {
   if (!condition) {
@@ -226,6 +227,50 @@ void world_texture_contracts() {
   check(domain->snapshot().live_bytes == 0,
         "Failed world conversion releases all decoded pixels");
 }
+// Original NONE conversion writes zero padding after rounding dimensions even;
+// reduced precision quantizes the source before mip filtering.
+void texture_base_conversion_contracts() {
+  constexpr std::array<std::uint8_t, 104> png{
+      137, 80,  78,  71,  13, 10,  26, 10,  0,   0,   0,   13,  73,  72,  68,
+      82,  0,   0,   0,   3,  0,   0,  0,   3,   8,   6,   0,   0,   0,   86,
+      40,  181, 191, 0,   0,  0,   47, 73,  68,  65,  84,  120, 156, 99,  96,
+      96,  100, 98,  102, 97, 101, 99, 231, 224, 228, 226, 102, 224, 225, 229,
+      227, 23,  16,  20,  18, 22,  17, 21,  19,  103, 144, 144, 148, 146, 150,
+      145, 149, 147, 87,  80, 84,  82, 6,   0,   31,  215, 2,   119, 205, 29,
+      173, 173, 0,   0,   0,  0,   73, 69,  78,  68,  174, 66,  96,  130};
+  const auto domain =
+      bw::memory::Domain::create(std::make_shared<bw::test::MediaBacking>());
+  const bw::memory::Allocator<std::uint8_t> allocator(domain);
+  std::vector<std::uint8_t> metadata(40);
+  word(metadata, 32, 18);
+  {
+    const auto base =
+        bw::formats::decode_world_texture({png, metadata}, allocator);
+    check(base.width == 4 && base.height == 4 && base.mip_levels == 1,
+          "Odd DDS dimensions round up before mip construction");
+    for (std::size_t y = 0; y < 4; ++y) {
+      for (std::size_t x = 0; x < 4; ++x) {
+        for (std::size_t c = 0; c < 4; ++c) {
+          const auto expected = y < 3 && x < 3 ? y * 12 + x * 4 + c : 0;
+          check(
+              base.pixels.at((y * 4 + x) * 4 + c) == expected,
+              "NONE conversion copies source rows and clears rounded padding");
+        }
+      }
+    }
+    word(metadata, 32, 15);
+    const auto reduced =
+        bw::formats::decode_world_texture({png, metadata}, allocator);
+    check(reduced.format == bw::formats::WorldTextureFormat::rgba4 &&
+              reduced.pixels.at(8) == 0 && reduced.pixels.at(9) == 17 &&
+              reduced.pixels.at(4 * 4 + 2 * 4 + 1) == 17 &&
+              reduced.pixels.back() == 0,
+          "RGBA4 DDS staging uses source no-dither nearest quantization and "
+          "zero padding");
+  }
+  check(domain->snapshot().live_bytes == 0,
+        "Base conversion retires temporary storage");
+}
 void image_contracts() {
   // Authored 1x1 PNG: pixel RGBA(10,20,30,40), generated from zlib-compressed
   // unfiltered scanline and standard PNG chunks; contains no game bytes.
@@ -283,7 +328,9 @@ void image_contracts() {
 int main() {
   try {
     image_contracts();
+    texture_mip_contracts();
     world_texture_contracts();
+    texture_base_conversion_contracts();
     font_contracts();
     font_memory_contracts();
     std::cout << "PNG and bitmap-font contract checks passed\n";

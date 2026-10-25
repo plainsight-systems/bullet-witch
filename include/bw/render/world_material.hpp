@@ -1,25 +1,24 @@
-// Shared classification of recovered original surface and actor programs.
-// Input flags are the effective original selector after explicit pass policy;
-// variant preserves the original low two selector bytes. Return unsupported
-// for untraced programs: never select a plausible replacement. Requirements
-// describe consumed textures/attributes and equations, not scene readiness.
-// Algorithm: bounded exact program-family lookup, then semantic feature decode.
-// O(1), no allocation, device types or synchronization. Both design and
-// implementation consult E.6 (#re-raii) for owner-independent validation and
-// GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) for setup-time
-// classification reused by retained native resources. See
-// world-renderer-foundation.md. I.1 (#ri-explicit) also makes the runtime
-// irradiance feature explicit instead of assuming it from a material record.
-// Both phases also apply I.1/GPU.1 to explicit base-texture consumption:
-// untextured programs read no UV or texture and retain the same device owners.
+// Classify source-selected surface programs at resource preparation, before
+// native stream/texture admission. Input is the complete effective original
+// selector plus texture-layer variant; unknown combinations return unsupported.
+// No actor/terrain guesses or nearest-family fallback are permitted.
+// Requirements describe consumed inputs and equations, not scene readiness or
+// pass ownership. Algorithm: exact audited-key binary search, then original
+// feature dependencies. Bounded O(log N) lookup, no allocation, ownership,
+// device types or mutable state. Both design and implementation retrieve I.1
+// (#ri-explicit): separate shadow, input and coverage requirements instead of
+// inferring them from directional light. CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-
+// layout.md) classifies once for retained native packets; GPU.4
+// (guidelines/gpu/ GPU.4-keep-warp-wave-control-flow-coherent.md) keeps shader
+// decisions draw-uniform. Evidence and native limits:
+// research/engine/subsystems/lighting-material-redesign.md.
 #pragma once
 #include <cstdint>
 
 namespace bw::render {
-// Explicit inspection contribution policy. The restricted mode removes
-// authored directional/local lights and their shadow factors from source-traced
-// programs, retaining material, vertex and spherical-harmonic illumination.
-// It does not reconstruct those passes or choose a different shader.
+// Explicit inspection-only energy suppression after source classification.
+// It cannot change effective selector admission or substitute another program.
 enum class WorldLightingPolicy : std::uint8_t {
   supplied,
   without_direct_lighting
@@ -29,21 +28,24 @@ struct WorldMaterialRequirements {
   bool normal_map{}, secondary_base{}, environment_map{};
   bool vertex_color{}, vertex_illumination{};
   bool reflection{}, fresnel{}, directional_light{}, local_lights{};
-  // Source actor/background receivers multiply environment facing by shadow
-  // visibility; static environment programs do not. Independent of direct
-  // diffuse/specular shadow policy. Both phases I.1/GPU.1: classify once and
-  // retain this explicit equation feature with the uploaded material layout.
-  bool environment_shadow{};
-  // Original depth coverage: material alpha * base alpha >= 0.5 at raw UV.
-  bool alpha_cutout{};
+  // Environment response and direct-light shadow sampling have independent
+  // source dependencies. Caster eligibility belongs to the submitting owner.
+  bool environment_shadow{}, shadow_reception{};
+  // Original masked depth/shadow program: material alpha * raw-UV base alpha
+  // must reach 0.5. Final-color alpha testing belongs to the render phase and
+  // evaluates the finished shader alpha, including indirect/vertex/Fresnel.
+  bool depth_cutout{};
   bool spherical_harmonics{};
-  // Original untextured programs consume material constants without UV/base.
-  bool base_texture{true};
-  // Exact original vertex families use zero, one, two or four joint influences.
+  bool base_texture{};
+  // Skinned families use the complete selector field: 0/1/2/3 select 4/3/2/1
+  // joints. Non-skinned surfaces consume no palette. Validation covers every
+  // used index; three influences do not read or normalize a fourth weight.
   std::uint8_t joint_influences{};
   bool ambient_occlusion{};
-  // Distinct authored clothing layer blends RGB and applies FRSA to alpha.
   bool secondary_alpha_blend{}, alpha_fresnel{};
+  // Includes local-only, environment and alpha-Fresnel consumers. Neither
+  // directional-light enable nor normal-map presence alone is sufficient.
+  bool normal_required{};
 };
 WorldMaterialRequirements world_material_requirements(
     std::uint32_t effective_flags, std::uint16_t variant,

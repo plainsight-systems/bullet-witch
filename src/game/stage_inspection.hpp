@@ -37,9 +37,11 @@
 #include "bw/content/stage.hpp"
 #include "bw/formats/background_placement.hpp"
 #include "bw/render/material_animation.hpp"
+#include "bw/render/shadow.hpp"
 #include "bw/render/view.hpp"
 #include "bw/render/world.hpp"
 #include "bw/scene/lighting/scene_lighting.hpp"
+#include "bw/scene/visibility/shadow_casters.hpp"
 #include "camera/player_camera.hpp"
 #include "game/mission_control.hpp"
 #include "player_actor.hpp"
@@ -54,6 +56,7 @@ class MissionLoading;
 struct StageViewSource {
   std::reference_wrapper<const content::StageDefinition> definition;
   std::span<const render::WorldModelHandle> models;
+  std::span<const render::WorldTextureHandle> textures{};
 };
 // Optional placed-prop snapshot; all borrowed inputs are consumed during view
 // construction. This does not execute mission start or advance physics.
@@ -85,8 +88,8 @@ class StageInspection {
   // is hidden in this reusable view. Player input owns its own placement.
   StageInspection(
       const world::WorldClock& clock, const MissionControl& control,
-      render::WorldOutput& output, StageViewSource stage, StageViewSource sky,
-      const std::shared_ptr<memory::Domain>& domain,
+      render::WorldPresentation& output, StageViewSource stage,
+      StageViewSource sky, const std::shared_ptr<memory::Domain>& domain,
       const std::optional<render::ViewPose>& camera_pose = std::nullopt,
       StageBackgroundSource background = {},
       const std::optional<PlayerActorSource>& player = std::nullopt,
@@ -180,7 +183,7 @@ class StageInspection {
   const world::WorldClock& clock_;
   const MissionControl& control_;
   std::uint64_t last_frame_{};
-  render::WorldOutput& output_;
+  render::WorldPresentation& output_;
   std::shared_ptr<memory::Domain> memory_;
   void append_player_draws(memory::Vector<render::WorldColorDraw>& draws,
                            const PlayerActor& actor, bool weapon,
@@ -188,18 +191,39 @@ class StageInspection {
   scene::StaticCollision collision_;
   // Scene owns fields and emitter selection; game maps authored field slots
   // and supplies model observations. Controllers never own lighting state.
+  std::optional<scene::ReflectionField> reflection_field_;
+  std::array<render::WorldTextureHandle, scene::kReflectionSlotCount>
+      reflection_textures_{};
   std::optional<scene::SceneLighting> lighting_;
   scene::LightingFieldId character_field_, enemy_field_;
   memory::Vector<render::WorldLightingUpdate> static_lighting_updates_;
+  memory::Vector<render::WorldVisibilityUpdate> static_shadow_updates_;
+  // Each placed model owns a strict-field cache and a contiguous draw-packet
+  // range. Instance IDs isolate copies of the same resident mesh. SceneLighting
+  // is declared first and therefore outlives these borrowed receiver owners.
+  // I.1/R.20/MEM.9: fixed observations, explicit lifetime, loading allocation.
+  struct PlacedLighting {
+    scene::RetainedLightingReceiver receiver;
+    math::Vector3<float> root_position{};
+    float radius{};
+    std::size_t first_update{}, update_count{};
+  };
+  memory::Vector<PlacedLighting> placed_lighting_;
+  memory::Vector<render::WorldLightingUpdate> placed_lighting_updates_;
   render::WorldLightingUpdate model_lighting(
       const ResidentModelView& resident, const animation::Matrix& transform);
   void publish_player_lighting();
+  void publish_shadow_owners(const InitialPlayerCamera& camera);
   PlayerTargeting targeting_;
   std::optional<PlayerActor> player_;
   std::optional<PlayerController> controller_;
   std::optional<PlayerCamera> camera_;
   std::optional<formats::StageEnvironment> environment_;
   std::optional<scene::Environment> environment_channels_;
+  render::WorldViewUpdate::ScenePasses scene_passes_;
+  // The source setup gate retains the previous shadow map and its projection
+  // together. Camera movement while disabled must not reproject stale texels.
+  std::optional<render::ShadowProjection> shadow_projection_;
   std::optional<InitialPlayerCamera> fixed_view_;
   bool audio_paused_{};
   audio::CueOutput* audio_output_{};

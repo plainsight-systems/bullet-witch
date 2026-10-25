@@ -8,6 +8,10 @@
 // native reconstruction inference from pinned Unreal VSM directional sampling;
 // it preserves the original projection, jitter taps and caster geometry. See
 // stage-shadow-presentation.md for the parity boundary and device evidence.
+// Native shading directions are unit length after tangent-basis combination,
+// following pinned Unreal TransformTangentNormalToWorld. This measured native
+// adaptation preserves direction and authored light/material values; see
+// docs/architecture/lighting.md. It is not a recovered source equation.
 #include <metal_stdlib>
 using namespace metal;
 struct WorldLocalLight {
@@ -29,16 +33,24 @@ struct WorldColorParameters {
   WorldLocalLight local_lights[4];
   uint4 local_light_meta;
 };
+// Separate source CPU matrices consume interpolated camera-relative position
+// in the pixel stage. Casters retain the absolute-world projection above.
+struct ShadowReceiverProjection {
+  float4 screen_rows[4];
+  float4 texture_rows[4];
+};
 struct WorldColorStream {
   uint stride, position, normal, tangent, uv, color;
   uint secondary_uv, modulation_color;
   uint normal_map, secondary_base, environment_map, vertex_color;
   uint vertex_illumination, reflection, fresnel, directional_light;
-  uint alpha_cutout, spherical_harmonics, base_texture;
+  uint depth_cutout, spherical_harmonics, base_texture;
   uint joint_indices, joint_weights, joint_influences;
   uint position_stride, ambient_occlusion;
   uint secondary_alpha_blend, alpha_fresnel, local_lights;
   uint environment_shadow;
+  uint normal_required, shadow_reception, color_alpha_test;
+  uint integer_pixel_centers, alpha_reference;
 };
 struct WorldJointMatrix {
   float4 rows[4];
@@ -51,12 +63,86 @@ struct WorldColorVertex {
   float3 tangent;
   float4 uv;
   float2 coverage_uv;
+  float2 clip_depth;
   float3 illumination;
   float4 modulation;
 };
 float3 original_normalize(float3 value) {
   const float squared = dot(value, value);
   return squared == 0.0f ? float3(0.0f) : value * rsqrt(squared);
+}
+// Inputs are separately normalized basis directions. Their combination still
+// needs normalization because interpolation does not preserve orthogonality.
+float3 mapped_shading_normal(float3 normal, float3 tangent, float2 map) {
+  return original_normalize(normal * sqrt(abs(1.0f - dot(map, map))) +
+                            tangent * map.x + cross(tangent, normal) * map.y);
+}
+struct SpecularFootprint {
+  float3 normal;
+  float power;
+  float amplitude;
+};
+// Four tensor Gauss samples estimate pixel-footprint unit-normal moments.
+// Centered variance preserves exactly constant fields without an epsilon.
+// Toksvig's legacy power/energy equations reuse this result for all direct
+// lights; this is a native sampling adaptation, not recovered shader algebra.
+// Call only from draw-uniform control flow, before coverage discard. Positive
+// power is validated at admission; zero-power lobes need no filtering.
+SpecularFootprint specular_footprint(WorldColorVertex input,
+                                     constant WorldColorStream& features,
+                                     texture2d<float> normal_texture,
+                                     sampler material_sampler,
+                                     float3 center_normal, float power) {
+  const float3 normal_dx = dfdx(input.normal), normal_dy = dfdy(input.normal);
+  const float3 tangent_dx = dfdx(input.tangent),
+               tangent_dy = dfdy(input.tangent);
+  const float2 uv_dx = dfdx(input.uv.xy), uv_dy = dfdy(input.uv.xy);
+  constexpr float offset = 0.28867513459481287f;  // 1/(2*sqrt(3))
+  float3 samples[4];
+  float3 mean = 0;
+  for (uint i = 0; i < 4; ++i) {
+    const float2 location =
+        float2((i & 1) ? offset : -offset, (i & 2) ? offset : -offset);
+    float3 normal = original_normalize(input.normal + location.x * normal_dx +
+                                       location.y * normal_dy);
+    if (features.normal_map) {
+      const float3 tangent = original_normalize(
+          input.tangent + location.x * tangent_dx + location.y * tangent_dy);
+      const float2 map =
+          normal_texture
+                  .sample(material_sampler,
+                          input.uv.xy + location.x * uv_dx + location.y * uv_dy,
+                          gradient2d(uv_dx * 0.5f, uv_dy * 0.5f))
+                  .xy *
+              2.0f -
+          1.0f;
+      normal = mapped_shading_normal(normal, tangent, map);
+    }
+    // Zero geometry has no unit-normal moment. Preserve its center equation
+    // instead of manufacturing a statistical distribution from invalid samples.
+    if (dot(normal, normal) == 0) return {center_normal, power, 1};
+    samples[i] = normal;
+    mean += normal * 0.25f;
+  }
+  float variance = 0;
+  for (uint i = 0; i < 4; ++i) {
+    const float3 delta = samples[i] - mean;
+    variance += dot(delta, delta) * 0.25f;
+  }
+  const float mean_length = sqrt(max(1.0f - variance, 0.0f));
+  const float filtered_power =
+      mean_length > 0
+          ? power * mean_length / (mean_length + power * (1.0f - mean_length))
+          : 0;
+  return {dot(mean, mean) > 0 ? original_normalize(mean) : center_normal,
+          filtered_power, (filtered_power + 1.0f) / (power + 1.0f)};
+}
+float specular_response(SpecularFootprint footprint, float3 halfway) {
+  // Explicit zero avoids relying on pow(0,0), including the zero-length mean.
+  return (footprint.power == 0 ? 1.0f
+                               : pow(saturate(dot(footprint.normal, halfway)),
+                                     footprint.power)) *
+         footprint.amplitude;
 }
 float3 decode_direction(const device uchar* source) {
   return max(
@@ -67,6 +153,13 @@ float4 joint_transform(float4 value, constant WorldJointMatrix& matrix) {
   return float4(dot(value, matrix.rows[0]), dot(value, matrix.rows[1]),
                 dot(value, matrix.rows[2]), dot(value, matrix.rows[3]));
 }
+// Source masked phases use GREATER_EQUAL with ALPHAREF 128 on RGBA16F.
+// DXVK's D3D9 correspondence expands that reference to 15-bit precision and
+// rounds incoming alpha ties-to-even. This is explicit target translation,
+// not an original-device quantization claim; see lighting-material-redesign.md.
+bool world_fixed_alpha_passes(float alpha, uint reference) {
+  return rint(alpha * 32767.0f) >= rint(float(reference) * (32767.0f / 255.0f));
+}
 // Preserve source influence count, weight conversion and accumulation order.
 float4 skin_value(float4 value, uchar4 indices, float4 weights, uint count,
                   constant WorldJointMatrix* joints) {
@@ -76,6 +169,7 @@ float4 skin_value(float4 value, uchar4 indices, float4 weights, uint count,
   float4 result = second * weights.y + first * weights.x;
   if (count == 2) return result;
   result += joint_transform(value, joints[indices.z]) * weights.z;
+  if (count == 3) return result;
   return result + joint_transform(value, joints[indices.w]) * weights.w;
 }
 WorldColorVertex transform_world_vertex(uint vertex_id,
@@ -106,6 +200,7 @@ WorldColorVertex transform_world_vertex(uint vertex_id,
   output.position =
       float4(dot(position4, p.clip_rows[0]), dot(position4, p.clip_rows[1]),
              dot(position4, p.clip_rows[2]), dot(position4, p.clip_rows[3]));
+  output.clip_depth = output.position.zw;
   output.shadow_position = float4(dot(position4, p.shadow_clip_rows[0]),
                                   dot(position4, p.shadow_clip_rows[1]),
                                   dot(position4, p.shadow_clip_rows[2]),
@@ -115,8 +210,7 @@ WorldColorVertex transform_world_vertex(uint vertex_id,
              dot(position4, p.world_rows[2]));
   output.normal = 0.0f;
   output.tangent = 0.0f;
-  if (layout.directional_light || layout.spherical_harmonics ||
-      layout.local_lights) {
+  if (layout.normal_required) {
     float3 normal = decode_direction(source + layout.normal);
     if (layout.joint_influences != 0) {
       normal = skin_value(float4(normal, 0), joint_indices, joint_weights,
@@ -176,11 +270,7 @@ vertex WorldColorVertex world_color_vertex(
 // Evaluate derivatives before cutout discard or divergent receiver rejection.
 // A projected triangle is a depth plane in shadow UV; its screen derivatives
 // recover that plane even under the original perspective light warp.
-float2 shadow_depth_slope(float4 shadow_position) {
-  const float safe_w = shadow_position.w == 0.0f ? 1.0f : shadow_position.w;
-  const float3 projected = shadow_position.xyz / safe_w;
-  const float3 uv_depth(projected.x * 0.5f + 0.5f, 0.5f - projected.y * 0.5f,
-                        projected.z);
+float2 shadow_depth_slope(float3 uv_depth) {
   float3 dx = dfdx(uv_depth), dy = dfdy(uv_depth);
   if (!all(isfinite(dx)) || !all(isfinite(dy))) return 0.0f;
   // A common scale leaves the solved plane unchanged while avoiding overflow
@@ -205,20 +295,23 @@ float2 shadow_depth_slope(float4 shadow_position) {
 // footprint. Point clamping therefore repeats unoccluded far depth, never an
 // edge caster; projection reserves the same guard. This is the explicit
 // Unreal-informed baseline, not an interpretation of raw source address6.
-float directional_visibility(WorldColorVertex input, float2 depth_slope,
+float directional_visibility(WorldColorVertex input, float2 uv,
+                             float2 depth_slope,
                              constant WorldColorParameters& p,
                              texture2d<float> shadow_map,
-                             device const uchar4* jitter) {
+                             device const uchar4* jitter,
+                             bool integer_pixel_centers) {
   if (p.shadow_parameters.x == 0.0f || input.shadow_position.w == 0.0f)
     return 1.0f;
   const float3 projected = input.shadow_position.xyz / input.shadow_position.w;
-  const float2 uv =
-      float2(projected.x * 0.5f + 0.5f, 0.5f - projected.y * 0.5f);
   if (any(uv < 0.0f) || any(uv > 1.0f)) return 1.0f;
   constexpr sampler depth_sampler(coord::normalized, address::clamp_to_edge,
                                   filter::nearest);
   const uint2 cell = uint2(input.position.xy) % 32;
   const float2 dimensions(shadow_map.get_width(), shadow_map.get_height());
+  // The target raster policy selects which source coordinate each stored
+  // texel represents; do not inject a second half-texel in the receiver plane.
+  const float sample_center = integer_pixel_centers ? 0.0f : 0.5f;
   float visible = 0.0f;
   for (uint slice = 0; slice < 4; ++slice) {
     const float4 offsets =
@@ -239,12 +332,12 @@ float directional_visibility(WorldColorVertex input, float2 depth_slope,
     const float2 first_center =
         (clamp(floor((uv + offsets.xy * p.shadow_parameters.z) * dimensions),
                float2(0), dimensions - 1.0f) +
-         0.5f) /
+         sample_center) /
         dimensions;
     const float2 second_center =
         (clamp(floor((uv + offsets.zw * p.shadow_parameters.z) * dimensions),
                float2(0), dimensions - 1.0f) +
-         0.5f) /
+         sample_center) /
         dimensions;
     const float first_bias =
         2.0f * max(0.0f, dot(depth_slope, first_center - uv));
@@ -255,8 +348,8 @@ float directional_visibility(WorldColorVertex input, float2 depth_slope,
   }
   return visible * 0.125f;
 }
-// The caster shares exact position/palette and raw-UV cutout coverage with
-// the color draw, while publishing only reversed depth to the retained map.
+// The caster shares the surface position/palette but uses the original
+// depth program's raw-UV coverage, independently of final-color alpha.
 vertex WorldColorVertex world_shadow_vertex(
     uint vertex_id [[vertex_id]], device const uchar* vertices [[buffer(0)]],
     constant WorldColorParameters& p [[buffer(1)]],
@@ -266,58 +359,123 @@ vertex WorldColorVertex world_shadow_vertex(
   WorldColorVertex output =
       transform_world_vertex(vertex_id, vertices, positions, p, layout, joints);
   output.position = output.shadow_position;
+  output.clip_depth = output.shadow_position.zw;
   return output;
 }
-fragment float world_shadow_fragment(WorldColorVertex input [[stage_in]],
-                                     constant WorldColorParameters& p
-                                     [[buffer(1)]],
-                                     constant WorldColorStream& features
-                                     [[buffer(2)]],
-                                     texture2d<float> base_texture
-                                     [[texture(0)]],
-                                     sampler material_sampler [[sampler(0)]]) {
-  if (features.alpha_cutout &&
-      p.material_color.a *
-              base_texture.sample(material_sampler, input.coverage_uv).a <
-          0.5f)
-    discard_fragment();
-  return input.position.z;
+// Source depth programs interpolate clip z/w as a pair, then divide. Shader
+// bias changes the color depth value; raster depth bias is a separate pass
+// state.
+float world_biased_depth(WorldColorVertex input, float2 bias) {
+  const float projected = input.clip_depth.x / input.clip_depth.y;
+  const float slope = max(abs(dfdx(projected)), abs(dfdy(projected)));
+  return projected + bias.x + bias.y * slope;
 }
+bool world_depth_coverage_passes(WorldColorVertex input,
+                                 constant WorldColorParameters& p,
+                                 constant WorldColorStream& features,
+                                 texture2d<float> base_texture,
+                                 sampler material_sampler) {
+  return !features.depth_cutout ||
+         p.material_color.a *
+                 base_texture.sample(material_sampler, input.coverage_uv).a >=
+             0.5f;
+}
+struct WorldShadowOutput {
+  float color [[color(0)]];
+  float depth [[depth(any)]];
+};
+fragment WorldShadowOutput
+world_shadow_fragment(WorldColorVertex input [[stage_in]],
+                      constant WorldColorParameters& p [[buffer(1)]],
+                      constant WorldColorStream& features [[buffer(2)]],
+                      constant float4& depth_bias [[buffer(3)]],
+                      texture2d<float> base_texture [[texture(0)]],
+                      sampler material_sampler [[sampler(0)]]) {
+  const float depth = world_biased_depth(input, depth_bias.xy);
+  const float raster_slope =
+      max(abs(dfdx(input.position.z)), abs(dfdy(input.position.z)));
+  if (!world_depth_coverage_passes(input, p, features, base_texture,
+                                   material_sampler))
+    discard_fragment();
+  // D3D9 raster bias is normalized depth plus maximum screen-space slope.
+  // Metal's raster-bias units differ, so preserve the source expression here
+  // independently of shader color bias. Depth24/Depth32 quantization remains
+  // a documented target difference, not a scene-dependent bias multiplier.
+  float raster_depth = input.position.z;
+  if (features.integer_pixel_centers) {
+    raster_depth =
+        saturate(raster_depth + depth_bias.z + depth_bias.w * raster_slope);
+  }
+  return {depth, raster_depth};
+}
+// Main S replay writes depth to all restored world-color channels as well as
+// hardware depth. Masked S retains both PS1 cutout and final-depth alpha test.
 fragment float4
-world_color_fragment(WorldColorVertex input [[stage_in]],
-                     constant float& presentation_opacity [[buffer(0)]],
-                     constant WorldColorParameters& p [[buffer(1)]],
-                     constant WorldColorStream& features [[buffer(2)]],
-                     texture2d<float> base_texture [[texture(0)]],
-                     texture2d<float> secondary_texture [[texture(1)]],
-                     texture2d<float> normal_texture [[texture(3)]],
-                     texture2d<float> occlusion_texture [[texture(5)]],
-                     texturecube<float> environment_texture [[texture(7)]],
-                     sampler material_sampler [[sampler(0)]],
-                     sampler environment_sampler [[sampler(7)]],
-                     texture2d<float> shadow_map [[texture(13)]],
-                     device const uchar4* jitter [[buffer(4)]]) {
+world_preparation_fragment(WorldColorVertex input [[stage_in]],
+                           constant WorldColorParameters& p [[buffer(1)]],
+                           constant WorldColorStream& features [[buffer(2)]],
+                           constant float4& depth_bias [[buffer(3)]],
+                           texture2d<float> base_texture [[texture(0)]],
+                           sampler material_sampler [[sampler(0)]]) {
+  const float depth = world_biased_depth(input, depth_bias.xy);
+  if (!world_depth_coverage_passes(input, p, features, base_texture,
+                                   material_sampler) ||
+      (features.color_alpha_test &&
+       !world_fixed_alpha_passes(depth, features.alpha_reference)))
+    discard_fragment();
+  return float4(depth);
+}
+fragment float4 world_color_fragment(
+    WorldColorVertex input [[stage_in]],
+    constant float& presentation_opacity [[buffer(0)]],
+    constant WorldColorParameters& p [[buffer(1)]],
+    constant WorldColorStream& features [[buffer(2)]],
+    texture2d<float> base_texture [[texture(0)]],
+    texture2d<float> secondary_texture [[texture(1)]],
+    texture2d<float> normal_texture [[texture(3)]],
+    texture2d<float> occlusion_texture [[texture(5)]],
+    texturecube<float> environment_texture [[texture(7)]],
+    sampler material_sampler [[sampler(0)]],
+    sampler environment_sampler [[sampler(7)]],
+    texture2d<float> shadow_map [[texture(13)]],
+    device const uchar4* jitter [[buffer(4)]],
+    constant ShadowReceiverProjection& receiver [[buffer(5)]]) {
+  // The original pixel programs project the interpolated relative position;
+  // projecting vertices first changes finite-precision shadow comparisons.
+  const float4 relative = float4(input.world_position, 1.0f);
+  input.shadow_position = float4(dot(relative, receiver.screen_rows[0]),
+                                 dot(relative, receiver.screen_rows[1]),
+                                 dot(relative, receiver.screen_rows[2]),
+                                 dot(relative, receiver.screen_rows[3]));
+  const float3 texture_position =
+      float3(dot(relative, receiver.texture_rows[0]),
+             dot(relative, receiver.texture_rows[1]),
+             dot(relative, receiver.texture_rows[3]));
+  const float2 shadow_uv =
+      texture_position.xy /
+      (texture_position.z == 0.0f ? 1.0f : texture_position.z);
+  const float shadow_depth =
+      input.shadow_position.z /
+      (input.shadow_position.w == 0.0f ? 1.0f : input.shadow_position.w);
   // This condition is uniform for a draw; cutout coverage below is not.
   const float2 depth_slope =
-      features.directional_light && p.shadow_parameters.x != 0.0f
-          ? shadow_depth_slope(input.shadow_position)
+      features.shadow_reception && p.shadow_parameters.x != 0.0f
+          ? shadow_depth_slope(float3(shadow_uv, shadow_depth))
           : float2(0);
-  // Preserve original depth-mask coverage in this direct inspection pass.
-  // The original depth vertex program forwards UV without material offset.
-  if (features.alpha_cutout &&
-      p.material_color.a *
-              base_texture.sample(material_sampler, input.coverage_uv).a <
-          0.5f) {
-    discard_fragment();
-  }
   float3 normal = original_normalize(input.normal);
   if (features.normal_map) {
     const float2 map =
         normal_texture.sample(material_sampler, input.uv.xy).xy * 2.0f - 1.0f;
     const float3 tangent = original_normalize(input.tangent);
     // Original rsq consumes abs, including quantized samples outside the disk.
-    normal = normal * sqrt(abs(1.0f - dot(map, map))) + tangent * map.x +
-             cross(tangent, normal) * map.y;
+    normal = mapped_shading_normal(normal, tangent, map);
+  }
+  SpecularFootprint footprint{normal, p.specular.x, 1};
+  if (features.reflection &&
+      (features.directional_light || features.local_lights) &&
+      p.specular.x > 0 && p.specular.y != 0) {
+    footprint = specular_footprint(input, features, normal_texture,
+                                   material_sampler, normal, p.specular.x);
   }
   // The original untextured program has no base sampler or UV input.
   float4 sampled_base = 1.0f;
@@ -346,11 +504,20 @@ world_color_fragment(WorldColorVertex input [[stage_in]],
                            p.fresnel.y +
                        p.fresnel.z);
   }
+  // Fixed alpha testing sees the completed material alpha, after offset UVs,
+  // indirect/vertex modulation and any alpha Fresnel. Depth cutout is separate.
+  if (features.color_alpha_test &&
+      !world_fixed_alpha_passes(base.a, features.alpha_reference))
+    discard_fragment();
   float facing = 0.0f;
   float directional_visibility_weight = 1.0f;
   if (features.directional_light) {
     const float visibility =
-        directional_visibility(input, depth_slope, p, shadow_map, jitter);
+        features.shadow_reception
+            ? directional_visibility(input, shadow_uv, depth_slope, p,
+                                     shadow_map, jitter,
+                                     features.integer_pixel_centers != 0)
+            : 1.0f;
     directional_visibility_weight = visibility;
     facing = saturate(dot(normal, -p.light_direction.xyz));
     if (facing > 0.0f) {
@@ -358,9 +525,8 @@ world_color_fragment(WorldColorVertex input [[stage_in]],
       if (features.reflection) {
         const float3 halfway =
             original_normalize(-direction - p.light_direction.xyz);
-        const float response =
-            pow(saturate(dot(normal, halfway)), p.specular.x) * p.specular.y *
-            p.light_specular.w;
+        const float response = specular_response(footprint, halfway) *
+                               p.specular.y * p.light_specular.w;
         specular = response * p.light_specular * visibility;
       }
     }
@@ -392,9 +558,8 @@ world_color_fragment(WorldColorVertex input [[stage_in]],
         if (features.reflection) {
           const float3 halfway =
               original_normalize(light_direction - direction);
-          const float response =
-              pow(saturate(dot(normal, halfway)), p.specular.x) * attenuation *
-              p.specular.y;
+          const float response = specular_response(footprint, halfway) *
+                                 attenuation * p.specular.y;
           local_specular += light.specular * response;
         }
       }

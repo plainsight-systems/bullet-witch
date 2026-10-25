@@ -3,19 +3,23 @@
 // reduction and completed-frame readback. One exclusive caller advances the
 // controller once per frame with finite log luminance and nonnegative elapsed
 // seconds. Invalid values throw before changing state. No device, clock or
-// global state is hidden here. Reset establishes a fresh scene; changing
-// history length clears history/adaptation but preserves the original sampling
-// clock. Algorithm: exponentiate log-average luminance with the original floor;
-// insert at most one history value when the accumulated clock reaches 1/30
-// second, dropping excess time. Before the ring fills use the current value;
-// afterward average the ring and limit change by authored slew * elapsed time.
-// Apply the original output bounds after retaining the unclamped adaptation
-// state. Steady state uses at most 256 inline floats and O(history length)
-// additions; no allocation, locks or payload copies. Both MCP phases consulted
-// I.1
+// global state is hidden here. reset() ends controller lifetime;
+// reset_history() clears samples/adaptation while preserving window and
+// sampling time. Changing history length likewise clears history/adaptation but
+// preserves the sampling clock. Algorithm: exponentiate log-average luminance
+// with the original floor; insert at most one history value when the
+// accumulated clock reaches 1/30 second, dropping excess time. Before the ring
+// fills use the current value; afterward average the ring and limit change by
+// authored slew * elapsed time. Apply the original output bounds after
+// retaining the unclamped adaptation state. Steady state uses at most 256
+// inline floats and O(history length) additions; no allocation, locks or
+// payload copies. Both MCP phases consulted I.1
 // (#ri-explicit) for explicit samples/settings and MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) for fixed hot-path
 // storage. Provenance and native setter ranges: world-output-adaptation.md.
+// Lifecycle design/implementation: Core E.4 (#re-design-invariants) separates
+// valid history reset from lifetime reset; performance MEM.9 retains fixed
+// storage. See output-lifecycle-redesign.md for source and native boundaries.
 #pragma once
 #include <array>
 #include <cstddef>
@@ -42,6 +46,14 @@ struct ExposureOutputBounds {
 ExposureOutputBounds exposure_output_bounds(
     const ExposureParameters& parameters);
 struct WorldOutputParameters {
+  // Original saved SystemSetting mask 0x04 selects the final spatial edge
+  // filter (renderer mask 0x40); a newly created setting leaves it off. This
+  // explicit policy is independent of stage tone/bloom settings. It filters
+  // the completed display image before overlays, never HDR illumination.
+  // Both-phase Core I.1 makes activation explicit; GPU.9 retains a bounded
+  // display intermediate when the preceding tone pass needs one. See
+  // lighting-final-edge-filter.md for the source shader and producer boundary.
+  bool final_edge_filter_enabled{};
   // Authored whole-scene filter precedes luminance measurement, bloom and
   // display transfer. Mode 0 bypasses it; mode 2 multiplies RGB by nonnegative
   // global_color.rgb and preserves source alpha. Other modes remain explicit
@@ -70,6 +82,10 @@ class ExposureController {
   // sample, matching the original setter. This method does not select that
   // backend display mode or invent a first-frame measurement.
   float advance(ExposureSample sample, const ExposureParameters& parameters);
+  // Event preparation clears temporal samples without discarding the source
+  // sample accumulator or configured history length. No allocation or failure.
+  void reset_history() noexcept;
+  // Full lifetime reset; ordinary scene replacement must not call this.
   void reset() noexcept;
   std::size_t sample_count() const noexcept;
   bool history_ready() const noexcept { return filled_; }

@@ -4,13 +4,41 @@
 // Both MCP phases: I.1 (#ri-explicit) keeps elapsed input observable; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds history
 // storage.
+// Lifecycle cases apply both-phase Core E.4 (#re-design-invariants) and MEM.9:
+// events preserve the partial sample interval; lifetime reset clears it, with
+// the same bounded history storage and observable behavior.
 #include "bw/render/world_output.hpp"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
+
+#include "bw/render/world.hpp"
 
 namespace {
+// Compile-time capabilities are tested without granting production borrowers
+// any additional mutation access. C.121/I.11 and COPY.5 apply in both phases.
+template <typename T>
+concept ReleasesModels =
+    requires(T& owner, bw::render::WorldModelHandle model) {
+      owner.release_model(model);
+    };
+template <typename T>
+concept PublishesLighting = requires(
+    T& owner, std::span<const bw::render::WorldLightingUpdate> updates) {
+  owner.update_world_lighting(updates);
+};
+static_assert(ReleasesModels<bw::render::WorldResources>);
+static_assert(!ReleasesModels<bw::render::WorldPresentation>);
+static_assert(!ReleasesModels<const bw::render::WorldResources>);
+static_assert(PublishesLighting<bw::render::WorldPresentation>);
+static_assert(!PublishesLighting<bw::render::WorldResources>);
+static_assert(!std::is_copy_constructible_v<bw::render::WorldOutput>);
+static_assert(!std::is_move_constructible_v<bw::render::WorldOutput>);
+static_assert(std::is_convertible_v<bw::render::WorldOutput*,
+                                    bw::render::WorldObservation*>);
+
 void require(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
 }
@@ -20,6 +48,8 @@ void near(float actual, float expected, const char* message) {
 }
 }  // namespace
 void world_output_tests() {
+  require(!bw::render::WorldOutputParameters{}.final_edge_filter_enabled,
+          "New source system settings leave final edge filtering disabled");
   using bw::render::ExposureController;
   using bw::render::ExposureParameters;
   constexpr float interval = 1.0F / 30.0F;
@@ -93,4 +123,24 @@ void world_output_tests() {
   parameters = {2, 1, std::nullopt, std::nullopt};
   near(controller.advance({-100, 0}, parameters), 0.001F,
        "Dark reduction uses original luminance floor");
+  controller.reset();
+  parameters = {2, 1, std::nullopt, std::nullopt};
+  controller.advance({std::log(2.0F), interval}, parameters);
+  controller.advance({std::log(2.0F), interval / 2}, parameters);
+  controller.reset_history();
+  require(controller.sample_count() == 0 && !controller.history_ready(),
+          "Event reset clears retained samples and full flag");
+  near(controller.unconstrained_luminance(), 0,
+       "Event reset clears retained adaptation");
+  controller.advance({std::log(4.0F), interval / 2}, parameters);
+  require(controller.sample_count() == 1 && !controller.history_ready(),
+          "Event reset preserves the prior partial sampling interval");
+  controller.advance({std::log(4.0F), interval}, parameters);
+  require(controller.history_ready(),
+          "Event reset preserves configured window");
+  controller.advance({0, interval / 2}, parameters);
+  controller.reset();
+  controller.advance({0, interval / 2}, parameters);
+  require(controller.sample_count() == 0,
+          "Full lifetime reset discards the prior partial sampling interval");
 }

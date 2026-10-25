@@ -98,6 +98,12 @@ PlayerCamera::PlayerCamera(const formats::PlayerCameraSettings& settings,
   // Initial and context frusta are validated before the first publication.
   (void)render::make_view_transforms(view_.pose, view_.perspective);
 }
+void PlayerCamera::set_far_distance(float distance) {
+  if (!std::isfinite(distance) || distance <= view_.perspective.near_plane) {
+    throw std::invalid_argument("Invalid region camera far distance");
+  }
+  view_.perspective.far_plane = distance;
+}
 void PlayerCamera::set_context(PlayerCameraContext context, bool crouched) {
   if (context != PlayerCameraContext::ordinary &&
       context != PlayerCameraContext::targeting) {

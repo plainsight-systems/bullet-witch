@@ -8,6 +8,7 @@
 #include "bw/render/shadow.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -185,9 +186,142 @@ void reject(const bw::render::ViewPose& camera,
   }
   require(rejected, "Invalid shadow projection must reject");
 }
+// Captured original CPU constant uploads, not expected values recomputed by
+// this implementation. Hex floats preserve every published float32 bit.
+struct ReceiverWitness {
+  std::array<float, 3> eye{};
+  bw::render::ShadowReceiverProjection expected{};
+};
+constexpr bw::render::ShadowProjection kReceiverProjection{
+    {{{{0x1.c0ebee0000000p-7F, 0x1.1b71760000000p-6F, 0x1.9652be0000000p-9F,
+        0x1.6fdf3c0000000p+0F}},
+      {{-0x1.42c3ca0000000p-6F, 0x1.5254600000000p-5F, 0x1.2752540000000p-4F,
+        -0x1.9bc6a80000000p+1F}},
+      {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+        0x1.f1a9fc0000000p-3F}},
+      {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+        0x1.7e24de0000000p+2F}}}}};
+constexpr std::array<ReceiverWitness, 3> kReceiverWitnesses{{
+    {{0x0.0p+0F, 0x0.0p+0F, 0x0.0p+0F},
+     {{{{{0x1.c0ebee0000000p-7F, 0x1.1b71760000000p-6F, 0x1.9652be0000000p-9F,
+          0x1.6fdf3c0000000p+0F}},
+        {{-0x1.42c3ca0000000p-6F, 0x1.5254600000000p-5F, 0x1.2752540000000p-4F,
+          -0x1.9bc6a80000000p+1F}},
+        {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+          0x1.f1a9fc0000000p-3F}},
+        {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+          0x1.7e24de0000000p+2F}}}},
+      {{{{-0x1.1d14e40000000p-7F, 0x1.22d0e60000000p-5F, 0x1.82a9940000000p-5F,
+          0x1.da1cac0000000p+1F}},
+        {{-0x1.758e200000000p-8F, 0x1.9652c00000000p-8F, 0x1.3a92a80000000p-7F,
+          0x1.2604180000000p+2F}},
+        {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+          0x1.f1a9fc0000000p-3F}},
+        {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+          0x1.7e24de0000000p+2F}}}}}},
+    {{0x1.ec80000000000p+6F, -0x1.8000000000000p-1F, -0x1.6e80000000000p+6F},
+     {{{{{0x1.c0ebee0000000p-7F, 0x1.1b71760000000p-6F, 0x1.9652be0000000p-9F,
+          0x1.69d4960000000p+1F}},
+        {{-0x1.42c3ca0000000p-6F, 0x1.5254600000000p-5F, 0x1.2752540000000p-4F,
+          -0x1.88f34e0000000p+3F}},
+        {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+          -0x1.f42c3a0000000p-2F}},
+        {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+          -0x1.90e2820000000p+2F}}}},
+      {{{{-0x1.1d14e40000000p-7F, 0x1.22d0e60000000p-5F, 0x1.82a9940000000p-5F,
+          -0x1.b7f06e0000000p+0F}},
+        {{-0x1.758e200000000p-8F, 0x1.9652c00000000p-8F, 0x1.3a92a80000000p-7F,
+          0x1.81041a0000000p+1F}},
+        {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+          -0x1.f42c3a0000000p-2F}},
+        {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+          -0x1.90e2820000000p+2F}}}}}},
+    {{-0x1.eb29930be0dedp+5F, 0x1.599999999999ap+0F, -0x1.9245a1cac0831p+6F},
+     {{{{{0x1.c0ebee0000000p-7F, 0x1.1b71760000000p-6F, 0x1.9652be0000000p-9F,
+          0x1.3adba80000000p-2F}},
+        {{-0x1.42c3ca0000000p-6F, 0x1.5254600000000p-5F, 0x1.2752540000000p-4F,
+          -0x1.267c9a0000000p+3F}},
+        {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+          -0x1.02f2e80000000p+1F}},
+        {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+          -0x1.3a9dc80000000p+0F}}}},
+      {{{{-0x1.1d14e40000000p-7F, 0x1.22d0e60000000p-5F, 0x1.82a9940000000p-5F,
+          -0x1.d7cdbc0000000p-2F}},
+        {{-0x1.758e200000000p-8F, 0x1.9652c00000000p-8F, 0x1.3a92a80000000p-7F,
+          0x1.fe51c20000000p+1F}},
+        {{0x1.de69ae0000000p-8F, -0x1.ad42c40000000p-7F, 0x1.25460a0000000p-6F,
+          -0x1.02f2e80000000p+1F}},
+        {{-0x1.fd8ada0000000p-6F, 0x1.b7e9100000000p-5F, 0x1.75f6fe0000000p-4F,
+          -0x1.3a9dc80000000p+0F}}}}}},
+}};
+bool same_receiver_bits(const bw::render::ShadowReceiverProjection& a,
+                        const bw::render::ShadowReceiverProjection& b) {
+  for (std::size_t row = 0; row < 4; ++row) {
+    for (std::size_t column = 0; column < 4; ++column) {
+      if (std::bit_cast<std::uint32_t>(a.screen_rows.at(row).at(column)) !=
+              std::bit_cast<std::uint32_t>(b.screen_rows.at(row).at(column)) ||
+          std::bit_cast<std::uint32_t>(a.texture_rows.at(row).at(column)) !=
+              std::bit_cast<std::uint32_t>(b.texture_rows.at(row).at(column))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+void receiver_tests() {
+  using bw::render::make_shadow_receiver_projection;
+  for (const auto& witness : kReceiverWitnesses) {
+    require(same_receiver_bits(make_shadow_receiver_projection(
+                                   kReceiverProjection, witness.eye),
+                               witness.expected),
+            "Receiver constants must match original CPU float bits");
+  }
+  auto retained = kReceiverWitnesses[1].expected;
+  const auto reject_receiver =
+      [&](const bw::render::ShadowProjection& projection,
+          const std::array<float, 3>& eye) {
+        bool rejected = false;
+        try {
+          retained = make_shadow_receiver_projection(projection, eye);
+        } catch (const std::invalid_argument&) {
+          rejected = true;
+        }
+        require(rejected, "Nonfinite receiver input/output must reject");
+        require(same_receiver_bits(retained, kReceiverWitnesses[1].expected),
+                "Failed receiver publication must retain previous constants");
+      };
+  constexpr std::array invalid_values{std::numeric_limits<float>::quiet_NaN(),
+                                      std::numeric_limits<float>::infinity(),
+                                      -std::numeric_limits<float>::infinity()};
+  for (float invalid : invalid_values) {
+    for (std::size_t row = 0; row < 4; ++row) {
+      for (std::size_t column = 0; column < 4; ++column) {
+        auto projection = kReceiverProjection;
+        projection.clip_rows.at(row).at(column) = invalid;
+        reject_receiver(projection, {});
+      }
+    }
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+      std::array<float, 3> eye{};
+      eye.at(axis) = invalid;
+      reject_receiver(kReceiverProjection, eye);
+    }
+  }
+  auto overflow = kReceiverProjection;
+  overflow.clip_rows[0][0] = std::numeric_limits<float>::max();
+  reject_receiver(overflow, {2, 0, 0});
+  overflow.clip_rows[0][3] = std::numeric_limits<float>::max();
+  reject_receiver(overflow, {1, 0, 0});
+  // A zero/singular projection is valid here: fitting and basis validation
+  // belong to the caller, not this value-only publication helper.
+  const auto zero = make_shadow_receiver_projection({}, {});
+  require(same_receiver_bits(zero, {}),
+          "Receiver publication must not invent a projection fit requirement");
+}
 }  // namespace
 
 void shadow_tests() {
+  receiver_tests();
   using bw::render::make_directional_shadow_projection;
   constexpr float kInterior = 1022.0F / 1024;
   constexpr float kRelativeTolerance = .000002F;

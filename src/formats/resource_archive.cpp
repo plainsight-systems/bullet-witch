@@ -1,3 +1,7 @@
+// Shared metadata access lends a checked immutable archive view without
+// transferring ownership. Both-phase I.11 (#ri-raw), E.6 (#re-raii) and COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) preserve
+// owner lifetime and decoder rollback. Lookup is bounded and allocation-free.
 // Memory adoption: payload/metadata and nested strings retain an owning domain
 // allocator; legacy parser defaults remain compatibility allocations. Copies
 // preserve allocator ownership and leases may outlive their service. Allocation
@@ -232,5 +236,18 @@ std::span<const std::uint8_t> ResourceArchive::payload(
   return std::span<const std::uint8_t>(bytes_).subspan(
       static_cast<std::size_t>(range->offset),
       static_cast<std::size_t>(range->size));
+}
+// Metadata remains owned by the archive; validate the record's gap-relative
+// range before lending an immutable view to any resource decoder.
+std::span<const std::uint8_t> ResourceArchive::metadata(
+    std::size_t index) const {
+  constexpr std::size_t kGapSection = 3, kOffsetField = 5, kSizeField = 6;
+  const auto& record = records_.at(index);
+  const auto gap = sections_.at(kGapSection);
+  const detail::Reader reader{bytes_};
+  reader.within(gap, record.raw.at(kOffsetField), record.raw.at(kSizeField));
+  return std::span<const std::uint8_t>(bytes_).subspan(
+      static_cast<std::size_t>(gap.offset + record.raw.at(kOffsetField)),
+      record.raw.at(kSizeField));
 }
 }  // namespace bw::resources

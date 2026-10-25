@@ -28,6 +28,22 @@ std::size_t shadow_guard_texels(float radius_uv);
 struct ShadowProjection {
   std::array<std::array<float, 4>, 4> clip_rows{};
 };
+// Pixel receivers consume camera-relative world positions. Keep their screen
+// and texture projections separate: remapping an interpolated clip position
+// does not preserve the source CPU/fragment operation order.
+struct ShadowReceiverProjection {
+  std::array<std::array<float, 4>, 4> screen_rows{}, texture_rows{};
+};
+// Translate each screen row's constant by the camera origin using successive
+// float multiply/add operations, then form texture X=.5X+.5W, Y=-.5Y+.5W.
+// Depth/W rows are unchanged. Finite inputs and outputs are required; throws
+// invalid_argument before returning any result. No allocation or input mutation
+// on success. The caller establishes the camera-relative basis; this helper
+// neither rotates nor inverts it. Original CPU witness: receiver_matrix_witness
+// under ignored lighting-noise-material evidence (451fa0/406690).
+ShadowReceiverProjection make_shadow_receiver_projection(
+    const ShadowProjection& projection,
+    const std::array<float, 3>& camera_world_origin);
 struct ShadowWarpSettings {
   float far_distance{}, minimum_height{}, maximum_height{};
   float alignment_threshold{}, parallel_near_extension{};

@@ -1,3 +1,10 @@
+// DDS sprite construction captures an immutable launch policy. Enabled chains
+// use the same source-faithful portable generator as mission textures; no
+// filtering is moved into frame submission or movie playback. Both-phase E.6
+// (#re-raii), I.11 (#ri-raw), COPY.5 (guidelines/copy-move/
+// COPY.5-resource-owning-types-are-move-only.md) require complete candidate
+// creation before publishing identities/counters. All generation storage uses
+// the decoded resource's allocator domain and unwinds without altering live slots on failure.
 // Engine presentation time is an explicit snapshot, including paused frames;
 // exposure never reads a target-local wall clock. Both-phase I.1 (#ri-explicit)
 // exposes the input; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
@@ -68,6 +75,7 @@
 // COPY.5-resource-owning-types-are-move-only.md) fixes native owner identity;
 // GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded frames.
 #include "bw/platform/startup_host.hpp"
+#include "bw/formats/texture_mips.hpp"
 #include "bw/input/action_repeat.hpp"
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
@@ -245,7 +253,11 @@ struct StartupHost::State {
   std::size_t sprite_count{};
   std::size_t texture_bytes{};
   std::uint64_t next_texture{1};
+  const bool texture_mips;
   MediaAudio media_audio;
+  render::TextureHandle upload_sprite(std::uint32_t width, std::uint32_t height,
+                                      MTLPixelFormat format, std::uint32_t mip_levels,
+                                      std::span<const std::uint8_t> pixels);
   std::uint32_t keyboard_keys{};
   std::uint32_t gameplay_keys{};
   bool previous_pause{}, previous_crouch{};
@@ -253,7 +265,8 @@ struct StartupHost::State {
   std::uint32_t previous_held{};
   std::optional<timing::FrameTiming> frame_timing;
   input::ActionRepeat action_repeat;
-  explicit State(const std::shared_ptr<memory::Domain>& cpu_domain) : media_audio(cpu_domain) {}
+  State(const std::shared_ptr<memory::Domain>& cpu_domain, bool generate_mips)
+      : texture_mips(generate_mips), media_audio(cpu_domain) {}
   ~State() {
     media_audio.stop();
     [window close];
@@ -265,8 +278,10 @@ struct StartupHost::State {
 };
 
 StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
-                         std::shared_ptr<memory::DeviceBudget> device_budget, WindowOptions options)
-    : state_(std::allocate_shared<State>(memory::Allocator<State>(cpu_domain), cpu_domain)) {
+                         std::shared_ptr<memory::DeviceBudget> device_budget, WindowOptions options,
+                         bool texture_mips)
+    : state_(std::allocate_shared<State>(memory::Allocator<State>(cpu_domain), cpu_domain,
+                                         texture_mips)) {
   if (!device_budget) throw std::invalid_argument("Missing device memory budget");
   state_->device_budget = std::move(device_budget);
   require_main_thread();
@@ -677,33 +692,53 @@ bool StartupHost::draw(float opacity) {
     return true;
   }
 }
-render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint32_t height,
-                                                  std::span<const std::uint8_t> rgba) {
-  require_main_thread();
-  constexpr std::uint32_t max_dimension = 8192;
-  constexpr std::size_t channels = 4;
-  if (width == 0 || height == 0 || width > max_dimension || height > max_dimension ||
-      rgba.size() != static_cast<std::size_t>(width) * height * channels) {
-    throw std::runtime_error("Invalid RGBA sprite texture");
-  }
-  auto& state = *state_;
+render::TextureHandle StartupHost::State::upload_sprite(std::uint32_t width, std::uint32_t height,
+                                                        MTLPixelFormat format,
+                                                        std::uint32_t mip_levels,
+                                                        std::span<const std::uint8_t> pixels) {
+  auto& state = *this;
   const auto slot = std::ranges::find_if(
-      state.textures, [](const auto& texture) { return texture.native.get() == nil; });
-  if (slot == state.textures.end() || rgba.size() > kTextureByteBudget - state.texture_bytes ||
-      state.next_texture == std::numeric_limits<std::uint64_t>::max()) {
+      textures, [](const auto& texture) { return texture.native.get() == nil; });
+  if (slot == textures.end() || pixels.size() > kTextureByteBudget - texture_bytes ||
+      next_texture == std::numeric_limits<std::uint64_t>::max()) {
     throw std::runtime_error("Sprite texture residency limit exceeded");
   }
   @autoreleasepool {
-    auto texture = macos::TextureAllocation::create(state.device, state.device_budget, width,
-                                                    height, MTLPixelFormatRGBA8Unorm);
-    texture.upload(rgba);
-    // Publish the identity and residency counters only after acquisition and upload.
-    slot->handle = {state.next_texture++};
+    auto texture = macos::TextureAllocation::create(
+        state.device, state.device_budget, width, height, format, MTLTextureType2D,
+        MTLTextureUsageShaderRead, {.count = mip_levels});
+    texture.upload(pixels);
+    // Publish only after the entire candidate chain has uploaded successfully.
+    slot->handle = {next_texture++};
     slot->native = std::move(texture);
-    slot->bytes = rgba.size();
-    state.texture_bytes += rgba.size();
+    slot->bytes = pixels.size();
+    texture_bytes += pixels.size();
     return slot->handle;
   }
+}
+render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint32_t height,
+                                                  std::span<const std::uint8_t> rgba) {
+  require_main_thread();
+  return state_->upload_sprite(width, height, MTLPixelFormatRGBA8Unorm, 1, rgba);
+}
+render::TextureHandle StartupHost::upload_texture(const formats::WorldTextureImage& image) {
+  require_main_thread();
+  if (image.shape != formats::WorldTextureShape::two_dimensional || image.mip_levels != 1 ||
+      (image.format != formats::WorldTextureFormat::rgba8 &&
+       image.format != formats::WorldTextureFormat::rgba4 &&
+       image.format != formats::WorldTextureFormat::rgba16_float)) {
+    throw std::invalid_argument("Invalid decoded DDS sprite texture");
+  }
+  std::optional<formats::WorldTextureImage> chain;
+  if (state_->texture_mips) {
+    chain = formats::generate_texture_mips(image, image.pixels.get_allocator());
+  }
+  const auto& prepared = chain ? chain.value() : image;
+  const auto format = prepared.format == formats::WorldTextureFormat::rgba16_float
+                          ? MTLPixelFormatRGBA16Float
+                          : MTLPixelFormatRGBA8Unorm;
+  return state_->upload_sprite(prepared.width, prepared.height, format, prepared.mip_levels,
+                               prepared.pixels);
 }
 void StartupHost::release_texture(render::TextureHandle texture) noexcept {
   auto& state = *state_;

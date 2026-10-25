@@ -1,8 +1,23 @@
-// Color phases apply both-phase I.1 (#ri-explicit) and GPU.6
-// (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md): publish explicit scene-wide
-// order once, retain within-phase submission order, and reuse the native plan
-// across pose/light/view updates. See scene-lighting-pass-contract.md.
-// Component draw replacement applies I.1 (#ri-explicit), C.85
+// Shading admission applies both-phase I.6 (#ri-expects), I.7 (#ri-post) and
+// GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md): consumed power exponents
+// are nonnegative; native filtering owns derived device-local normal moments.
+// No mutable game publication or CPU readback accompanies that computation.
+// Residency and scene publication are distinct capabilities. MissionLoading
+// borrows WorldResources; StageInspection borrows WorldPresentation. Both may
+// observe geometry readiness through WorldObservation, but neither can obtain
+// the other's mutation authority. Only the native host composes WorldOutput.
+// All interfaces have stable identity and no retained data. Borrowers outlive
+// no owner and calls require the existing exclusive main-thread boundary.
+// Core C.121 (#rh-abstract), I.4 (#ri-typed), I.11 (#ri-raw), and performance
+// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
+// were read for design and implementation: pure capabilities, const
+// observations and no copying device ownership. Capability separation adds no
+// per-frame allocation. Color phases apply both-phase I.1 (#ri-explicit) and
+// GPU.6 (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md): publish explicit
+// scene-wide order once, retain within-phase submission order, and reuse the
+// native plan across pose/light/view updates. See
+// scene-lighting-pass-contract.md. Component draw replacement applies I.1
+// (#ri-explicit), C.85
 // (#rc-swap-noexcept), and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md):
 // prepare discrete changes before nonthrowing publication, retaining unrelated
 // state and resident resources. See model-draw-replacement.md; both MCP phases.
@@ -106,6 +121,9 @@ struct WorldColorParameters {
   std::array<std::array<float, 4>, 3> world_rows{};
   std::array<std::array<float, 4>, 2> texture_offset{};
   std::array<float, 4> indirect_color{}, material_color{}, fresnel{};
+  // Consumed direct specular lobes require a nonnegative exponent in x.
+  // Native pixel-footprint filtering preserves x/y in constant normal fields;
+  // the renderer owns derived per-pixel variance, never mutable game state.
   std::array<float, 4> illumination{}, ambient{}, reflection{}, specular{};
   std::array<float, 4> light_diffuse{}, light_specular{}, light_direction{};
   std::array<float, 4> fog_color{}, fog_distance{}, fog_height{}, fog_density{};
@@ -207,6 +225,23 @@ struct WorldViewUpdate {
     bool shadow_casters_enabled{};
   };
   std::optional<Lighting> lighting{};
+  // Scene pass controls are independent of material and light energy. Source
+  // geometry uses integer sample centers, while isolated native diagnostics
+  // omit this policy. Preparation replays opaque then masked owners before
+  // either color family, preserving target color writes and source depth.
+  // I.1/CDSA.32/MEM.9: complete fixed publication, no per-frame allocation.
+  struct ScenePasses {
+    bool opaque_preparation{}, masked_preparation{};
+    bool integer_pixel_centers{};
+    std::array<float, 3> clear_color{};
+  };
+  struct ShadowPass {
+    bool setup_enabled{true};
+    WorldCull cull{WorldCull::none};
+    float depth_bias{}, slope_bias{};
+  };
+  std::optional<ScenePasses> scene_passes{};
+  std::optional<ShadowPass> shadow_pass{};
 };
 struct WorldColorDraw {
   WorldModelHandle model;
@@ -225,6 +260,23 @@ struct WorldColorDraw {
   WorldViewSpace view_space{WorldViewSpace::fixed};
   bool visible{true};
   WorldColorPhase color_phase{WorldColorPhase::opaque};
+
+  // Scene-local instance identity distinguishes placements sharing one resident
+  // model. Stable for this submitted instance; zero is the ordinary single
+  // instance. It owns no resource and must not be reused while updates are
+  // live. I.1/MEM.9 (redesign design/implementation): explicit fixed-size
+  // identity.
+  std::uint64_t instance{};
+  // Receiver-selected environment. Null uses material/global defaults; zero
+  // explicitly selects opaque black. An authored material LENV binding wins.
+  std::optional<WorldTextureHandle> reflection_texture{};
+  // Source owner opacity is independent of the material chunk. Absent retains
+  // diagnostic constants/Main admission. Present finite values replace only
+  // indirect-color alpha: <=0 omits color, >=1 selects Main, (0,1) selects
+  // Trans and its truncated opacity*128 fixed alpha reference. Caster
+  // membership is separately published. No inferred fade clock is owned here.
+  // I.1/E.4/MEM.9: explicit value, atomic validation, retained storage.
+  std::optional<float> owner_opacity{};
 };
 // Update only retained UV constants. Every matching model/draw instance
 // receives the values; duplicate updates apply in order. The full borrowed
@@ -262,6 +314,11 @@ struct WorldLightingUpdate {
       irradiance_coefficients{};
   std::array<WorldLocalLight, kMaximumWorldLocalLights> local_lights{};
   std::uint32_t local_light_count{};
+  // Omitted identity deliberately broadcasts to matching model/draw instances.
+  // A specified identity must resolve before the whole batch can publish. This
+  // prevents one placed object's SH from overwriting every copy of its model.
+  std::optional<std::uint64_t> instance{};
+  std::optional<WorldTextureHandle> reflection_texture{};
 };
 // Change source-selected draw visibility without rebuilding retained geometry,
 // palettes or materials. Validate every model/draw destination before mutation;
@@ -274,6 +331,13 @@ struct WorldVisibilityUpdate {
   WorldModelHandle model;
   std::size_t draw{};
   bool visible{true};
+  // Source owner selection publishes shadow membership independently from
+  // ordinary visibility. Omission preserves it during animation group updates.
+  std::optional<bool> casts_shadow{};
+  std::optional<std::uint64_t> instance{};
+  // Omission preserves the prior owner opacity, including the absent
+  // diagnostic policy. Finite values replace it atomically with this batch.
+  std::optional<float> owner_opacity{};
 };
 // Complete CPU-deformed position stream; borrowed only for synchronous upload.
 struct WorldShapePositionUpdate {
@@ -281,18 +345,23 @@ struct WorldShapePositionUpdate {
   std::size_t buffer{};
   std::span<const std::array<float, 3>> positions;
 };
-class WorldOutput {
+class WorldObservation {
  public:
-  WorldOutput() = default;
-  virtual ~WorldOutput() = default;
-  WorldOutput(const WorldOutput&) = delete;
-  WorldOutput& operator=(const WorldOutput&) = delete;
-  WorldOutput(WorldOutput&&) = delete;
-  WorldOutput& operator=(WorldOutput&&) = delete;
+  WorldObservation() = default;
+  virtual ~WorldObservation() = default;
+  WorldObservation(const WorldObservation&) = delete;
+  WorldObservation& operator=(const WorldObservation&) = delete;
+  WorldObservation(WorldObservation&&) = delete;
+  WorldObservation& operator=(WorldObservation&&) = delete;
+  virtual WorldGeometryStatus geometry_status(WorldModelHandle model) const = 0;
+};
+// The resource owner alone may admit/bind/retire model and texture identities.
+class WorldResources : public virtual WorldObservation {
+ public:
   // Copy once at upload; callers may release the source definition afterward.
   virtual WorldModelHandle upload_model(
       const formats::ModelDefinition& model) = 0;
-  // Copy original decoded base pixels; preserve RGBA8 versus packed half-float.
+  // Copy the complete prepared chain; preserve format and every level/face.
   virtual WorldTextureHandle upload_world_texture(
       const formats::WorldTextureImage& image) = 0;
   virtual void release_world_texture(WorldTextureHandle texture) noexcept = 0;
@@ -301,8 +370,12 @@ class WorldOutput {
   // own bindings; whole-table readiness remains false until all slots reside.
   virtual void bind_model_textures(
       WorldModelHandle model, std::span<const WorldTextureHandle> textures) = 0;
-  virtual WorldGeometryStatus geometry_status(WorldModelHandle model) const = 0;
   virtual void release_model(WorldModelHandle model) noexcept = 0;
+};
+// Scene publication borrows resident identities; it cannot create or retire
+// them.
+class WorldPresentation : public virtual WorldObservation {
+ public:
   // Explicit ordered selection; unsupported required materials reject
   // atomically.
   // Consume authored tone/bloom policy explicitly. Geometry-only fixtures must
@@ -339,4 +412,6 @@ class WorldOutput {
   virtual void update_world_view(const WorldViewUpdate& update) = 0;
   virtual void clear_world_draws() noexcept = 0;
 };
+// Actual host/backend implements both capabilities; game borrowers use one.
+class WorldOutput : public WorldResources, public WorldPresentation {};
 }  // namespace bw::render

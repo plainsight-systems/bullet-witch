@@ -1,3 +1,7 @@
+// Actor publication borrows WorldPresentation only; it cannot upload, bind or
+// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
+// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
+// enforce the existing owner split without changing frame work or lifetimes.
 // Complete parent/model subdivisions follow the pinned Unreal balanced
 // remaining-time algorithm; no fractional tail is manufactured by subtraction.
 // Both design corpora: E.4 validates the timing invariant, MEM.9 keeps
@@ -113,7 +117,7 @@ class PlayerController final : private ShooterEntrySink {
   // Returns consumed simulation time; an unresolved action obligation stops
   // before the affected step, allowing its caller to retry without lost time.
   double advance(PlayerMovementInput input, float camera_yaw_radians,
-                 double delta_seconds, render::WorldOutput& output,
+                 double delta_seconds, render::WorldPresentation& output,
                  const PlayerActionObservations& observations = {});
   const PlayerMovementState& state() const { return state_; }
   // Source hardware Shooter handlers exist for ordinary stance and generic
@@ -130,6 +134,7 @@ class PlayerController final : private ShooterEntrySink {
   // raw hardware presses do not imply acceptance. Airborne replacement needs
   // its separately reconstructed source policy. This owner survives costumes.
   AliciaActionOwner& action_owner() { return action_; }
+  const AliciaActionOwner& action_owner() const { return action_; }
   const AliciaActionUpdate& action_status() const { return action_update_; }
   // Review-only physical snapshot restoration and paused class reset. Caller
   // supplies a snapshot from this controller; no teleport/mission semantics.

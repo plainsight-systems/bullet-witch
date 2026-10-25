@@ -1,3 +1,7 @@
+// DDS resources retain original texture metadata through the shared decoder;
+// native construction consumes the immutable launch mip policy. Raw icon PNGs
+// remain a distinct base-only upload. Both-phase E.6/I.11 and COPY.5 preserve
+// borrowed archive views, candidate cleanup and renderer-owned identities.
 // The reconstruction status label is real title UI, independent of capture
 // mode. CMake supplies the target platform name; shared presentation owns its
 // Alpha prefix, subdued opacity and right alignment on the version baseline.
@@ -39,6 +43,7 @@
 
 #include "bw/formats/bitmap_font.hpp"
 #include "bw/formats/image.hpp"
+#include "bw/formats/world_texture.hpp"
 
 namespace bw::game {
 namespace {
@@ -154,10 +159,9 @@ struct StartupTitleSurface::State {
     if (texture_count == textures.size()) {
       throw std::runtime_error("Title texture capacity exceeded");
     }
-    const auto decoded =
-        formats::decode_png(archive.payload(index), {}, allocator);
-    const auto handle =
-        renderer.upload_texture(decoded.width, decoded.height, decoded.rgba);
+    const auto decoded = formats::decode_world_texture(
+        {archive.payload(index), archive.metadata(index)}, allocator);
+    const auto handle = renderer.upload_texture(decoded);
     textures.at(texture_count++) = handle;
     return {id, handle, static_cast<float>(decoded.width),
             static_cast<float>(decoded.height)};

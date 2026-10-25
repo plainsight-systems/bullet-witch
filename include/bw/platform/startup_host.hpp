@@ -1,6 +1,12 @@
-// Presentation timing is supplied by the engine frame publisher, including
-// while world simulation is paused. No target-local wall clock drives exposure.
-// Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9
+// Texture construction policy is captured once before any DDS sprite upload.
+// Enabled uploads build a complete portable mip candidate, then native
+// residency; video frame uploads remain separate. No mutable launch settings
+// are borrowed. Both-phase E.6/I.11 and COPY.5 preserve candidate cleanup,
+// bounded borrowing and stable host identity (source references below). Mip
+// bytes count against both sprite residency limits and complete device
+// accounting. Presentation timing is supplied by the engine frame publisher,
+// including while world simulation is paused. No target-local wall clock drives
+// exposure. Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps the snapshot
 // inline. Action input reports normalized fire intent and one-shot button edges
 // only; game owners admit shots, reloads, weapon switches and aim modes. Native
@@ -93,7 +99,7 @@ class StartupHost final : public video::Output,
  public:
   StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
               std::shared_ptr<memory::DeviceBudget> device_budget,
-              WindowOptions options = {});
+              WindowOptions options = {}, bool texture_mips = false);
   ~StartupHost() override;
   StartupHost(const StartupHost&) = delete;
   StartupHost& operator=(const StartupHost&) = delete;
@@ -114,6 +120,8 @@ class StartupHost final : public video::Output,
   render::TextureHandle upload_texture(
       std::uint32_t width, std::uint32_t height,
       std::span<const std::uint8_t> rgba) override;
+  render::TextureHandle upload_texture(
+      const formats::WorldTextureImage& image) override;
   void release_texture(render::TextureHandle texture) noexcept override;
   void set_sprites(std::span<const render::Sprite> sprites) override;
   void clear_sprites() noexcept override;

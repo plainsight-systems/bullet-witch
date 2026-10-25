@@ -121,6 +121,9 @@ class AliciaActionOwner {
   // Timed update is a distinct registration from controller-owned hardware
   // and posture-message admission; three source spell states replace it.
   bool updates_shooter() const noexcept;
+  // Read the current source body-model scope; lighting/visibility queries do
+  // not obtain action mutation authority. Weapons have independent flags.
+  bool forces_model_visibility() const noexcept;
   bool blocks_locomotion() const noexcept {
     return kind_ != AliciaActionKind::none;
   }

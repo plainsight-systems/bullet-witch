@@ -85,7 +85,8 @@ int main(int argc, char** argv) {
     auto saves = bw::platform::make_save_storage(profile);
     bw::platform::HostFiles files;
     bw::platform::StartupHost host(memory.runtime, device_memory,
-                                   configuration.window);
+                                   configuration.window,
+                                   configuration.texture_mips);
     NativeGameAudioFactory game_audio;
     // The shared loop borrows services owned by this composition scope.
     return bw::framework::run_startup(

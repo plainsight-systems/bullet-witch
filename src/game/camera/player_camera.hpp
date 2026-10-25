@@ -33,6 +33,10 @@ class PlayerCamera {
   // throws without mutation; pause withholds advance. Independent of raised
   // animation lifetime. Both-phase I.1/MEM.9: explicit mode, fixed state.
   void set_context(PlayerCameraContext context, bool crouched);
+  // Publish the current region's far clip without changing pose/look or
+  // consuming a simulation interval. Finite distance greater than near is
+  // required; failure preserves the view. I.1/MEM.9, both redesign phases.
+  void set_far_distance(float distance);
   void teleport(const ScriptedPlayerPose& player);
   const InitialPlayerCamera& view() const { return view_; }
   float yaw_radians() const { return yaw_; }

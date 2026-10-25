@@ -1,13 +1,17 @@
-// Immutable weapon acquisition belongs to mission admission; action selection
-// retains a prepared owner and recreates only its selected model state. Both
-// phases R.20/I.11/CDSA.32/MEM.9 apply as detailed in mission_loading.hpp.
-// Initial weapon admission: both-phase R.20/COPY.5 preserve the existing
-// RAII rollback scope and unique device owners; selection adds no copy path.
-// Candidate body ownership uses domain-backed stable storage. Decode/upload
-// completes before publication; RAII rolls failures back, noexcept promotion
-// retires prior resources only after the caller replaces all borrowers. Both
-// phases Core E.6 (#re-raii), C.83 (#rc-swap), performance MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md).
+// Mip preparation consumes an immutable launch policy and creates independent
+// CPU candidates before native publication. Both-phase E.6 (#re-raii), I.11
+// (#ri-raw), COPY.5 (guidelines/copy-move/
+// COPY.5-resource-owning-types-are-move-only.md) preserve rollback and
+// borrowing. Immutable weapon acquisition belongs to mission admission; action
+// selection retains a prepared owner and recreates only its selected model
+// state. Both phases R.20/I.11/CDSA.32/MEM.9 apply as detailed in
+// mission_loading.hpp. Initial weapon admission: both-phase R.20/COPY.5
+// preserve the existing RAII rollback scope and unique device owners; selection
+// adds no copy path. Candidate body ownership uses domain-backed stable
+// storage. Decode/upload completes before publication; RAII rolls failures
+// back, noexcept promotion retires prior resources only after the caller
+// replaces all borrowers. Both phases Core E.6 (#re-raii), C.83 (#rc-swap),
+// performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md).
 // Checkpoint placement uses explicit input and a returned pose (both-phase
 // Core I.1, #ri-explicit). The unchanged authored threshold lookup performs
 // constant work with fixed values and no allocation (both-phase MEM.9,
@@ -37,12 +41,13 @@
 #include <utility>
 
 #include "bw/formats/section_table.hpp"
+#include "bw/formats/texture_mips.hpp"
 #include "bw/formats/world_texture.hpp"
 namespace bw::game {
 MissionLoading::MissionLoading(const platform::Files& files,
                                const resources::CatalogSet& catalogs,
                                std::shared_ptr<memory::Domain> domain,
-                               render::WorldOutput* renderer,
+                               render::WorldResources* renderer,
                                MissionLoadOptions options)
     : files_(files),
       catalogs_(catalogs),
@@ -61,9 +66,9 @@ MissionLoading::MissionLoading(const platform::Files& files,
       text_override_(memory::Allocator<std::uint8_t>(memory_)),
       cover_points_(memory::Allocator<CoverPointDefinition>(memory_)) {}
 MissionLoading::ResidentDefinition::ResidentDefinition(
-    render::WorldOutput& output, const content::StageDefinition& definition,
+    render::WorldResources& output, const content::StageDefinition& definition,
     const std::shared_ptr<memory::Domain>& domain,
-    const content::LoadProgress& progress)
+    const content::LoadProgress& progress, bool texture_mips)
     : renderer(output),
       models(memory::Allocator<render::WorldModelHandle>(domain)),
       textures(memory::Allocator<render::WorldTextureHandle>(domain)) {
@@ -72,12 +77,16 @@ MissionLoading::ResidentDefinition::ResidentDefinition(
   try {
     // Decode original pixel formats before constructing device-owned textures.
     for (std::size_t index = 0; index < definition.textures.size(); ++index) {
-      const auto pixels = formats::decode_world_texture(
+      auto pixels = formats::decode_world_texture(
           {definition.texture_bytes(index), definition.texture_metadata(index),
            definition.textures.at(index).cube
                ? formats::WorldTextureShape::cube
                : formats::WorldTextureShape::two_dimensional},
           memory::Allocator<std::uint8_t>(domain));
+      if (texture_mips) {
+        pixels = formats::generate_texture_mips(
+            pixels, memory::Allocator<std::uint8_t>(domain));
+      }
       textures.push_back(renderer.upload_world_texture(pixels));
       // Only completed uploads yield to loading presentation. E.6 preserves
       // partial-owner cleanup; GPU.1 leaves all admitted pixels resident.
@@ -140,7 +149,8 @@ void MissionLoading::prepare_player(unsigned costume, unsigned weapon_class) {
           "Player or weapon model association is ambiguous");
     }
     player_body_->residency.emplace(*renderer_, player_body_->definition,
-                                    memory_, options_.progress);
+                                    memory_, options_.progress,
+                                    options_.texture_mips);
     player_costume_ = costume;
   } catch (...) {
     player_weapon_.reset();
@@ -193,7 +203,8 @@ void MissionLoading::prepare_player_costume(unsigned costume) {
   if (candidate->definition.models.size() != 1) {
     throw std::runtime_error("Costume model association is ambiguous");
   }
-  candidate->residency.emplace(*renderer_, candidate->definition, memory_);
+  candidate->residency.emplace(*renderer_, candidate->definition, memory_,
+                               content::LoadProgress{}, options_.texture_mips);
   candidate_body_ = std::move(candidate);
 }
 ResidentModelView MissionLoading::candidate_player() const {
@@ -230,7 +241,8 @@ std::shared_ptr<MissionLoading::PlayerWeapon> MissionLoading::prepare_weapon(
   }
   weapon->residency.emplace(
       *renderer_, weapon->definition, memory_,
-      report_progress ? options_.progress : std::function<void()>{});
+      report_progress ? options_.progress : std::function<void()>{},
+      options_.texture_mips);
   return weapon;
 }
 // Keep the active model/support at stable addresses until the actor and
@@ -398,7 +410,7 @@ void MissionLoading::prepare_stage(std::string_view stage) {
   stage_ = std::move(decoded);
   if (renderer_ != nullptr) {
     stage_residency_.emplace(*renderer_, stage_.value(), memory_,
-                             options_.progress);
+                             options_.progress, options_.texture_mips);
   }
 }
 MissionLoadReport MissionLoading::poll() {
@@ -428,7 +440,7 @@ MissionLoadReport MissionLoading::poll() {
                                               memory_);
         if (renderer_ != nullptr) {
           sky_residency_.emplace(*renderer_, sky_.value(), memory_,
-                                 options_.progress);
+                                 options_.progress, options_.texture_mips);
           report_ = {MissionLoadState::ready, {}};
         } else {
           report_ = {MissionLoadState::blocked,

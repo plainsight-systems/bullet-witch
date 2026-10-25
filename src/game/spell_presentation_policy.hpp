@@ -41,6 +41,9 @@ struct SpellPresentationScope {
   std::optional<std::uint32_t> common_effect_category;
   // Three source state registrations replace the entire timed Shooter update.
   bool shooter_update{true};
+  // Source body-model visibility scope; distinct from pose readiness and
+  // weapon attachment. Common magic and Thunder force, Rose Bomb does not.
+  bool force_model_visibility{};
   // Thunder/Tornado reset selected targeting after their external camera scope.
   bool force_posture{};
 };

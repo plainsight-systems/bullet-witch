@@ -10,6 +10,7 @@
 
 #include "camera_fixture.hpp"
 #include "game/placed_lighting.hpp"
+#include "model_fixture.hpp"
 namespace {
 using camera_fixture::require;
 using camera_fixture::scalar;
@@ -183,6 +184,84 @@ void local_light(const std::shared_ptr<bw::memory::Domain>& domain) {
   }
   require(rejected, "Nonfinite enabled light fails bounded decoding");
 }
+// Slot zero is an authored control point, not skeleton joint zero. Exercise
+// its selected record independently of unrelated slots and the emitter path.
+void receiver_position(const std::shared_ptr<bw::memory::Domain>& domain) {
+  const auto encoded = model_fixture::archive({});
+  bw::resources::ArchiveBytes owned(
+      encoded.begin(), encoded.end(),
+      bw::memory::Allocator<std::uint8_t>(domain));
+  const auto definition = bw::formats::ModelDefinition::parse(
+      bw::resources::ResourceArchive::parse(std::move(owned)), domain);
+  constexpr std::array<std::int32_t, 2> joints{2, 5};
+  std::array<bw::formats::PlacementMatrix, 2> matrices{kIdentity, kIdentity};
+  matrices[0][3] = {10, 20, 30, 1};
+  matrices[1] = {{{0, 1, 0, 0}, {-1, 0, 0, 0}, {0, 0, 1, 0}, {-3, 4, 7, 1}}};
+  bw::game::ResidentModelView view{"fixture", definition, {}, joints};
+  const auto fallback = std::array<float, 3>{10, 20, 30};
+  require(bw::game::placed_receiver_position(view, matrices) == fallback,
+          "Missing control resource uses first placement, without joint zero");
+  bw::resources::Bytes bytes(80);
+  word(bytes, 0, 0x4250435f);
+  word(bytes, 4, 1);
+  word(bytes, 8, 2);
+  word(bytes, 12, 20);
+  word(bytes, 16, 0xffffffff);
+  word(bytes, 20, 3);
+  word(bytes, 24, 2);
+  scalar(bytes, 28, 1);
+  scalar(bytes, 32, 2);
+  scalar(bytes, 36, 3);
+  word(bytes, 64, 2);
+  word(bytes, 68, 5);
+  scalar(bytes, 72, .25F);
+  scalar(bytes, 76, .75F);
+  view.control_points = bytes;
+  const auto before = domain->snapshot().live_allocations;
+  require(bw::game::placed_receiver_position(view, matrices) ==
+              std::array<float, 3>{-1, 9.25F, 15.75F},
+          "Selected point uses weighted direct world poses once; ignores other "
+          "slots");
+  require(domain->snapshot().live_allocations == before,
+          "Placed receiver query retains no allocation");
+  scalar(bytes, 76, .5F);
+  require(bw::game::placed_receiver_position(view, matrices) ==
+              std::array<float, 3>{.25F, 8, 13.25F},
+          "Control-point weights remain unnormalized");
+  word(bytes, 24, 0);
+  require(bw::game::placed_receiver_position(view, matrices) ==
+              std::array<float, 3>{1, 2, 3},
+          "No influences retains authored origin without another placement");
+  word(bytes, 24, 2);
+  word(bytes, 64, 0xffffffff);
+  require(bw::game::placed_receiver_position(view, matrices) == fallback,
+          "Source signed minus-one influence returns owner fallback");
+  word(bytes, 12, 0);
+  require(bw::game::placed_receiver_position(view, matrices) == fallback,
+          "Absent selected slot uses owner fallback");
+  word(bytes, 12, 20);
+  auto rejects = [&](bw::resources::ErrorCode code) {
+    bool rejected = false;
+    try {
+      (void)bw::game::placed_receiver_position(view, matrices);
+    } catch (const bw::resources::Error& error) {
+      rejected = error.code == code;
+    }
+    require(rejected,
+            "Invalid selected control data rejects before publication");
+  };
+  word(bytes, 64, 6);
+  rejects(bw::resources::ErrorCode::unsupported);
+  word(bytes, 64, 2);
+  word(bytes, 28, 0x7f800000);
+  rejects(bw::resources::ErrorCode::malformed);
+  scalar(bytes, 28, 1);
+  view.control_points = std::span(bytes).first(79);
+  rejects(bw::resources::ErrorCode::malformed);
+  view.control_points = bytes;
+  view.body_joints = std::span(joints).first(1);
+  rejects(bw::resources::ErrorCode::malformed);
+}
 }  // namespace
 void placed_collision_tests() {
   const auto domain =
@@ -190,6 +269,7 @@ void placed_collision_tests() {
   box_pose(domain);
   convex_and_round(domain);
   local_light(domain);
+  receiver_position(domain);
   require(domain->snapshot().live_bytes == 0,
           "Prepared prop geometry releases injected storage");
 }

@@ -480,7 +480,7 @@ int run_startup(const StartupOptions& configuration,
           files, mission_resources->catalogs(), memory.resources, &host,
           game::MissionLoadOptions{configuration.game,
                                    profile.current_difficulty(), loading_pulse,
-                                   true});
+                                   true, configuration.texture_mips});
       constexpr resources::ResourceTag kMissionScriptTag = 100;
       mission.emplace(mission_resources.value(), mission_loading.value(),
                       kMissionScriptTag, request.script_name, memory.runtime,
@@ -530,7 +530,8 @@ int run_startup(const StartupOptions& configuration,
         stage_inspection.emplace(
             *world_clock, *mission_control, host,
             game::StageViewSource{stage.value(),
-                                  mission_loading->resident_models()},
+                                  mission_loading->resident_models(),
+                                  mission_loading->resident_textures()},
             game::StageViewSource{sky.value(),
                                   mission_loading->sky_resident_models()},
             memory.resources, configuration.inspection_camera,

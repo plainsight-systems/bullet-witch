@@ -57,6 +57,9 @@ installation at `~/Games/BulletWitch-Steam`. To use another location, set
 Use `./run --windowed` for a window, or `./run --build-only` to build without
 launching. Native host options pass through; see the
 [host notes](docs/native-startup-host.md) for controls and verification options.
+Use `./run --texture-mips on` to enable the original texture mip option. It is
+off by default; changing it requires restarting. See the
+[texture notes](research/engine/subsystems/lighting-texture-mip-generation.md).
 For recording, use the same launcher with developer UI hidden:
 
 ```sh

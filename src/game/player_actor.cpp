@@ -1,3 +1,7 @@
+// Actor publication borrows WorldPresentation only; it cannot upload, bind or
+// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
+// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
+// enforce the existing owner split without changing frame work or lifetimes.
 // Complete CPU pose/events before the next parent tick; GPU publication only
 // submits retained output. Implementation E.4/MEM.9 preserve phase invariants
 // and fixed storage, following the header and actor-model-clock-order.md.
@@ -618,7 +622,7 @@ bool PlayerActor::draw_visible(bool weapon, std::size_t draw) const {
   constexpr std::uint32_t kWordBits = 32;
   return group >= kWordBits || (playback_->weapon_groups & (1U << group)) != 0;
 }
-void PlayerActor::publish_visibility(render::WorldOutput& output) {
+void PlayerActor::publish_visibility(render::WorldPresentation& output) {
   if (published_weapon_groups_ == playback_->weapon_groups) return;
   for (auto& update : visibility_updates_) {
     update.visible = draw_visible(true, update.draw);
@@ -999,7 +1003,8 @@ bool PlayerActor::motion_cancellable() const {
   return playback_->body.cancellable();
 }
 void PlayerActor::publish_pose(const ScriptedPlayerPose& placement,
-                               float body_radius, render::WorldOutput& output) {
+                               float body_radius,
+                               render::WorldPresentation& output) {
   const auto radians = placement.yaw_degrees * std::numbers::pi_v<float> / 180;
   formats::SkeletonTransform rotation;
   rotation.rotation = {0, std::sin(radians / 2), 0, std::cos(radians / 2)};
@@ -1009,7 +1014,8 @@ void PlayerActor::publish_pose(const ScriptedPlayerPose& placement,
 }
 void PlayerActor::publish_pose(const ScriptedPlayerPose& placement,
                                const animation::Matrix& orientation,
-                               float body_radius, render::WorldOutput& output) {
+                               float body_radius,
+                               render::WorldPresentation& output) {
   complete_model_step(placement, orientation, body_radius);
   publish_completed_pose(output);
 }
@@ -1054,12 +1060,13 @@ void PlayerActor::finish_model_step() {
   playback_->additive.finish_frame();
   weapon_playback_->finish_frame();
 }
-void PlayerActor::publish_completed_pose(render::WorldOutput& output) {
+void PlayerActor::publish_completed_pose(render::WorldPresentation& output) {
   output.update_shape_positions(shapes_->updates);
   output.update_world_poses(updates_);
   publish_visibility(output);
 }
-void PlayerActor::advance(double delta_seconds, render::WorldOutput& output) {
+void PlayerActor::advance(double delta_seconds,
+                          render::WorldPresentation& output) {
   (void)advance_motion(delta_seconds);
   finish_model_step();
   publish_completed_pose(output);

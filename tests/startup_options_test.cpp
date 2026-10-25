@@ -40,6 +40,16 @@ void reject(std::initializer_list<const char*> input) {
 
 void startup_options_tests() {
   const auto normal = parse({"host", "--game", "owned-game"});
+  require(!normal.texture_mips,
+          "Original texture mip construction defaults disabled");
+  require(parse({"host", "--game", "owned-game", "--texture-mips", "on"})
+              .texture_mips,
+          "Mip generation must be selected before resource preparation");
+  require(!parse({"host", "--game", "owned-game", "--texture-mips", "off"})
+               .texture_mips,
+          "Explicit disabled mode must retain the original default");
+  reject({"host", "--game", "owned-game", "--texture-mips", "automatic"});
+  reject({"host", "--game", "owned-game", "--texture-mips"});
   require(!normal.inspection_camera && normal.window.fullscreen,
           "Normal launch must retain the source camera and fullscreen");
   require(!normal.maximum_seconds && !normal.capture,

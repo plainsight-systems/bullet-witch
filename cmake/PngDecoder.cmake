@@ -34,7 +34,7 @@ function(bw_configure_png_decoder)
     target_compile_options(${codec_target} PRIVATE
       "$<$<AND:$<CONFIG:Debug>,$<C_COMPILER_ID:Clang,AppleClang,GNU>>:-O2>")
   endforeach()
-  add_library(bw_images src/formats/image.cpp src/formats/bitmap_font.cpp src/formats/world_texture.cpp)
+  add_library(bw_images src/formats/image.cpp src/formats/bitmap_font.cpp src/formats/world_texture.cpp src/formats/texture_mips.cpp)
   target_include_directories(bw_images PUBLIC include)
   target_compile_features(bw_images PUBLIC cxx_std_20)
   target_link_libraries(bw_images PRIVATE png_static PUBLIC bw_resources)

@@ -4,20 +4,23 @@
 // that owner, not a shader or asset-name whitelist. Selection uses model-group
 // center and unscaled authored group radius, source distance admission and
 // descending attenuated luminance; retain up to four direct pixel lights.
-// Current source settings disable overflow SH; requesting it rejects
-// explicitly. Setup O(lights), sampling original comb sort O(lights^2)
-// worst-case with fixed prepared scratch and no allocation. Owner-thread
-// queries, not concurrent. Both phases: I.1/SL.con.3 expose capabilities and
-// bounded packets; MEM.9 and CDSA.32 prepare source consumer data once. See
-// character-light-sampling.md. View selection independently uses source sphere/
-// frustum admission and ranks at the eye with fixed capacity four. Both-phase
-// I.1 (#ri-explicit) keeps the two query contracts explicit; MEM.9 retains
-// preparation-only allocation. See lighting-scene-producer-contract.md.
+// Optional overflow projects only the unselected model candidates into the
+// original nine-coefficient SH basis, preserving sorted accumulation order.
+// Current source initialization leaves this disabled. Setup O(lights), sampling
+// original comb sort O(lights^2) worst-case with fixed prepared scratch and no
+// allocation. Owner-thread queries, not concurrent. Both phases: I.1/SL.con.3
+// expose capabilities and bounded packets; MEM.9 and CDSA.32 prepare source
+// consumer data once. See character-light-sampling.md. View selection
+// independently uses source sphere/ frustum admission and ranks at the eye with
+// fixed capacity four. Both-phase I.1 (#ri-explicit) keeps the two query
+// contracts explicit; MEM.9 retains preparation-only allocation. See
+// lighting-scene-producer-contract.md.
 #pragma once
 #include <span>
 
 #include "bw/math/frustum.hpp"
 #include "bw/memory/allocator.hpp"
+#include "bw/scene/lighting/irradiance_field.hpp"
 namespace bw::scene {
 inline constexpr std::size_t kMaximumLocalLights = 4;
 struct LocalLight {
@@ -44,6 +47,11 @@ struct SelectedLocalLights {
   std::array<LocalLight, kMaximumLocalLights> lights{};
   std::size_t count{};
   float contribution_threshold{};
+  // Add directly to already sampled/scaled model irradiance before packing.
+  // These coefficients include source projection and emitter attenuation,
+  // but no SHLT file or owner intensity. Disabled policy and view selection
+  // return zero; view preparation discards this source temporary explicitly.
+  IrradianceCoefficients residual_irradiance{};
 };
 class LocalLights {
  public:
@@ -66,6 +74,7 @@ class LocalLights {
   struct Candidate {
     std::size_t index{};
     float luminance{};
+    math::Vector3<float> attenuated_diffuse{}, receiver_to_light{};
   };
   memory::Vector<Emitter> lights_;
   memory::Vector<Candidate> candidates_;
@@ -75,7 +84,8 @@ class LocalLights {
   LocalLightSettings settings_;
   SelectedLocalLights select_model(const LocalLightQuery& query, bool active);
   void order_view_candidates(std::size_t count);
-  float rank(std::size_t index, const LocalLightQuery& query) const;
-  SelectedLocalLights finish_selection(std::size_t count, std::size_t maximum);
+  Candidate rank(std::size_t index, const LocalLightQuery& query) const;
+  SelectedLocalLights finish_selection(std::size_t count, std::size_t maximum,
+                                       bool accumulate_irradiance);
 };
 }  // namespace bw::scene

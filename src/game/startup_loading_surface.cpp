@@ -1,3 +1,7 @@
+// DDS resources retain original texture metadata through the shared decoder;
+// native construction consumes the immutable launch mip policy. Raw icon PNGs
+// remain a distinct base-only upload. Both-phase E.6/I.11 and COPY.5 preserve
+// borrowed archive views, candidate cleanup and renderer-owned identities.
 // Loading assets remain resident across safe loading pulses. The original
 // presentation uses repeated sliding art and localized text, not a fabricated
 // percentage. Header/source evidence define the ownership and timing contract.
@@ -17,6 +21,7 @@
 #include "../formats/reader.hpp"
 #include "bw/formats/bitmap_font.hpp"
 #include "bw/formats/image.hpp"
+#include "bw/formats/world_texture.hpp"
 
 namespace bw::game {
 namespace {
@@ -170,10 +175,9 @@ struct StartupLoadingSurface::State {
       if (image_count == images.size()) {
         throw std::runtime_error("Unexpected loading image count");
       }
-      const auto decoded =
-          formats::decode_png(archive.payload(record), {}, allocator);
-      const auto texture =
-          renderer.upload_texture(decoded.width, decoded.height, decoded.rgba);
+      const auto decoded = formats::decode_world_texture(
+          {archive.payload(record), archive.metadata(record)}, allocator);
+      const auto texture = renderer.upload_texture(decoded);
       images.at(image_count++) = {id, texture,
                                   static_cast<float>(decoded.width),
                                   static_cast<float>(decoded.height)};

@@ -1,3 +1,7 @@
+// Shared metadata access lends a checked immutable archive view without
+// transferring ownership. Both-phase I.11 (#ri-raw), E.6 (#re-raii) and COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) preserve
+// owner lifetime and decoder rollback. Lookup is bounded and allocation-free.
 // Loading presentation uses explicit asset-boundary callbacks (design Core I.1
 // #ri-explicit, implementation E.6 #re-raii). Performance GPU.1 retains
 // uploads; callbacks pump only completed loading UI and never inspect partial
@@ -33,8 +37,6 @@ struct InputRequest {
 };
 constexpr std::size_t kTextureIndexOffset = 36;
 constexpr std::uint64_t kTextureNameBytes = 32;
-constexpr std::size_t kMetadataOffsetField = 5;
-constexpr std::size_t kMetadataSizeField = 6;
 constexpr std::size_t kModelPrefixBytes = 6;
 constexpr std::size_t kModelSuffixBytes = 5;
 using Key = std::pair<std::size_t, std::size_t>;
@@ -463,15 +465,7 @@ std::span<const std::uint8_t> StageDefinition::texture_metadata(
     std::size_t index) const {
   const auto& texture = textures.at(index);
   const auto& archive = archives.at(texture.archive);
-  const auto& record = archive.records().at(texture.record);
-  const auto gap = archive.sections().at(3);
-  const resources::detail::Reader reader{archive.bytes()};
-  reader.within(gap, record.raw.at(kMetadataOffsetField),
-                record.raw.at(kMetadataSizeField));
-  return archive.bytes().subspan(
-      static_cast<std::size_t>(gap.offset +
-                               record.raw.at(kMetadataOffsetField)),
-      record.raw.at(kMetadataSizeField));
+  return archive.metadata(texture.record);
 }
 UserDefinition load_user_definition(
     const platform::Files& files, const resources::CatalogSet& catalogs,

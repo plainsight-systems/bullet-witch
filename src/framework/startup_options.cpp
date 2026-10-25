@@ -1,3 +1,7 @@
+// Texture mip construction is a launch-only value: parsing cannot mutate any
+// resident owner. Both-phase E.6 (#re-raii), I.11 (#ri-raw) and COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) keep
+// configuration ownership explicit and device resource candidates separate.
 // Concept progression selection is an explicit development policy. Saved
 // mode inherits the owned handoff; development mode supplies a nonpersistent
 // completed-game capability profile at entry. Neither edits permanent saves.
@@ -77,6 +81,12 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
         throw std::runtime_error(
             "--concept-profile requires saved or development-completed");
       }
+    } else if (argument == "--texture-mips" && index + 1 < arguments.size()) {
+      const std::string_view value(arguments[++index]);
+      if (value != "on" && value != "off") {
+        throw std::runtime_error("--texture-mips requires on or off");
+      }
+      result.texture_mips = value == "on";
     } else if (argument == "--capture") {
       result.capture = true;
     } else if (argument == "--windowed") {
@@ -112,7 +122,7 @@ StartupOptions parse_startup_options(std::span<char*> arguments) {
     } else {
       throw std::runtime_error(
           "Usage: bw-startup --game GAME_DIRECTORY [--profile SAVE_DIRECTORY] "
-          "[--verify-startup] [--capture] "
+          "[--verify-startup] [--capture] [--texture-mips on|off] "
           "[--concept-profile saved|development-completed] "
           "[--max-seconds N] [--windowed] [--window-width N] [--window-height "
           "N] [--inspect-camera X Y Z YAW PITCH]");

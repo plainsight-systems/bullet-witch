@@ -37,6 +37,10 @@ bool AliciaActionOwner::available(const ActionMotionPlan& plan) const {
   }
   return true;
 }
+bool AliciaActionOwner::forces_model_visibility() const noexcept {
+  return kind_ == AliciaActionKind::magic &&
+         (!spell_ || (spell_scope_ && spell_scope_->force_model_visibility));
+}
 bool AliciaActionOwner::updates_shooter() const noexcept {
   if (kind_ != AliciaActionKind::magic) return true;
   return spell_scope_ ? spell_scope_->shooter_update

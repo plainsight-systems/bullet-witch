@@ -1,3 +1,12 @@
+// Receiver projection is prepared once per accepted view/fixed draw and
+// retained as immutable screen/texture matrix values. Shadow-consuming draws
+// require world-aligned camera-relative coordinates; unsupported rotated/scaled
+// bases reject before publication, leaving the previous scene intact. No caller
+// gains mutation access to these derived values. Both MCP phases: I.1
+// (#ri-explicit) states the source coordinate precondition; CDSA.32
+// (guidelines/cpu-dsa/
+// CDSA.32-transform-static-data-into-the-consumer-layout.md) prepares the pixel
+// consumer layout at publication, without per-fragment uniform matrix setup.
 // Presentation timing is supplied by the engine frame publisher, including
 // while world simulation is paused. No target-local wall clock drives exposure.
 // Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9

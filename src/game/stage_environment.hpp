@@ -16,7 +16,12 @@
 namespace bw::game {
 std::optional<scene::Environment> prepare_stage_environment(
     const content::StageDefinition& stage,
-    const std::shared_ptr<memory::Domain>& domain);
+    const std::shared_ptr<memory::Domain>& domain, float initial_camera_far);
+// Camera distance lives in the camera owner. This source schema reads its live
+// AREA lane without giving the environment mutation access to the camera.
+// I.1/MEM.9 (both phases): finite owned scalar, no allocation or retained
+// alias.
+float stage_environment_camera_far(const scene::Environment& environment);
 formats::StageEnvironment stage_environment_snapshot(
     const formats::StageEnvironment& authored,
     const scene::Environment& environment);

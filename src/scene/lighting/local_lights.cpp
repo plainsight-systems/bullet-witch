@@ -4,6 +4,8 @@
 // admitted emitter. The view path preserves the separate source camera/frustum
 // candidate list and fixed four-light rank. Both-phase I.1 (#ri-explicit) names
 // model versus view admission; MEM.9 retains existing per-emitter scratch.
+// Overflow implementation/design retrieval: I.1 exposes unscaled residual
+// coefficients; MEM.9 stores ranked radiance once in prepared candidate slots.
 #include "bw/scene/lighting/local_lights.hpp"
 
 #include <algorithm>
@@ -27,6 +29,42 @@ float influence_radius(const LocalLight& light, float threshold) {
   }
   return radius;
 }
+// Original projection uses receiver-to-emitter world direction, the signed
+// real SH basis and one recovered energy multiplier. Preserve multiplication
+// order: basis * projection scale * attenuated RGB, then sorted accumulation.
+void add_overflow_irradiance(IrradianceCoefficients& coefficients,
+                             const math::Vector3<float>& direction,
+                             const math::Vector3<float>& radiance) {
+  const float squared = math::accumulated_dot(direction, direction);
+  if (!(squared > 0)) {
+    return;
+  }
+  const float inverse_length =
+      1.F / static_cast<float>(std::sqrt(static_cast<double>(squared)));
+  const auto unit = math::scale(direction, inverse_length);
+  const float x = unit[0], y = unit[1], z = unit[2];
+  constexpr float kConstant = .282094806432724F, kLinear = .48860251903533936F,
+                  kMixedQuadratic = 1.0925484895706177F,
+                  kZonalQuadratic = .31539157032966614F,
+                  kDifferenceQuadratic = .5462742447853088F,
+                  kProjectionScale = 2.9567911624908447F,
+                  kZonalMultiplier = 3.F;
+  const std::array<float, kIrradianceCoefficientCount> basis{
+      kConstant,
+      -y * kLinear,
+      z * kLinear,
+      -x * kLinear,
+      (x * y) * kMixedQuadratic,
+      -(z * y) * kMixedQuadratic,
+      ((z * kZonalMultiplier) * z - 1.F) * kZonalQuadratic,
+      -(x * z) * kMixedQuadratic,
+      (x * x - y * y) * kDifferenceQuadratic};
+  for (std::size_t i = 0; i < basis.size(); ++i) {
+    coefficients.at(i) =
+        math::add(coefficients.at(i),
+                  math::scale(radiance, basis.at(i) * kProjectionScale));
+  }
+}
 }  // namespace
 LocalLights::LocalLights(std::span<const LocalLight> lights,
                          LocalLightSettings settings,
@@ -39,8 +77,7 @@ LocalLights::LocalLights(std::span<const LocalLight> lights,
   if (!std::isfinite(settings.contribution_threshold) ||
       !std::isfinite(settings.selection_margin) ||
       !(settings.contribution_threshold > 0) || settings.selection_margin < 0 ||
-      settings.maximum_direct > kMaximumLocalLights ||
-      settings.overflow_irradiance) {
+      settings.maximum_direct > kMaximumLocalLights) {
     throw std::invalid_argument("Unsupported local-light selection settings");
   }
   const float threshold =
@@ -93,9 +130,10 @@ SelectedLocalLights LocalLights::select_model(const LocalLightQuery& query,
     const float distance =
         static_cast<float>(std::sqrt(static_cast<double>(squared)));
     if (squared > 0 && !(distance - query.radius < emitter.radius)) continue;
-    candidates_[count++] = {i, rank(i, query)};
+    candidates_[count++] = rank(i, query);
   }
-  return finish_selection(count, settings_.maximum_direct);
+  return finish_selection(count, settings_.maximum_direct,
+                          settings_.overflow_irradiance);
 }
 SelectedLocalLights LocalLights::select_view(const LocalLightViewQuery& query) {
   if (!math::all_finite(query.eye) ||
@@ -142,10 +180,10 @@ SelectedLocalLights LocalLights::select_view(const LocalLightViewQuery& query) {
     }
     // The global array retains a candidate even if the tighter cull removes
     // its active-list node. Both source consumers keep this ordered snapshot.
-    candidates_[item] = {i, rank(i, rank_query)};
+    candidates_[item] = rank(i, rank_query);
   }
   view_prepared_ = true;
-  return finish_selection(count, kMaximumLocalLights);
+  return finish_selection(count, kMaximumLocalLights, false);
 }
 void LocalLights::order_view_candidates(std::size_t count) {
   std::size_t gap = count;
@@ -166,7 +204,8 @@ void LocalLights::order_view_candidates(std::size_t count) {
     }
   }
 }
-float LocalLights::rank(std::size_t index, const LocalLightQuery& query) const {
+LocalLights::Candidate LocalLights::rank(std::size_t index,
+                                         const LocalLightQuery& query) const {
   const auto& emitter = lights_[index];
   const auto delta = math::subtract(emitter.light.position, query.center);
   const float squared =
@@ -184,10 +223,15 @@ float LocalLights::rank(std::size_t index, const LocalLightQuery& query) const {
                                     emitter.light.diffuse[2], 1};
   constexpr math::Vector<float, 4> kLuminance{
       .298911988735199F, .5866109728813171F, .11447799950838089F, 0};
-  return math::accumulated_dot(math::scale(rgba, factor), kLuminance);
+  const auto radiance = math::scale(rgba, factor);
+  return {index,
+          math::accumulated_dot(radiance, kLuminance),
+          {radiance[0], radiance[1], radiance[2]},
+          delta};
 }
 SelectedLocalLights LocalLights::finish_selection(std::size_t count,
-                                                  std::size_t maximum) {
+                                                  std::size_t maximum,
+                                                  bool accumulate_irradiance) {
   // Original descending comb sort; equal scores never directly swap. Preserve
   // its gap sequence and source registration order rather than a new heuristic.
   std::size_t gap = count;
@@ -214,6 +258,16 @@ SelectedLocalLights LocalLights::finish_selection(std::size_t count,
   result.contribution_threshold = settings_.contribution_threshold;
   for (std::size_t i = 0; i < result.count; ++i) {
     result.lights.at(i) = lights_[candidates_[i].index].light;
+  }
+  if (accumulate_irradiance) {
+    // Only lights beyond the direct budget contribute. This is the original
+    // irradiance projection, not an ambient estimate from total light energy.
+    for (std::size_t i = result.count; i < count; ++i) {
+      const auto& candidate = candidates_[i];
+      add_overflow_irradiance(result.residual_irradiance,
+                              candidate.receiver_to_light,
+                              candidate.attenuated_diffuse);
+    }
   }
   return result;
 }

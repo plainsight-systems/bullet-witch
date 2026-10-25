@@ -1,3 +1,7 @@
+// DDS resources retain original texture metadata through the shared decoder;
+// native construction consumes the immutable launch mip policy. Raw icon PNGs
+// remain a distinct base-only upload. Both-phase E.6/I.11 and COPY.5 preserve
+// borrowed archive views, candidate cleanup and renderer-owned identities.
 // Review status reuses the prepared font and fixed sprite array. I.1
 // (#ri-explicit) and MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md), consulted in both
@@ -37,6 +41,7 @@
 
 #include "bw/formats/bitmap_font.hpp"
 #include "bw/formats/image.hpp"
+#include "bw/formats/world_texture.hpp"
 namespace bw::game {
 namespace {
 memory::Allocator<std::byte> storage_for(
@@ -250,9 +255,10 @@ struct StartupMenuSurface::State {
                                         static_cast<unsigned>(
                                             group - first_costume_group + 1)
                                   : sprite_id(lease.bytes(), image_index));
-        formats::Image decoded;
+        formats::WorldTextureImage decoded;
         try {
-          decoded = formats::decode_png(archive.payload(record), {}, allocator);
+          decoded = formats::decode_world_texture(
+              {archive.payload(record), archive.metadata(record)}, allocator);
         } catch (const std::exception& error) {
           throw std::runtime_error(std::string(kGroups.at(group)) + "/" +
                                    std::string(archive.records()[record].name) +
@@ -266,8 +272,7 @@ struct StartupMenuSurface::State {
              decoded.height != font.value().atlas_height())) {
           throw std::runtime_error("Menu font atlas disagrees with metrics");
         }
-        const auto texture = renderer.upload_texture(
-            decoded.width, decoded.height, decoded.rgba);
+        const auto texture = renderer.upload_texture(decoded);
         images.at(image_count++) = {id, texture,
                                     static_cast<float>(decoded.width),
                                     static_cast<float>(decoded.height)};

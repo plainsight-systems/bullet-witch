@@ -1,7 +1,8 @@
 // Shared math retains each caller's scalar/accumulator precision; tolerance
 // and failure policy remain here. Both-phase I.9/MEM.9 contracts are in
 // bw/math/vector.hpp and matrix.hpp.
-// Implement shadow.hpp with double intermediates and validated float rows.
+// Fit the shadow warp with double intermediates and validated float rows;
+// receiver publication separately retains the source CPU's float rounding.
 // The recovered runtime-initialized perspective warp uses the same homogeneous
 // transform for casters and receivers. See shadow-projection-baseline.md. The
 // jitter path preserves source cell/random traversal and shader channel order.
@@ -56,6 +57,52 @@ std::size_t shadow_guard_texels(float radius_uv) {
     throw std::invalid_argument("Shadow filter footprint exceeds map interior");
   }
   return static_cast<std::size_t>(std::ceil(footprint));
+}
+
+ShadowReceiverProjection make_shadow_receiver_projection(
+    const ShadowProjection& projection,
+    const std::array<float, 3>& camera_world_origin) {
+#pragma STDC FP_CONTRACT OFF
+  // Translate the world projection for camera-relative pixel inputs. Separate
+  // multiply/add rounding matches the original SSE matrix publication; fused
+  // operations change cancellation near the shadow depth comparison boundary.
+  const auto finite = [](float value) { return std::isfinite(value); };
+  if (!std::ranges::all_of(camera_world_origin, finite)) {
+    throw std::invalid_argument("Shadow receiver camera origin must be finite");
+  }
+  ShadowReceiverProjection result{projection.clip_rows, {}};
+  for (auto& row : result.screen_rows) {
+    if (!std::ranges::all_of(row, finite)) {
+      throw std::invalid_argument("Shadow receiver projection must be finite");
+    }
+    row[3] =
+        ((camera_world_origin[0] * row[0] + camera_world_origin[1] * row[1]) +
+         camera_world_origin[2] * row[2]) +
+        row[3];
+    if (!std::isfinite(row[3])) {
+      throw std::invalid_argument(
+          "Shadow receiver translation exceeds float range");
+    }
+  }
+  // Publish the separately remapped texture matrix, retaining depth and W.
+  // Receivers apply these rows after world-position interpolation, not before.
+  constexpr float kClipToTextureScale = .5F;
+  result.texture_rows = result.screen_rows;
+  for (std::size_t column = 0; column < 4; ++column) {
+    result.texture_rows[0].at(column) =
+        kClipToTextureScale * result.screen_rows[0].at(column) +
+        kClipToTextureScale * result.screen_rows[3].at(column);
+    result.texture_rows[1].at(column) =
+        -kClipToTextureScale * result.screen_rows[1].at(column) +
+        kClipToTextureScale * result.screen_rows[3].at(column);
+  }
+  for (const auto& row : result.texture_rows) {
+    if (!std::ranges::all_of(row, finite)) {
+      throw std::invalid_argument(
+          "Shadow receiver texture projection exceeds float range");
+    }
+  }
+  return result;
 }
 
 ShadowProjection make_directional_shadow_projection(

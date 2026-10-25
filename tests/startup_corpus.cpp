@@ -1,3 +1,5 @@
+// Lighting fixture publication uses a setup-only index (I.1/MEM.9) so the
+// corpus exercises full production batches without quadratic observer work.
 // Progression extension remains within this existing original-root integration
 // scenario. Save a source-rule purchase, load through the actual front end,
 // inspect immutable handoff and initialize source resident weapon classes from
@@ -44,12 +46,15 @@
 // observation state inline. Real archive setup allocates before those updates.
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <vector>
 
 #include "bw/audio/wave.hpp"
+#include "bw/formats/texture_mips.hpp"
 #include "bw/formats/world_texture.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/mission_audio.hpp"
@@ -110,6 +115,31 @@ class Media final : public bw::game::LogoMedia {
 };
 class SpriteOutput final : public bw::render::SpriteOutput {
  public:
+  explicit SpriteOutput(bool texture_mips = false)
+      : texture_mips_(texture_mips) {}
+
+  bw::render::TextureHandle upload_texture(
+      const bw::formats::WorldTextureImage& image) override {
+    const std::size_t channels =
+        image.format == bw::formats::WorldTextureFormat::rgba16_float ? 8 : 4;
+    if (image.shape != bw::formats::WorldTextureShape::two_dimensional ||
+        image.mip_levels != 1 ||
+        image.pixels.size() !=
+            static_cast<std::size_t>(image.width) * image.height * channels) {
+      throw std::runtime_error("Invalid decoded original sprite resource");
+    }
+    if (texture_mips_) {
+      const auto prepared = bw::formats::generate_texture_mips(
+          image, image.pixels.get_allocator());
+      if (prepared.mip_levels != static_cast<std::uint32_t>(std::bit_width(
+                                     std::max(image.width, image.height)))) {
+        throw std::runtime_error("DDS sprite mip generation omitted levels");
+      }
+    }
+    ++live;
+    return {++identity};
+  }
+
   bw::render::TextureHandle upload_texture(
       std::uint32_t width, std::uint32_t height,
       std::span<const std::uint8_t> rgba) override {
@@ -131,6 +161,8 @@ class SpriteOutput final : public bw::render::SpriteOutput {
   std::uint64_t identity{};
   bool presented{};
   std::vector<bw::render::Sprite> latest;
+
+  const bool texture_mips_;
 };
 // Count only reads through this capability; selection must reuse admission.
 class ObservedFiles final : public bw::platform::Files {
@@ -160,6 +192,9 @@ class ObservedFiles final : public bw::platform::Files {
 // establish native color equivalence. Device shader tests remain separate.
 class WorldOutput final : public bw::render::WorldOutput {
  public:
+  explicit WorldOutput(bool texture_mips = false)
+      : texture_mips_(texture_mips) {}
+
   bw::render::WorldModelHandle upload_model(
       const bw::formats::ModelDefinition& model) override {
     if (reject_next_model) {
@@ -175,6 +210,30 @@ class WorldOutput final : public bw::render::WorldOutput {
   }
   bw::render::WorldTextureHandle upload_world_texture(
       const bw::formats::WorldTextureImage& image) override {
+    const auto expected_levels =
+        texture_mips_ ? static_cast<std::uint32_t>(
+                            std::bit_width(std::max(image.width, image.height)))
+                      : 1U;
+    if (image.mip_levels != expected_levels) {
+      throw std::runtime_error(
+          "Texture preparation lost its launch mip policy");
+    }
+    std::size_t expected_bytes = 0;
+    auto width = image.width, height = image.height;
+    const std::size_t channels =
+        image.format == bw::formats::WorldTextureFormat::rgba16_float ? 8 : 4;
+    const std::size_t faces =
+        image.shape == bw::formats::WorldTextureShape::cube ? 6 : 1;
+    for (std::uint32_t level = 0; level < image.mip_levels; ++level) {
+      expected_bytes +=
+          static_cast<std::size_t>(width) * height * channels * faces;
+      width = std::max(width / 2, 1U);
+      height = std::max(height / 2, 1U);
+    }
+    if (image.pixels.size() != expected_bytes) {
+      throw std::runtime_error(
+          "Texture preparation published an incomplete mip payload");
+    }
     if (image.pixels.empty()) {
       throw std::runtime_error("Empty original world texture");
     }
@@ -217,6 +276,11 @@ class WorldOutput final : public bw::render::WorldOutput {
       }
     }
     draw_commands.assign(draws.begin(), draws.end());
+    draw_destinations.clear();
+    for (std::size_t index = 0; index < draw_commands.size(); ++index) {
+      const auto& draw = draw_commands.at(index);
+      draw_destinations.emplace(std::pair{draw.model.value, draw.draw}, index);
+    }
     submitted = draws.size();
     posed_draws = static_cast<std::size_t>(std::ranges::count_if(
         draws, [](const auto& draw) { return !draw.joint_matrices.empty(); }));
@@ -255,6 +319,15 @@ class WorldOutput final : public bw::render::WorldOutput {
     set_world_draws(pending);
   }
   std::vector<bw::render::WorldColorDraw> draw_commands;
+  // Fixture observation must not scan thousands of unrelated retained draws
+  // for each production batch element. This index changes no expected value.
+  std::multimap<std::pair<std::uint64_t, std::size_t>, std::size_t>
+      draw_destinations;
+  auto destinations(bw::render::WorldModelHandle model, std::size_t draw) {
+    const auto [first, last] =
+        draw_destinations.equal_range({model.value, draw});
+    return std::ranges::subrange(first, last);
+  }
   void update_world_texture_offsets(
       std::span<const bw::render::WorldTextureOffsetUpdate> updates) override {
     for (const auto& update : updates) {
@@ -281,11 +354,11 @@ class WorldOutput final : public bw::render::WorldOutput {
   void update_world_lighting(
       std::span<const bw::render::WorldLightingUpdate> updates) override {
     for (const auto& update : updates) {
-      const auto destination =
-          std::ranges::find_if(draw_commands, [&](const auto& draw) {
-            return draw.model == update.model && draw.draw == update.draw;
-          });
-      if (destination == draw_commands.end()) {
+      const auto matches = destinations(update.model, update.draw);
+      if (!std::ranges::any_of(matches, [&](const auto& entry) {
+            const auto& draw = draw_commands.at(entry.second);
+            return draw.instance == update.instance.value_or(draw.instance);
+          })) {
         throw std::runtime_error(
             "Lighting update refers to an unavailable draw");
       }
@@ -311,12 +384,16 @@ class WorldOutput final : public bw::render::WorldOutput {
       }
     }
     for (const auto& update : updates) {
-      for (auto& draw : draw_commands) {
-        if (draw.model == update.model && draw.draw == update.draw) {
+      for (const auto& entry : destinations(update.model, update.draw)) {
+        auto& draw = draw_commands.at(entry.second);
+        if (draw.instance == update.instance.value_or(draw.instance)) {
           draw.parameters.irradiance_coefficients =
               update.irradiance_coefficients;
           draw.parameters.local_lights = update.local_lights;
           draw.parameters.local_light_meta[0] = update.local_light_count;
+          if (update.reflection_texture) {
+            draw.reflection_texture = update.reflection_texture;
+          }
         }
       }
     }
@@ -324,6 +401,7 @@ class WorldOutput final : public bw::render::WorldOutput {
   void clear_world_draws() noexcept override {
     submitted = 0;
     draw_commands.clear();
+    draw_destinations.clear();
   }
   void update_shape_positions(
       std::span<const bw::render::WorldShapePositionUpdate> updates) override {
@@ -337,18 +415,22 @@ class WorldOutput final : public bw::render::WorldOutput {
   void update_world_visibility(
       std::span<const bw::render::WorldVisibilityUpdate> updates) override {
     for (const auto& update : updates) {
-      const auto matches = [&](const auto& draw) {
-        return draw.model == update.model && draw.draw == update.draw;
-      };
-      if (!std::ranges::any_of(draw_commands, matches)) {
+      const auto matches = destinations(update.model, update.draw);
+      if (!std::ranges::any_of(matches, [&](const auto& entry) {
+            const auto& draw = draw_commands.at(entry.second);
+            return draw.instance == update.instance.value_or(draw.instance);
+          })) {
         throw std::runtime_error(
             "Visibility update refers to an unavailable draw");
       }
     }
     for (const auto& update : updates) {
-      for (auto& draw : draw_commands) {
-        if (draw.model == update.model && draw.draw == update.draw) {
+      for (const auto& entry : destinations(update.model, update.draw)) {
+        auto& draw = draw_commands.at(entry.second);
+        if (draw.instance == update.instance.value_or(draw.instance)) {
           draw.visible = update.visible;
+          draw.casts_shadow = update.casts_shadow.value_or(draw.casts_shadow);
+          if (update.owner_opacity) draw.owner_opacity = update.owner_opacity;
         }
       }
     }
@@ -368,6 +450,8 @@ class WorldOutput final : public bw::render::WorldOutput {
       posed_draws{}, caster_draws{};
   std::uint64_t texture_identity{};
   std::size_t pose_publications{};
+
+  const bool texture_mips_;
 };
 struct ObservedMenu final : public bw::game::MenuSurface {
  public:
@@ -580,7 +664,8 @@ void placed_light_publication(
   }
   CorpusWorldTime time;
   bw::game::StageInspection inspection(
-      time.clock, time.control, output, {*stage, loading.resident_models()},
+      time.clock, time.control, output,
+      {*stage, loading.resident_models(), loading.resident_textures()},
       {*sky, loading.sky_resident_models()}, domain, std::nullopt,
       {&*background, loading.resident_dependencies()},
       bw::game::PlayerActorSource{
@@ -641,7 +726,7 @@ void model_timing_equivalence(
   CorpusWorldTime batched_time, individual_time;
   bw::game::StageInspection batched(
       batched_time.clock, batched_time.control, batched_world,
-      {*stage, loading.resident_models()},
+      {*stage, loading.resident_models(), loading.resident_textures()},
       {*sky, loading.sky_resident_models()}, domain, std::nullopt,
       {&*background, dependencies},
       bw::game::PlayerActorSource{
@@ -651,7 +736,7 @@ void model_timing_equivalence(
       {}, {loading.character_light(), loading.enemy_light()});
   bw::game::StageInspection individual(
       individual_time.clock, individual_time.control, individual_world,
-      {*stage, loading.resident_models()},
+      {*stage, loading.resident_models(), loading.resident_textures()},
       {*sky, loading.sky_resident_models()}, domain, std::nullopt,
       {&*background, dependencies},
       bw::game::PlayerActorSource{
@@ -1461,7 +1546,7 @@ void character_audio_presentation(
   const auto after = resources.memory_domain()->snapshot();
   require_audio(before.live_bytes == after.live_bytes &&
                 before.live_allocations == after.live_allocations);
-  std::cout << "Prepared Alicia audio: " << voices << " voice actions, "
+  std::cerr << "Prepared Alicia audio: " << voices << " voice actions, "
             << variations
             << " weighted variants; priority, history, surface and scoped "
                "lifetime passed\n";
@@ -1527,7 +1612,7 @@ void prepared_game_audio(bw::resources::ResourceService& resources,
   if (count != kExpectedWaves || total != kSampleBudget) {
     throw std::runtime_error("Original common/voice decode census mismatch");
   }
-  std::cout << "Prepared common/voice audio: " << count << " waves, " << total
+  std::cerr << "Prepared common/voice audio: " << count << " waves, " << total
             << " samples\n";
 }
 // Initial equipment admission belongs to the existing original-root corpus;
@@ -1537,14 +1622,16 @@ void initial_weapon_admission(bw::resources::ResourceService& resources,
                               WorldOutput& world,
                               const bw::game::Progression& progression,
                               std::size_t retained_models,
-                              std::size_t retained_textures) {
+                              std::size_t retained_textures,
+                              bool texture_mips) {
   // Initial admission uses each original weapon owner; it must not resolve
   // class-specific animation through WA0 or admit a live replacement.
   std::size_t weapon_motion_count = 0;
   for (unsigned weapon_class = 0; weapon_class < 4; ++weapon_class) {
     {
-      bw::game::MissionLoading selected(files, resources.catalogs(),
-                                        resources.memory_domain(), &world);
+      bw::game::MissionLoading selected(
+          files, resources.catalogs(), resources.memory_domain(), &world,
+          bw::game::MissionLoadOptions{.texture_mips = texture_mips});
       auto entry_progression = progression;
       entry_progression.levels.weapons.fill(0);
       entry_progression.levels.weapons.at(weapon_class) = 1;
@@ -1629,9 +1716,10 @@ void initial_weapon_admission(bw::resources::ResourceService& resources,
 }
 void reconstructed_session(bw::resources::ResourceService& resources,
                            const bw::platform::Files& files, bool concept_route,
-                           const std::filesystem::path& game) {
+                           const std::filesystem::path& game,
+                           bool texture_mips) {
   Media media;
-  SpriteOutput output;
+  SpriteOutput output(texture_mips);
   bw::game::StartupTitleSurface surface(resources, output, [] { return 0U; });
   const auto directory =
       std::filesystem::current_path() /
@@ -1753,7 +1841,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         throw std::runtime_error(
             "Concept profile selection changed inheritance");
       }
-      WorldOutput world;
+      WorldOutput world(texture_mips);
       {
         bw::game::StartupLoadingSurface presentation(resources, output);
         const auto icons =
@@ -1800,7 +1888,8 @@ void reconstructed_session(bw::resources::ResourceService& resources,
       bw::game::MissionLoading loading(
           files, resources.catalogs(), resources.memory_domain(), &world,
           bw::game::MissionLoadOptions{game, profile.current_difficulty(),
-                                       [&] { ++loading_pulses; }});
+                                       [&] { ++loading_pulses; }, false,
+                                       texture_mips});
       bw::game::MissionControl mission_control;
       bw::game::MissionDriver mission(
           resources, loading, 101, request.script_name,
@@ -1930,11 +2019,14 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         CorpusWorldTime time;
         bw::game::StageInspection inspection(
             time.clock, time.control, world,
-            {stage.value(), loading.resident_models()},
+            {stage.value(), loading.resident_models(),
+             loading.resident_textures()},
             {sky.value(), loading.sky_resident_models()},
             resources.memory_domain(), std::nullopt,
             {background ? &*background : nullptr, background_models},
-            std::nullopt, {}, {}, kFixtureInitialPose);
+            std::nullopt, {},
+            {loading.character_light(), loading.enemy_light()},
+            kFixtureInitialPose);
         std::cerr
             << "Original static inspection: " << inspection.selected_draws()
             << " selected, " << inspection.omitted_draws()
@@ -1996,7 +2088,12 @@ void reconstructed_session(bw::resources::ResourceService& resources,
              {},
              {},
              {0, 0, 0, 1}}};
-        if (world.sky_shader_flags != 0x06e00200 ||
+        const auto& sky_model = sky->models.front().definition;
+        const auto& sky_material =
+            sky_model.materials().at(sky_model.draws().front().material);
+        const auto expected_sky_selector =
+            sky_material.shader_selector[0] | 0x00800200U;
+        if (world.sky_shader_flags != expected_sky_selector ||
             world.sky_parameters.irradiance_coefficients != white_irradiance ||
             world.sky_parameters.ambient != std::array<float, 4>{}) {
           throw std::runtime_error(
@@ -2041,10 +2138,12 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             "Inspection retained device owners after teardown");
       }
       initial_weapon_admission(resources, files, world, request.progression,
-                               retained_models, retained_textures);
+                               retained_models, retained_textures,
+                               texture_mips);
       {
-        bw::game::MissionLoading selected(files, resources.catalogs(),
-                                          resources.memory_domain(), &world);
+        bw::game::MissionLoading selected(
+            files, resources.catalogs(), resources.memory_domain(), &world,
+            bw::game::MissionLoadOptions{.texture_mips = texture_mips});
         bool invalid = false;
         try {
           selected.prepare_player(0, 4);
@@ -2073,8 +2172,9 @@ void reconstructed_session(bw::resources::ResourceService& resources,
       // borrowers.
       {
         ObservedFiles observed_files(files);
-        bw::game::MissionLoading selected(observed_files, resources.catalogs(),
-                                          resources.memory_domain(), &world);
+        bw::game::MissionLoading selected(
+            observed_files, resources.catalogs(), resources.memory_domain(),
+            &world, bw::game::MissionLoadOptions{.texture_mips = texture_mips});
         selected.prepare_player(0);
         const auto admission_reads = observed_files.reads();
         const auto admission_uploads = world.records.size();
@@ -2277,7 +2377,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         CorpusWorldTime time;
         bw::game::StageInspection inspection(
             time.clock, time.control, world,
-            {*stage, loading.resident_models()},
+            {*stage, loading.resident_models(), loading.resident_textures()},
             {*sky, loading.sky_resident_models()}, resources.memory_domain(),
             std::nullopt, {&*background, dependencies},
             bw::game::PlayerActorSource{
@@ -2889,9 +2989,14 @@ void reconstructed_session(bw::resources::ResourceService& resources,
 }  // namespace
 int main(int argc, char** argv) {
   try {
-    if (argc != 2) {
-      throw std::runtime_error("Usage: startup-corpus GAME_DIRECTORY");
+    const auto arguments = std::span(argv, static_cast<std::size_t>(argc));
+    if ((arguments.size() != 2 && arguments.size() != 3) ||
+        (arguments.size() == 3 &&
+         std::string_view(arguments[2]) != "--texture-mips")) {
+      throw std::runtime_error(
+          "Usage: startup-corpus GAME_DIRECTORY [--texture-mips]");
     }
+    const bool texture_mips = arguments.size() == 3;
     // C guarantees argv[1] after the checked argument count.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const std::filesystem::path game(argv[1]);
@@ -2988,8 +3093,8 @@ int main(int argc, char** argv) {
             "Root destruction did not release publication");
       }
       prepared_game_audio(resources, files, game / "data" / "sound");
-      reconstructed_session(resources, files, false, game);
-      reconstructed_session(resources, files, true, game);
+      reconstructed_session(resources, files, false, game, texture_mips);
+      reconstructed_session(resources, files, true, game, texture_mips);
     }
 #if BW_TEST_MACOS_MEMORY
     // Inspect charges only after catalogs, sessions and retained publications

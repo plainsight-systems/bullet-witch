@@ -1,3 +1,7 @@
+// Shared metadata access lends a checked immutable archive view without
+// transferring ownership. Both-phase I.11 (#ri-raw), E.6 (#re-raii) and COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) preserve
+// owner lifetime and decoder rollback. Lookup is bounded and allocation-free.
 // Memory adoption: payload/metadata and nested strings retain an owning domain
 // allocator; legacy parser defaults remain compatibility allocations. Copies
 // preserve allocator ownership and leases may outlive their service. Allocation
@@ -76,6 +80,8 @@ class ResourceArchive {
   std::span<const std::uint8_t> bytes() const { return bytes_; }
   // Borrow the selected checked range; an absent payload yields an empty span.
   std::span<const std::uint8_t> payload(std::size_t record_index) const;
+  // Checked metadata borrow; lifetime is this archive, no mutation capability.
+  std::span<const std::uint8_t> metadata(std::size_t record_index) const;
 
  private:
   explicit ResourceArchive(const memory::Allocator<std::uint8_t>& allocator)

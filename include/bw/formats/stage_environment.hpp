@@ -49,11 +49,13 @@ struct StageShadow {
   // Raw authored fit controls; stage activation supplies the warp defaults.
   float far_distance{}, minimum_height{}, maximum_height{};
   float alignment_threshold{}, parallel_near_extension{};
+  float minimum_projected_size{};
 };
 struct StageEnvironment {
   // Uniform ambient RGB supplied to each ordinary static model's harmonic
   // lighting context. Sky supplies its own lighting independently.
   std::array<float, 3> ambient_color{};
+  std::array<float, 3> clear_color{};
   // Each world-pass build overwrites the separate SHLT owners' multipliers from
   // these fields. They are independent of file intensity and static ambient.
   // I.1 (#ri-explicit)/MEM.9: decode once, pass explicit allocation-free

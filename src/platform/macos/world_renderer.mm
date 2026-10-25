@@ -1,4 +1,21 @@
+// Native specular filtering uses both-phase I.6/I.7/GPU.1 (world.hpp): reject
+// unsupported negative exponents before publishing a draw; keep normal moments
+// in the shader, without per-frame allocations, transfers or new ownership.
+// Receiver projection follows the source pixel-stage boundary. Both-phase I.1
+// (#ri-explicit) validates the world-aligned relative-space precondition before
+// publication; CDSA.32 (guidelines/cpu-dsa/
+// CDSA.32-transform-static-data-into-the-consumer-layout.md) retains one prepared
+// matrix pair per accepted view and per fixed draw. No frame-loop inverse or
+// uniform matrix reconstruction; failed updates preserve all retained values.
+// Owner-opacity reconstruction applies design/implementation I.1/E.4/MEM.9:
+// validate a finite value before mutation, replace indirect alpha once, and
+// replay distinct Main/Trans sections through retained phase storage. Source
+// opacity zero omits color without altering caster membership. See
+// lighting-owner-opacity.md; no fade producer or extra clock is inferred.
 // Engine presentation time is an explicit snapshot, including paused frames;
+// Lighting redesign I.1 (#ri-explicit), CDSA.32 and MEM.9 (both phases) retain
+// explicit per-instance destinations over the prepared model/draw index. All
+// destinations validate before mutation; fixed packets allocate nothing.
 // exposure never reads a target-local wall clock. Both-phase I.1 (#ri-explicit)
 // exposes the input; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // keeps the handoff inline and allocation-free. Lighting equations are unchanged.
@@ -72,6 +89,21 @@
 
 namespace bw::platform::macos {
 namespace {
+// Only the source world-axis-preserving camera translation is admitted. An
+// unused view may have another basis; it becomes invalid only when consumed.
+std::optional<render::ShadowReceiverProjection> receiver_projection(
+    const std::array<std::array<float, 4>, 4>& shadow_rows,
+    const std::array<std::array<float, 4>, 3>& world_rows) {
+  for (std::size_t row = 0; row < 3; ++row) {
+    for (std::size_t column = 0; column < 3; ++column) {
+      if (world_rows.at(row).at(column) != (row == column ? 1.0F : 0.0F)) return std::nullopt;
+    }
+  }
+  return render::make_shadow_receiver_projection(
+      {shadow_rows}, {-world_rows[0][3], -world_rows[1][3], -world_rows[2][3]});
+}
+constexpr double kIntegerSampleCenterOffset = .5;
+constexpr std::uint32_t kDefaultAlphaReference = 128;
 constexpr std::uint32_t kMaximumAnisotropy = 16;
 // Compatibility values are local to the decoded original format boundary.
 constexpr std::uint32_t kStaticMaterialFlags = 0x00420882U;
@@ -112,11 +144,13 @@ struct ColorStream {
   std::uint32_t secondary_uv{}, modulation_color{};
   std::uint32_t normal_map{}, secondary_base{}, environment_map{}, vertex_color{};
   std::uint32_t vertex_illumination{}, reflection{}, fresnel{}, directional_light{};
-  std::uint32_t alpha_cutout{}, spherical_harmonics{}, base_texture{};
+  std::uint32_t depth_cutout{}, spherical_harmonics{}, base_texture{};
   std::uint32_t joint_indices{}, joint_weights{}, joint_influences{};
   std::uint32_t position_stride{}, ambient_occlusion{};
   std::uint32_t secondary_alpha_blend{}, alpha_fresnel{}, local_lights{};
   std::uint32_t environment_shadow{};
+  std::uint32_t normal_required{}, shadow_reception{}, color_alpha_test{};
+  std::uint32_t integer_pixel_centers{}, alpha_reference{kDefaultAlphaReference};
 };
 struct NativeDraw {
   formats::ModelDraw source;
@@ -179,13 +213,15 @@ struct WorldRenderer::State {
     id<MTLDepthStencilState> depth{};
     id<MTLSamplerState> environment_sampler{};
     memory::Vector<render::WorldJointMatrix> joint_matrices;
+    render::ShadowReceiverProjection receiver;
   };
   struct PreparedDraws {
     memory::Vector<SubmittedDraw> draws;
     std::size_t shadow_guard{};
     bool needs_default_environment{};
   };
-  PreparedDraws prepare_draws(std::span<const render::WorldColorDraw> draws);
+  PreparedDraws prepare_draws(std::span<const render::WorldColorDraw> draws,
+                              bool retain_view = false);
   struct TextureDestination {
     std::pair<std::uint64_t, std::size_t> key;
     std::size_t submitted_index{};
@@ -244,15 +280,17 @@ struct WorldRenderer::State {
   TextureAllocation shadow_color, shadow_depth;
   BufferAllocation shadow_jitter;
   id<MTLRenderPipelineState> shadow_pipeline{};
-  id<MTLDepthStencilState> shadow_depth_state{};
+  id<MTLDepthStencilState> shadow_depth_state{}, owner_depth_state{};
   bool shadows_prepared{};
   std::size_t shadow_guard{};
   std::uint64_t next_texture{1};
   std::optional<render::WorldViewUpdate> view;
+  std::optional<render::ShadowReceiverProjection> world_receiver, sky_receiver;
   memory::Vector<SubmittedDraw> submitted;
   memory::Vector<TextureDestination> texture_destinations;
   memory::Vector<std::size_t> color_order;
   std::array<std::array<id<MTLRenderPipelineState>, 2>, 2> color_pipelines{};
+  std::array<id<MTLRenderPipelineState>, 2> preparation_pipelines{};
   WorldPostprocess output;
   std::uint64_t next_identity{1};
   // Merge camera-dependent constants without changing retained material state.
@@ -456,6 +494,7 @@ render::WorldTextureHandle WorldRenderer::upload_world_texture(
     throw std::overflow_error("World texture identities exhausted");
   }
   if (image.format != formats::WorldTextureFormat::rgba8 &&
+      image.format != formats::WorldTextureFormat::rgba4 &&
       image.format != formats::WorldTextureFormat::rgba16_float) {
     throw std::invalid_argument("Unsupported world texture representation");
   }
@@ -468,7 +507,8 @@ render::WorldTextureHandle WorldRenderer::upload_world_texture(
                           : MTLPixelFormatRGBA8Unorm;
   auto native = TextureAllocation::create(
       state.device, state.device_budget, image.width, image.height, format,
-      image.shape == formats::WorldTextureShape::cube ? MTLTextureTypeCube : MTLTextureType2D);
+      image.shape == formats::WorldTextureShape::cube ? MTLTextureTypeCube : MTLTextureType2D,
+      MTLTextureUsageShaderRead, {.count = image.mip_levels});
   native.upload(image.pixels);
   const render::WorldTextureHandle handle{state.next_texture};
   state.textures.push_back({handle, std::move(native)});
@@ -494,6 +534,8 @@ void WorldRenderer::release_world_texture(render::WorldTextureHandle texture) no
       }
     }
   }
+  std::erase_if(state_->submitted,
+                [&](const auto& draw) { return draw.command.reflection_texture == texture; });
   state_->refresh_destinations();
   std::erase_if(state_->textures, [texture](const auto& entry) { return entry.handle == texture; });
 }
@@ -534,7 +576,7 @@ void WorldRenderer::release_model(render::WorldModelHandle model) noexcept {
   std::erase_if(state_->models, [model](const auto& entry) { return entry.handle == model; });
   if (state_->models.empty()) {
     state_->default_environment.reset();
-    state_->output.reset();
+    state_->output.release_scene_targets();
     state_->shadow_color.reset();
     state_->shadow_depth.reset();
     state_->shadow_jitter.reset();
@@ -542,7 +584,7 @@ void WorldRenderer::release_model(render::WorldModelHandle model) noexcept {
   }
 }
 WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
-    std::span<const render::WorldColorDraw> draws) {
+    std::span<const render::WorldColorDraw> draws, bool retain_view) {
   auto& state = *this;
   memory::Vector<State::SubmittedDraw> pending(
       memory::Allocator<State::SubmittedDraw>(state.cpu_domain));
@@ -573,7 +615,7 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
           std::ranges::find(state.textures, model.textures.at(slot), &State::Texture::handle);
       return texture != state.textures.end() && texture->native.get().textureType == type;
     };
-    constexpr std::uint32_t kInspectionPassBits = 0x00e00200;
+    constexpr std::uint32_t kSourcePassFeatures = 0x00e00200;
     const bool omitted_lights =
         draw.lighting == render::WorldLightingPolicy::without_direct_lighting;
     const auto no_energy = [](const auto& light) {
@@ -606,16 +648,17 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
         !std::ranges::all_of(std::span(draw.parameters.local_light_meta).subspan(1),
                              [](auto value) { return value == 0; }) ||
         draw.view_space > render::WorldViewSpace::sky || !shadow_valid ||
+        (draw.owner_opacity && !std::isfinite(*draw.owner_opacity)) ||
+        (draw.owner_opacity && draw.color_phase == render::WorldColorPhase::background) ||
         (native.shape_deformation && !draw.use_shape_positions) || !joint_palette_valid ||
         !requirements.supported ||
-        (draw.effective_shader_flags | kInspectionPassBits) !=
-            (native.source_flags | kInspectionPassBits) ||
+        (draw.effective_shader_flags | kSourcePassFeatures) !=
+            (native.source_flags | kSourcePassFeatures) ||
         (omitted_lights && (!no_energy(draw.parameters.light_diffuse) ||
                             !no_energy(draw.parameters.light_specular))) ||
         (requirements.base_texture && (!native.uv_present || !native.base_bound ||
                                        !resident(native.base_texture, MTLTextureType2D))) ||
-        ((requirements.directional_light || requirements.spherical_harmonics) &&
-         !native.normal_present) ||
+        (requirements.normal_required && !native.normal_present) ||
         (requirements.normal_map && (!native.normal_bound || !native.tangent_present ||
                                      !resident(native.normal_texture, MTLTextureType2D))) ||
         (requirements.ambient_occlusion &&
@@ -626,6 +669,8 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
          !resident(native.environment_texture, MTLTextureTypeCube)) ||
         (requirements.vertex_illumination && !native.color_present) ||
         (requirements.vertex_color && !native.modulation_color_present) ||
+        (requirements.reflection && (requirements.directional_light || requirements.local_lights) &&
+         draw.parameters.specular[0] < 0) ||
         raster.blend > render::WorldBlend::source_alpha ||
         !std::ranges::all_of(values, [](float value) { return std::isfinite(value); }) ||
         raster.min_filter < render::WorldTextureFilter::nearest ||
@@ -656,7 +701,7 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
                                        ? MTLSamplerMinMagFilterLinear
                                        : MTLSamplerMinMagFilterNearest;
     // Sampling policy does not allocate levels: original default textures have
-    // one level even though their sampler requests linear mip interpolation.
+    // one level when disabled; enabled construction supplies the complete chain.
     sampler_descriptor.mipFilter =
         raster.mip_filter == render::WorldMipFilter::none
             ? MTLSamplerMipFilterNotMipmapped
@@ -691,6 +736,9 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
     stream.alpha_fresnel = requirements.alpha_fresnel;
     stream.local_lights = requirements.local_lights;
     stream.environment_shadow = requirements.environment_shadow;
+    stream.normal_required = requirements.normal_required;
+    stream.shadow_reception = requirements.shadow_reception;
+    stream.color_alpha_test = draw.color_phase == render::WorldColorPhase::masked;
     stream.base_texture = requirements.base_texture;
     stream.normal_map = requirements.normal_map;
     stream.secondary_base = requirements.secondary_base;
@@ -700,7 +748,7 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
     stream.reflection = requirements.reflection;
     stream.fresnel = requirements.fresnel;
     stream.directional_light = requirements.directional_light;
-    stream.alpha_cutout = requirements.alpha_cutout;
+    stream.depth_cutout = requirements.depth_cutout;
     stream.spherical_harmonics = requirements.spherical_harmonics;
     // Environment sampling retains its own clamp/linear baseline; stage
     // anisotropic overrides apply only to the four surface texture slots.
@@ -716,13 +764,36 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
     if (environment_sampler == nil) {
       throw std::runtime_error("World environment sampler creation failed");
     }
+    if (draw.reflection_texture && draw.reflection_texture->value != 0) {
+      const auto reflection =
+          std::ranges::find(state.textures, *draw.reflection_texture, &State::Texture::handle);
+      if (reflection == state.textures.end() ||
+          reflection->native.get().textureType != MTLTextureTypeCube) {
+        throw std::invalid_argument("Invalid receiver environment texture");
+      }
+    }
     needs_default_environment |= requirements.environment_map && !native.environment_bound;
     memory::Vector<render::WorldJointMatrix> palette(
         draw.joint_matrices.begin(), draw.joint_matrices.end(),
         memory::Allocator<render::WorldJointMatrix>(state.cpu_domain));
     auto command = draw;
     command.joint_matrices = {};  // Never retain the caller's borrowed storage.
-    pending.push_back({command, stream, sampler, depth, environment_sampler, std::move(palette)});
+    render::ShadowReceiverProjection receiver{};
+    if (requirements.shadow_reception && draw.parameters.shadow_parameters[0] != 0) {
+      const auto prepared_receiver =
+          receiver_projection(draw.parameters.shadow_clip_rows, draw.parameters.world_rows);
+      if (!prepared_receiver) {
+        throw std::invalid_argument("Shadow receiver requires world-aligned relative coordinates");
+      }
+      receiver = *prepared_receiver;
+      if (retain_view && state.view && draw.view_space != render::WorldViewSpace::fixed &&
+          !(draw.view_space == render::WorldViewSpace::world ? state.world_receiver
+                                                             : state.sky_receiver)) {
+        throw std::invalid_argument("Retained view has an unsupported shadow receiver basis");
+      }
+    }
+    pending.push_back(
+        {command, stream, sampler, depth, environment_sampler, std::move(palette), receiver});
   }
   return {std::move(pending), shadow_guard, needs_default_environment};
 }
@@ -755,6 +826,8 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
   state.color_order = std::move(color_order);
   state.shadow_guard = shadow_guard;
   state.view.reset();
+  state.world_receiver.reset();
+  state.sky_receiver.reset();
   state.shadows_prepared = false;
 }
 // Prepare the complete component change before touching published scene state.
@@ -774,7 +847,7 @@ void WorldRenderer::replace_world_model_draws(render::WorldModelHandle previous,
                           [&](const auto& draw) { return draw.command.model == next; })) {
     throw std::invalid_argument("World model replacement identities are not distinct and valid");
   }
-  auto prepared = state.prepare_draws(replacement);
+  auto prepared = state.prepare_draws(replacement, true);
   if (prepared.needs_default_environment && state.default_environment.get() == nil) {
     throw std::invalid_argument("World model replacement requires a resident environment fallback");
   }
@@ -850,22 +923,41 @@ void WorldRenderer::update_world_lighting(std::span<const render::WorldLightingU
                                     std::pair{update.model.value, update.draw}, std::ranges::less{},
                                     &State::TextureDestination::key);
   };
+  const auto matches_instance = [&](const auto& update, const auto& destination) {
+    return !update.instance ||
+           state.submitted[destination.submitted_index].command.instance == *update.instance;
+  };
   for (const auto& update : updates) {
+    if (update.reflection_texture && update.reflection_texture->value != 0) {
+      const auto reflection =
+          std::ranges::find(state.textures, *update.reflection_texture, &State::Texture::handle);
+      if (reflection == state.textures.end() ||
+          reflection->native.get().textureType != MTLTextureTypeCube) {
+        throw std::invalid_argument("Invalid receiver environment texture update");
+      }
+    }
     const bool finite = std::ranges::all_of(update.irradiance_coefficients, [](const auto& row) {
       return std::ranges::all_of(row, [](float value) { return std::isfinite(value); });
     });
     if (!finite || !valid_local_lights(update.local_lights, update.local_light_count) ||
-        destinations(update).empty()) {
+        !std::ranges::any_of(destinations(update), [&](const auto& destination) {
+          return matches_instance(update, destination);
+        })) {
       throw std::invalid_argument("Invalid retained irradiance/direct-light update");
     }
   }
   for (const auto& update : updates) {
     for (const auto& destination : destinations(update)) {
+      if (!matches_instance(update, destination)) continue;
       state.submitted[destination.submitted_index].command.parameters.irradiance_coefficients =
           update.irradiance_coefficients;
       auto& parameters = state.submitted[destination.submitted_index].command.parameters;
       parameters.local_lights = update.local_lights;
       parameters.local_light_meta = {update.local_light_count, 0, 0, 0};
+      if (update.reflection_texture) {
+        state.submitted[destination.submitted_index].command.reflection_texture =
+            update.reflection_texture;
+      }
     }
   }
 }
@@ -937,13 +1029,30 @@ void WorldRenderer::update_world_visibility(
                                     &State::TextureDestination::key);
   };
   for (const auto& update : updates) {
-    if (destinations(update).empty()) {
+    const auto matches = destinations(update);
+    if ((update.owner_opacity && !std::isfinite(*update.owner_opacity)) || matches.empty() ||
+        (update.owner_opacity &&
+         std::ranges::any_of(matches,
+                             [&](const auto& destination) {
+                               const auto& command =
+                                   state.submitted[destination.submitted_index].command;
+                               return command.instance ==
+                                          update.instance.value_or(command.instance) &&
+                                      command.color_phase == render::WorldColorPhase::background;
+                             })) ||
+        (update.instance && !std::ranges::any_of(matches, [&](const auto& destination) {
+           return state.submitted[destination.submitted_index].command.instance == *update.instance;
+         }))) {
       throw std::invalid_argument("Invalid retained visibility destination");
     }
   }
   for (const auto& update : updates) {
     for (const auto& destination : destinations(update)) {
-      state.submitted[destination.submitted_index].command.visible = update.visible;
+      auto& command = state.submitted[destination.submitted_index].command;
+      if (update.instance && command.instance != *update.instance) continue;
+      command.visible = update.visible;
+      if (update.casts_shadow) command.casts_shadow = *update.casts_shadow;
+      if (update.owner_opacity) command.owner_opacity = update.owner_opacity;
     }
   }
   if (!updates.empty()) state.shadows_prepared = false;
@@ -959,6 +1068,7 @@ void WorldRenderer::update_world_view(const render::WorldViewUpdate& update) {
   if (!finite(update.world) || !finite(update.sky)) {
     throw std::invalid_argument("Invalid retained world view update");
   }
+  auto shadow_guard = state_->shadow_guard;
   if (update.lighting) {
     const auto& light = *update.lighting;
     const auto finite_color = [](const auto& values) {
@@ -968,18 +1078,47 @@ void WorldRenderer::update_world_view(const render::WorldViewUpdate& update) {
         !finite_color(light.specular)) {
       throw std::invalid_argument("Invalid shared scene lighting update");
     }
-    const auto guard = render::shadow_guard_texels(light.shadow_radius);
-    state_->shadow_guard = guard;
+    shadow_guard = render::shadow_guard_texels(light.shadow_radius);
   }
+  if (update.scene_passes &&
+      !std::ranges::all_of(update.scene_passes->clear_color,
+                           [](float value) { return std::isfinite(value); })) {
+    throw std::invalid_argument("Invalid scene clear color");
+  }
+  if (update.shadow_pass) {
+    const auto& shadow = *update.shadow_pass;
+    if (shadow.cull == render::WorldCull::unresolved ||
+        shadow.cull > render::WorldCull::counter_clockwise || !std::isfinite(shadow.depth_bias) ||
+        !std::isfinite(shadow.slope_bias)) {
+      throw std::invalid_argument("Invalid source shadow pass state");
+    }
+  }
+  const auto world_receiver =
+      receiver_projection(update.world.shadow_clip_rows, update.world.world_rows);
+  const auto sky_receiver = receiver_projection(update.sky.shadow_clip_rows, update.sky.world_rows);
+  for (const auto& draw : state_->submitted) {
+    if (draw.stream.shadow_reception && draw.command.parameters.shadow_parameters[0] != 0 &&
+        draw.command.view_space != render::WorldViewSpace::fixed &&
+        !(draw.command.view_space == render::WorldViewSpace::world ? world_receiver
+                                                                   : sky_receiver)) {
+      throw std::invalid_argument("View update has an unsupported shadow receiver basis");
+    }
+  }
+  // Commit the view and its derived pixel constants together after validation.
   state_->view = update;
+  state_->world_receiver = world_receiver;
+  state_->sky_receiver = sky_receiver;
+  state_->shadow_guard = shadow_guard;
   state_->shadows_prepared = false;
 }
 void WorldRenderer::clear_world_draws() noexcept {
   state_->view.reset();
+  state_->world_receiver.reset();
+  state_->sky_receiver.reset();
   state_->submitted.clear();
   state_->texture_destinations.clear();
   state_->color_order.clear();
-  state_->output.reset();
+  state_->output.release_scene_targets();
   state_->shadow_color.reset();
   state_->shadow_depth.reset();
   state_->shadow_jitter.reset();
@@ -1004,7 +1143,16 @@ void WorldRenderer::prepare_presentation(id<MTLCommandBuffer> command, id<MTLLib
     throw std::invalid_argument("World presentation requires original reversed-depth submissions");
   }
   prepare_shadows(command, library);
-  auto encoder = state_->output.begin_scene(command, width, height);
+  const auto passes = state_->view ? state_->view->scene_passes : std::nullopt;
+  auto encoder = state_->output.begin_scene(command, width, height,
+                                            passes ? passes->clear_color : std::array<float, 3>{});
+  if (passes && passes->integer_pixel_centers) {
+    // Shift raster placement only. Original projected coordinates still feed
+    // shadow lookup and interpolation; the fullscreen output path is separate.
+    [encoder
+        setViewport:MTLViewport{kIntegerSampleCenterOffset, kIntegerSampleCenterOffset,
+                                static_cast<double>(width), static_cast<double>(height), 0, 1}];
+  }
   encode_color(encoder, library, 1.0F, MTLPixelFormatRGBA16Float);
   [encoder endEncoding];
   state_->output.prepare_output(command, library, frame);
@@ -1013,6 +1161,12 @@ void WorldRenderer::prepare_presentation(id<MTLCommandBuffer> command, id<MTLLib
 // command buffer order, with no CPU readback (both-phase I.1/GPU.1).
 void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary> library) {
   auto& state = *state_;
+  if (state.view && state.view->shadow_pass && !state.view->shadow_pass->setup_enabled) {
+    // The original disabled setup emits no new map or matrix commands. Keep
+    // the preceding completed map, if any, rather than clearing its contents.
+    state.shadows_prepared = state.shadow_color.get() != nil;
+    return;
+  }
   const bool enabled = std::ranges::any_of(state.submitted, [](const auto& draw) {
     return draw.command.visible && draw.command.parameters.shadow_parameters[0] != 0;
   });
@@ -1065,7 +1219,23 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
   if (encoder == nil) throw std::runtime_error("Shadow encoder creation failed");
   [encoder setRenderPipelineState:state.shadow_pipeline];
   [encoder setDepthStencilState:state.shadow_depth_state];
-  [encoder setCullMode:MTLCullModeNone];
+  const auto shadow_state = state.view && state.view->shadow_pass
+                                ? *state.view->shadow_pass
+                                : render::WorldViewUpdate::ShadowPass{};
+  [encoder setFrontFacingWinding:MTLWindingClockwise];
+  [encoder setCullMode:shadow_state.cull == render::WorldCull::none        ? MTLCullModeNone
+                       : shadow_state.cull == render::WorldCull::clockwise ? MTLCullModeFront
+                                                                           : MTLCullModeBack];
+  // D3D9 normalized-depth bias is translated by the shadow fragment's explicit
+  // depth output. Metal's device-scaled raster bias must not apply it again.
+  [encoder setDepthBias:0 slopeScale:0 clamp:0];
+  const std::array<float, 4> depth_bias{shadow_state.depth_bias, shadow_state.slope_bias,
+                                        shadow_state.depth_bias, shadow_state.slope_bias};
+  [encoder setFragmentBytes:depth_bias.data() length:sizeof(depth_bias) atIndex:3];
+  if (state.view && state.view->scene_passes && state.view->scene_passes->integer_pixel_centers) {
+    [encoder setViewport:MTLViewport{kIntegerSampleCenterOffset, kIntegerSampleCenterOffset,
+                                     kShadowExtent, kShadowExtent, 0, 1}];
+  }
   // Clear covers the entire target, including the derived filter footprint.
   // Limit subsequent writes, not the viewport: caster/receiver matrices keep
   // identical normalized coordinates and the outer ring stays at far depth.
@@ -1074,7 +1244,11 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
                                          kShadowExtent - 2 * guard}];
   for (const auto& submitted : state.submitted) {
     const auto& request = submitted.command;
-    const auto parameters = state.parameters(request);
+    auto stream = submitted.stream;
+    stream.integer_pixel_centers =
+        state.view && state.view->scene_passes && state.view->scene_passes->integer_pixel_centers;
+    auto parameters = state.parameters(request);
+    if (request.owner_opacity) parameters.indirect_color[3] = *request.owner_opacity;
     if (!request.visible || !request.casts_shadow ||
         (state.view && state.view->lighting && !state.view->lighting->shadow_casters_enabled)) {
       continue;
@@ -1093,7 +1267,7 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
                       offset:positions.offset
                      atIndex:4];
     [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:1];
-    [encoder setVertexBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
+    [encoder setVertexBytes:&stream length:sizeof(stream) atIndex:2];
     constexpr render::WorldJointMatrix kUnusedPalette{};
     [encoder setVertexBytes:submitted.joint_matrices.empty() ? &kUnusedPalette
                                                              : submitted.joint_matrices.data()
@@ -1102,7 +1276,7 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
                                 : submitted.joint_matrices.size() * sizeof(render::WorldJointMatrix)
                     atIndex:3];
     [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:1];
-    [encoder setFragmentBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
+    [encoder setFragmentBytes:&stream length:sizeof(stream) atIndex:2];
     id<MTLTexture> base = nil;
     if (submitted.stream.base_texture) {
       base = std::ranges::find(state.textures, model.textures.at(native.base_texture),
@@ -1147,6 +1321,37 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     throw std::invalid_argument("Unsupported world color target");
   }
   auto& pipelines = state.color_pipelines.at(format == MTLPixelFormatRGBA16Float ? 1 : 0);
+  const auto passes = state.view ? state.view->scene_passes : std::nullopt;
+  const auto partial_owner = [](const auto& command) {
+    return command.owner_opacity && *command.owner_opacity > 0 && *command.owner_opacity < 1;
+  };
+  const bool has_partial = std::ranges::any_of(
+      state.submitted, [&](const auto& draw) { return partial_owner(draw.command); });
+  if (has_partial && state.owner_depth_state == nil) {
+    auto* descriptor = [[MTLDepthStencilDescriptor alloc] init];
+    descriptor.depthCompareFunction = MTLCompareFunctionGreaterEqual;
+    descriptor.depthWriteEnabled = YES;
+    state.owner_depth_state = [state.device newDepthStencilStateWithDescriptor:descriptor];
+    if (state.owner_depth_state == nil) {
+      throw std::runtime_error("Owner opacity depth state creation failed");
+    }
+  }
+  auto& preparation_pipeline =
+      state.preparation_pipelines.at(format == MTLPixelFormatRGBA16Float ? 1 : 0);
+  if ((has_partial || (passes && (passes->opaque_preparation || passes->masked_preparation))) &&
+      preparation_pipeline == nil) {
+    auto* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.vertexFunction = [library newFunctionWithName:@"world_color_vertex"];
+    descriptor.fragmentFunction = [library newFunctionWithName:@"world_preparation_fragment"];
+    descriptor.colorAttachments[0].pixelFormat = format;
+    descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    NSError* error = nil;
+    preparation_pipeline = [state.device newRenderPipelineStateWithDescriptor:descriptor
+                                                                        error:&error];
+    if (preparation_pipeline == nil) {
+      throw std::runtime_error("Original preparation pipeline creation failed");
+    }
+  }
   // Blend and output precision are immutable pipeline state.
   for (std::size_t index = 0; index < pipelines.size(); ++index) {
     if (pipelines.at(index) != nil) {
@@ -1190,11 +1395,22 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
   [encoder setFragmentBytes:&presentation_opacity length:sizeof(presentation_opacity) atIndex:0];
   // Consume the prepared scene phase order, preserving original order within
   // each phase and leaving pose/material destination indices unchanged.
-  for (const auto submitted_index : state.color_order) {
+  const auto encode_draw = [&](std::size_t submitted_index, bool preparation, bool partial) {
     const auto& submitted = state.submitted[submitted_index];
     const auto& request = submitted.command;
-    if (!request.visible) continue;
-    const auto parameters = state.parameters(request);
+    if (!request.visible || request.owner_opacity.value_or(1) <= 0 ||
+        partial_owner(request) != partial) {
+      return;
+    }
+    auto stream = submitted.stream;
+    constexpr float kOwnerAlphaReferenceScale = 128;
+    if (partial) {
+      stream.alpha_reference =
+          static_cast<std::uint32_t>(request.owner_opacity.value_or(1) * kOwnerAlphaReferenceScale);
+    }
+    stream.integer_pixel_centers = passes && passes->integer_pixel_centers;
+    auto parameters = state.parameters(request);
+    if (request.owner_opacity) parameters.indirect_color[3] = *request.owner_opacity;
     const auto& model = state.model(request.model);
     const auto& native = model.draws.at(request.draw);
     const auto& draw = native.source;
@@ -1208,8 +1424,12 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
             ? std::ranges::find(state.textures, model.textures.at(native.normal_texture),
                                 &State::Texture::handle)
             : state.textures.end();
-    [encoder setRenderPipelineState:pipelines.at(static_cast<std::size_t>(request.state.blend))];
-    [encoder setDepthStencilState:submitted.depth];
+    const auto blend = partial && request.color_phase != render::WorldColorPhase::material_blended
+                           ? render::WorldBlend::source_alpha
+                           : request.state.blend;
+    [encoder setRenderPipelineState:preparation ? preparation_pipeline
+                                                : pipelines.at(static_cast<std::size_t>(blend))];
+    [encoder setDepthStencilState:partial ? state.owner_depth_state : submitted.depth];
     [encoder setFrontFacingWinding:MTLWindingClockwise];
     [encoder setCullMode:request.state.cull == render::WorldCull::none        ? MTLCullModeNone
                          : request.state.cull == render::WorldCull::clockwise ? MTLCullModeFront
@@ -1225,7 +1445,7 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
                       offset:positions.offset
                      atIndex:4];
     [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:1];
-    [encoder setVertexBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
+    [encoder setVertexBytes:&stream length:sizeof(stream) atIndex:2];
     if (!submitted.joint_matrices.empty()) {
       [encoder setVertexBytes:submitted.joint_matrices.data()
                        length:submitted.joint_matrices.size() * sizeof(render::WorldJointMatrix)
@@ -1234,8 +1454,18 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
       constexpr render::WorldJointMatrix kUnusedPalette{};
       [encoder setVertexBytes:&kUnusedPalette length:sizeof(kUnusedPalette) atIndex:3];
     }
-    [encoder setFragmentBytes:&submitted.stream length:sizeof(submitted.stream) atIndex:2];
+    [encoder setFragmentBytes:&stream length:sizeof(stream) atIndex:2];
+    constexpr std::array<float, 4> kMainDepthBias{};
+    [encoder setFragmentBytes:kMainDepthBias.data() length:sizeof(kMainDepthBias) atIndex:3];
     [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:1];
+    const auto* receiver = &submitted.receiver;
+    if (stream.shadow_reception && parameters.shadow_parameters[0] != 0 && state.view &&
+        request.view_space != render::WorldViewSpace::fixed) {
+      receiver = &*(request.view_space == render::WorldViewSpace::world ? state.world_receiver
+                                                                        : state.sky_receiver);
+    }
+    constexpr NSUInteger kReceiverProjectionSlot = 5;
+    [encoder setFragmentBytes:receiver length:sizeof(*receiver) atIndex:kReceiverProjectionSlot];
     [encoder setFragmentTexture:submitted.stream.base_texture ? base->native.get() : nil atIndex:0];
     [encoder setFragmentTexture:submitted.stream.normal_map ? normal->native.get() : nil atIndex:3];
     id<MTLTexture> occlusion = nil;
@@ -1255,6 +1485,14 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     }
     constexpr NSUInteger kEnvironmentSlot = 7;
     [encoder setFragmentTexture:state.default_environment.get() atIndex:kEnvironmentSlot];
+    if (submitted.stream.environment_map && request.reflection_texture &&
+        request.reflection_texture->value != 0) {
+      const auto selected =
+          std::ranges::find(state.textures, *request.reflection_texture, &State::Texture::handle);
+      [encoder setFragmentTexture:selected->native.get() atIndex:kEnvironmentSlot];
+    }
+    // Source receiver publication precedes the model command list. A later
+    // authored LENV record overrides that default on the selected material.
     if (submitted.stream.environment_map && native.environment_bound) {
       const auto environment = std::ranges::find(
           state.textures, model.textures.at(native.environment_texture), &State::Texture::handle);
@@ -1275,6 +1513,27 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
                      instanceCount:1
                         baseVertex:draw.base_vertex
                       baseInstance:0];
+  };
+  const auto phase = [&](std::size_t index) { return state.submitted[index].command.color_phase; };
+  const auto first_surface = std::ranges::lower_bound(
+      state.color_order, render::WorldColorPhase::opaque, std::ranges::less{}, phase);
+  const auto first_late = std::ranges::upper_bound(
+      state.color_order, render::WorldColorPhase::masked, std::ranges::less{}, phase);
+  // Source owner sections are separate from material chunks. Complete Main
+  // first, then Trans S0/S1/T0/T1/late, reusing prepared order and identities.
+  for (auto it = state.color_order.begin(); it != first_surface; ++it) {
+    encode_draw(*it, false, false);
+  }
+  for (const bool partial : {false, true}) {
+    for (auto it = first_surface; it != first_late; ++it) {
+      const bool enabled = partial || (passes && (phase(*it) == render::WorldColorPhase::opaque
+                                                      ? passes->opaque_preparation
+                                                      : passes->masked_preparation));
+      if (enabled) encode_draw(*it, true, partial);
+    }
+    for (auto it = first_surface; it != state.color_order.end(); ++it) {
+      encode_draw(*it, false, partial);
+    }
   }
 }
 void WorldRenderer::draw_depth(render::WorldModelHandle model, std::span<const std::size_t> draws,

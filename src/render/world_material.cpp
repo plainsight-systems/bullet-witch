@@ -1,152 +1,121 @@
-// Classify only source-traced surface and actor material families for every
-// target. The exact supported selectors preserve original program dependencies;
-// descriptive feature requirements keep compatibility bits out of scene code.
-// Contract/algorithm and both-phase E.6/GPU.1 guidance are in the header.
+// Source program admission and dependency decoding for every rendering target.
+// The header defines ownership, costs and both-phase I.1/CDSA.32/GPU.4 use.
+// Semantic feature selection follows original consumed constants, samplers and
+// vertex declarations; it does not infer a shader from the scene owner type.
 #include "bw/render/world_material.hpp"
 
 #include <algorithm>
 #include <array>
 
 namespace bw::render {
+namespace {
+// Compatibility identities only: flags in the upper 32 bits, variant below.
+// These exact keys have independent instruction/declaration witnesses. Keep
+// unaudited combinations closed even when their feature bits look familiar.
+constexpr std::array<std::uint64_t, 158> kAuditedPrograms{
+    0x008000000000ULL, 0x008002000000ULL, 0x00800a020001ULL, 0x00800a820001ULL,
+    0x00800a830001ULL, 0x008204900001ULL, 0x008206900001ULL, 0x008208820102ULL,
+    0x00820a020001ULL, 0x00820a820001ULL, 0x00820a820102ULL, 0x00820a830001ULL,
+    0x008224900001ULL, 0x008224910001ULL, 0x008226900001ULL, 0x008226910001ULL,
+    0x00822a820001ULL, 0x00a20a820001ULL, 0x00a22aa20001ULL, 0x00c00a020001ULL,
+    0x00c00a030001ULL, 0x00c00a820001ULL, 0x00c00a830001ULL, 0x00c20a020001ULL,
+    0x00c20a820001ULL, 0x00c20a830001ULL, 0x00c22a820001ULL, 0x00e008020001ULL,
+    0x00e008030001ULL, 0x00e008820001ULL, 0x00e008820102ULL, 0x00e008830001ULL,
+    0x00e00a020001ULL, 0x00e00a030001ULL, 0x00e00a820001ULL, 0x00e00a820102ULL,
+    0x00e00a830001ULL, 0x00e208020001ULL, 0x00e208030001ULL, 0x00e208820001ULL,
+    0x00e208830001ULL, 0x00e20a020001ULL, 0x00e20a030001ULL, 0x00e20a820001ULL,
+    0x00e20a830001ULL, 0x00e228820001ULL, 0x00e228a20001ULL, 0x00e22a820001ULL,
+    0x00e22aa20001ULL, 0x02800a020001ULL, 0x02a00a030001ULL, 0x02c00a020001ULL,
+    0x02c00a030001ULL, 0x02c00a820001ULL, 0x02e008020001ULL, 0x02e008030001ULL,
+    0x02e008820001ULL, 0x02e008820102ULL, 0x02e008830001ULL, 0x02e00a020001ULL,
+    0x02e00a030001ULL, 0x02e00a820001ULL, 0x02e00a820102ULL, 0x02e00a830001ULL,
+    0x04a008820001ULL, 0x04a008830001ULL, 0x04a00a820001ULL, 0x04a00a830001ULL,
+    0x04a20a820001ULL, 0x04a20a830001ULL, 0x04e208820001ULL, 0x04e208830001ULL,
+    0x04e20a820001ULL, 0x04e20a830001ULL, 0x06c002000001ULL, 0x06c00a020001ULL,
+    0x06c00a030001ULL, 0x06c00a820001ULL, 0x06e000000001ULL, 0x06e000010001ULL,
+    0x06e002000001ULL, 0x06e002010001ULL, 0x06e008020001ULL, 0x06e008030001ULL,
+    0x06e008820001ULL, 0x06e00a020001ULL, 0x06e00a030001ULL, 0x06e00a820001ULL,
+    0x408000100001ULL, 0x408002100001ULL, 0x408004110001ULL, 0x408004900001ULL,
+    0x408006110001ULL, 0x408006900001ULL, 0x428000100001ULL, 0x428000910001ULL,
+    0x428002100001ULL, 0x428002910001ULL, 0x808000100001ULL, 0x808000110001ULL,
+    0x808000900001ULL, 0x808002100001ULL, 0x808002110001ULL, 0x808002900001ULL,
+    0x808004900001ULL, 0x808004910001ULL, 0x808006900001ULL, 0x808006910001ULL,
+    0x808220100001ULL, 0x808220110001ULL, 0x808222100001ULL, 0x808222110001ULL,
+    0x808224900001ULL, 0x808224910001ULL, 0x808226900001ULL, 0x808226910001ULL,
+    0x828000100001ULL, 0x828000110001ULL, 0x828002100001ULL, 0x828002110001ULL,
+    0x828004100001ULL, 0x828004900001ULL, 0x828004910001ULL, 0x828006100001ULL,
+    0x828006900001ULL, 0x828006910001ULL, 0x82c080b00002ULL, 0x82c082b00002ULL,
+    0xc08000100001ULL, 0xc08000110001ULL, 0xc08000900001ULL, 0xc08002100001ULL,
+    0xc08002110001ULL, 0xc08002900001ULL, 0xc08004100001ULL, 0xc08004900001ULL,
+    0xc08004910001ULL, 0xc08006100001ULL, 0xc08006900001ULL, 0xc08006910001ULL,
+    0xc08020100001ULL, 0xc08020110001ULL, 0xc08022100001ULL, 0xc08022110001ULL,
+    0xc08024900001ULL, 0xc08026900001ULL, 0xc08220100001ULL, 0xc08220110001ULL,
+    0xc08222100001ULL, 0xc08222110001ULL, 0xc0c220100001ULL, 0xc0c222100001ULL,
+    0xc28000100001ULL, 0xc28000110001ULL, 0xc28002100001ULL, 0xc28002110001ULL,
+    0xc28004100001ULL, 0xc28006100001ULL,
+};
+static_assert(std::ranges::is_sorted(kAuditedPrograms));
+}  // namespace
+
 WorldMaterialRequirements world_material_requirements(
     std::uint32_t effective_flags, std::uint16_t variant,
     WorldLightingPolicy lighting) noexcept {
-  // The selector shares color programs but chooses a cutout depth program.
-  // Preserve that coverage requirement separately from color equations.
-  constexpr std::uint32_t kAlphaSelector = 1;
-  constexpr std::uint32_t kSphericalHarmonics = 0x200;
-  const bool irradiance = (effective_flags & kSphericalHarmonics) != 0;
-  const auto flags = effective_flags & ~(kAlphaSelector | kSphericalHarmonics);
-  constexpr std::uint16_t kOneBase = 1, kTwoBases = 0x102;
-  constexpr std::uint32_t kNormal = 0x80, kEnvironment = 0x2000;
-  constexpr std::uint32_t kVertexColor = 0x20, kVertexIllumination = 0x800;
-  constexpr std::uint32_t kFresnel = 0x20000, kDisableReflection = 0x2000000;
-  constexpr std::uint32_t kDisableDirectional = 0x4000000;
-  constexpr std::uint32_t kSingleJoint = 0x40000000;
-  // These exact families share the retained material equations. Directional
-  // terms now consume the explicit shadow map; the restricted observation
-  // policy still omits direct energy. Local-light lists remain separate.
-  constexpr std::uint32_t kLayeredShadowSurface = 0x00820882;
-  constexpr std::uint32_t kLocalLightSurface = 0x04a00882;
-  if (lighting == WorldLightingPolicy::without_direct_lighting ||
-      lighting == WorldLightingPolicy::supplied) {
-    // This clothing program interpolates between two base colors; its
-    // Fresnel coefficient controls alpha rather than reflection energy.
-    constexpr std::uint32_t kClothingLayer = 0x82c080b0;
-    constexpr std::uint16_t kClothingVariant = 2;
-    if (flags == kClothingLayer && variant == kClothingVariant) {
-      WorldMaterialRequirements result;
-      result.supported = true;
-      result.normal_map = true;
-      result.secondary_base = true;
-      result.vertex_color = true;
-      result.directional_light = lighting == WorldLightingPolicy::supplied;
-      result.spherical_harmonics = irradiance;
-      result.joint_influences = 2;
-      result.secondary_alpha_blend = true;
-      result.alpha_fresnel = true;
-      return result;
-    }
-    const bool layered = flags == kLayeredShadowSurface && variant == kTwoBases;
-    const bool local = flags == kLocalLightSurface && variant == kOneBase;
-    const bool untextured = flags == 0x00800000 && variant == 0;
-    constexpr std::array<std::uint32_t, 9> kBackgroundSelectors{
-        0xc0800010, 0x80800010, 0xc0822010, 0xc2800010, 0x80800090,
-        0x82800010, 0xc0802010, 0xc0c22010, 0xc0800090};
-    // These actor programs share the source surface equations with an
-    // optional authored ambient-occlusion map and one/two/four bone inputs.
-    // Their direct local-light list is supplied by the prepared scene owner.
-    constexpr std::array<std::uint32_t, 18> kActorSelectors{
-        0x00820490, 0x00822490, 0x40800010, 0x40800410, 0x42800090, 0x80800490,
-        0x80822010, 0x80822490, 0x82800010, 0x82800410, 0x82800490, 0xc0800010,
-        0xc0800410, 0xc0800490, 0xc0802490, 0xc2800410, 0x40800490, 0x42800010};
-    if (variant == kOneBase &&
-        std::ranges::find(kActorSelectors, flags) != kActorSelectors.end()) {
-      WorldMaterialRequirements result;
-      result.supported = true;
-      result.directional_light = lighting == WorldLightingPolicy::supplied;
-      result.normal_map = (flags & kNormal) != 0;
-      result.environment_map = (flags & kEnvironment) != 0;
-      result.environment_shadow = result.environment_map;
-      result.reflection =
-          (result.environment_map || result.directional_light) &&
-          (flags & kDisableReflection) == 0;
-      result.fresnel = result.reflection && (flags & kFresnel) != 0;
-      result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
-      result.spherical_harmonics = irradiance;
-      constexpr std::uint32_t kTwoJoints = 0x80000000, kOcclusion = 0x400;
-      result.local_lights = lighting == WorldLightingPolicy::supplied;
-      result.joint_influences = (flags & kSingleJoint) != 0 ? 1
-                                : (flags & kTwoJoints) != 0 ? 2
-                                                            : 4;
-      result.ambient_occlusion = (flags & kOcclusion) != 0;
-      return result;
-    }
-
-    if (variant == kOneBase && std::ranges::find(kBackgroundSelectors, flags) !=
-                                   kBackgroundSelectors.end()) {
-      WorldMaterialRequirements result;
-      result.supported = true;
-      result.directional_light = lighting == WorldLightingPolicy::supplied;
-      result.normal_map = (flags & kNormal) != 0;
-      result.environment_map = (flags & kEnvironment) != 0;
-      result.environment_shadow = result.environment_map;
-      result.reflection =
-          (result.environment_map || result.directional_light) &&
-          (flags & kDisableReflection) == 0;
-      result.fresnel = result.reflection && (flags & kFresnel) != 0;
-      result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
-      result.spherical_harmonics = irradiance;
-      result.joint_influences = (flags & kSingleJoint) != 0 ? 1 : 2;
-      return result;
-    }
-
-    if (layered || local || untextured) {
-      WorldMaterialRequirements result;
-      result.supported = true;
-      result.secondary_base = layered;
-      result.vertex_illumination = !untextured;
-      result.alpha_cutout = (effective_flags & kAlphaSelector) != 0;
-      result.spherical_harmonics = irradiance;
-      result.directional_light =
-          lighting == WorldLightingPolicy::supplied && !local;
-      result.normal_map =
-          (irradiance || result.directional_light) && !untextured;
-      result.reflection = result.directional_light;
-      result.fresnel = result.reflection && (flags & kFresnel) != 0;
-      result.base_texture = !untextured;
-      // The untextured source program consumes the scene-wide direct packet.
-      result.local_lights =
-          untextured && lighting == WorldLightingPolicy::supplied;
-      return result;
-    }
+  if (lighting != WorldLightingPolicy::supplied &&
+      lighting != WorldLightingPolicy::without_direct_lighting) {
+    return {};
   }
-  if (lighting != WorldLightingPolicy::supplied) return {};
-  constexpr std::array<std::uint32_t, 12> kSingleBaseSelectors{
-      0x00e20802, 0x00e20882, 0x00e00802, 0x00e00882, 0x02e00802, 0x02e00882,
-      0x06e00802, 0x06e00882, 0x04e20882, 0x00e22882, 0x00e228a2, 0x06e00000};
-  constexpr std::array<std::uint32_t, 2> kLayeredBaseSelectors{0x00e00882,
-                                                               0x02e00882};
-  const bool supported =
-      (variant == kOneBase && std::ranges::find(kSingleBaseSelectors, flags) !=
-                                  kSingleBaseSelectors.end()) ||
-      (variant == kTwoBases &&
-       std::ranges::find(kLayeredBaseSelectors, flags) !=
-           kLayeredBaseSelectors.end());
-  if (!supported) return {};
-  // Programs with directional lighting disabled also omit the specular path.
-  const bool directional = (flags & kDisableDirectional) == 0;
-  const bool reflection = directional && (flags & kDisableReflection) == 0;
-  return {.supported = true,
-          .normal_map = (flags & kNormal) != 0 && (directional || irradiance),
-          .secondary_base = variant == kTwoBases,
-          .environment_map = (flags & kEnvironment) != 0,
-          .vertex_color = (flags & kVertexColor) != 0,
-          .vertex_illumination = (flags & kVertexIllumination) != 0,
-          .reflection = reflection,
-          .fresnel = reflection && (flags & kFresnel) != 0,
-          .directional_light = directional,
-          .alpha_cutout = (effective_flags & kAlphaSelector) != 0,
-          .spherical_harmonics = irradiance};
+  const auto key = (std::uint64_t{effective_flags} << 16) | variant;
+  if (!std::ranges::binary_search(kAuditedPrograms, key)) return {};
+
+  constexpr std::uint16_t kInterpolatedLayer = 2, kModulatedLayer = 0x102;
+  constexpr unsigned kInfluenceShift = 30;
+  constexpr std::uint32_t kDepthCutout = 0x1, kSkinned = 0x10;
+  constexpr std::uint32_t kVertexColor = 0x20, kNormal = 0x80;
+  constexpr std::uint32_t kIrradiance = 0x200, kOcclusion = 0x400;
+  constexpr std::uint32_t kVertexIllumination = 0x800, kEnvironment = 0x2000;
+  constexpr std::uint32_t kAlphaFresnel = 0x8000, kFresnel = 0x20000;
+  constexpr std::uint32_t kDisableShadow = 0x200000, kDisableLocal = 0x400000;
+  constexpr std::uint32_t kDisableReflection = 0x2000000;
+  constexpr std::uint32_t kDisableDirectional = 0x4000000;
+  const auto has = [effective_flags](std::uint32_t mask) {
+    return (effective_flags & mask) != 0;
+  };
+  const bool direct_energy = lighting == WorldLightingPolicy::supplied;
+  WorldMaterialRequirements result;
+  result.supported = true;
+  result.directional_light = direct_energy && !has(kDisableDirectional);
+  result.local_lights = direct_energy && !has(kDisableLocal);
+  result.environment_map = has(kEnvironment);
+  result.spherical_harmonics = has(kIrradiance);
+  result.alpha_fresnel = has(kAlphaFresnel);
+
+  // Local-only surfaces retain specular, and normal-map use follows all normal
+  // consumers. Directional disable does not disable those other source paths.
+  result.reflection = !has(kDisableReflection) &&
+                      (result.directional_light || result.local_lights ||
+                       result.environment_map);
+  result.fresnel = result.reflection && has(kFresnel);
+  result.normal_required = result.directional_light || result.local_lights ||
+                           result.spherical_harmonics ||
+                           result.environment_map || result.alpha_fresnel;
+  result.normal_map = has(kNormal) && result.normal_required;
+  result.shadow_reception = result.directional_light && !has(kDisableShadow);
+  result.environment_shadow = result.environment_map && result.shadow_reception;
+
+  // Layer variant identifies the original input set: zero has no texture/UV,
+  // one uses base0, two interpolates clothing, 0x102 modulates a second layer.
+  result.base_texture = variant != 0;
+  result.secondary_base =
+      variant == kInterpolatedLayer || variant == kModulatedLayer;
+  result.secondary_alpha_blend = variant == kInterpolatedLayer;
+  result.vertex_color = has(kVertexColor);
+  result.vertex_illumination = has(kVertexIllumination);
+  result.ambient_occlusion = has(kOcclusion);
+  result.depth_cutout = has(kDepthCutout);
+  result.joint_influences =
+      has(kSkinned)
+          ? static_cast<std::uint8_t>(4U - (effective_flags >> kInfluenceShift))
+          : 0;
+  return result;
 }
 }  // namespace bw::render

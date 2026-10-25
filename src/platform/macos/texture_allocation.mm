@@ -1,3 +1,7 @@
+// Mip allocation preserves the header's level-major payload contract. Validate
+// all levels before upload; reserve and reconcile complete native storage before
+// publication. Both-phase E.6/I.11 and COPY.5 apply to candidate rollback and
+// borrowed input, with O(levels * faces) bookkeeping and no upload allocation.
 // Display-output extension: explicit creation usage preserves borrowed access
 // (I.11, #ri-raw); retained render targets follow GPU.9
 // (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md),
@@ -15,6 +19,8 @@
 // both consulted phases: bounds, retained ownership and transactional rollback.
 #include "platform/macos/texture_allocation.hpp"
 
+#include <algorithm>
+#include <bit>
 #include <new>
 #include <stdexcept>
 #include <utility>
@@ -51,11 +57,15 @@ TextureAllocation TextureAllocation::create(id<MTLDevice> device,
                                             const std::shared_ptr<memory::DeviceBudget>& budget,
                                             std::uint32_t width, std::uint32_t height,
                                             MTLPixelFormat format, MTLTextureType type,
-                                            MTLTextureUsage usage) {
+                                            MTLTextureUsage usage, TextureMipLevels mips) {
+  const auto mip_levels = mips.count;
   constexpr std::uint32_t maximum_dimension = 8192;
   const auto channels = pixel_bytes(format);
   if (device == nil || !budget || width == 0 || height == 0 || width > maximum_dimension ||
-      height > maximum_dimension || (type != MTLTextureType2D && type != MTLTextureTypeCube) ||
+      height > maximum_dimension || mip_levels == 0 ||
+      mip_levels > static_cast<std::uint32_t>(std::bit_width(std::max(width, height))) ||
+      (format == MTLPixelFormatDepth32Float && mip_levels != 1) ||
+      (type != MTLTextureType2D && type != MTLTextureTypeCube) ||
       (type == MTLTextureTypeCube && (width != height || format == MTLPixelFormatDepth32Float)) ||
       (format != MTLPixelFormatBGRA8Unorm && format != MTLPixelFormatRGBA8Unorm &&
        format != MTLPixelFormatRGBA16Float && format != MTLPixelFormatR32Float &&
@@ -69,6 +79,7 @@ TextureAllocation TextureAllocation::create(id<MTLDevice> device,
                                                           height:height
                                                        mipmapped:NO];
     descriptor.textureType = type;
+    descriptor.mipmapLevelCount = mip_levels;
     constexpr std::size_t kCubeFaces = 6;
     const std::size_t faces = type == MTLTextureTypeCube ? kCubeFaces : 1;
     const bool depth = format == MTLPixelFormatDepth32Float;
@@ -76,7 +87,13 @@ TextureAllocation TextureAllocation::create(id<MTLDevice> device,
     descriptor.usage = depth ? MTLTextureUsageRenderTarget : usage;
     // Reserve before native acquisition so failure unwinds both storage and charge.
     const auto estimate = [device heapTextureSizeAndAlignWithDescriptor:descriptor];
-    const auto logical = static_cast<std::size_t>(width) * height * channels * faces;
+    std::size_t logical = 0;
+    auto level_width = width, level_height = height;
+    for (std::uint32_t level = 0; level < mip_levels; ++level) {
+      logical += static_cast<std::size_t>(level_width) * level_height * channels * faces;
+      level_width = std::max(level_width / 2, 1U);
+      level_height = std::max(level_height / 2, 1U);
+    }
     auto charge = budget->reserve(logical, estimate.size);
     id<MTLTexture> texture = [device newTextureWithDescriptor:descriptor];
     if (texture == nil) throw std::bad_alloc();
@@ -86,22 +103,36 @@ TextureAllocation TextureAllocation::create(id<MTLDevice> device,
   }
 }
 void TextureAllocation::upload(std::span<const std::uint8_t> bytes) {
+  if (texture_ == nil || texture_.pixelFormat == MTLPixelFormatDepth32Float) {
+    throw std::invalid_argument("Invalid native color texture upload");
+  }
   const auto channels = pixel_bytes(texture_.pixelFormat);
   constexpr std::size_t kCubeFaces = 6;
   const std::size_t faces = texture_.textureType == MTLTextureTypeCube ? kCubeFaces : 1;
-  const auto face_bytes = texture_.width * texture_.height * channels;
-  if (texture_ == nil || texture_.pixelFormat == MTLPixelFormatDepth32Float ||
-      bytes.size() != face_bytes * faces) {
+  std::size_t expected = 0;
+  for (NSUInteger level = 0; level < texture_.mipmapLevelCount; ++level) {
+    expected += std::max(texture_.width >> level, NSUInteger{1}) *
+                std::max(texture_.height >> level, NSUInteger{1}) * channels * faces;
+  }
+  if (bytes.size() != expected) {
     throw std::invalid_argument("Invalid native color texture upload");
   }
-  // Original cubemap faces retain their order; each native slice owns one face.
-  for (std::size_t face = 0; face < faces; ++face) {
-    [texture_ replaceRegion:MTLRegionMake2D(0, 0, texture_.width, texture_.height)
-                mipmapLevel:0
-                      slice:face
-                  withBytes:bytes.subspan(face * face_bytes, face_bytes).data()
-                bytesPerRow:texture_.width * channels
-              bytesPerImage:face_bytes];
+  // Validate the entire chain before touching even level zero. Original cube
+  // faces retain their order inside each complete level.
+  std::size_t offset = 0;
+  for (NSUInteger level = 0; level < texture_.mipmapLevelCount; ++level) {
+    const auto width = std::max(texture_.width >> level, NSUInteger{1});
+    const auto height = std::max(texture_.height >> level, NSUInteger{1});
+    const auto face_bytes = width * height * channels;
+    for (std::size_t face = 0; face < faces; ++face) {
+      [texture_ replaceRegion:MTLRegionMake2D(0, 0, width, height)
+                  mipmapLevel:level
+                        slice:face
+                    withBytes:bytes.subspan(offset, face_bytes).data()
+                  bytesPerRow:width * channels
+                bytesPerImage:face_bytes];
+      offset += face_bytes;
+    }
   }
 }
 }  // namespace bw::platform::macos
