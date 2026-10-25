@@ -1,4 +1,8 @@
-// Component draw replacement applies I.1 (#ri-explicit), C.85
+// Presentation timing is supplied by the engine frame publisher, including
+// while world simulation is paused. No target-local wall clock drives exposure.
+// Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps the snapshot
+// inline. Component draw replacement applies I.1 (#ri-explicit), C.85
 // (#rc-swap-noexcept), and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md):
 // prepare discrete changes before nonthrowing publication, retaining unrelated
 // state and resident resources. See model-draw-replacement.md; both MCP phases.
@@ -51,6 +55,7 @@
 
 #include "bw/memory/device_budget.hpp"
 #include "bw/render/world.hpp"
+#include "bw/timing/frame_clock.hpp"
 
 namespace bw::platform::macos {
 class WorldRenderer final : public render::WorldOutput {
@@ -107,7 +112,7 @@ class WorldRenderer final : public render::WorldOutput {
   // equal the supplied width/height for original fullscreen sample mapping.
   void prepare_presentation(id<MTLCommandBuffer> command,
                             id<MTLLibrary> library, std::uint32_t width,
-                            std::uint32_t height);
+                            std::uint32_t height, timing::FrameTiming frame);
   // Encode the selected casters before any color encoder using their shared
   // light transform. Retained 1024-square attachments retire with scene draws.
   // Isolated color-pass callers invoke this explicitly when using shadows.

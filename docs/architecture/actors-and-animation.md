@@ -80,35 +80,32 @@ record original ordering and native verification boundaries.
 
 ### Current time ownership and remaining world boundary
 
-There is no complete authoritative world clock or world scheduler yet. The host
-measures wall time as a float, caps each supplied game delta at 100 ms, and
-discards the excess; there is no retained simulation debt or fixed-world
-accumulator. UI-owned frames supply zero game time. Loading and paused appearance
-transactions rebase the host sample; ordinary weapon switching does not.
+The engine now publishes authoritative frame and world timing through
+[world timing](world-timing.md). The original renderer caps presentation elapsed
+at 100 ms before the base game scales it; there is no fixed-world accumulator.
+One mission control owner admits normal or control-only work. User pause and
+UI transition frames withhold scene advancement without replacing the published
+delta with zero. Root/control work and device sampling continue. Loading and
+paused appearance transactions rebase presentation sampling; ordinary weapon
+switching does not.
 
-`StageInspection` orchestrates this bounded scene. Pause returns before its
-actor, camera and material updates and separately pauses its cue output.
-`PlayerController` subdivides the supplied interval, runs actor policy/contact
-then the complete model pose, events and controller retirement for each consumed
-substep, and publishes GPU data once afterward. Clip cursors, facial fades and
-secondary motion are local phase state advanced from that supplied step; they
-do not independently read wall time. An explicit unavailable action dependency
-can stop consumption before the entire interval has advanced.
+`StageInspection` consumes an engine-issued frame and owns no material master
+clock or independent pause flag. `PlayerController` retains the accepted local
+subdivision: actor policy/contact, complete model pose/events and controller
+retirement for each consumed substep, then one GPU publication. Clip cursors,
+facial fades and secondary motion are local phase state advanced from that
+supplied step; they never read wall time. An unavailable action dependency can
+stop one actor's consumption without changing the engine world interval.
 
-The surrounding Stage clocks are not yet a unified world schedule: targeting
-and presentation policy receive the full supplied interval before controller
-consumption is known; material time also advances by that full interval. The
-ordinary camera receives consumed time, while preview camera motion receives
-the full interval. Audio service updates have no delta argument, and the listener
-is sampled before that frame's camera advance. These differences are current
-implementation boundaries, not a claim of original world scheduling parity.
-
-After this animation slice is accepted, recover the original world update order
-and establish authoritative world tick, pause/input and audio ownership alongside
-real gameplay pause/resume and HUD state, before adding more gameplay entities.
-Do not infer that a fixed-step accumulator is the required source design. See
-[actor/model phase order](../../research/engine/subsystems/actor-model-clock-order.md)
-for the already verified local parent/model contract.
+Targeting and presentation policy receive the published interval. Material
+curves sample accumulated admitted world time. Ordinary camera updates retain
+consumed actor time, while preview camera updates use the full interval. Audio
+service updates have no delta argument; the listener is sampled before camera
+advance. These existing consumer-specific policies remain explicit rather than
+silently treating actor subdivisions as a universal world schedule. Full physics,
+entity, paused-hierarchy and transition-exception consumers are not implemented.
+See [actor/model phase order](../../research/engine/subsystems/actor-model-clock-order.md)
+for the separately verified local parent/model contract.
 
 The normal One Shot Kill menu path enters this bounded traversal without
 pretending the complete Lua mission `start()` has executed. The sole approved
@@ -157,13 +154,18 @@ implement their effects.
 ```mermaid
 sequenceDiagram
   participant Input as Host input
+  participant Time as Engine world clock
+  participant Control as Mission control
   participant Scene as Traversal scene
   participant Move as Player controller
   participant Pose as Player actor
   participant Contact as Static collision
   participant Camera as Game camera
   participant Render as Retained renderer
-  Input->>Scene: raw axes, held evade, pause edge
+  Input->>Control: sampled input and pause edge
+  Control->>Time: normal/control and input admission
+  Time->>Scene: immutable world frame
+  Control->>Scene: admitted or neutral input
   Scene->>Move: game time and camera yaw
   Move->>Pose: select current action / reference
   Pose-->>Move: preceding raw root interval

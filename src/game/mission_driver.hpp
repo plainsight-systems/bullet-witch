@@ -1,12 +1,17 @@
-// Mission spell restriction binding borrows the explicit mission player owner
-// through VM teardown. Only unchanged Lua publication changes the mask: load
-// completion does not run start() or preapply mission-specific constants.
-// Core I.30/C.9 design and E.4 (#re-design-invariants) implementation validate
-// before publication; both-phase MEM.9 (guidelines/memory/
-// MEM.9-embedded-allocate-at-init.md) adds no frame storage allocation.
-// Game mission-script lifetime and load orchestration. Own one Lua context and
-// an exclusive resource tag; borrow resources and load services through
-// teardown. Calls are single-threaded. Encoded publication, native load
+// Mission coroutine admission observes the borrowed mission control owner.
+// User pause blocks this coroutine; scripted world pause alone does not. Root
+// control/fade services have their own live route. Transition-specific native
+// bypass producers remain unavailable with genuine world startup. C.9/I.1
+// design, E.4 implementation and both-phase MEM.9 preserve bounded owner-thread
+// queries. Mission spell restriction binding borrows the explicit mission
+// player owner through VM teardown. Only unchanged Lua publication changes the
+// mask: load completion does not run start() or preapply mission-specific
+// constants. Core I.30/C.9 design and E.4 (#re-design-invariants)
+// implementation validate before publication; both-phase MEM.9
+// (guidelines/memory/ MEM.9-embedded-allocate-at-init.md) adds no frame storage
+// allocation. Game mission-script lifetime and load orchestration. Own one Lua
+// context and an exclusive resource tag; borrow resources and load services
+// through teardown. Calls are single-threaded. Encoded publication, native load
 // readiness and gameplay setup are distinct: blocked loads suspend Lua,
 // failures are terminal, and completing load never starts gameplay. Destruction
 // cancels Lua polls before releasing tagged scripts. Native mission heap
@@ -24,6 +29,7 @@
 #include "bw/formats/named_file_package.hpp"
 #include "bw/resources/service.hpp"
 #include "bw/script/context.hpp"
+#include "game/mission_control.hpp"
 #include "game/mission_player_state.hpp"
 
 namespace bw::game {
@@ -84,6 +90,7 @@ class MissionDriver {
                 MissionLoadServices& loads, resources::ResourceTag tag,
                 std::string_view script_name,
                 const std::shared_ptr<memory::Domain>& runtime_memory,
+                const MissionControl& control,
                 MissionPlayerState* player = nullptr);
   ~MissionDriver();
   MissionDriver(const MissionDriver&) = delete;
@@ -113,6 +120,7 @@ class MissionDriver {
   memory::String script_name_, package_name_, stage_name_;
   MissionProgress progress_;
   MissionPlayerState* player_{};
+  const MissionControl& control_;
   std::optional<script::Context> context_;
 };
 }  // namespace bw::game

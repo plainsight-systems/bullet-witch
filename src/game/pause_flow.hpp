@@ -1,7 +1,14 @@
-// Weapon rows observe mission-owned acquired levels; a disabled row cannot
-// submit a preview request. Rebinding updates bounded presentation only and
-// does not mutate permanent progression or resident equipment. Core C.9 design,
-// E.4 (#re-design-invariants) implementation and both-phase MEM.9
+// Pause ownership: retain a UserPauseControl handle through this menu's
+// lifetime. It permits only user-pause observation/request, not script or input
+// control. Core I.4/Con.2 and COPY.5 were read in both phases: the tiny handle
+// aliases a stable noncopyable authority without exposing it. Navigation
+// changes its user-pause state; no second pause boolean is retained. Engine
+// time remains outside UI. Design C.9/I.1; implementation E.4
+// (#re-design-invariants), both-phase MEM.9 keeps routing and menu state
+// bounded. Weapon rows observe mission-owned acquired levels; a disabled row
+// cannot submit a preview request. Rebinding updates bounded presentation only
+// and does not mutate permanent progression or resident equipment. Core C.9
+// design, E.4 (#re-design-invariants) implementation and both-phase MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) preserve this
 // boundary. Developer review visibility is fixed at construction. Hiding its
 // root entries leaves normal Resume/Costume input and transactions unchanged.
@@ -37,11 +44,13 @@
 #include "animation_review.hpp"
 #include "bw/animation/clip_catalog.hpp"
 #include "character_animations.hpp"
+#include "game/mission_control.hpp"
 #include "menu_flow.hpp"
 namespace bw::game {
 class PauseFlow {
  public:
-  explicit PauseFlow(unsigned costume, bool developer_review = true);
+  explicit PauseFlow(UserPauseControl control, unsigned costume,
+                     bool developer_review = true);
   PauseFlow(const PauseFlow&) = delete;
   PauseFlow& operator=(const PauseFlow&) = delete;
   PauseFlow(PauseFlow&&) = delete;
@@ -58,7 +67,7 @@ class PauseFlow {
   // bypass the same equipment availability used by gameplay cycling.
   void set_available_weapons(const std::array<std::uint8_t, 4>& levels);
   bool update(bool pause_pressed, MenuInput input);
-  bool paused() const { return paused_; }
+  bool paused() const { return control_.user_paused(); }
   std::optional<unsigned> requested_costume() const { return request_; }
   void complete_costume(bool success);
   std::optional<unsigned> requested_weapon() const { return weapon_request_; }
@@ -76,7 +85,7 @@ class PauseFlow {
   void message(std::string_view text);
   void append(std::string_view label, unsigned id, bool enabled = true);
   bool developer_review_;
-  bool paused_{};
+  UserPauseControl control_;
   Page page_{Page::root};
   AnimationReviewKind family_{AnimationReviewKind::stop};
   std::size_t catalog_page_{};

@@ -1,6 +1,9 @@
 # Current engineering decisions
 
-- The user accepted the progression/state slice for commit. Progression is
+- User acceptance of scoped work authorizes committing that accepted scope.
+  It does not authorize pushing; keep unrelated work out of that commit.
+
+- The progression/state slice is accepted and committed as `7fc3ca9`. Progression is
   decomposed from the original Record, power-up/result, mission
   application and save-task owners. Profile's retained Record is the sole
   permanent authority; typed snapshots and checked mutations avoid a competing
@@ -101,12 +104,34 @@
   `docs/architecture/lighting.md` and
   `research/engine/subsystems/scene-lighting-pass-contract.md` for fidelity limits.
 
-- With this animation slice accepted, establish source-backed authoritative
-  world tick and pause ownership alongside real gameplay pause/resume and HUD,
-  before extending gameplay entities. Current Stage-local orchestration is not
-  a complete world scheduler. Local animation cursors consume supplied simulation
-  steps; host clamping, pause and surrounding camera/material/audio time domains
-  remain explicit boundaries in `docs/architecture/actors-and-animation.md`.
+- The user accepted step 2 timing and its ownership corrections after an
+  interactive walkthrough, reporting that timing felt right. No individual control
+  sequence or broader lighting/gameplay acceptance is inferred. Engine FrameClock
+  owns monotonic presentation
+  sampling, the source 100 ms cap and pacing/rebase; WorldClock
+  publishes the original scaled float interval and admitted simulation time.
+  One MissionControl owns original user/script/pad pause state and neutral-input
+  admission. Stage borrows these owners and has no local material master clock
+  or competing pause flag. Root/control work continues while normal scene work
+  pauses; the mission coroutine has its separate user-pause gate. Existing
+  actor-local subdivision and media/device clocks retain their distinct roles.
+  Shared input-repeat and native exposure consume explicit presentation time;
+  their former independent target wall samples are removed. Full build, six CTest
+  targets, fatal lint and content policy pass, as do the existing 36-minute
+  original-content corpus, Stage/Metal timing witness, HDR presentation timing
+  witness and native windowed four-movie startup. The known fullscreen activation
+  failure remains separate. The review correction narrows Stage to const control
+  and PauseFlow to user-pause commands; authoritative owners cannot copy/move.
+  Full gate, rebuilt native timing/startup and the 36-minute 33-second original
+  corpus pass after these API changes. Loading callback state outlives its holders
+  by declaration order; compile-time checks enforce restricted mutation and
+  stable owner identity.
+  Complete Lua script-pause side effects, paused hierarchy, transition exceptions
+  and physics/entity phases remain explicit future consumers. No fixed-world
+  timestep was inferred from 60 Hz presentation. See
+  `docs/architecture/world-timing.md`. Next, design the lighting subsystem
+  reconstruction around the audit's structural source-fidelity deficiencies;
+  HUD/resources remain queued afterward.
 
 - Use subagents by default for task execution, keeping
   the main conversation available for planning and parallel exploration. Assign

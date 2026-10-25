@@ -1,3 +1,7 @@
+// Pause fixtures own MissionControl before constructing each borrowing menu.
+// Both-phase Core E.4 (#re-design-invariants) preserves transition checks;
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retains bounded
+// inline owners with no new device, filesystem or process scenario.
 // Capture menu coverage exercises the same pause and costume transactions with
 // developer rows hidden, including catalog rebinding. Both MCP phases: Core I.1
 // (#ri-explicit) verifies public policy; performance MEM.9 (guidelines/memory/
@@ -41,11 +45,14 @@ void pause_review_transactions() {
   const auto skeleton =
       bw::formats::SkeletonDefinition::parse(skeleton_bytes, domain);
   const bw::animation::PreparedClipCatalog catalog({}, skeleton, 0, {}, domain);
-  bw::game::PauseFlow hidden_review(0, false);
+  bw::game::MissionControl hidden_control;
+  bw::game::PauseFlow hidden_review(hidden_control.user_pause_control(), 0,
+                                    false);
   hidden_review.bind_review_catalogs(catalog, catalog, 0);
   require(hidden_review.presentation().count == 2,
           "Catalog binding must not expose hidden developer tools");
-  bw::game::PauseFlow pause(0);
+  bw::game::MissionControl control;
+  bw::game::PauseFlow pause(control.user_pause_control(), 0);
   pause.bind_review_catalogs(catalog, catalog, 0);
   pause.update(true, {});
   const auto choose = [&](std::string_view label) {
@@ -283,7 +290,8 @@ void options_and_stage() {
 }
 }  // namespace
 void test_menu_flow() {
-  bw::game::PauseFlow pause(5);
+  bw::game::MissionControl control;
+  bw::game::PauseFlow pause(control.user_pause_control(), 5);
   require(!pause.update(false, {}), "Gameplay frame stays unconsumed");
   require(pause.update(true, {0x1010, 0}) && pause.paused(),
           "Pause edge consumes confirm without immediately resuming");
@@ -300,7 +308,8 @@ void test_menu_flow() {
   require(pause.update(false, {0x2020, 0}) && !pause.paused(),
           "Resume consumes the whole input frame");
   require(!pause.update(false, {}), "Next frame can advance gameplay");
-  bw::game::PauseFlow clean_pause(5, false);
+  bw::game::MissionControl clean_control;
+  bw::game::PauseFlow clean_pause(clean_control.user_pause_control(), 5, false);
   require(clean_pause.update(true, {}) && clean_pause.paused() &&
               clean_pause.presentation().count == 2 &&
               clean_pause.presentation().rows[0].label == "Resume" &&

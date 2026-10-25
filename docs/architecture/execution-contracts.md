@@ -59,12 +59,14 @@ worker into the control thread can change observable timing and must be assessed
 against its recovered contract. Startup construction can occur while a world is
 not active; that is different from unsynchronized mutation of a live world.
 
-The implemented startup path uses measured monotonic elapsed time. Recovered
-render-list publication `0x40f920` caps the screen/fade delta at 0.1 seconds
-after waiting for prior render completion; it does not establish a fixed logical
-timestep. Host pacing and game delta are separate from the movie's audio/PTS
-clock. Exact full-engine mode cadence remains unresolved. See the
-[clock evidence](../../research/engine/subsystems/bootstrap-and-tasks.md#startup-clock-and-presentation-pacing).
+The implemented engine frame clock measures monotonic elapsed time and caps
+presentation at the original 100 ms. The world clock multiplies that float by
+game speed once, before normal/control phase admission. User/script/pad pause
+have distinct recovered gates; the source paused path still updates control and
+root services. This is not a fixed logical timestep. Movie audio/PTS clocks stay
+independent. See [world timing](world-timing.md) and its source/reference tables.
+The complete alternate mode schedules and missing hierarchy/physics consumers
+remain separate work.
 
 ## Update phases and clocks
 

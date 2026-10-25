@@ -1,3 +1,6 @@
+// Pause checks observe the shared MissionControl authority; review cannot own
+// or reset world time. Core C.9 design, E.4 implementation and both-phase MEM.9
+// preserve existing bounded preparation and transactional publication.
 // Route explicit in-scene presentation previews through existing actor/action
 // owners. Preserve a physical entry snapshot for Stop; raw catalog inspection
 // fixes that position while camera, model clocks and event consumers continue.
@@ -56,7 +59,7 @@ void StageInspection::switch_weapon(MissionLoading& loading,
 void StageInspection::replace_weapon(MissionLoading& loading,
                                      unsigned weapon_class,
                                      bool animate_switch) {
-  if ((!animate_switch && !paused_) || !player_ || !controller_ || !camera_) {
+  if ((!animate_switch && !paused()) || !player_ || !controller_ || !camera_) {
     throw std::logic_error(
         "Weapon selection requires admitted traversal; menu replacement "
         "requires pause");
@@ -173,7 +176,7 @@ void StageInspection::reset_review_presentation(
   set_review_status(kPresentation);
 }
 AnimationReviewResult StageInspection::review(AnimationReviewRequest request) {
-  if (!paused_ || !player_ || !controller_) {
+  if (!paused() || !player_ || !controller_) {
     return {false, "Preview requires paused player traversal"};
   }
   auto& actor = player_.value();

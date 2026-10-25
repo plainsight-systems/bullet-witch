@@ -517,6 +517,23 @@ capsule contact). `StageInspection` retains those owners with the mission scene.
 `StartupInput` exposes movement/look axes and jump/pause edges separately from
 front-end action masks. This entry does not complete the original mission start.
 
+### Engine timing and mission admission
+
+| Files | Responsibility |
+| --- | --- |
+| `include/bw/timing/frame_clock.hpp`, `src/timing/frame_clock.cpp` | Monotonic elapsed observation, source presentation clamp, pacing deadlines and explicit loading rebase |
+| `include/bw/world/world_clock.hpp`, `src/world/world_clock.cpp` | Single scaled interval publication, immutable frame identity and admitted world time |
+| `include/bw/input/action_repeat.hpp`, `src/input/action_repeat.cpp` | Shared original held/pressed repeat bank using explicit presentation time; devices supply masks |
+| `src/game/mission_control.hpp/.cpp` | Stable original user/script/pad pause authority, shared saved-state stack, hardware/neutral admission and restricted UserPauseControl handle |
+| `src/game/pause_flow.*`, `mission_driver.*`, `stage_inspection.*` | Menu receives only user-pause commands; driver and scene borrow const control/time observations |
+| `src/framework/startup_application.cpp` | Retains owners in lifetime order, samples native time/input, waits and dispatches current consumers |
+
+Time publication belongs to `bw_timing`, the shared repeat bank to `bw_input`,
+and game policy to `bw_game`. They decompose the recovered timer/render publication, base-game
+delta producer and pause/input fields. Local animation cursors remain consumers.
+See [world timing](world-timing.md) for original ownership and bounded reference
+choices; this does not introduce a completed entity/world scheduler.
+
 ### Shared CPU math implementation
 
 `bw_math` is a header-only engine target used by resources/formats, scene,

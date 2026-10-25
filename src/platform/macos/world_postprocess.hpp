@@ -1,5 +1,9 @@
-// Native HDR scene and display-output pass ownership. The caller supplies one
-// command buffer and keeps all GPU work completed before the next
+// Presentation timing is supplied by the engine frame publisher, including
+// while world simulation is paused. No target-local wall clock drives exposure.
+// Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps the snapshot
+// inline. Native HDR scene and display-output pass ownership. The caller
+// supplies one command buffer and keeps all GPU work completed before the next
 // prepare/reset. begin_scene retains/resizes accounted HDR/depth targets and
 // returns a borrowed encoder. Scene depth uses the original reversed-depth
 // contract: clear zero, near one, far zero; scene submissions must match. The
@@ -27,6 +31,7 @@
 #include "bw/memory/device_budget.hpp"
 #include "bw/memory/domain.hpp"
 #include "bw/render/world_output.hpp"
+#include "bw/timing/frame_clock.hpp"
 namespace bw::platform::macos {
 class WorldPostprocess {
  public:
@@ -43,7 +48,8 @@ class WorldPostprocess {
   id<MTLRenderCommandEncoder> begin_scene(id<MTLCommandBuffer> command,
                                           std::uint32_t width,
                                           std::uint32_t height);
-  void prepare_output(id<MTLCommandBuffer> command, id<MTLLibrary> library);
+  void prepare_output(id<MTLCommandBuffer> command, id<MTLLibrary> library,
+                      timing::FrameTiming frame);
   void encode_display(id<MTLRenderCommandEncoder> encoder,
                       id<MTLLibrary> library, float opacity);
 

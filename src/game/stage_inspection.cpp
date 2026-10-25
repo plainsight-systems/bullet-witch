@@ -1,16 +1,21 @@
-// Scene color admission applies both-phase I.1 (#ri-explicit) and GPU.6
-// (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md): resolve source chunk phase and
-// depth state at publication; the renderer reuses its prepared phase order.
-// Local lighting: I.11 (#ri-raw) keeps borrowed mission/PHIT ownership
-// explicit; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
-// prepares emitters once and reuses bounded selection scratch. Both corpora
-// were consulted for design and implementation. Source lighting equations live
-// in scene/render; this owner admits authored placed emitters and publishes
-// complete packets. Caster admission: both-phase I.1 (#ri-explicit) makes the
-// original opaque/ cutout pass selection explicit; GPU.1 (guidelines/gpu/
-// GPU.1-keep-data-on-device.md) keeps this a setup-only retained draw decision.
-// Actor preparation: both-phase I.11 (#ri-raw) bounds mission asset borrowing;
-// CDSA.32
+// World frame integration: consume one engine-issued interval and its admitted
+// world time. Const MissionControl observations prevent scene pause writes;
+// cached audio pause is merely output state. Owner/sequence rejection precedes
+// mutation. Design C.9/I.1, implementation E.4 (#re-design-invariants),
+// both-phase MEM.9 retain bounded frame work. Existing actor/model subdivision
+// and source ordering are unchanged. Scene color admission applies both-phase
+// I.1 (#ri-explicit) and GPU.6 (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md):
+// resolve source chunk phase and depth state at publication; the renderer
+// reuses its prepared phase order. Local lighting: I.11 (#ri-raw) keeps
+// borrowed mission/PHIT ownership explicit; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) prepares emitters once
+// and reuses bounded selection scratch. Both corpora were consulted for design
+// and implementation. Source lighting equations live in scene/render; this
+// owner admits authored placed emitters and publishes complete packets. Caster
+// admission: both-phase I.1 (#ri-explicit) makes the original opaque/ cutout
+// pass selection explicit; GPU.1 (guidelines/gpu/ GPU.1-keep-data-on-device.md)
+// keeps this a setup-only retained draw decision. Actor preparation: both-phase
+// I.11 (#ri-raw) bounds mission asset borrowing; CDSA.32
 // (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
 // resolves names/attachments once before frame-time pose and palette updates.
 // Both-phase P.9 (#rp-waste) eliminates repeated per-draw curve evaluation;
@@ -370,6 +375,7 @@ scene::LocalLightViewQuery lighting_view(const InitialPlayerCamera& camera) {
 }
 }  // namespace
 StageInspection::StageInspection(
+    const world::WorldClock& clock, const MissionControl& control,
     render::WorldOutput& output, StageViewSource stage_source,
     StageViewSource sky_source, const std::shared_ptr<memory::Domain>& domain,
     const std::optional<render::ViewPose>& camera_pose,
@@ -377,7 +383,9 @@ StageInspection::StageInspection(
     const std::optional<PlayerActorSource>& player,
     const content::LoadProgress& progress, StageCharacterLightSource light,
     const std::optional<ScriptedPlayerPose>& inspection_placement)
-    : output_(output),
+    : clock_(clock),
+      control_(control),
+      output_(output),
       memory_(domain),
       collision_(domain),
       static_lighting_updates_(
@@ -941,7 +949,7 @@ void StageInspection::append_player_draws(
 }
 void StageInspection::change_costume(MissionLoading& loading,
                                      unsigned costume) {
-  if (!paused_ || !player_ || !controller_ || !camera_) {
+  if (!paused() || !player_ || !controller_ || !camera_) {
     throw std::logic_error("Costume change requires paused player traversal");
   }
   auto& actor = player_.value();
@@ -1037,26 +1045,33 @@ void StageInspection::bind_audio(const PreparedCharacterAudio& prepared,
   player_->bind_audio({prepared, output, collision_, random}, memory_);
   output.set_listener(audio_listener_);
   player_->set_audio_listener(audio_listener_);
-  output.pause(paused_);
+  audio_paused_ = control_.audio_paused();
+  output.pause(audio_paused_);
   audio_output_ = &output;
 }
-void StageInspection::set_paused(bool paused) {
-  if (paused == paused_) return;
+void StageInspection::synchronize_pause() {
+  const bool paused = control_.audio_paused();
+  if (paused == audio_paused_) return;
   if (audio_output_ != nullptr) audio_output_->pause(paused);
-  paused_ = paused;
+  audio_paused_ = paused;
 }
-void StageInspection::advance(double delta_seconds) {
-  advance(delta_seconds, {});
-}
-void StageInspection::advance(double delta_seconds, StageTraversalInput input) {
-  const double next = animation_seconds_ + delta_seconds;
-  if (!std::isfinite(delta_seconds) || delta_seconds < 0 ||
-      !std::isfinite(next)) {
-    throw std::invalid_argument(
-        "Stage animation requires finite nonnegative time");
+void StageInspection::advance(const world::WorldFrame& frame,
+                              StageTraversalInput input) {
+  if (!frame.belongs_to(clock_) || frame.sequence() <= last_frame_) {
+    throw std::invalid_argument("Foreign or repeated world frame");
   }
-  if (input.pause_pressed) set_paused(!paused_);
-  if (paused_) return;
+  last_frame_ = frame.sequence();
+  synchronize_pause();
+  if (!frame.admission().simulation) return;
+  const double delta_seconds = frame.delta_seconds();
+  const double next = frame.simulation_seconds();
+  // Input restriction publishes a neutral event; it does not skip actor work.
+  // Accepted scripted observations retain their distinct admission contract.
+  if (!frame.admission().hardware_input) {
+    input.movement = {};
+    input.look = {};
+    input.presentation = {};
+  }
   if (controller_ && camera_) {
     if (!player_) {
       throw std::logic_error("Traversal controller has no player owner");
@@ -1189,6 +1204,5 @@ void StageInspection::advance(double delta_seconds, StageTraversalInput input) {
   if (!texture_updates_.empty()) {
     output_.update_world_texture_offsets(texture_updates_);
   }
-  animation_seconds_ = next;
 }
 }  // namespace bw::game

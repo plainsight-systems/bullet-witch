@@ -1,6 +1,17 @@
-// Own retained scene presentation and bounded Alicia traversal over mission
-// assets. Borrow definitions/device identities until destruction; the mission
-// outlives this owner. Build authored static and placed-prop collision, prepare
+// Engine timing integration: borrow the mission control and world-clock owners
+// through teardown as const observations; it cannot mutate either owner.
+// Core Con.2 (#rconst-fct) enforces that restriction in both phases. This
+// consumer accepts engine-issued frames, rejects foreign or replayed frames,
+// and samples material time from the admitted world total. It owns neither a
+// master clock nor a pause flag. Audio pause is a cached device observation of
+// mission control. Input/UI routing precedes publication; local actor
+// subdivisions retain their existing complete parent/model order. Design Core
+// C.9/I.1; implementation E.4 (#re-design-invariants); both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps frame state
+// fixed and allocation-free. See docs/architecture/world-timing.md. Own
+// retained scene presentation and bounded Alicia traversal over mission assets.
+// Borrow definitions/device identities until destruction; the mission outlives
+// this owner. Build authored static and placed-prop collision, prepare
 // character queries, decode body/camera settings and construct actor/controller
 // once. Each frame routes explicit input through custom movement/contact, live
 // camera and pose publication, then updates existing view/material constants.
@@ -30,6 +41,7 @@
 #include "bw/render/world.hpp"
 #include "bw/scene/lighting/scene_lighting.hpp"
 #include "camera/player_camera.hpp"
+#include "game/mission_control.hpp"
 #include "player_actor.hpp"
 #include "player_controller.hpp"
 #include "player_targeting.hpp"
@@ -63,7 +75,7 @@ struct PlayerPresentationInput {
 struct StageTraversalInput {
   PlayerMovementInput movement;
   PlayerCameraLook look;
-  bool pause_pressed{};
+
   PlayerActionObservations action{};
   PlayerPresentationInput presentation{};
 };
@@ -72,6 +84,7 @@ class StageInspection {
   // Playerless inspection requires an explicit placement; no mission default
   // is hidden in this reusable view. Player input owns its own placement.
   StageInspection(
+      const world::WorldClock& clock, const MissionControl& control,
       render::WorldOutput& output, StageViewSource stage, StageViewSource sky,
       const std::shared_ptr<memory::Domain>& domain,
       const std::optional<render::ViewPose>& camera_pose = std::nullopt,
@@ -83,10 +96,10 @@ class StageInspection {
           std::nullopt);
   ~StageInspection();
   // Advance retained material curves and optional actor poses on the game
-  // clock. Borrowed keys remain mission-owned; no geometry/sampler publication
-  // or allocation occurs. Invalid/nonfinite deltas reject before updating time.
-  void advance(double delta_seconds);
-  void advance(double delta_seconds, StageTraversalInput input);
+  // frame. Borrowed keys remain mission-owned; no geometry/sampler publication
+  // or allocation occurs. Foreign/repeated frames reject before scene work;
+  // control-only frames synchronize pause without advancing scene consumers.
+  void advance(const world::WorldFrame& frame, StageTraversalInput input = {});
   const PlayerTargeting& targeting_state() const { return targeting_; }
   const PlayerMovementState* player_state() const {
     return controller_ ? &controller_->state() : nullptr;
@@ -118,8 +131,9 @@ class StageInspection {
       CharacterMotionBank bank) const {
     return player_ ? player_->animation_state(bank) : nullptr;
   }
-  bool paused() const { return paused_; }
-  void set_paused(bool paused);
+  bool paused() const { return control_.simulation_paused(); }
+  // Publish pause to the audio device before any paused resource transaction.
+  void synchronize_pause();
   // Mission-owned output/prepared policy and session RNG outlive this view.
   // Bind once after actor admission; pause and listener updates follow the
   // same stage clock as its animation event owners.
@@ -163,6 +177,9 @@ class StageInspection {
   std::size_t player_draws() const { return player_draws_; }
 
  private:
+  const world::WorldClock& clock_;
+  const MissionControl& control_;
+  std::uint64_t last_frame_{};
   render::WorldOutput& output_;
   std::shared_ptr<memory::Domain> memory_;
   void append_player_draws(memory::Vector<render::WorldColorDraw>& draws,
@@ -184,7 +201,7 @@ class StageInspection {
   std::optional<formats::StageEnvironment> environment_;
   std::optional<scene::Environment> environment_channels_;
   std::optional<InitialPlayerCamera> fixed_view_;
-  bool paused_{};
+  bool audio_paused_{};
   audio::CueOutput* audio_output_{};
   audio::Listener audio_listener_;
   void publish_view();
@@ -219,7 +236,7 @@ class StageInspection {
   memory::Vector<AnimatedCurve> animated_curves_;
   memory::Vector<AnimatedMaterial> animated_materials_;
   memory::Vector<render::WorldTextureOffsetUpdate> texture_updates_;
-  double animation_seconds_{};
+
   std::size_t selected_draws_{}, omitted_draws_{}, sky_draws_{},
       background_draws_{}, player_draws_{};
 };

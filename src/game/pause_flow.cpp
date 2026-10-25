@@ -1,3 +1,7 @@
+// Pause navigation receives only UserPauseControl and changes its user-pause
+// transition. No mirrored world-pause state or timing is stored here. C.9/I.1
+// design, E.4 (#re-design-invariants) implementation and both-phase MEM.9 keep
+// ownership explicit and menu updates bounded without allocation.
 // Weapon rows observe mission-owned acquired levels; a disabled row cannot
 // submit a preview request. Rebinding updates bounded presentation only and
 // does not mutate permanent progression or resident equipment. Core C.9 design,
@@ -69,8 +73,11 @@ bool catalog_family(AnimationReviewKind kind) {
          kind == AnimationReviewKind::weapon_clip;
 }
 }  // namespace
-PauseFlow::PauseFlow(unsigned costume, bool developer_review)
-    : developer_review_(developer_review), costume_(costume) {
+PauseFlow::PauseFlow(UserPauseControl control, unsigned costume,
+                     bool developer_review)
+    : developer_review_(developer_review),
+      control_(control),
+      costume_(costume) {
   if (costume >= kCostumes) {
     throw std::invalid_argument("Invalid pause costume");
   }
@@ -226,7 +233,7 @@ void PauseFlow::select() {
   } else if (page_ == Page::root) {
     switch (id) {
       case 0:
-        paused_ = false;
+        (void)control_.set_user_paused(false);
         break;
       case 1:
         populate(Page::costumes);
@@ -261,20 +268,20 @@ void PauseFlow::select() {
   }
 }
 bool PauseFlow::update(bool pause_pressed, MenuInput input) {
-  const bool was_paused = paused_;
+  const bool was_paused = paused();
   if (pause_pressed) {
-    paused_ = !paused_;
+    if (!control_.set_user_paused(!paused())) return paused();
     request_.reset();
     weapon_request_.reset();
     review_request_.reset();
     populate(Page::root);
     return true;
   }
-  if (!paused_) return false;
+  if (!paused()) return false;
   if (request_ || weapon_request_ || review_request_) return true;
   if ((input.pressed & kCancel) != 0) {
     if (page_ == Page::root) {
-      paused_ = false;
+      (void)control_.set_user_paused(false);
     } else {
       populate(page_ == Page::variants ? Page::review : Page::root);
     }
@@ -309,7 +316,7 @@ void PauseFlow::complete_review(AnimationReviewResult result) {
   if (!review_request_) throw std::logic_error("No pending animation preview");
   review_request_.reset();
   if (result.accepted) {
-    paused_ = false;
+    (void)control_.set_user_paused(false);
     populate(Page::root);
   } else {
     message(result.message);

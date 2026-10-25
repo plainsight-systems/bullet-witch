@@ -3,7 +3,8 @@
 **Target architecture · working baseline · October 22, 2026.**
 [Engine architecture](logical-overview.md) · [Execution contracts](execution-contracts.md).
 
-Implemented permanent/mission player authority is detailed in
+Implemented engine frame/world timing and game pause ownership are detailed in
+[world timing](world-timing.md). Permanent/mission player authority is detailed in
 [player progression](player-progression.md). The broader world model below
 retains its stated proposed boundaries.
 
@@ -163,6 +164,20 @@ Shutdown retires native audio callbacks before stopping decoder workers and
 releasing their storage. Movie presentation currently waits for GPU completion
 before texture reuse. These rules do not settle the eventual world renderer's
 worker cadence or asynchronous resource retirement.
+
+## Implemented timing lifetime
+
+The current application retains one engine `FrameClock`. A mission retains its
+engine `WorldClock` and game `MissionControl` before constructing the driver,
+scene and pause menu that borrow them. The scene receives immutable frame
+observations and const mission control; it cannot set world time or pause state.
+The pause menu receives only a `UserPauseControl` handle to observe/request user
+pause, without script/input mutation capabilities. Clock/control authorities
+cannot copy or move while borrowed; frames and handles retire before their
+issuing owner. Device exposure receives the
+presentation snapshot separately from world admission. These concrete owners
+decompose recovered engine responsibilities without claiming the entire proposed
+World aggregate already exists. See [world timing](world-timing.md).
 
 ## Object identities and cross-system references
 

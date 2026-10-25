@@ -123,7 +123,7 @@ October 24, 2026. The historical SRC-03 numbering below remains the mission
 milestone map; this four-slice sequence closes its prerequisites before further
 mission expansion.
 
-1. **Authoritative progression and entry state (implemented for review).**
+1. **Authoritative progression and entry state (accepted and committed).**
    Decompose the original Record/power-up/result/mission/save owners. Preserve
    fresh defaults and source upgrade rules; persist purchases and source-ranked
    campaign point awards. Saved concept missions inherit completed-profile values
@@ -131,9 +131,13 @@ mission expansion.
    Current early access has an explicit nonpersistent development completed-game
    profile. Mission state drives weapon preparation/selection. See the
    [drill-in](docs/architecture/player-progression.md) for contracts and limits.
-2. **World timing, gameplay input and pause.** Recover the original update
-   schedule and establish authority across world updates, local animation cursors,
-   input and menu time. Resume must not jump time or replay consumed actions.
+2. **World timing, gameplay input and pause (timing accepted).**
+   Engine frame/world clocks publish source capped/scaled intervals; one mission
+   control owner supplies recovered pause and neutral-input admission. Stage,
+   pause menu and mission coroutine consume those owners. Local animation cursors
+   consume supplied time; root/control work continues through pause. See
+   [world timing](docs/architecture/world-timing.md) for phase order, tests and
+   explicitly unimplemented full script side effects/hierarchy consumers.
 3. **Player resources, HUD and menus.** Bind health, magic, ammo, supported actions,
    power-up transactions and pause operations to authoritative state. Implement
    original result/story-grant producers as their genuine lifecycle arrives;

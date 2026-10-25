@@ -1,3 +1,7 @@
+// Timing test composition retains in-process fixtures and runs their public
+// contracts through the existing target. Both-phase Core E.4
+// (#re-design-invariants) checks rejected-state preservation; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds new fixtures.
 // V1: public runtime contracts, docs/startup-runtime.md. Failures throw and
 // produce nonzero exit; fixtures own their state. Algorithm: drive lifecycle,
 // resume waits and check terminal outcomes. Cost bounded by small
@@ -45,6 +49,7 @@ void alicia_reaction_policy_tests();
 void scripted_jump_policy_tests();
 void spell_presentation_policy_tests();
 void aim_posture_tests();
+void world_timing_contracts();
 namespace {
 void check(bool ok, const char* message) {
   if (!ok) {
@@ -207,6 +212,7 @@ int main() {
     scripted_jump_policy_tests();
     spell_presentation_policy_tests();
     aim_posture_tests();
+    world_timing_contracts();
     bridge_contract();
     failures();
     scheduling();

@@ -1,13 +1,20 @@
 # Remaining work
 
-- The progression/state slice is accepted for commit. It implements
+- The progression/state slice is accepted and committed. It implements
   permanent snapshots/mutations, source costs/rewards, compatible Record save,
   bounded checkpoint-player decoding/merge, explicit concept entry and real
   weapon availability. It does not implement full gameplay save/world restore,
   earned-result production, story-grant bindings, HUD or power-up presentation.
   Current design: `docs/architecture/player-progression.md`.
-- Next agreed slices: (2) recover authoritative world timing, gameplay input and
-  pause ownership; (3) wire real player/weapon resources, controls, HUD, power-up
+- Step 2 timing, including the narrowed ownership contracts, is accepted after
+  the user's interactive walkthrough. See
+  `docs/architecture/world-timing.md` for verification and the remaining
+  script/world integration and platform boundaries; those are not closed by
+  this timing acceptance.
+  Next priority: design the lighting subsystem reconstruction to resolve the
+  audit's structural source-fidelity deficiencies. This is pending design work,
+  not brightness tuning or a general graphics upgrade. After lighting, retain
+  the agreed slices: (3) wire real player/weapon resources, controls, HUD, power-up
   transactions and supported pause operations; (4) genuine One Shot Kill startup,
   authored entities and mission lifecycle, broken into reviewable steps. Preserve
   the source-owned decomposition and use inspected pinned Unreal implementations
@@ -48,11 +55,11 @@
 - Before the next implementation slice, reconcile the playable-level dependencies
   around the concrete next priority: real in-level pause/resume and a HUD bound
   to authoritative player/weapon state. With this slice accepted, this also
-  includes source-backed authoritative world tick and pause ownership before more
-  gameplay entities. Current Stage-local orchestration, discarded host time and
-  differing surrounding time domains are recorded in
-  `docs/architecture/actors-and-animation.md`; do not assume a fixed-step design
-  before recovering the original schedule. The current animation review UI does not
+  includes the step-2 source-backed engine world tick and pause boundaries before
+  more gameplay entities. The recovered variable interval and separate paused
+  route are recorded in `docs/architecture/world-timing.md`; retain the remaining
+  hierarchy/physics/script-side-effect limits rather than claiming a complete
+  world scheduler. The current animation review UI does not
   establish gameplay input ownership, lifecycle or action feedback. Record each
   dependency's implemented behavior, missing behavior, prerequisites and
   observable acceptance, separating required gameplay from fidelity/upgrades.

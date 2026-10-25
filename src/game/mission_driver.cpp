@@ -1,3 +1,7 @@
+// Consult mission user-pause admission before pumping the coroutine. This is
+// distinct from normal world tick admission and root/control service updates.
+// C.9/I.1 design, E.4 implementation, both-phase MEM.9: one borrowed authority,
+// no allocation or clock sampling in the gate.
 // Mission spell restriction binding borrows the explicit mission player owner
 // through VM teardown. Only unchanged Lua publication changes the mask: load
 // completion does not run start() or preapply mission-specific constants.
@@ -44,7 +48,7 @@ MissionDriver::MissionDriver(
     resources::ResourceService& resources, MissionLoadServices& loads,
     resources::ResourceTag tag, std::string_view script_name,
     const std::shared_ptr<memory::Domain>& runtime_memory,
-    MissionPlayerState* player)
+    const MissionControl& control, MissionPlayerState* player)
     : resources_(resources),
       loads_(loads),
       tag_(tag),
@@ -52,7 +56,8 @@ MissionDriver::MissionDriver(
       script_name_(script_name, memory::Allocator<char>(runtime_memory)),
       package_name_(memory::Allocator<char>(runtime_memory)),
       stage_name_(memory::Allocator<char>(runtime_memory)),
-      player_(player) {
+      player_(player),
+      control_(control) {
   if (script_name.empty() || script_name.size() > kMaximumScriptName ||
       script_name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") !=
           std::string_view::npos) {
@@ -171,6 +176,7 @@ void MissionDriver::bindings() {
   }
 }
 const MissionProgress& MissionDriver::advance() {
+  if (!control_.mission_script_admitted()) return progress_;
   if (progress_.phase == MissionPhase::failed ||
       progress_.phase == MissionPhase::cancelled ||
       progress_.phase == MissionPhase::awaiting_world_setup) {

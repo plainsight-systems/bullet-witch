@@ -1,3 +1,7 @@
+// Engine presentation time is an explicit snapshot, including paused frames;
+// exposure never reads a target-local wall clock. Both-phase I.1 (#ri-explicit)
+// exposes the input; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// keeps the handoff inline and allocation-free. Lighting equations are unchanged.
 // Encode the recovered HDR-to-display dependency chain into one caller-owned
 // command buffer. Targets survive frames; only completed R32 luminance is read
 // back. Geometry and overlays remain separate passes. Contracts and both-phase
@@ -8,7 +12,6 @@
 #include "platform/macos/world_postprocess.hpp"
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -77,7 +80,6 @@ struct WorldPostprocess::State {
   render::ExposureController exposure;
   OutputUniforms uniforms;
   id<MTLCommandBuffer> previous{};
-  std::chrono::steady_clock::time_point previous_time{};
   TextureAllocation make_target(std::uint32_t width, std::uint32_t height, MTLPixelFormat format) {
     return TextureAllocation::create(device, budget, width, height, format, MTLTextureType2D,
                                      MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget);
@@ -184,7 +186,6 @@ void WorldPostprocess::reset() noexcept {
   for (auto& target : state.targets) target.reset();
   state.previous = nil;
   state.exposure.reset();
-  state.previous_time = {};
 }
 id<MTLRenderCommandEncoder> WorldPostprocess::begin_scene(id<MTLCommandBuffer> command,
                                                           std::uint32_t width,
@@ -217,13 +218,16 @@ id<MTLRenderCommandEncoder> WorldPostprocess::begin_scene(id<MTLCommandBuffer> c
   if (encoder == nil) throw std::runtime_error("World HDR encoder unavailable");
   return encoder;
 }
-void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrary> library) {
+void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrary> library,
+                                      timing::FrameTiming frame) {
+  if (!std::isfinite(frame.presentation_seconds) || frame.presentation_seconds < 0) {
+    throw std::invalid_argument("Invalid world presentation interval");
+  }
   auto& state = *state_;
   if (command == nil || library == nil || state.scene.get() == nil) {
     throw std::invalid_argument("Missing world output inputs");
   }
   // Only the previous completed measurement crosses to CPU; all image data stays native.
-  const auto now = std::chrono::steady_clock::now();
   auto& u = state.uniforms;
   const auto& p = state.parameters;
   u = {};
@@ -263,8 +267,8 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
                                    bytesPerRow:sizeof(float)
                                     fromRegion:MTLRegionMake2D(0, 0, 1, 1)
                                    mipmapLevel:0];
-      const float elapsed = std::chrono::duration<float>(now - state.previous_time).count();
-      const auto adapted = state.exposure.advance({measured, elapsed}, p.exposure);
+      const auto adapted =
+          state.exposure.advance({measured, frame.presentation_seconds}, p.exposure);
       u.log_luminance = std::log(adapted);
       u.adapted = static_cast<std::uint32_t>(p.exposure.history_window > 0);
     }
@@ -299,7 +303,6 @@ void WorldPostprocess::prepare_output(id<MTLCommandBuffer> command, id<MTLLibrar
     }
   }
   state.previous = command;
-  state.previous_time = now;
 }
 void WorldPostprocess::encode_display(id<MTLRenderCommandEncoder> encoder, id<MTLLibrary> library,
                                       float opacity) {

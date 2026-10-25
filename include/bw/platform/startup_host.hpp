@@ -1,5 +1,9 @@
-// Action input reports normalized fire intent and one-shot button edges only;
-// game owners admit shots, reloads, weapon switches and aim modes. Native
+// Presentation timing is supplied by the engine frame publisher, including
+// while world simulation is paused. No target-local wall clock drives exposure.
+// Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps the snapshot
+// inline. Action input reports normalized fire intent and one-shot button edges
+// only; game owners admit shots, reloads, weapon switches and aim modes. Native
 // focus loss clears held state. Design I.1 (#ri-explicit) keeps that boundary
 // explicit; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps
 // the added edge history in fixed inline storage without per-pump allocation.
@@ -57,6 +61,7 @@
 #include "bw/memory/device_budget.hpp"
 #include "bw/render/sprites.hpp"
 #include "bw/render/world.hpp"
+#include "bw/timing/frame_clock.hpp"
 #include "bw/video/output.hpp"
 
 namespace bw::platform {
@@ -94,8 +99,11 @@ class StartupHost final : public video::Output,
   StartupHost& operator=(const StartupHost&) = delete;
   StartupHost(StartupHost&&) = delete;
   StartupHost& operator=(StartupHost&&) = delete;
-  // Consume input edges once per pump and derive repeats from held actions.
+  // Consume input edges once per pump. Publish frame timing first; the shared
+  // repeat owner uses presentation delta, including while gameplay is paused.
   StartupInput pump(bool window_close_enabled);
+  // Publish before drawing; presentation time continues through world pause.
+  void set_frame_timing(timing::FrameTiming frame);
   // Retain uploaded pixels independently of the caller's decoded frame.
   void upload(const video::VideoFrame& frame) override;
   void clear_video() noexcept override;

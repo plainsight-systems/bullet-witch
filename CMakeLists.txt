@@ -30,6 +30,14 @@ function(bw_strict target)
   endif()
 endfunction()
 bw_strict(bw_resources)
+add_library(bw_input src/input/action_repeat.cpp)
+target_include_directories(bw_input PUBLIC include)
+target_compile_features(bw_input PUBLIC cxx_std_20)
+bw_strict(bw_input)
+add_library(bw_timing src/timing/frame_clock.cpp src/world/world_clock.cpp)
+target_include_directories(bw_timing PUBLIC include)
+target_compile_features(bw_timing PUBLIC cxx_std_20)
+bw_strict(bw_timing)
 add_library(bw_memory src/memory/domain.cpp src/memory/coalescing_heap.cpp src/memory/device_budget.cpp)
 target_include_directories(bw_memory PUBLIC include)
 target_compile_features(bw_memory PUBLIC cxx_std_20)
@@ -73,7 +81,7 @@ if(UNIX)
   target_link_libraries(bw_save_storage_posix PUBLIC bw_resources)
   bw_strict(bw_save_storage_posix)
 endif()
-add_library(bw_game src/game/pause_flow.cpp src/game/camera/initial_camera.cpp src/game/camera/player_camera.cpp src/game/placed_collision.cpp src/game/placed_lighting.cpp src/game/stage_inspection.cpp src/game/stage_animation_review.cpp src/game/stage_shadow.cpp src/game/mission_driver.cpp src/game/initial_placement_shim.cpp src/game/mission_loading.cpp src/game/mission_package_inputs.cpp src/game/npc_palette.cpp src/game/root_driver.cpp src/game/startup_flows.cpp src/game/startup_services.cpp src/game/advertise_flow.cpp src/game/title_flows.cpp src/game/menu_flow.cpp src/game/frontend.cpp)
+add_library(bw_game src/game/mission_control.cpp src/game/pause_flow.cpp src/game/camera/initial_camera.cpp src/game/camera/player_camera.cpp src/game/placed_collision.cpp src/game/placed_lighting.cpp src/game/stage_inspection.cpp src/game/stage_animation_review.cpp src/game/stage_shadow.cpp src/game/mission_driver.cpp src/game/initial_placement_shim.cpp src/game/mission_loading.cpp src/game/mission_package_inputs.cpp src/game/npc_palette.cpp src/game/root_driver.cpp src/game/startup_flows.cpp src/game/startup_services.cpp src/game/advertise_flow.cpp src/game/title_flows.cpp src/game/menu_flow.cpp src/game/frontend.cpp)
 target_sources(bw_game PRIVATE src/game/stage_environment.cpp src/game/player_actor.cpp src/game/player_controller.cpp src/game/alicia_secondary_motion.cpp
   src/game/character_animations.cpp src/game/alicia_motion_bindings.cpp src/game/motion_presentation.cpp
   src/game/facial_animation.cpp src/game/character_audio.cpp src/game/mission_audio.cpp
@@ -85,7 +93,7 @@ target_sources(bw_game PRIVATE src/game/alicia_action_policy.cpp
   src/game/player_targeting.cpp
   src/game/aim_posture.cpp
   src/game/alicia_action_owner.cpp)
-target_link_libraries(bw_game PUBLIC bw_runtime bw_profiles PRIVATE bw_images bw_render bw_scene bw_animation)
+target_link_libraries(bw_game PUBLIC bw_runtime bw_profiles bw_timing PRIVATE bw_images bw_render bw_scene bw_animation)
 bw_strict(bw_game)
 add_library(bw_startup_playback src/game/startup_playback.cpp)
 target_link_libraries(bw_startup_playback PUBLIC bw_game bw_video)
@@ -136,7 +144,7 @@ if(APPLE)
   add_library(bw_startup_host_macos src/platform/macos/startup_host.mm src/platform/macos/gamepad_actions.mm)
   set_target_properties(bw_startup_host_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
   target_compile_options(bw_startup_host_macos PRIVATE -fobjc-arc)
-  target_link_libraries(bw_startup_host_macos PUBLIC bw_video bw_resources PRIVATE
+  target_link_libraries(bw_startup_host_macos PUBLIC bw_video bw_resources bw_input PRIVATE
     bw_media_audio_macos bw_texture_allocation_macos bw_world_renderer_macos "-framework Cocoa" "-framework Metal"
     "-framework QuartzCore" "-framework GameController")
   bw_strict(bw_startup_host_macos)
@@ -188,13 +196,13 @@ if(BUILD_TESTING)
   set_tests_properties(image-font PROPERTIES TIMEOUT 30)
   add_executable(runtime-tests tests/runtime_test.cpp tests/task_memory_test.cpp tests/lua_memory_test.cpp tests/startup_flows_test.cpp
     tests/startup_services_test.cpp tests/startup_playback_test.cpp tests/pcm_buffer_test.cpp tests/advertise_flow_test.cpp tests/title_flow_test.cpp tests/menu_flow_test.cpp tests/initial_camera_test.cpp tests/player_camera_test.cpp tests/placed_collision_test.cpp tests/startup_options_test.cpp tests/stage_shadow_test.cpp)
-  target_sources(runtime-tests PRIVATE tests/motion_presentation_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/motion_presentation_test.cpp tests/world_timing_test.cpp)
   target_sources(runtime-tests PRIVATE tests/alicia_action_policy_test.cpp
     tests/alicia_reaction_policy_test.cpp
     tests/scripted_jump_policy_test.cpp
     tests/spell_presentation_policy_test.cpp
     tests/aim_posture_test.cpp)
-  target_link_libraries(runtime-tests PRIVATE bw_startup_playback bw_startup_framework)
+  target_link_libraries(runtime-tests PRIVATE bw_startup_playback bw_startup_framework bw_input)
   if(APPLE)
     target_sources(runtime-tests PRIVATE tests/gamepad_targeting_test.mm)
     set_source_files_properties(tests/gamepad_targeting_test.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")

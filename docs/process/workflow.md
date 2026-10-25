@@ -101,6 +101,13 @@ Do not accumulate sign, offset, clamp, tolerance, timing or special-case patches
 without evidence. A failed correction reopens the diagnosis; isolated helper
 tests do not establish integrated correctness.
 
+Investigation scope follows the full requested system and all agreed paths.
+Keep enumerating independent defects after the first finding, and distinguish
+verified behavior, demonstrated defects and unresolved boundaries with evidence.
+The first reproducible defect or smallest available fix is not a completion
+criterion. Do not silently reduce an investigation to its immediate symptom or
+one consumer when the requested scope is broader.
+
 Verification must exercise the behavior that matters in the running subsystem.
 For media, that includes visible final frames, complete audio, clock progression,
 buffering and drain. A decoded-frame count, EOF flag or passing mock must not be
@@ -123,6 +130,11 @@ consultation is required even for work not initially labeled performance-sensiti
 Opening comments cite the corpus and exact retrieved ID, its application, and
 the returned source reference when available. If a search yields no applicable
 rule, record the topic and that result instead of choosing an unrelated rule.
+Consultation is not automated design validation. Enumerate the actual mutating
+capabilities each borrower receives, then enforce only its required access in
+the API. Make single-authority identity, lifetime and copy/move policy explicit;
+use compile-time checks for those concrete restrictions. Tests must not require
+broader production mutation authority for fixture convenience.
 Earlier design citations do not replace implementation consultation. Never
 invent IDs, cite unread rules, or substitute memory or web advice for MCP queries.
 

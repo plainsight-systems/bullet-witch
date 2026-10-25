@@ -1,3 +1,7 @@
+// Engine presentation time is an explicit snapshot, including paused frames;
+// exposure never reads a target-local wall clock. Both-phase I.1 (#ri-explicit)
+// exposes the input; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// keeps the handoff inline and allocation-free. Lighting equations are unchanged.
 // Fullscreen failure diagnostics distinguish AppKit rejection from an unfinished
 // transition and record activation/key state without changing launch behavior.
 // Both MCP phases: Core E.6 (#re-raii) keeps failed native construction under
@@ -64,6 +68,7 @@
 // COPY.5-resource-owning-types-are-move-only.md) fixes native owner identity;
 // GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded frames.
 #include "bw/platform/startup_host.hpp"
+#include "bw/input/action_repeat.hpp"
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
 #include "gamepad_actions.hpp"
@@ -140,7 +145,6 @@ constexpr unsigned short kCrouchKey = 8;
 constexpr unsigned short kEscapeKey = 53;
 constexpr unsigned short kFullscreenKey = 3;
 constexpr unsigned short kUpKey = 126, kDownKey = 125, kLeftKey = 123, kRightKey = 124;
-constexpr std::size_t kActionBits = 32;
 constexpr std::uint32_t kUpAction = 0x01000000U;
 constexpr std::uint32_t kDownAction = 0x02000000U;
 constexpr std::uint32_t kLeftAction = 0x04000000U;
@@ -247,8 +251,8 @@ struct StartupHost::State {
   bool previous_pause{}, previous_crouch{};
   macos::GameplayButtonEdges action_edges;
   std::uint32_t previous_held{};
-  std::array<double, kActionBits> repeat_elapsed{};
-  std::chrono::steady_clock::time_point input_time{std::chrono::steady_clock::now()};
+  std::optional<timing::FrameTiming> frame_timing;
+  input::ActionRepeat action_repeat;
   explicit State(const std::shared_ptr<memory::Domain>& cpu_domain) : media_audio(cpu_domain) {}
   ~State() {
     media_audio.stop();
@@ -512,26 +516,9 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     }
     // Keep press edges distinct from the recovered per-bit repeat timing.
     const auto pressed = key_edges | (held & ~state.previous_held);
-    const auto now = std::chrono::steady_clock::now();
-    const auto elapsed = std::chrono::duration<double>(now - state.input_time).count();
-    state.input_time = now;
-    auto repeated = pressed;
-    constexpr double repeat_delay = 0.5;
-    constexpr double repeat_interval = 0.125;
-    for (std::size_t bit = 0; bit < state.repeat_elapsed.size(); ++bit) {
-      const auto mask = std::uint32_t{1} << bit;
-      auto& timer = state.repeat_elapsed.at(bit);
-      if ((held & mask) == 0) {
-        timer = 0;
-        continue;
-      }
-      // A new hold starts now; time spent idle/loading must not become a repeat.
-      timer += (state.previous_held & mask) != 0 ? elapsed : 0;
-      if (timer >= repeat_delay) {
-        repeated |= mask;
-        timer -= repeat_interval;
-      }
-    }
+    if (!state.frame_timing) throw std::logic_error("Input sampling has no frame timing");
+    const auto repeated =
+        state.action_repeat.advance({held, pressed}, state.frame_timing->presentation_seconds);
     state.previous_held = held;
     const bool evade_held = evade_key_edge || evade;
     const bool pause_pressed = pause_key_edge || (pause && !state.previous_pause);
@@ -578,6 +565,14 @@ void StartupHost::upload(const video::VideoFrame& frame) {
   }
 }
 void StartupHost::clear_video() noexcept { state_->video.reset(); }
+void StartupHost::set_frame_timing(timing::FrameTiming frame) {
+  require_main_thread();
+  if (!std::isfinite(frame.presentation_seconds) || frame.presentation_seconds < 0 ||
+      !std::isfinite(frame.wall_seconds) || frame.wall_seconds < 0) {
+    throw std::invalid_argument("Invalid host frame timing");
+  }
+  state_->frame_timing = frame;
+}
 bool StartupHost::draw(float opacity) {
   require_main_thread();
   if (!std::isfinite(opacity) || opacity < 0 || opacity > 1) {
@@ -613,7 +608,9 @@ bool StartupHost::draw(float opacity) {
                                       0,
                                       1};
     if (state.world->has_color_draws()) {
-      state.world->prepare_presentation(command, state.shader_library, scene_width, scene_height);
+      if (!state.frame_timing) throw std::logic_error("World presentation has no frame timing");
+      state.world->prepare_presentation(command, state.shader_library, scene_width, scene_height,
+                                        *state.frame_timing);
     }
     id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
     if (command == nil || encoder == nil) {

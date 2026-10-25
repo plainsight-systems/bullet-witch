@@ -3,7 +3,8 @@
 **Target architecture · working baseline · October 22, 2026.**
 [Engine architecture](logical-overview.md) · [Runtime ownership](runtime-model.md) ·
 
-Implemented permanent/mission player authority is detailed in [player progression](player-progression.md). The broader world model below retains its stated proposed boundaries.
+Implemented engine time and admission boundaries are detailed in [world timing](world-timing.md).
+Permanent/mission player authority is detailed in [player progression](player-progression.md). The broader world model below retains its stated proposed boundaries.
 
 [Actors, poses and animation](actors-and-animation.md).
 

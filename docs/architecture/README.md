@@ -21,6 +21,7 @@ owner names are Cavia's original source classes.
 | [Runtime objects and ownership](runtime-model.md) | What exists at runtime, who owns it, and what survives a transition? |
 | [Player progression and mission state](player-progression.md) | Who owns permanent levels, effective mission abilities and save adaptation? |
 | [World, scene and simulation](world-and-simulation.md) | What is authoritative state, and how do actors, AI, animation, physics and effects cooperate? |
+| [World timing and tick admission](world-timing.md) | Who publishes simulation time, selects paused work and admits current gameplay input? |
 | [Actors, poses and animation](actors-and-animation.md) | How do game movement, clip evaluation, skinning and weapon attachment share one actor transform? |
 | [Rendering and presentation](rendering-and-presentation.md) | How do scene/view/material/pass systems produce submitted graphics and media output? |
 | [Scene lighting](lighting.md) | Who owns authored fields and emitters, prepares view/receiver lighting, and publishes values to the renderer? |

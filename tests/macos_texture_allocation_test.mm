@@ -248,7 +248,8 @@ void world_surface_contract(id<MTLDevice> device) {
     }
     id<MTLCommandBuffer> command = [queue commandBuffer];
     if (present_scene) {
-      renderer.prepare_presentation(command, library, extent, extent);
+      renderer.prepare_presentation(command, library, extent, extent,
+                                    {.wall_seconds = 1.0F / 60, .presentation_seconds = 1.0F / 60});
     } else {
       renderer.prepare_shadows(command, library);
     }
@@ -1400,7 +1401,8 @@ void world_output_contract(id<MTLDevice> device) {
     [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     [encoder endEncoding];
-    owner.prepare_output(command, library);
+    owner.prepare_output(command, library,
+                         {.wall_seconds = 1.0F / 60, .presentation_seconds = 1.0F / 60});
     auto* pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = output.get();
     pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;

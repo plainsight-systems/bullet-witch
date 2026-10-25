@@ -1,3 +1,9 @@
+// Timing composition: native pacing waits on engine FrameClock; one engine
+// WorldClock publishes mission frames after game input/pause admission. Root
+// control work continues while normal world work is withheld; mission coroutine
+// pause is independent. No framework delta clamp, pause mirror or input rearm
+// state. Design C.9/I.1; implementation E.4 (#re-design-invariants); both-phase
+// MEM.9 keeps sampled frame/control storage fixed. See world-timing.md.
 // Concept progression selection is an explicit development policy. Saved
 // mode inherits the owned handoff; development mode supplies a nonpersistent
 // completed-game capability profile at entry. Neither edits permanent saves.
@@ -83,7 +89,10 @@
 #include <thread>
 #include <utility>
 
+#include "bw/timing/frame_clock.hpp"
+#include "bw/world/world_clock.hpp"
 #include "game/initial_placement_shim.hpp"
+#include "game/mission_control.hpp"
 #include "game/mission_loading.hpp"
 #include "game/pause_flow.hpp"
 #include "game/source_random.hpp"
@@ -154,18 +163,31 @@ int run_startup(const StartupOptions& configuration,
                                    memory.runtime);
   session.start_root(resources, 1);
   game::StartupLoadingSurface loading_surface(resources, host);
+  // Loading callbacks retain this presentation state. Declare it before all
+  // mission holders so it remains alive until their callbacks are retired.
+  const auto started = std::chrono::steady_clock::now();
+  const auto deadline =
+      configuration.maximum_seconds
+          ? started + std::chrono::seconds(*configuration.maximum_seconds)
+          : std::chrono::steady_clock::time_point::max();
+  constexpr auto target_period = std::chrono::nanoseconds(16'666'667);
+  timing::FrameClock frame_clock(started, target_period);
+  std::optional<std::chrono::steady_clock::time_point> loading_started;
+  auto loading_presented = started;
+  bool loading_close_requested = false;
+  bool inspected_stage = false;
   // Mission owners retire in reverse order: Lua polls, load data, then
   // catalogs.
   std::optional<resources::ResourceService> mission_resources;
   std::optional<game::MissionLoading> mission_loading;
   std::optional<game::MissionPlayerState> mission_player;
+  std::optional<game::MissionControl> mission_control;
+  std::optional<world::WorldClock> world_clock;
   std::optional<game::MissionDriver> mission;
   game::SourceRandom random;
   std::optional<game::MissionAudio> mission_audio;
   std::optional<game::StageInspection> stage_inspection;
-  bool inspected_stage = false;
   std::optional<game::PauseFlow> pause;
-  bool evade_rearmed = true;
   std::string_view live_notice;
   const auto bind_review_catalogs = [&] {
     const auto* body = stage_inspection.value().review_catalog(false);
@@ -179,18 +201,6 @@ int run_startup(const StartupOptions& configuration,
     }
   };
   std::optional<game::MissionPhase> reported_mission_phase;
-  const auto started = std::chrono::steady_clock::now();
-  const auto deadline =
-      configuration.maximum_seconds
-          ? started + std::chrono::seconds(*configuration.maximum_seconds)
-          : std::chrono::steady_clock::time_point::max();
-  auto previous_tick = started;
-  auto next_tick = started;
-  constexpr auto target_period = std::chrono::nanoseconds(16'666'667);
-  constexpr float maximum_game_delta = 0.1F;
-  std::optional<std::chrono::steady_clock::time_point> loading_started;
-  auto loading_presented = started;
-  bool loading_close_requested = false;
   // Completed asset operations may pump only loading presentation. They never
   // reenter Lua, inspect a partial world or transfer native ownership threads.
   // This is Doom 3's bounded loading-screen update contract; see research.
@@ -203,6 +213,9 @@ int run_startup(const StartupOptions& configuration,
     const bool first = !loading_started;
     if (first) loading_started = now;
     if (!first && now - loading_presented < target_period) return;
+    // Loading presents through the same frame clock but admits no world tick.
+    // Input repeat and renderer adaptation consume this presentation snapshot.
+    host.set_frame_timing(frame_clock.sample(now));
     loading_close_requested |= host.pump(true).close_requested;
     const auto loading_opacity = loading_surface.show(
         mission_loading->loading_scene().item,
@@ -214,19 +227,12 @@ int run_startup(const StartupOptions& configuration,
   float longest_tick = 0;
   double longest_pump = 0;
   while (std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_until(next_tick);
-    const auto tick = std::chrono::steady_clock::now();
-    const float wall_delta =
-        std::chrono::duration<float>(tick - previous_tick).count();
-    const float game_delta = std::min(wall_delta, maximum_game_delta);
+    std::this_thread::sleep_until(frame_clock.deadline());
+    const auto timing = frame_clock.sample(std::chrono::steady_clock::now());
+    host.set_frame_timing(timing);
+    const float wall_delta = timing.wall_seconds;
+    const float presentation_delta = timing.presentation_seconds;
     longest_tick = std::max(longest_tick, wall_delta);
-    previous_tick = tick;
-    next_tick += target_period;
-    // Rebase after a missed deadline instead of running a burst of catch-up
-    // ticks.
-    if (next_tick <= tick) {
-      next_tick = tick + target_period;
-    }
     const auto pump_started = std::chrono::steady_clock::now();
     const auto input = host.pump(session.window_close_enabled());
     longest_pump = std::max(longest_pump,
@@ -241,6 +247,7 @@ int run_startup(const StartupOptions& configuration,
       return 0;
     }
     bool ui_frame = false;
+    game::GameplayInput gameplay;
     if (input.pause_pressed || input.reload_pressed || input.attack_pressed ||
         input.aim_mode_pressed || input.fire_trigger > 0) {
       live_notice = {};
@@ -248,12 +255,18 @@ int run_startup(const StartupOptions& configuration,
     if (pause) {
       ui_frame = pause->update(input.pause_pressed,
                                {input.pressed_actions, input.repeated_actions});
-      if (ui_frame) {
-        evade_rearmed = false;
-      } else if (!input.evade_held) {
-        evade_rearmed = true;
-      }
-      stage_inspection->set_paused(pause->paused());
+      gameplay = mission_control->route(
+          {.movement = input.movement,
+           .look = input.look,
+           .fire_trigger = input.fire_trigger,
+           .evade_held = input.evade_held,
+           .crouch_pressed = input.crouch_pressed,
+           .reload_pressed = input.reload_pressed,
+           .attack_pressed = input.attack_pressed,
+           .weapon_cycle_pressed = input.weapon_cycle_pressed,
+           .aim_mode_pressed = input.aim_mode_pressed},
+          ui_frame);
+      stage_inspection->synchronize_pause();
       if (const auto costume = pause->requested_costume()) {
         bool success = false;
         try {
@@ -266,8 +279,7 @@ int run_startup(const StartupOptions& configuration,
         pause->complete_costume(success);
         if (success) bind_review_catalogs();
         // A bounded resource transaction is not simulation time on resume.
-        previous_tick = std::chrono::steady_clock::now();
-        next_tick = previous_tick + target_period;
+        frame_clock.rebase(std::chrono::steady_clock::now());
       }
       if (const auto weapon_class = pause->requested_weapon()) {
         bool success = false;
@@ -284,17 +296,16 @@ int run_startup(const StartupOptions& configuration,
         }
         pause->complete_weapon(success);
         if (success) bind_review_catalogs();
-        previous_tick = std::chrono::steady_clock::now();
-        next_tick = previous_tick + target_period;
+        frame_clock.rebase(std::chrono::steady_clock::now());
       }
       if (const auto review = pause->requested_review()) {
         pause->complete_review(stage_inspection->review(*review));
         // Successful preview resumes the scene next frame; this confirmation
         // remains entirely owned by the UI and cannot also fire an action.
-        stage_inspection->set_paused(pause->paused());
+        stage_inspection->synchronize_pause();
         live_notice = {};
       }
-      if (!ui_frame && input.weapon_cycle_pressed) {
+      if (gameplay.weapon_cycle_pressed) {
         const auto* player = stage_inspection->player_state();
         if (player == nullptr ||
             player->phase != game::PlayerMovementPhase::grounded) {
@@ -331,11 +342,10 @@ int run_startup(const StartupOptions& configuration,
         }
       }
     }
-    const float simulation_delta = ui_frame ? 0.0F : game_delta;
     // Advance transport before game policy observes completion and selects
     // draws.
     playback.advance(
-        {.wall_delta = wall_delta, .game_delta = simulation_delta});
+        {.wall_delta = wall_delta, .game_delta = presentation_delta});
     if (configuration.verify &&
         playback.completed_movies() != reported_movies) {
       reported_movies = playback.completed_movies();
@@ -371,27 +381,27 @@ int run_startup(const StartupOptions& configuration,
       longest_tick = 0;
       longest_pump = 0;
     }
+    // Normal world work precedes root/mission control as in the base game path.
+    // A control-only frame remains published, but Stage does not simulate it.
+    if (stage_inspection) {
+      const auto frame = world_clock->publish(
+          presentation_delta, mission_control->admission(ui_frame));
+      stage_inspection->advance(
+          frame,
+          {.movement = {gameplay.movement, gameplay.evade_held,
+                        gameplay.crouch_pressed},
+           .look = {gameplay.look[0], gameplay.look[1]},
+           .presentation = {.fire_trigger = gameplay.fire_trigger,
+                            .reload_pressed = gameplay.reload_pressed,
+                            .attack_pressed = gameplay.attack_pressed,
+                            .aim_mode_pressed = gameplay.aim_mode_pressed}});
+    }
     const auto actions =
         configuration.verify || stage_inspection ? 0U : input.pressed_actions;
-    script::RunResult result{};
-    if (!ui_frame) {
-      result = session.advance({simulation_delta, actions},
-                               configuration.verify || stage_inspection
-                                   ? 0U
-                                   : input.repeated_actions);
-    }
+    const auto result = session.advance(
+        {presentation_delta, actions},
+        configuration.verify || stage_inspection ? 0U : input.repeated_actions);
     if (stage_inspection) {
-      if (!ui_frame) {
-        stage_inspection->advance(
-            simulation_delta,
-            {.movement = {input.movement, input.evade_held && evade_rearmed,
-                          input.crouch_pressed},
-             .look = {input.look[0], input.look[1]},
-             .presentation = {.fire_trigger = input.fire_trigger,
-                              .reload_pressed = input.reload_pressed,
-                              .attack_pressed = input.attack_pressed,
-                              .aim_mode_pressed = input.aim_mode_pressed}});
-      }
       if (pause && pause->paused()) {
         menu_surface.show(pause->presentation());
       } else {
@@ -426,6 +436,8 @@ int run_startup(const StartupOptions& configuration,
           request.script_name != "cm01_00") {
         return 0;
       }
+      mission_control.emplace();
+      world_clock.emplace();
       mission_player.emplace(
           game::MissionPlayerEntry{request.progression, std::nullopt, true,
                                    configuration.concept_profile});
@@ -472,8 +484,10 @@ int run_startup(const StartupOptions& configuration,
       constexpr resources::ResourceTag kMissionScriptTag = 100;
       mission.emplace(mission_resources.value(), mission_loading.value(),
                       kMissionScriptTag, request.script_name, memory.runtime,
-                      &mission_player.value());
+                      *mission_control, &mission_player.value());
     }
+    // The pause/resume UI owns this transition frame. Root/control tasks above
+    // still run; the mission coroutine begins observing resume next frame.
     if (mission && !ui_frame) {
       const auto& progress = mission->advance();
       if (loading_close_requested) return 0;
@@ -514,7 +528,7 @@ int run_startup(const StartupOptions& configuration,
                               audio_factory, kMissionAudioLimits,
                               loading_pulse);
         stage_inspection.emplace(
-            host,
+            *world_clock, *mission_control, host,
             game::StageViewSource{stage.value(),
                                   mission_loading->resident_models()},
             game::StageViewSource{sky.value(),
@@ -538,14 +552,14 @@ int run_startup(const StartupOptions& configuration,
                                      *mission_audio->output(), random);
         menu_surface.begin();
         while (!menu_surface.ready()) loading_pulse();
-        pause.emplace(mission_loading->current_player_costume(),
+        pause.emplace(mission_control->user_pause_control(),
+                      mission_loading->current_player_costume(),
                       !configuration.capture);
         bind_review_catalogs();
         inspected_stage = true;
         loading_surface.end();
         // Loading wall time is not an initial simulation step.
-        previous_tick = std::chrono::steady_clock::now();
-        next_tick = previous_tick + target_period;
+        frame_clock.rebase(std::chrono::steady_clock::now());
         std::cerr << "Static inspection: " << stage_inspection->selected_draws()
                   << " ordinary draws, " << stage_inspection->background_draws()
                   << " placed-prop draws, " << stage_inspection->omitted_draws()

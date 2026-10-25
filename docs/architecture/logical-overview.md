@@ -17,6 +17,11 @@ fixed-step loop or a general-purpose editor framework. The proposed ownership
 boundaries make the recovered behavior explicit without copying x86 addresses
 or global variables into the new public interfaces.
 
+Implemented [world timing and admission](world-timing.md) separates engine
+presentation/world interval publication from game pause/input policy. Native
+clock sampling and waiting stay at the host boundary; local animation cursors
+and renderer adaptation consume their specified intervals.
+
 ## System structure
 
 ```mermaid

@@ -1,3 +1,7 @@
+// Engine presentation time is an explicit snapshot, including paused frames;
+// exposure never reads a target-local wall clock. Both-phase I.1 (#ri-explicit)
+// exposes the input; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// keeps the handoff inline and allocation-free. Lighting equations are unchanged.
 // Scene-wide color phases apply both-phase I.1 (#ri-explicit) and GPU.6
 // (guidelines/gpu/GPU.6-batch-tiny-gpu-work.md): prepare an index plan at
 // publication, preserve within-phase order, and stream it without per-frame
@@ -985,7 +989,11 @@ void WorldRenderer::set_world_output_parameters(const render::WorldOutputParamet
   state_->output.configure(parameters);
 }
 void WorldRenderer::prepare_presentation(id<MTLCommandBuffer> command, id<MTLLibrary> library,
-                                         std::uint32_t width, std::uint32_t height) {
+                                         std::uint32_t width, std::uint32_t height,
+                                         timing::FrameTiming frame) {
+  if (!std::isfinite(frame.presentation_seconds) || frame.presentation_seconds < 0) {
+    throw std::invalid_argument("Invalid world presentation interval");
+  }
   const auto reversed_depth = [](const State::SubmittedDraw& draw) {
     const auto& surface = draw.command.state;
     return surface.depth_compare == render::WorldDepthCompare::greater ||
@@ -999,7 +1007,7 @@ void WorldRenderer::prepare_presentation(id<MTLCommandBuffer> command, id<MTLLib
   auto encoder = state_->output.begin_scene(command, width, height);
   encode_color(encoder, library, 1.0F, MTLPixelFormatRGBA16Float);
   [encoder endEncoding];
-  state_->output.prepare_output(command, library);
+  state_->output.prepare_output(command, library, frame);
 }
 // Retain the map and immutable jitter on device; the pass dependency is the
 // command buffer order, with no CPU readback (both-phase I.1/GPU.1).
