@@ -1,6 +1,6 @@
 # Bullet Witch project brief
 
-**Status: Source reconstruction underway; resource/data foundation (SRC-01) implemented and corpus-checked.** Updated October 22, 2026.
+**Status: Source reconstruction underway; resource/data foundation (SRC-01) implemented and corpus-checked.** Updated October 24, 2026.
 
 ## Confirmed direction
 
@@ -37,6 +37,55 @@ accumulate at the root. The [engine provenance record](research/sources/engine-p
 tracks publisher history, middleware evidence and engine lineage.
 [Direct developer sources](research/sources/cavia-engine-history.md) establish that
 Cavia built the original engine in-house from scratch.
+
+## Future asset upgrade phase
+
+The agreed improvement phase follows the faithful working port. Build an offline,
+reproducible asset pipeline, beginning with a texture/material pilot and then
+separately validated geometry upgrades. Keep the original game assets untouched
+and retain the faithful rendering path for comparison. The
+[toolchain assessment](research/reports/2026-10-24-asset-upgrade-toolchain.md)
+records verified capabilities, licenses and limitations; its proposed workflow
+informed this agreement, but no model or asset round trip has been tested locally.
+
+Use the existing Linux RTX 3090 machine with 24 GB VRAM first. Prefer open local
+tools: evaluate Real-ESRGAN or suitable OpenModelDB checkpoints for color textures,
+standalone PBRify through chaiNNer or ComfyUI for inferred surface maps, and Blender
+for baking and export. RTX Remix Toolkit/Runtime is not required for this initial
+file-processing pipeline. Pin code, model and dependency versions, checking their
+licenses separately. Consider Windows only when a chosen tool requires it, and
+rented GPU capacity only when measured memory or throughput limits justify it.
+
+- **Pilot before batching:** compare a character material, a tiling surface and a
+  simple prop under controlled and moving lighting, at gameplay distances and in
+  animation. Measure VRAM, processing time and runtime memory/rendering cost.
+  Select resolution from visible benefit; native 4x upscaling means 256→1024 or
+  512→2048, not an automatic 4K result. Generated normal/roughness/height maps are
+  new inferred detail, not recovered originals. Check baked-light cleanup, alpha,
+  color/data spaces, tangent conventions, UV seams, tiling, compression and mipmaps.
+- **Characters:** keep the original mesh, UVs, skeleton, weights and animation as
+  the master. Generate or sculpt detail donors and bake onto it while preserving
+  Alicia's identity, colors, proportions and signature silhouette. TRELLIS.2 and
+  Hunyuan3D-2.1 remain candidate donor tools; their stock texturing paths can rebuild
+  meshes/UVs and do not establish rig preservation. Any later topology or silhouette
+  upgrade requires separate validation of skinning, morphs, attachments, clothing
+  and the full relevant animation range. Extra polygons alone are not an upgrade.
+- **Props:** allow freer generation within explicit scale, pivot, placement,
+  silhouette, material, collision, destruction and attachment contracts. Validate
+  retopology, UVs and runtime cost before replacement. Multiple reference renders
+  support review; they do not imply calibrated multiview support in a single-image
+  model. Published GPU budgets do not guarantee fit or speed on the 3090.
+- **Batch provenance:** script extraction, reference rendering, inference, cleanup,
+  retopology where needed, baking, interchange export and runtime conversion only
+  after the pilot passes. Key manifests by canonical resource identity and source
+  hash, with exact model/checkpoint, settings, transforms, map semantics, output
+  hashes and review status. Keep generated assets separate and replacements
+  reversible; filenames alone are insufficient identity.
+- **Runtime integration:** distinguish higher-resolution replacements using legacy
+  shader semantics from new PBR materials or geometry. Normal/roughness channels,
+  displacement, material conversion and mesh imports need explicit renderer and
+  resource contracts with their own acceptance checks. glTF/FBX export alone does
+  not establish a working game replacement or preserve gameplay behavior.
 
 ## Completed foundation
 
