@@ -38,7 +38,7 @@ def main():
     if sys.platform != 'darwin':
         parser.error('The native launcher currently supports macOS only.')
     game = options.game.expanduser().resolve()
-    executable = ROOT / 'build/host-debug/bw-startup'
+    executable = ROOT / 'build/host-debug/bullet-witch'
     command = [str(executable), '--game', str(game), *host_options]
     if options.capture:
         command.append('--capture')
@@ -89,7 +89,7 @@ def build(output=None, *, developer_views=False):
                     f'-DBW_DEVELOPER_VIEWS={mode}'], cwd=ROOT, check=True,
                    stdout=output, stderr=subprocess.STDOUT if output else None)
     subprocess.run(['cmake', '--build', '--preset', 'host-debug',
-                    '--target', 'bw-startup', '--parallel', '4'], cwd=ROOT,
+                    '--target', 'bullet-witch', '--parallel', '4'], cwd=ROOT,
                    check=True, stdout=output,
                    stderr=subprocess.STDOUT if output else None)
 

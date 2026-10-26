@@ -7,7 +7,7 @@ requires Python for the CLI integration tests.
 ## Launching the game
 
 Use `./run` from the repository root. It configures the debug preset, builds
-`bw-startup` incrementally and launches fullscreen with the local purchased
+`bullet-witch` incrementally and launches fullscreen with the local purchased
 installation. `--game PATH` overrides `BULLET_WITCH_GAME_DIR` and the default
 `~/Games/BulletWitch-Steam`. `--build-only` builds without opening a window or
 requiring game data. Other arguments, such as `--windowed`, pass to the host.
@@ -29,13 +29,16 @@ python3 scripts/check.py format --fix
 python3 scripts/check.py all
 ```
 
-`all` runs formatting, strict Debug compilation, CTest, clang-tidy and repository
-policy checks. Individual actions are `format`, `host`, `tidy`, `policy`.
+`all` runs formatting, architecture include-direction checks, strict Debug
+compilation, CTest, clang-tidy and repository policy checks. Individual actions are `format`, `host`, `tidy`, `policy`.
 `--jobs N` bounds build/analyzer concurrency; `--build-dir build/NAME` selects an
 ignored build directory. No source formatter or analyzer scans recovered game
 code under `research/`. Authored C++ and Objective-C++ translation units must appear
-in the compilation database or analysis fails. Headers are checked through their
-includers. A newly added standalone public header should have a compile consumer.
+in the selected compilation database or analysis fails. Production configurations
+exclude `src/developer` and reject any developer compilation entries; the enabled
+Debug configuration requires those entries and analyzes them with the same fatal
+policy. Architecture boundary changes require both configurations. Headers are
+checked through their includers. A newly added standalone public header should have a compile consumer.
 
 `tidy` preserves compilation arguments, uses an isolated database, and on macOS
 adds the selected Xcode SDK/libc++ headers for the separately installed analyzer.
@@ -97,6 +100,7 @@ shared LGPL configuration using `make`; see [decoder setup](../docs/video-decode
 The Mac host requires Xcode's SDK and Metal toolchain. `xcrun --find metal`
 checks availability; if missing, install Apple's component with
 `xcodebuild -downloadComponent MetalToolchain`. `cmake/MacShaders.cmake`
-compiles `.metal` source into a library beside `bw-startup`. A shader change
+compiles `.metal` source through `bw_metal_shaders` into
+`bullet_witch.metallib` beside `bullet-witch`. A shader change
 rebuilds the library without recompiling the host. No runtime shader compiler
 or working-directory lookup is used.

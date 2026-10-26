@@ -51,7 +51,7 @@
 // skeletal-animation-baseline.md.
 #pragma once
 
-#include "bw/formats/animation_definition.hpp"
+#include "bw/content/formats/animation_definition.hpp"
 #include "bw/math/matrix.hpp"
 
 namespace bw::animation {

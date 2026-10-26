@@ -1,23 +1,32 @@
 # Proposed architecture boundaries
 
-**Accepted target boundaries · October 26, 2026. Execution underway.**
-The [reorganization plan](reorganization-plan.md) fixes destination groups and four
-implementation slices. Slice 1 is accepted (`fd773fb`), and slice 2 is accepted after native review.
-These target diagrams do not claim every proposed repair already exists.
-This is the complete proposed system view, complementing the
-[current implementation](current-ownership.md). The proposal retains recovered
-Bullet Witch behavior and existing portable contracts/native implementations.
-Boxes name responsibilities, not required new classes, libraries or threads.
+> **Revised slice 3 implemented and accepted October 26, 2026.** The earlier
+> mechanical grouping was rejected. The explicit engine/game/platform/developer
+> layout and ownership repairs replace that proposal. Both configuration gates
+> and purchased-data checks pass; the user authorized the scoped commit.
+
+**Approved revised boundaries · October 26, 2026. Implementation verified and accepted.**
+Slices 1 (`fd773fb`) and 2 (`a5577bb`) are accepted. The initial slice 3 grouping
+was rejected and replaced by the approved
+[whole-repository architecture](../../research/engine/subsystems/architecture-layout-proposal.md).
+The [plan](reorganization-plan.md) includes input/developer/Alicia/content ownership
+repairs, explicit source roots and build dependencies in one reviewable revision.
+Integrated checks pass and the user accepted this revision. These diagrams include
+future systems and must not be read as a claim they are all implemented.
 
 Legend throughout: **E** = existing mechanism retained; **R** = proposed
 reorganization/extraction of existing responsibilities; **P** = planned runtime
-capability. An E box does not claim complete game coverage.
+capability. R retains the approved design classification, not a statement that
+all such work is still missing: RenderScene and lighting/output integration are
+implemented and accepted. See the current map for actual owners. An E box does
+not claim complete game coverage.
 
 ## Proposed system boundaries
 
 Arrows mean dependency or publication as labelled. Shared engine mechanisms know
 contracts/observations; game policy supplies concrete rules. Lighting is named
-explicitly, even if its files remain under the engine scene family.
+explicitly under `src/engine/lighting`, with authored meaning in game world
+presentation. Application composition itself belongs to the game.
 
 ```mermaid
 flowchart TB
@@ -34,6 +43,7 @@ flowchart TB
     Mission["Mission lifecycle and game phase ordering [R]"]
     Policy["Alicia/enemy/boss actions, camera, authored stage policy [E/P]"]
     Screens["Frontend, pause, HUD, settings and game UI behavior [E]"]
+    Mapping["Player input: original UI and saved actions, repeat policy [R]"]
     Bindings["Game script bindings and save/checkpoint policy [E/P]"]
     Session --> Mission
     Session --> Screens
@@ -48,7 +58,7 @@ flowchart TB
     World["World identity and membership mechanisms, if required [P]"]
     Resources["Resource resolution, residency and definitions [E]"]
     Script["Lua runtime and execution bridge [E]"]
-    Input["Physical input observations and repeat processing [E]"]
+    Input["Physical observation contracts and ActionRepeat mechanism [E]"]
     Animation["Pose, playback, events and attachments [E]"]
     Physics["Spatial/static contact [E]; dynamic physics provider [P]"]
     AI["AI evaluation/action mechanisms and navigation [P]"]
@@ -91,8 +101,9 @@ flowchart TB
   App -->|"original admission and pack selection policy"| Validate
   Validate -->|"admitted sources and ordered precedence"| Resources
   Devices --> Input
-  Input -->|"copied observations"| Screens
-  Input -->|"copied observations"| Policy
+  Input -->|"neutral InputFrame"| Mapping
+  Mapping -->|"MappedInput"| Screens
+  Mapping -->|"MappedInput"| Policy
   Mission -->|"admission and source phase order"| WorldClock
   WorldClock -->|"immutable frame"| GameWorld
   Policy -->|"actions and authored configuration"| GameWorld
@@ -205,19 +216,19 @@ unchanged; target rate is not a fixed physics timestep.
 
 | Current owner | Proposed responsibility | Review recommendation |
 | --- | --- | --- |
-| `StartupApplication` | Application composition/main loop, selecting owners and calling phases | Keep one composition boundary; name it for the complete application, not only startup. Engine timing owns its algorithm; game owners choose phase behavior. |
-| `StartupSession` / root driver | Game session and native-task orchestration | Retain original Lua ordering and shared frontend state. Do not turn it into an engine service locator. |
-| `StageInspection` | Mission actor/camera simulation, scene presentation, diagnostics split apart | Separate game simulation from retained render-scene lifetime now; keep entity-registry growth a separate planned capability. |
+| `run_application` / `ApplicationOptions` | Game application composition/main loop | `src/game/application` owns composition; engine timing owns algorithms. |
+| `GameSession` / `SessionServices` / root driver | Game session and native-task orchestration | Retain original Lua ordering and shared frontend state. Do not turn it into an engine service locator. |
+| `WorldRuntime` | Current game simulation/presentation composition | Developer adapter is build-selected; a complete entity registry remains future. |
 | `PlayerActor` / controller publication | Game motion/action state plus completed pose observations | Retain actor/component publishers through narrow scene capabilities; make registration, phase admission and retirement explicit. Preserve source transforms and borrowing. |
 | `SceneLighting` / stage environment adapter | Engine lighting versus game-authored channel interpretation | Keep one named lighting subsystem with scene-local state; do not move sampling into actors or replace its recovered equations. |
 | `WorldRenderer` / `WorldPostprocess` | Render-pipeline contracts and native GPU implementation | Expose pass/data boundaries; retain native encoding and shaders. No generic frame graph required. |
-| `StartupHost` | Native window/input/output composition and presentation | Keep device mechanics here; do not migrate game scene/action/menu policy into the host. |
+| `WindowHost` | Native window/input/output composition and presentation | Keep device mechanics here; do not migrate game scene/action/menu policy into the host. |
 | `GameAudio`, Profile, shared Options | Game admission/cue/persistence policy using engine capabilities | Preserve accepted lifetime and save authority; directory cleanup must not create duplicate runtimes or settings owners. |
 
 ## Settled design and remaining implementation contracts
 
-The [reorganization plan](reorganization-plan.md) settles peer engine source
-families, grouped game folders, retained RenderScene publication capabilities,
+The [reorganization plan](reorganization-plan.md) settles explicit engine/game/
+platform/developer roots, game-owned application and input policy, retained RenderScene publication capabilities,
 identifiable scene lighting, sibling world/movie/UI output composition, and
 resource residency versus game-owned activation. The required original install
 and optional future selected packs share an ordered resolution path; packs cannot

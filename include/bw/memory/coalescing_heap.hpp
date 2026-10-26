@@ -32,7 +32,7 @@
 #include <memory>
 #include <span>
 
-#include "bw/memory/domain.hpp"
+#include "domain.hpp"
 
 namespace bw::memory {
 struct HeapSnapshot {

@@ -1,20 +1,31 @@
 # Source ownership and dependency mapping
 
-The [finalized reorganization plan](reorganization-plan.md) is the next-execution
-manifest at module-group level. Its peer-engine/grouped-game choices supersede
-physical alternatives in the older broad target tree below. That target tree
-still describes future capabilities, not folders to create during this pass.
-Current portable contracts/native boundaries remain intact; no files have moved.
+> **Revised slice 3 implemented; native review pending.** The earlier mechanical
+> grouping was rejected. The approved explicit engine/game/platform/developer
+> layout and ownership repairs replace that proposal. Both configuration gates and purchased-data checks pass;
+> user acceptance remains pending for this revised implementation.
 
-**Target architecture · working baseline · October 22, 2026.**
-[Engine structure](logical-overview.md) · [Runtime ownership](runtime-model.md) ·
-[Change axes](change-axes.md).
+The [approved reorganization plan](reorganization-plan.md) now uses explicit
+`src/engine`, `src/game`, `src/platform` and `src/developer` roots. The earlier
+mechanical grouping was rejected and is not an intermediate landing target.
+The revised implementation includes ownership and build repairs; integrated
+verification and user acceptance remain pending. The
+[complete file map](../../research/engine/subsystems/architecture-layout-file-map.json)
+and [current ownership](current-ownership.md) are authoritative for current paths.
 
-Source boundaries follow runtime responsibilities and reasons for change. They
-are not reconstruction stages. A library/module can serve startup, play and
-shutdown; no milestone has its own parallel engine implementation.
+Broader future contracts below remain a target architecture, not a list of
+implemented folders or services. Source boundaries follow ownership and reasons
+for change, not reconstruction milestones.
 
 ## Naming and provenance
+
+Slice 3 names the permanent session owner `GameSession` and its narrow service
+contract `SessionServices`. Game application composition is `run_application` with
+`ApplicationOptions` and `ApplicationMemory`. Concrete frontend renderers are
+`FrontendTitleSurface`, `FrontendMenuSurface` and `LoadingSurface`. Shared
+`OptionsFlow`, `OptionsServices`, `OptionsPresentation` and `OptionsSurface` live
+in `ui/shared/`; `localized_text.hpp` contains shared localized text utilities.
+These renames preserve the original task/binding names and single authorities.
 
 Name reconstructed engine types, functions and files for their responsibility.
 Readers should not need the original engine's vocabulary to understand an API.
@@ -58,73 +69,67 @@ is not synchronization. A future worker/job executor has a separate responsibili
 
 ## Source families
 
-The tree is the target organization; the implemented subset is listed below. Public portable contracts
-live under `include/bw/`, their implementations under matching `src/` families.
-Game-private declarations stay next to the concrete game implementation. A
-logical owner can be an aggregate; the map does not mandate a class per row.
+The approved physical tree groups existing code and concrete required splits:
 
 ```text
-bullet-witch/
-  include/bw/                  Portable engine contracts
-    runtime/                   Engine instance, service lifetime and diagnostics
-    world/                     World aggregate, stage instances and phase context
-    scene/                     Transform/bounds membership and query views
-    entities/                  Identity, hierarchy, state/message dispatch, retirement
-    ai/                        Evaluation, controllers and action interface
-    animation/                 Motion instances, tracks, poses, events, attachments
-    effects/                   Pack definitions, instances, simulation and children
-    physics/                   Engine collision, scene/query/mutation/provider contracts
-    render/                    Scene projection, views, visibility, materials,
-                               pass construction, commands, queue and device contracts
-    ui/                        Sprite/text/layout primitives and UI scene
-    input/                     Observations, action masks, edges/repeats/deadzones
-    audio/                     Banks, cues, spatial bindings and device contract
-    video/                     Player, sample ownership and backend contract
-    memory/                    Allocation domains, budgets, arenas, pools and leases
-    tasks/                     Lifecycle passes, work queue and completion contracts
-    script/                    Context, compatible runtime adapter, bridge/operations
-    resources/                 Catalog, service, groups, typed references, handlers
-    content/                   Mounted/virtual location and access policy
-    formats/                   RAT/CPR/DPK/AMB container views
-    assets/                    Model/motion/effect/UI/media/save payload families
-    math/                      Shared operations with explicit numerical conventions
-    platform/                  File, clock, thread/event, window and raw input contracts
-  src/                         One game/engine implementation root
-    framework/                 Shared application composition and frame orchestration
-    video/                     Shared player/sample transport
-      ffmpeg/                  Selected software codec backend and factory
-    platform/                  Concrete adapters selected by target
-      files/                   Shared read-only files and POSIX save storage
-      macos/                   Mac entry, window/input, Metal, AudioQueue and shaders
-    game/                      Bullet Witch behavior; private headers alongside code
-      session/                 Session owner, root driver and progression state
-      mission/                 Mission owner, stage assembly, outcomes and events
-      modes/                   Explicit mode schedules and startup/root transitions
-      screens/                 Concrete title/menu/dialog task state machines
-      actors/                  Player/enemy/vehicle/boss factories and components
-      actions/                 Concrete native AI action families
-      camera/                  Gameplay camera controllers and view requests
-      bindings/                Root/mission/AI native API schemas and adapters
-      persistence/             Capture/restore, save operations and checkpoint policy
-      progression/             Mission advancement, records and unlock policy
-      resources/               Typed/CALL construction adapters and registrations
-  tools/                       Consumers of production engine/data contracts
-  tests/                       In-process contracts and bounded integration coverage
-  docs/architecture/           Target architecture and supporting views
-  research/                    Original-engine evidence, authored tools, ignored outputs
+include/bw/                      Singular portable engine contracts
+  animation/ audio/ input/ math/ memory/ script/ tasks/ timing/ video/
+  content/formats/               Original binary schemas, explicitly legacy
+  content/resources/             Catalogs, leases, resolution and residency
+  lighting/ spatial/             Lighting evaluation and spatial mechanisms
+  render/{scene,materials,shadows,postprocess,output}/
+  platform/                     Files, save storage and neutral host boundary
+src/
+  engine/
+    animation/                  Pose, playback, events, shapes, secondary mechanics
+    audio/{backends/fact,codecs/ffmpeg}/
+    content/{formats,resources}/
+    input/                      Neutral input contracts and repeat mechanism
+    lighting/                   Fields, lights, receiver evaluation/publication
+    memory/ spatial/ script/ tasks/ timing/
+    render/{scene,materials,shadows,postprocess}/
+    video/codecs/ffmpeg/         Transport beside selected codec implementation
+  game/
+    application/                Bullet Witch composition and main loop
+    session/                    Root Lua, persistent session; audio admission/RNG
+    content/original/            Original namespace/owner/stage/palette policy
+    mission/                    Mission lifecycle, Lua, pause and effective state
+      loading/                  Mission admission and retained asset transactions
+    world/                      Current simulation, contact, camera/actor lifetime
+      presentation/             Authored stage environment and render-scene assembly
+    actors/
+      animation/                Original character catalog/event/motion-bank adapter
+      alicia/                   Her actor, controller, targeting and live resources
+        actions/                Shooter/reactions/jumps/spell admission and state
+        animation/              Alicia bindings, face/aim/cloth/support-hand modifiers
+        audio/                  Alicia's action/surface/voice policy
+    player/{input,camera}/      Human-player bindings, command arbitration and camera
+    profile/ settings/         Permanent saves/progression and device/binding settings
+    ui/{startup,frontend,loading,power_up,pause,hud,options,common,audio}/
+  platform/
+    common/files/ posix/files/  Standard file reads versus POSIX atomic saves
+    macos/
+      main.cpp                  Target executable composition entry
+      window/ input/ audio/ files/ memory/
+      render/shaders/           Metal renderers, compositor, allocation and shaders
+  developer/animation_review/  Existing debug review only; production-excluded
 ```
 
-The root `game/` remains reserved by the existing ignore policy for local data;
-authored game code is proposed under `src/game/`. The change from the previous
-proposed top-level game-code location does not move any existing implementation.
-Do not create empty files to materialize this tree. `memory/` and `math/` receive
-only concrete shared contracts; they are not miscellaneous utility buckets.
+Portable headers are singular; private game/native headers remain beside code.
+Actual original and replacement assets remain outside `src/` and outside Git.
+Optional local `/assets/original` and `/assets/overrides` directories are ignored;
+`src/game/content/original` is loader code, not proprietary content. No future
+pack resolver, NPC runtime, generic entity registry or physics engine is created
+by this layout. Math stays header-only where its implementation already is.
+
+The following runtime table includes future capabilities from the broader target
+architecture. For the concrete implemented subset use current-ownership.md.
 
 ## Runtime owner to source responsibility
 
 | Runtime unit | Source owner | Boundary | Change axes |
 |---|---|---|---|
-| ApplicationHost | `src/platform/<target>/` entry and `src/framework/` | Target selects adapters; shared framework composes engine/session and owns run/stop coordination | C1/P1 |
+| ApplicationHost | `src/platform/<target>/` entry and `src/game/application/` | Target selects adapters; game application composes engine/session and owns run/stop coordination | C1/P1 |
 | EngineInstance | `runtime/` | Own shared service lifetimes; expose explicit dependencies, not a service locator | E13 |
 | GameSession | `src/game/session/`, `modes/`, `screens/` | Root/modes/screens/progression and current mission relationship | G1/G5 |
 | MissionInstance | `src/game/mission/` | Mission context, world and stage group; game-specific stage assembly | G1 |
@@ -141,8 +146,8 @@ only concrete shared contracts; they are not miscellaneous utility buckets.
 | Script bindings | `src/game/bindings/` | Root/mission/AI schemas and operation adapters above the generic VM bridge | G2 |
 | Handler integration | `src/game/resources/` | Connect typed definitions, resource phases and subsystem construction | A6 |
 | Execution/memory | `tasks/`, `script/`, `memory/` | Explicit phase/continuation/storage contracts used by owners | E1/E12/E2/E16 |
-| Input service | `input/` and selected device sampler | Engine interpretation above raw platform observations | E10/P1 |
-| Game camera | `src/game/camera/` | Gameplay policy producing view requests | G6 |
+| Input | `src/platform/macos/input/`, `src/engine/input/`, `src/game/player/input/` | Native samples; engine repeat mechanism; game fixed UI/saved mapping and repeat owner | E10/P1 |
+| Game camera | `src/game/player/camera/` | Gameplay policy producing view requests | G6 |
 | Persistence/progression | `src/game/persistence/`, `progression/` | Snapshot/restore and advancement/unlock policy remain separate | G4/G5 |
 | Shared math | `include/bw/math/vector.hpp`, `matrix.hpp` (`bw_math`) | Precision-preserving fixed vectors and row-vector matrices; caller-owned tolerances and policies | E17 |
 | Inspection/verification | `tools/`, `tests/`, authored `research/tools/` | Consumers of production contracts and independent evidence | V1 |
@@ -151,7 +156,7 @@ only concrete shared contracts; they are not miscellaneous utility buckets.
 
 ```mermaid
 flowchart TD
-    Entry["platform target: process entry"] --> Framework["framework: shared application composition"]
+    Entry["platform target: process entry"] --> Framework["game/application: composition and loop"]
     Entry --> Adapters["selected native and codec adapters"]
     Framework --> Game["game session / mission / behavior"]
     Framework --> Runtime["runtime: engine service aggregate"]
@@ -228,7 +233,7 @@ header must define inputs, outputs, lifetime, failure and ordered steps using th
 | C14 Render submission/device | `render/commands`, `queue`, `device` | Ordered commands, stable inputs, CPU/device completion and reuse |
 | C15 Media | `audio/`, `video/` | Bank/cue/sample lifetime and distinct acceptance/readiness/completion/failure |
 | C16 Persistence | `src/game/persistence/` + asset/file contracts | Phase-consistent capture, schema, restore and operation status |
-| C17 Progression | `src/game/progression/` | Advancement, records and unlock policy independent of discovered assets |
+| C17 Progression | `src/game/profile/` | Advancement, records and unlock policy independent of discovered assets |
 | C18 Runtime ownership | `runtime/`, `world/` + session/mission composition | Explicit owner tree, service dependencies, partial initialization and quiescence |
 | C19 Scene/spatial observations | `scene/`, world bindings | Authoritative transforms/bounds, consumer membership and phase-valid query results |
 | C20 View/material/pass preparation | `render/` + game camera | Camera request, visibility, material/light interpretation and pass dependencies |
@@ -253,59 +258,70 @@ Target granularity can be refined during implementation without changing these
 boundaries. Keep CPU format tests and the inspector buildable without initializing
 a device or world. Do not create a new test-only loader, renderer or simulation.
 
-**Implemented today:** `bw_resources`, `bw_runtime`, `bw_profiles`, `bw_game`, `bw_images`,
-`bw_startup_presentation`, `bw_video`,
-`bw_video_ffmpeg`, `bw_startup_playback`, `bw_startup_framework`,
-`bw_save_storage_posix`, the Mac `bw_save_directory_macos`,
-`bw_media_audio_macos` and `bw_startup_host_macos`, `bw-resource`, `bw-startup`,
-their tests and the engineering tooling. The [resource contract](../resources.md)
-and [startup contract](../startup-runtime.md) describe the implemented subsets.
-The completed [migration](../../IMPLEMENTATION.md#migrating-src-01) and subsequent
-reconstruction sequence live in IMPLEMENTATION, not this architecture.
+**Current build owners:** engine `bw_resources`, `bw_runtime`, `bw_input`,
+`bw_timing`, `bw_memory`, `bw_render`, `bw_spatial`, `bw_lighting`, `bw_animation`,
+`bw_images`, `bw_video` and selected audio/codec adapters; game `bw_game_content`,
+`bw_profiles`, `bw_game`, `bw_game_playback`, `bw_game_presentation`,
+`bw_game_application`; native file/save/audio/render owners and
+`bw_window_host_macos`. `bw_profiles` now contains profile/settings authority,
+not unrelated menus or mission policy. The game executable is `bullet-witch`;
+`bw_metal_shaders` produces the complete `bullet_witch.metallib`.
+
+Existing developer sources are selected only in the developer build. Production
+build hooks remain inert, with no concrete review implementation/resources linked.
+Owner-mirrored tests retain their original scenarios and identities. The integrated
+build/dependency validation is pending; this list records declared ownership,
+not a passed gate. The [resource contract](../resources.md) and
+[startup contract](../startup-runtime.md) describe implemented behavior subsets.
 
 ## Implemented boundary migration
 
-The former combined `src/resources.cpp` is split into `src/formats/`
-(CPR/RAT/common errors), `src/resources/catalog.cpp`, `src/content/access.cpp`
-and `src/platform/files/host.cpp`, with corresponding public headers. ResourceCatalogData
+The following entries retain the history of each implemented boundary; paths and
+renamed API identifiers reflect slice 3. Earlier milestone limitations are not a
+current acceptance inventory: use [current ownership](current-ownership.md) and
+MEMORY for the accepted feature scope.
+
+The former combined `src/resources.cpp` is split into `src/engine/content/formats/`
+(CPR/RAT/common errors), `src/engine/content/resources/catalog.cpp`, `src/engine/content/resources/access.cpp`
+and `src/platform/common/files/host.cpp`, with corresponding public headers. ResourceCatalogData
 owns decoded metadata; ResourceCatalog owns that value and an index. Public type
 names retain the `bw::resources` namespace for compatibility. The file
 capability is injected at the content boundary. This is implemented; other
 proposed files in the mapping remain proposals until documented otherwise.
 
 The implemented startup subset adds `formats/named_file_package`, `resources/service`,
-`script/chunk`, `script/context`, `tasks/task_lifecycle_scheduler` and `src/game/root_driver`
+`script/chunk`, `script/context`, `tasks/task_lifecycle_scheduler` and `src/game/session/root_driver`
 (with its private header alongside it). CMake targets preserve dependency order:
 `bw_game` → `bw_runtime` → `bw_resources`; the script adapter privately links
 `bw_lua502`. A1 owns DPK layout, A3/A4 resource lifecycle/USER construction, E1
 task progression, E2 Lua mechanics, and G1/G2 root policy/native bindings.
-The `StartupSession` implementation now owns the root, scheduler and concrete
+The `GameSession` implementation now owns the root, scheduler and concrete
 logo/check/advertise/title screen flows. It borrows `FrontEnd` for character-load
 and title-menu tasks, validates the original root mission request, and owns the
 resulting `GameplayRequest`. See [startup runtime](../startup-runtime.md).
 
-`src/game/startup_flows` adds `CompanyLogoFlow` and `StartupCheckFlow` to `bw_game`.
+`src/game/ui/startup/startup_flows` adds `CompanyLogoFlow` and `StartupCheckFlow` to `bw_game`.
 They own recovered game update policy and borrow explicit observations from a
 media/fade capability. They do not choose a backend, draw, mutate session globals
-or remove scheduler tasks. `startup_services` supplies those session/lifecycle
+or remove scheduler tasks. `session/session_services` supplies those session/lifecycle
 operations. `startup_playback` supplies only game-relative paths and recovered
 fade policy, delegating transport to the reusable `video::Player`.
 
-`src/video/player.cpp` owns generic transport, clock and completion rules;
-`src/video/ffmpeg/decoder.cpp` owns demux, audio decode and video decode workers
-with separate bounded compressed queues. `src/video/pcm_buffer` owns timestamped
+`src/engine/video/player.cpp` owns generic transport, clock and completion rules;
+`src/engine/video/codecs/ffmpeg/decoder.cpp` owns demux, audio decode and video decode workers
+with separate bounded compressed queues. `src/engine/video/pcm_buffer` owns timestamped
 PCM transfer to the audio consumer. `include/bw/video/` contains the common
 decoder, player and output contracts.
-`src/platform/macos/startup_host.mm` implements window/input and Metal presentation;
-`src/platform/macos/media_audio.mm` implements the independently serviced AudioQueue
+`src/platform/macos/window/window_host.mm` implements window/input and Metal presentation;
+`src/platform/macos/audio/media_audio.mm` implements the independently serviced AudioQueue
 output behind a portable declaration. Both are selected only by the Apple build
-branch. `src/platform/macos/shaders/movie.metal` is independently compiled GPU source.
+branch. `src/platform/macos/render/shaders/movie.metal` is independently compiled GPU source.
 `src/platform/macos/main.cpp` owns process entry, native service construction
-and explicit FFmpeg selection. It calls `src/framework/startup_application.cpp`,
+and explicit FFmpeg selection. It calls `src/game/application/application.cpp`,
 which composes read-only resources, playback, profile, front end, presentation
-and the original-root session, and owns the startup loop. The target injects
-writable save storage separately from game files. The framework is application composition and
-can depend on game code; engine mechanisms cannot. Future target entries reuse
+and the original-root session, and owns the application loop through `run_application`. The target injects
+writable save storage separately from game files. This is game application composition; engine mechanisms cannot depend on concrete
+game code. Future target entries reuse
 that composition through common contracts.
 
 `bw_video` contains shared player/PCM mechanisms; `bw_video_ffmpeg` alone links
@@ -321,13 +337,13 @@ observed; this is not world execution.
 
 The [memory subsystem](memory-and-residency.md) has common CPU/domain/allocator,
 bounded coalescing-heap and device-budget contracts in `include/bw/memory/`.
-`src/memory/` owns admission, accounting and recovered first-fit split/coalesce.
-`src/platform/macos/cpu_backing.*` selects native CPU backing, and
+`src/engine/memory/` owns admission, accounting and recovered first-fit split/coalesce.
+`src/platform/macos/memory/cpu_backing.*` selects native CPU backing, and
 `texture_allocation.*` owns Metal resources and their portable budget tokens.
-`src/script/context.cpp` and the pinned Lua patch preserve context association.
+`src/engine/script/context.cpp` and the pinned Lua patch preserve context association.
 Catalogs/resources, task nodes and retained snapshots, owned image/video/PCM
-buffers and presentation state now carry domains. `StartupMemory` in the shared
-framework receives capabilities chosen in the Mac entry. Virtual-page backing,
+buffers and presentation state now carry domains. `ApplicationMemory` in the shared
+game application receives capabilities chosen in the Mac entry. Virtual-page backing,
 world/AI pools and asynchronous GPU retirement await their consumers. See
 [the current implementation record](../../research/engine/subsystems/memory-migration-completion.md)
 for coverage and verification.
@@ -357,16 +373,16 @@ for original source anchors, supported subsets and acceptance boundaries.
 
 | File | Responsibility |
 |---|---|
-| `include/bw/render/world.hpp` | Singular portable model/texture ownership, explicit residency and ordered material draw contract |
-| `include/bw/render/world_material.hpp`, `src/render/world_material.cpp` | Shared classification of exact recovered static material families and required textures/attributes; unknown variants reject |
-| `include/bw/render/world_output.hpp`, `src/render/world_output.cpp` | Authored HDR display parameters and portable sampled luminance adaptation; bounded history, explicit elapsed input and output-only limits. Native backends own image reduction, readback and final composition |
-| `src/platform/macos/world_postprocess.hpp/.mm`, `src/platform/macos/shaders/world_output.metal` | Accounted HDR/intermediate target owners and recovered luminance, bloom, exposure and gamma passes; device completion gates reuse and scalar readback |
-| `src/platform/macos/world_renderer.hpp/.mm` | Native immutable uploads, selected surface/depth pipelines, original draw addressing and submission validation |
-| `src/platform/macos/buffer_allocation.hpp/.mm` | Retained native vertex/index bytes with transactional device admission and reconciled accounting |
-| `src/platform/macos/texture_allocation.hpp/.mm` | Shared sampled color/packed-half textures and private depth attachments with device charges |
-| `src/platform/macos/shaders/world_color.metal` | Static transforms and original geometric/normal/layered/sky equations, cube reflection and alpha coverage/blending |
-| `src/platform/macos/shaders/world_depth.metal` | Original projected constant/slope-biased depth output |
-| `src/platform/macos/startup_host.mm` | World pass followed by existing movie/UI composition and completion-safe retirement |
+| `include/bw/render/scene/world.hpp` | Singular portable model/texture ownership, explicit residency and ordered material draw contract |
+| `include/bw/render/materials/world_material.hpp`, `src/engine/render/materials/world_material.cpp` | Shared classification of exact recovered static material families and required textures/attributes; unknown variants reject |
+| `include/bw/render/postprocess/world_output.hpp`, `src/engine/render/postprocess/world_output.cpp` | Authored HDR display parameters and portable sampled luminance adaptation; bounded history, explicit elapsed input and output-only limits. Native backends own image reduction, readback and final composition |
+| `src/platform/macos/render/world_postprocess.hpp/.mm`, `src/platform/macos/render/shaders/world_output.metal` | Accounted HDR/intermediate target owners and recovered luminance, bloom, exposure and gamma passes; device completion gates reuse and scalar readback |
+| `src/platform/macos/render/world_renderer.hpp/.mm` | Native immutable uploads, selected surface/depth pipelines, original draw addressing and submission validation |
+| `src/platform/macos/render/buffer_allocation.hpp/.mm` | Retained native vertex/index bytes with transactional device admission and reconciled accounting |
+| `src/platform/macos/render/texture_allocation.hpp/.mm` | Shared sampled color/packed-half textures and private depth attachments with device charges |
+| `src/platform/macos/render/shaders/world_color.metal` | Static transforms and original geometric/normal/layered/sky equations, cube reflection and alpha coverage/blending |
+| `src/platform/macos/render/shaders/world_depth.metal` | Original projected constant/slope-biased depth output |
+| `src/platform/macos/window/window_host.mm` | World pass followed by existing movie/UI composition and completion-safe retirement |
 
 Game stage selection and inspection-camera/material policy remain in `src/game/`.
 Device classes do not own gameplay visibility or infer lighting. See the
@@ -376,8 +392,8 @@ for implemented flow, supported material coverage and remaining pass semantics.
 ## Implemented title presentation
 
 `bw_images` owns shared bounded PNG and original FONT decoding under
-`src/formats/`. `bw_startup_presentation` owns game title resource selection,
-construction and draw data in `src/game/startup_title_surface`. It depends on
+`src/engine/content/formats/`. `bw_game_presentation` owns game title resource selection,
+construction and draw data in `src/game/ui/frontend/frontend_title_surface`. It depends on
 portable `render::SpriteOutput` and the resource service, not Metal.
 `AdvertiseFlow` and `TitleFlow` remain in `bw_game`; `TitleSurface` injects
 resource readiness and presentation without coupling the flow to a codec or
@@ -389,10 +405,11 @@ full world pass graph remains proposed.
 
 ## Implemented profile, menu and handoff ownership
 
-`bw_profiles` contains `src/game/profile` and `profile_load_flow`: original save
-field compatibility and character-load policy remain game code. The portable
+`bw_profiles` owns profile/settings authority. `src/game/ui/startup/profile_load_flow`
+is game UI orchestration over that authority. Original save-field compatibility
+and character-load policy remain game code. The portable
 `include/bw/platform/save_storage.hpp` capability knows leaf filenames and byte
-buffers, not Bullet Witch structures. `src/platform/files/save_storage.cpp`
+buffers, not Bullet Witch structures. `src/platform/posix/files/save_storage.cpp`
 implements bounded POSIX reads and temporary-file replacement. The Mac target
 chooses its Application Support location in `save_directory.mm`; other targets
 must choose their own storage implementation and location.
@@ -400,8 +417,8 @@ must choose their own storage implementation and location.
 `MenuFlow` and `FrontEnd` are in `bw_game`. The former consumes profile fields and
 an explicit achievement snapshot; the latter sequences loading, menu resources,
 fades, retry/continue-without-saving choices, persistence and result publication.
-`MenuSurface` is the borrowed presentation contract. `StartupMenuSurface` in
-`bw_startup_presentation` retains menu/font/costume resources, decodes images and
+`MenuSurface` is the borrowed presentation contract. `FrontendMenuSurface` in
+`bw_game_presentation` retains menu/font/costume resources, decodes images and
 emits portable sprite commands. Costume previews use original authored images;
 selecting one records the later player-resource choice, not a rendered actor.
 
@@ -409,10 +426,10 @@ Arrows below denote ownership or the labeled borrow, not source dependencies:
 
 ```mermaid
 flowchart TD
-    Framework[Shared startup framework] --> Profile[Profile: retained save bytes]
+    Framework[Game application composition] --> Profile[Profile: retained save bytes]
     Framework --> FrontEnd[FrontEnd: load and menu policies]
-    Framework --> MenuSurface[StartupMenuSurface: leases and textures]
-    Framework --> Session[StartupSession: root and screen tasks]
+    Framework --> MenuSurface[FrontendMenuSurface: leases and textures]
+    Framework --> Session[GameSession: root and screen tasks]
     Entry[Mac entry] --> Storage[POSIX SaveStorage at Mac-selected path]
     Session -. borrows .-> FrontEnd
     FrontEnd -. borrows .-> Profile
@@ -423,9 +440,9 @@ flowchart TD
 
 `_StartMission` and `_WaitMission` are part of the 19 root bindings. The former
 validates the confirmed campaign or concept selection; the latter remains
-pending until an implemented mission outcome exists. The framework now consumes
+pending until an implemented mission outcome exists. The game application now consumes
 One Shot Kill through `MissionDriver` and `MissionLoading`; other routes still
-report the request boundary. `StageInspection` borrows mission-owned models and
+report the request boundary. `WorldRuntime` borrows mission-owned models and
 textures and owns only the submitted static view. Original load readiness is
 independent of that view; unsupported constructors remain explicit. Achievement
 providers, omitted option screens and game/menu audio remain explicit gaps in the
@@ -436,18 +453,20 @@ providers, omitted option screens and game/menu audio remain explicit gaps in th
 
 | File | Responsibility |
 |---|---|
-| `src/game/mission_driver.hpp/.cpp` | Original mission/default-callback Lua context, serial native waits and cancellation |
-| `src/game/mission_loading.hpp/.cpp` | Serial native load requests, CPU definition and device residency ownership, readiness and cancellation; safe loading-presentation pulses and the authored concept-mission checkpoint placement boundary |
-| `src/game/startup_loading_surface.hpp/.cpp` | Title-selected portrait, original repeated sliding artwork, localized loading tip and default Xbox icon presentation; resident textures and bounded draw commands |
-| `src/game/mission_package_inputs.cpp` | Package text/cover/placement consumers, sound-bank registration and model dependency preloads |
-| `src/game/npc_palette.hpp/.cpp` | Compatible NPC material-variation registry linked to resident textures |
-| `include/bw/formats/section_table.hpp`, `src/formats/section_table.cpp` | Shared bounded placement, cover and score table access |
-| `include/bw/formats/text_table.hpp`, `src/formats/text_table.cpp` | Text-tree construction and registration data without pointer relocation |
-| `include/bw/formats/audio_bank.hpp`, `src/formats/audio_bank.cpp` | Typed sound/wave bank metadata; no audio voices or playback |
-| `src/game/stage_inspection.hpp/.cpp` | Retained stage/player presentation, original custom traversal, live camera and borrowed device publication |
-| `src/game/player_targeting.hpp/.cpp` | Original two-mode targeting selection and camera request, independent of raised posture lifetime |
-| `src/platform/macos/gamepad_actions.hpp/.mm` | Native GameController action sampling and fixed press-edge history |
-| `src/game/animation_review.hpp`, `stage_animation_review.cpp` | Explicit in-scene presentation previews, hardware action intent routing and paused weapon candidate publication; no combat outcomes |
+| `src/game/mission/mission_driver.hpp/.cpp` | Original mission/default-callback Lua context, serial native waits and cancellation |
+| `src/game/mission/loading/mission_loading.hpp/.cpp` | Serial native load requests, CPU definition and device residency ownership, readiness and cancellation; safe loading-presentation pulses and the authored concept-mission checkpoint placement boundary |
+| `src/game/ui/loading/loading_surface.hpp/.cpp` | Title-selected portrait, original repeated sliding artwork, localized loading tip and default Xbox icon presentation; resident textures and bounded draw commands |
+| `src/game/mission/loading/mission_package_inputs.cpp` | Package text/cover/placement consumers, sound-bank registration and model dependency preloads |
+| `src/game/content/original/npc_palette.hpp/.cpp` | Compatible NPC material-variation registry linked to resident textures |
+| `include/bw/content/formats/section_table.hpp`, `src/engine/content/formats/section_table.cpp` | Shared bounded placement, cover and score table access |
+| `include/bw/content/formats/text_table.hpp`, `src/engine/content/formats/text_table.cpp` | Text-tree construction and registration data without pointer relocation |
+| `include/bw/content/formats/audio_bank.hpp`, `src/engine/content/formats/audio_bank.cpp` | Typed sound/wave bank metadata; no audio voices or playback |
+| `src/game/world/world_runtime.hpp/.cpp` | Composition for mission simulation and stage presentation; developer adapter is build-selected |
+| `src/game/world/mission_simulation.hpp/.cpp` | Static contact, actor/controller/camera and source-ordered gameplay state |
+| `src/game/world/presentation/stage_presentation.hpp/.cpp` | Authored visual adapters and retained RenderScene lifetime/publication |
+| `src/game/actors/alicia/player_targeting.hpp/.cpp` | Original two-mode targeting selection and camera request, independent of raised posture lifetime |
+| `src/platform/macos/input/gamepad.hpp/.mm` | Native GameController action sampling and fixed press-edge history |
+| `src/developer/animation_review/player_animation_review.hpp`, `src/developer/animation_review/stage_animation_review.cpp` | Explicit in-scene presentation previews, hardware action intent routing and paused weapon candidate publication; no combat outcomes |
 
 ```mermaid
 flowchart LR
@@ -457,7 +476,7 @@ flowchart LR
     Loads --> Definitions[Stage, text, cover, sound and placement definitions]
     Loads --> Residency[Native mesh and texture residency]
     Loads --> Character[Character support and NPC palette owners]
-    Definitions -. borrow .-> Inspection[StageInspection: declared static view]
+    Definitions -. borrow .-> Inspection[WorldRuntime: declared static view]
     Residency -. borrow .-> Inspection
     Inspection --> Device[WorldOutput: native rendering]
     Loads --> Readiness[Original load constructor readiness]
@@ -474,13 +493,13 @@ load-service captures and tagged scripts. See
 
 | File | Responsibility |
 |---|---|
-| `include/bw/formats/animation_definition.hpp`, `src/formats/animation_definition.cpp` | Bounded motion/shape relocation and skeleton bind-transform construction; no sampling |
-| `include/bw/content/character_support.hpp`, `src/content/character_support.cpp` | Native support-name aliases, ordered lists and retained archive/USER ownership |
-| `include/bw/animation/pose.hpp`, `src/animation/pose.cpp` | Prepared immutable channels, explicit-time sampling, reusable local/world/skin poses |
-| `src/game/player_actor.hpp/.cpp` | Selected costume, original motion bindings, actor/model basis, right-hand weapon and one combined secondary/support-arm pose publication |
-| `src/game/alicia_support_arm.hpp/.cpp` | Prepared authored weapon grip/pole targets; value-only left-arm overrides under caller-owned action permission |
+| `include/bw/content/formats/animation_definition.hpp`, `src/engine/content/formats/animation_definition.cpp` | Bounded motion/shape relocation and skeleton bind-transform construction; no sampling |
+| `src/game/content/original/character_support.hpp`, `src/game/content/original/character_support.cpp` | Native support-name aliases, ordered lists and retained archive/USER ownership |
+| `include/bw/animation/pose.hpp`, `src/engine/animation/pose.cpp` | Prepared immutable channels, explicit-time sampling, reusable local/world/skin poses |
+| `src/game/actors/alicia/player_actor.hpp/.cpp` | Selected costume, original motion bindings, actor/model basis, right-hand weapon and one combined secondary/support-arm pose publication |
+| `src/game/actors/alicia/animation/alicia_support_arm.hpp/.cpp` | Prepared authored weapon grip/pole targets; value-only left-arm overrides under caller-owned action permission |
 | `include/bw/math/two_bone.hpp` | Reusable analytic two-link geometry and shortest-arc rotations, without actor state or pose mutation |
-| `src/game/mission_loading.hpp/.cpp` | Mission-owned body/weapon definitions, support and device residency |
+| `src/game/mission/loading/mission_loading.hpp/.cpp` | Mission-owned body/weapon definitions, support and device residency |
 
 See [actors and animation](actors-and-animation.md). The actor presentation is
 fixed at the recovered script placement until the movement owner is implemented.
@@ -497,10 +516,10 @@ separate unimplemented consumer. See
 
 | Source | Responsibility |
 |---|---|
-| `include/bw/formats/customization.hpp`, `src/formats/customization.cpp` | Shared immutable customization tree and bounded authored payload lookup |
-| `include/bw/formats/player_camera.hpp`, `src/formats/player_camera.cpp` | Original initial player camera preset and general frustum settings |
-| `include/bw/scene/spatial/static_collision.hpp`, `src/scene/spatial/static_collision.cpp` | Static collision part registration, original triangle/clearance query; borrowed definition lifetime |
-| `src/game/camera/initial_camera.hpp/.cpp` | Initial scripted-pose camera composition, ordered original clearance and renderer view output |
+| `include/bw/content/formats/customization.hpp`, `src/engine/content/formats/customization.cpp` | Shared immutable customization tree and bounded authored payload lookup |
+| `src/game/player/camera/player_camera_settings.hpp`, `src/game/player/camera/player_camera_settings.cpp` | Original initial player camera preset and general frustum settings |
+| `include/bw/spatial/static_collision.hpp`, `src/engine/spatial/static_collision.cpp` | Static collision part registration, original triangle/clearance query; borrowed definition lifetime |
+| `src/game/player/camera/initial_camera.hpp/.cpp` | Initial scripted-pose camera composition, ordered original clearance and renderer view output |
 
 The stage content owner retains generic customization bytes; game camera policy
 selects its own authored paths. Initial inspection supplies the recovered script
@@ -509,40 +528,40 @@ snapshot does not imply player traversal or a complete camera controller. Source
 contracts and limitations are in [player camera initialization](../../research/engine/subsystems/player-camera-initialization.md).
 
 
-Launch option parsing lives in `src/framework/startup_options.cpp`; it produces
-the owned `StartupOptions` declared alongside application composition. The
-optional inspection pose crosses into `StageInspection` only during view setup.
+Launch option parsing lives in `src/game/application/application_options.cpp`; it produces
+the owned `ApplicationOptions` declared alongside application composition. The
+optional inspection pose crosses into `WorldRuntime` only during view setup.
 It adds no input controller or replacement gameplay-camera owner. Keeping the
 parser independent of the native loop permits in-process configuration checks
 without launching a window or reading game files.
 
-The bounded traversal lifetime connects `src/game/player_controller.*`
-(authoritative position/velocity and action phases), `src/game/camera/player_camera.*`
-(live look/follow/clearance), `src/game/placed_collision.*` (authored prop shape
-preparation), and `src/scene/spatial/character_collision.cpp` (shared custom
-capsule contact). `StageInspection` retains those owners with the mission scene.
+The bounded traversal lifetime connects `src/game/actors/alicia/player_controller.*`
+(authoritative position/velocity and action phases), `src/game/player/camera/player_camera.*`
+(live look/follow/clearance), `src/game/world/placed_collision.*` (authored prop shape
+preparation), and `src/engine/spatial/character_collision.cpp` (shared custom
+capsule contact). `MissionSimulation` retains traversal/contact and camera state; `WorldRuntime`
+composes it with `StagePresentation` and existing review diagnostics.
 `WorldOutput::update_world_view` publishes world/sky constants over retained draws;
-`StartupInput` exposes movement/look axes and jump/pause edges separately from
+Game `MappedInput` exposes movement/look axes and jump/pause edges separately from
 front-end action masks. This entry does not complete the original mission start.
 
 ### Engine timing and mission admission
 
 | Files | Responsibility |
 | --- | --- |
-| `include/bw/timing/frame_clock.hpp`, `src/timing/frame_clock.cpp` | Monotonic elapsed observation, source presentation clamp, pacing deadlines and explicit loading rebase |
-| `include/bw/world/world_clock.hpp`, `src/world/world_clock.cpp` | Single scaled interval publication, immutable frame identity and admitted world time |
-| `include/bw/input/action_repeat.hpp`, `src/input/action_repeat.cpp` | Shared original held/pressed repeat bank using explicit presentation time; devices supply masks |
-| `src/game/mission_control.hpp/.cpp` | Stable original user/script/pad pause authority, shared saved-state stack, hardware/neutral admission and restricted UserPauseControl handle |
-| `src/game/pause_menu.*`, `developer_review_flow.*`, `mission_driver.*`, `stage_inspection.*` | Native pause and separate developer navigation receive only user-pause commands; driver and scene borrow const control/time observations |
-| `src/game/pause_help.*`, `pause_options.*` | Native child navigation; narrow Help read capability and authoritative settings transaction/save capabilities |
-| `src/game/controller_settings.*`, `device_options.*`, `controller_options.*` | Original System mapping compatibility, separate PC device settings persistence, and native controller child policy |
-| `src/game/controller_input.*`, `include/bw/input/physical_state.hpp` | Game mapping of neutral physical samples through copied settings; platform never reads Profile |
-| `src/game/menu_dialog.*`, `menu_audio.*` | Shared original confirmation state/layout and source cue scheduling on presentation time |
-| `src/game/mission_transition.hpp` | Typed full mission teardown/reentry request; root wait remains active for restart |
-
-| `src/game/mission_pause_presentation.hpp`, `mission_pause_surface.*`, `pause_*_surface.*` | Restricted pause output and mutually exclusive native view resources; original artwork and font/glyph publication |
-| `src/game/developer_views.hpp`, `run`, `CMakeLists.txt` | Explicit build-time diagnostic separation, default off; user-facing interface/admission pending design; capture only controls logging |
-| `src/framework/startup_application.cpp` | Retains owners in lifetime order, samples native time/input, waits and dispatches current consumers |
+| `include/bw/timing/frame_clock.hpp`, `src/engine/timing/frame_clock.cpp` | Monotonic elapsed observation, source presentation clamp, pacing deadlines and explicit loading rebase |
+| `include/bw/timing/world_clock.hpp`, `src/engine/timing/world_clock.cpp` | Single scaled interval publication, immutable frame identity and admitted world time |
+| `include/bw/input/action_repeat.hpp`, `src/engine/input/action_repeat.cpp` | Shared original held/pressed repeat bank using explicit presentation time; game mapping supplies masks |
+| `src/game/mission/mission_control.hpp/.cpp` | Stable original user/script/pad pause authority, shared saved-state stack, hardware/neutral admission and restricted UserPauseControl handle |
+| `src/game/ui/pause/pause_menu.*`, `src/developer/animation_review/developer_review_flow.*`, `src/game/mission/mission_driver.*`, `src/game/world/world_runtime.*` | Native pause and separate developer navigation receive only user-pause commands; driver and scene borrow const control/time observations |
+| `src/game/ui/pause/pause_help.*`, `src/game/ui/options/options.*` | Native child navigation; narrow Help read capability and authoritative settings transaction/save capabilities |
+| `src/game/settings/controller_settings.*`, `src/game/settings/device_options.*`, `src/game/ui/options/controller_options.*` | Original System mapping compatibility, separate PC device settings persistence, and native controller child policy |
+| `src/game/player/input/controller_input.*`, `include/bw/input/physical_state.hpp` | Game mapping of neutral physical samples through copied settings; platform never reads Profile |
+| `src/game/ui/common/menu_dialog.*`, `src/game/ui/audio/menu_audio.*` | Shared original confirmation state/layout and source cue scheduling on presentation time |
+| `src/game/mission/mission_transition.hpp` | Typed full mission teardown/reentry request; root wait remains active for restart |
+| `src/game/ui/pause/mission_pause_presentation.hpp`, `src/game/ui/pause/mission_pause_surface.*`, `src/game/ui/pause/pause_menu_surface.*`, `src/game/ui/pause/pause_help_surface.*` | Restricted pause output and mutually exclusive native view resources; original artwork and font/glyph publication |
+| `src/developer/animation_review/developer_views.hpp`, `run`, `CMakeLists.txt` | Explicit build-time diagnostic separation, default off; user-facing interface/admission pending design; capture only controls logging |
+| `src/game/application/application.cpp` | Retains owners in lifetime order, samples native time/input, waits and dispatches current consumers |
 
 Time publication belongs to `bw_timing`, the shared repeat bank to `bw_input`,
 and game policy to `bw_game`. They decompose the recovered timer/render publication, base-game
@@ -572,19 +591,19 @@ preserve declared precision/order or explicitly revise and verify that contract.
 `shape_pose` own reusable prepared resources, clocks, layered pose composition,
 ordered event dispatch and CPU shape deformation. `formats/motion_events` and
 `model_shape_offsets` retain exact FPA0/TS2V compatibility layouts.
-`game/character_animations` maps publications/aliases, while
+`game/actors/character_animations` maps publications/aliases, while
 `character_motion_player` binds current-only game receivers to retained rings.
-`game/alicia_action_policy`, `motion_presentation` and `facial_animation` own
+`game/actors/alicia_action_policy`, `motion_presentation` and `facial_animation` own
 original selection, typed event meaning and facial bank policy. PlayerActor
 composes these owners with secondary motion and native palette/shape publication;
 it does not make the engine evaluator depend on Alicia action names. See
 [actors and animation](actors-and-animation.md).
 
 
-`game/alicia_action_owner` arbitrates exclusive base families over the stable
+`game/actors/alicia_action_owner` arbitrates exclusive base families over the stable
 player lifetime. `alicia_reaction_policy`, `scripted_jump_policy` and
 `spell_presentation_policy` retain family-specific completion, contact and
-external-observation contracts. `game/aim_posture` owns raised target/lifetime
+external-observation contracts. `game/actors/aim_posture` owns raised target/lifetime
 policy; the engine `animation/pose` owns its pre-hierarchy chain operation.
 The source parent/model interval boundary is documented in
 [clock order](../../research/engine/subsystems/actor-model-clock-order.md).
@@ -592,16 +611,16 @@ The source parent/model interval boundary is documented in
 `include/bw/audio/output.hpp` defines game cue output independently of movie
 media audio. `audio/fact` owns the pinned original-bank scheduler and native
 output; prepared wave decoding uses the existing shared FFmpeg dependency.
-`game/game_audio` owns session bank preparation, `character_audio` owns source
+`game/audio/game_audio` owns session bank preparation, `character_audio` owns source
 SE/VO policy, and `source_random` supplies a session-owned random stream.
-`PlayerActor` supplies emitter/contact observations; framework injects the
+`PlayerActor` supplies emitter/contact observations; game application injects the
 target factory and preserves teardown order. See [game audio](../game-audio.md).
 
 ### Explicit initial-placement exception
 
-`src/game/initial_placement_shim.hpp/.cpp` is the sole temporary shim authorized
+`src/game/world/initial_placement_shim.hpp/.cpp` is the sole temporary shim authorized
 for the animation slice: fresh `cm01_00` / `st04_c` only, with checkpoint requests
-rejected. The framework injects its owned pose into the actor; reusable Stage
+rejected. The game application injects its owned pose into the actor; reusable Stage
 inspection requires explicit placement when no actor is supplied. Replace this
 boundary with genuine mission Lua placement after the startup gates described
 in `research/engine/subsystems/mission-start-admission.md` are implemented.
@@ -609,7 +628,7 @@ in `research/engine/subsystems/mission-start-admission.md` are implemented.
 ### Source local-light producers and character publication
 
 `PhysicsCollisionDefinition::local_light` decodes the original flagged PHIT
-emitter record. `src/game/placed_lighting.hpp/.cpp` resolves its authored joint
+emitter record. `src/game/world/presentation/placed_lighting.hpp/.cpp` resolves its authored joint
 against actual placed body-world matrices, rejecting an unavailable fallback
 rather than inventing an object transform. `scene::LocalLights` prepares source
 selection storage inside `scene::SceneLighting`, which owns scene fields,
@@ -622,10 +641,10 @@ See `research/engine/subsystems/placed-local-lights.md` and
 settings and producer boundaries.
 
 
-`include/bw/scene/environment.hpp` and `src/scene/environment.cpp` own spatial
+`include/bw/spatial/environment.hpp` and `src/engine/spatial/environment.cpp` own spatial
 region selection, scalar-track bindings and retained environment transitions.
 `scene/spatial/area_regions` and `animation/scalar_animation` prepare reusable
-region queries and curve sampling. `src/game/stage_environment.hpp/.cpp` maps
+region queries and curve sampling. `src/game/world/presentation/stage_environment.hpp/.cpp` maps
 original AREA/STBL/FLAN channel semantics into typed stage values, supplying the
 source transition policy without moving engine state into a controller.
 `scene/lighting/scene_lighting` receives resulting light definitions/intensities;
@@ -636,13 +655,13 @@ state to the native renderer. See [scene lighting](lighting.md).
 ### Permanent progression and mission player state
 
 The [progression drill-in](player-progression.md) decomposes the original Record,
-power-up/result, mission application and save-task responsibilities. `src/game/progression.*`
+power-up/result, mission application and save-task responsibilities. `src/game/profile/progression.*`
 owns fixed typed values and source rules; `progression_save.*` owns only mapped
 Record/checkpoint compatibility; `Profile` remains the sole permanent authority.
 `mission_player_state.*` owns effective mission levels, selected equipment and
 script/context restrictions. These are game policies in `bw_profiles`, not new
-engine storage or rendering responsibilities. `StartupSession` captures permanent
-values in its owned request; the framework selects the explicit entry profile,
+engine storage or rendering responsibilities. `GameSession` captures permanent
+values in its owned request; the game application selects the explicit entry profile,
 then publishes weapon selection only after resource/action success. Engine
 `SaveStorage` continues to know only filenames and bytes.
 
@@ -653,21 +672,21 @@ The [gameplay drill-in](player-gameplay.md) separates these original owners:
 The game integration adapters are `player_input_routing.*` (original player
 ring/input arbitration), `player_cockpit.*` (resource publication to cockpit),
 `mission_interaction.*` (pause/equipment transactions), and `mission_gameplay.*`
-(ordered mission phases). The framework invokes those phases and supplies
+(ordered mission phases). The game application invokes those phases and supplies
 neutral platform observations; it does not implement their decisions. This
 responsibility repair precedes the separate planned directory/layout discussion.
 
 | Reconstructed file | Responsibility |
 | --- | --- |
-| `src/game/player_resources.*` | Live health/magic lanes, all four weapons' ammunition/cadence and narrow action transactions |
-| `src/game/gameplay_hud.*`, `ammunition_hud.*` | Source native cockpit observations, gauge/notice/reticle/cartridge animation and ordered sprite commands |
-| `src/game/spell_selection.*` | Native ring navigation and typed selection requests; no resource or action authority |
-| `src/game/gameplay_hud_surface.*`, `sprite_text.*` | Prepared original sprite/font residency and shared text submission |
-| `src/game/power_up_flow.*` (separate unaccepted work; excluded from HUD commit) | Native post-result category/confirmation policy, UI transition ownership and restricted permanent purchase capability |
-| `src/game/power_up_presentation.hpp`, `power_up_surface.*` (separate unaccepted work; excluded from HUD commit) | Copied power-up observations and original art/font/localization/input-glyph rendering; no purchase or clock authority |
+| `src/game/actors/alicia/player_resources.*` | Live health/magic lanes, all four weapons' ammunition/cadence and narrow action transactions |
+| `src/game/ui/hud/gameplay_hud.*`, `src/game/ui/hud/ammunition_hud.*` | Source native cockpit observations, gauge/notice/reticle/cartridge animation and ordered sprite commands |
+| `src/game/ui/hud/spell_selection.*` | Native ring navigation and typed selection requests; no resource or action authority |
+| `src/game/ui/hud/gameplay_hud_surface.*`, `src/game/ui/common/sprite_text.*` | Prepared original sprite/font residency and shared text submission |
+| `src/game/ui/power_up/power_up_flow.*` (frontend accepted; post-result gameplay remains WIP) | Native post-result category/confirmation policy, UI transition ownership and restricted permanent purchase capability |
+| `src/game/ui/power_up/power_up_presentation.hpp`, `src/game/ui/power_up/power_up_surface.*` (frontend accepted; post-result gameplay remains WIP) | Copied power-up observations and original art/font/localization/input-glyph rendering; no purchase or clock authority |
 
 The game coordinator brackets action dispatch with the existing world frame and
-the cockpit adapter publishes copied observations afterward. `StageInspection`
+the cockpit adapter publishes copied observations afterward. `WorldRuntime`
 borrows only action transactions;
 its former independent weapon cadence gate is removed. The engine sprite backend
 owns alpha/additive blend state; game UI supplies ordered values. Pause-only menu
@@ -683,13 +702,13 @@ and forwards copied input. All policies consume the existing presentation delta.
 
 | Owner | Responsibility |
 | --- | --- |
-| `menu_flow.*`, `startup_menu_surface.*` | Main, difficulty, stage/concept and costume policy snapshots; original authored sprite/text presentation |
-| `profile_load_flow.*`, `menu_dialog.*` | Original desktop load/create/overwrite/autosave task and shared dialog transitions |
-| `frontend_options.*`, `frontend_options_surface.*` | Borrowed output boundary and mutually exclusive Options/controller resource residency |
-| `pause_options.*`, `controller_options.*` | Shared source settings transactions, frontend-only child requests and real physical-input receiver |
-| `ranking_flow.*`, `ranking_surface.*` | Original ranking shell/provider availability handling, with explicit unavailable Steam backend |
-| `power_up_flow.*`, `power_up_surface.*` | Reachable native upgrade policy and presentation; post-result world producer remains WIP |
-| `frontend_audio.*`, `game_audio.*` | One session audio runtime, source menu requests/music and later mission-bank admission |
+| `src/game/ui/frontend/menu_flow.*`, `src/game/ui/frontend/frontend_menu_surface.*` | Main, difficulty, stage/concept and costume policy snapshots; original authored sprite/text presentation |
+| `src/game/ui/startup/profile_load_flow.*`, `src/game/ui/common/menu_dialog.*` | Original desktop load/create/overwrite/autosave task and shared dialog transitions |
+| `src/game/ui/options/frontend_options.hpp`, `src/game/ui/options/frontend_options_surface.*` | Borrowed output boundary and mutually exclusive Options/controller resource residency |
+| `src/game/ui/options/options.*`, `src/game/ui/options/controller_options.*` | Shared source settings transactions, frontend-only child requests and real physical-input receiver |
+| `src/game/ui/frontend/ranking_flow.*`, `src/game/ui/frontend/ranking_surface.*` | Original ranking shell/provider availability handling, with explicit unavailable Steam backend |
+| `src/game/ui/power_up/power_up_flow.*`, `src/game/ui/power_up/power_up_surface.*` | Reachable native upgrade policy and presentation; post-result world producer remains WIP |
+| `src/game/ui/audio/frontend_audio.*`, `src/game/session/audio/game_audio.*` | One session audio runtime, source menu requests/music and later mission-bank admission |
 
 The independent review checks connected child return and persistence ownership,
 not just isolated flow fixtures. Detailed evidence is in the frontend subsystem

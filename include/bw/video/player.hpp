@@ -33,7 +33,7 @@
 #include <functional>
 #include <memory>
 
-#include "bw/video/output.hpp"
+#include "output.hpp"
 
 namespace bw::video {
 struct PlaybackStatistics {

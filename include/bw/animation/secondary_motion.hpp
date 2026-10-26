@@ -18,8 +18,8 @@
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) fixes storage. Source
 // equations and Unreal ownership reference: costume-secondary-motion.md.
 #pragma once
-#include "bw/animation/pose.hpp"
-#include "bw/formats/control_points.hpp"
+#include "bw/content/formats/control_points.hpp"
+#include "pose.hpp"
 namespace bw::animation {
 using SecondaryVector = math::Vector3<float>;
 enum class SecondaryNodeKind : std::uint8_t {

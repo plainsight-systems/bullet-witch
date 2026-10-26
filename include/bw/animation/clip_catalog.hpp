@@ -25,7 +25,7 @@
 
 #include <functional>
 
-#include "bw/animation/pose.hpp"
+#include "pose.hpp"
 
 namespace bw::animation {
 struct NamedClipSource {

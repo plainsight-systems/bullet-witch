@@ -48,10 +48,10 @@ current acceptance table above.
 
 ### 1. Ordinary weapon switching uses the paused preview loading contract
 
-`src/framework/startup_application.cpp:282–308` pauses StageInspection for normal
+`src/framework/application.cpp:282–308` pauses StageInspection for normal
 B/Q switching, performs a synchronous replacement, then rebases the host clock.
 Stage pause also pauses game audio. `MissionLoading::prepare_weapon` in
-`src/game/mission_loading.cpp:222–237` reloads model/support and constructs GPU
+`src/game/mission/mission_loading.cpp:222–237` reloads model/support and constructs GPU
 residency; `prepare_weapon_class` repeats this for each class change, while
 `commit_weapon_class` retires the previous resource owner.
 
@@ -79,7 +79,7 @@ See [action policy](alicia-action-policy.md#normal-weapon-cycling-presentation).
 ### 2. Live intent and preview state share policy and reset ownership
 
 `StageInspection::prepare_review_observations` in
-`src/game/stage_animation_review.cpp:366–380` supplies real weapon settings,
+`src/game/developer/stage_animation_review.cpp:366–380` supplies real weapon settings,
 merges `held_aim_mode_` and `review_raised_` into accepted aim refresh, and injects
 synthetic spell observations. `present_input:407–412` resolves the two booleans
 with a special toggle expression. `stop_review` and neutral weapon replacement
@@ -108,9 +108,9 @@ The subsequent scoped re-review now clears it, as recorded in the current table.
 
 ### 3. Normal launch supplies a mission-specific spawn instead of script state
 
-`src/framework/startup_application.cpp:488–492` constructs the actor with
+`src/framework/application.cpp:488–492` constructs the actor with
 `kOneShotKillInitialPose`. A separate C++ copy of the three checkpoint ranges,
-`one_shot_kill_placement` in `src/game/mission_loading.cpp:40–46`, is not called
+`one_shot_kill_placement` in `src/game/mission/mission_loading.cpp:40–46`, is not called
 by the production launch path. StageInspection also uses the initial constant
 as its playerless camera fallback.
 
@@ -132,7 +132,7 @@ integration, not evidence of a newly broken animation.**
 
 ### 4. Actor lighting substitutes static-stage constant irradiance
 
-`StageInspection::append_player_draws` in `src/game/stage_inspection.cpp:742`
+`StageInspection::append_player_draws` in `src/game/mission/stage_inspection.cpp:742`
 uses the static surface `environment_parameters` producer. Lines 302–306
 synthesize constant irradiance from stage ambient color; actor location does
 not enter this evaluation. `MissionLoading` retains character/enemy `_cl` and

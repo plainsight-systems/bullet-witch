@@ -17,7 +17,7 @@
 // unique runtime owners cannot be copied; moves preserve stable heap identity.
 
 #pragma once
-#include "bw/formats/common.hpp"
+#include "bw/content/formats/common.hpp"
 #include "bw/memory/allocator.hpp"
 namespace bw::script {
 // Convert serialized ABI widths only; loading and execution belong to Context.

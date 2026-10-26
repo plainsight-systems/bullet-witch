@@ -1,0 +1,325 @@
+{
+  "status": "Approved owner grouping implemented; both configuration gates and purchased corpus passed",
+  "files": [
+    {
+      "current": "tests/memory_test.cpp",
+      "implemented": "tests/unit/engine/memory/memory_test.cpp"
+    },
+    {
+      "current": "tests/device_budget_test.cpp",
+      "implemented": "tests/unit/engine/memory/device_budget_test.cpp"
+    },
+    {
+      "current": "tests/resources_test.cpp",
+      "implemented": "tests/unit/engine/content/resources/resources_test.cpp"
+    },
+    {
+      "current": "tests/model_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/model_test.cpp"
+    },
+    {
+      "current": "tests/audio_bank_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/audio_bank_test.cpp"
+    },
+    {
+      "current": "tests/stage_definitions_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/stage_definitions_test.cpp"
+    },
+    {
+      "current": "tests/animation_definition_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/animation_definition_test.cpp"
+    },
+    {
+      "current": "tests/customization_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/customization_test.cpp"
+    },
+    {
+      "current": "tests/image_font_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/image_font_test.cpp"
+    },
+    {
+      "current": "tests/texture_mips_test.cpp",
+      "implemented": "tests/unit/engine/content/formats/texture_mips_test.cpp"
+    },
+    {
+      "current": "tests/render_scene_test.cpp",
+      "implemented": "tests/unit/engine/render/render_scene_test.cpp"
+    },
+    {
+      "current": "tests/world_output_test.cpp",
+      "implemented": "tests/unit/engine/render/world_output_test.cpp"
+    },
+    {
+      "current": "tests/world_material_test.cpp",
+      "implemented": "tests/unit/engine/render/world_material_test.cpp"
+    },
+    {
+      "current": "tests/view_test.cpp",
+      "implemented": "tests/unit/engine/render/view_test.cpp"
+    },
+    {
+      "current": "tests/shadow_test.cpp",
+      "implemented": "tests/unit/engine/render/shadow_test.cpp"
+    },
+    {
+      "current": "tests/material_animation_test.cpp",
+      "implemented": "tests/unit/engine/render/material_animation_test.cpp"
+    },
+    {
+      "current": "tests/static_collision_test.cpp",
+      "implemented": "tests/unit/engine/spatial/static_collision_test.cpp"
+    },
+    {
+      "current": "tests/irradiance_field_test.cpp",
+      "implemented": "tests/unit/engine/lighting/irradiance_field_test.cpp"
+    },
+    {
+      "current": "tests/local_light_view_test.cpp",
+      "implemented": "tests/unit/engine/lighting/local_light_view_test.cpp"
+    },
+    {
+      "current": "tests/local_lights_test.cpp",
+      "implemented": "tests/unit/engine/lighting/local_lights_test.cpp"
+    },
+    {
+      "current": "tests/reflection_field_test.cpp",
+      "implemented": "tests/unit/engine/lighting/reflection_field_test.cpp"
+    },
+    {
+      "current": "tests/shadow_casters_test.cpp",
+      "implemented": "tests/unit/engine/render/shadows/shadow_casters_test.cpp"
+    },
+    {
+      "current": "tests/scalar_area_test.cpp",
+      "implemented": "tests/unit/engine/spatial/scalar_area_test.cpp"
+    },
+    {
+      "current": "tests/skeletal_pose_test.cpp",
+      "implemented": "tests/unit/engine/animation/skeletal_pose_test.cpp"
+    },
+    {
+      "current": "tests/secondary_motion_test.cpp",
+      "implemented": "tests/unit/engine/animation/secondary_motion_test.cpp"
+    },
+    {
+      "current": "tests/motion_events_test.cpp",
+      "implemented": "tests/unit/engine/animation/motion_events_test.cpp"
+    },
+    {
+      "current": "tests/shape_pose_test.cpp",
+      "implemented": "tests/unit/engine/animation/shape_pose_test.cpp"
+    },
+    {
+      "current": "tests/math_test.cpp",
+      "implemented": "tests/unit/engine/math/math_test.cpp"
+    },
+    {
+      "current": "tests/runtime_test.cpp",
+      "implemented": "tests/unit/engine/runtime/runtime_test.cpp"
+    },
+    {
+      "current": "tests/task_memory_test.cpp",
+      "implemented": "tests/unit/engine/runtime/task_memory_test.cpp"
+    },
+    {
+      "current": "tests/lua_memory_test.cpp",
+      "implemented": "tests/unit/engine/runtime/lua_memory_test.cpp"
+    },
+    {
+      "current": "tests/pcm_buffer_test.cpp",
+      "implemented": "tests/unit/engine/video/pcm_buffer_test.cpp"
+    },
+    {
+      "current": "tests/profile_test.cpp",
+      "implemented": "tests/unit/game/profile/profile_test.cpp"
+    },
+    {
+      "current": "tests/profile_load_flow_test.cpp",
+      "implemented": "tests/unit/game/ui/startup/profile_load_flow_test.cpp"
+    },
+    {
+      "current": "tests/progression_test.cpp",
+      "implemented": "tests/unit/game/profile/progression_test.cpp"
+    },
+    {
+      "current": "tests/startup_options_test.cpp",
+      "implemented": "tests/unit/game/application/startup_options_test.cpp"
+    },
+    {
+      "current": "tests/startup_flows_test.cpp",
+      "implemented": "tests/unit/game/ui/startup/startup_flows_test.cpp"
+    },
+    {
+      "current": "tests/startup_services_test.cpp",
+      "implemented": "tests/unit/game/session/startup_services_test.cpp"
+    },
+    {
+      "current": "tests/startup_playback_test.cpp",
+      "implemented": "tests/unit/game/ui/startup/startup_playback_test.cpp"
+    },
+    {
+      "current": "tests/advertise_flow_test.cpp",
+      "implemented": "tests/unit/game/ui/startup/advertise_flow_test.cpp"
+    },
+    {
+      "current": "tests/title_flow_test.cpp",
+      "implemented": "tests/unit/game/ui/frontend/title_flow_test.cpp"
+    },
+    {
+      "current": "tests/menu_flow_test.cpp",
+      "implemented": "tests/unit/game/ui/frontend/menu_flow_test.cpp"
+    },
+    {
+      "current": "tests/ranking_test.cpp",
+      "implemented": "tests/unit/game/ui/frontend/ranking_test.cpp"
+    },
+    {
+      "current": "tests/power_up_flow_test.cpp",
+      "implemented": "tests/unit/game/ui/power_up/power_up_flow_test.cpp"
+    },
+    {
+      "current": "tests/pause_menu_test.cpp",
+      "implemented": "tests/unit/game/ui/pause/pause_menu_test.cpp"
+    },
+    {
+      "current": "tests/pause_help_test.cpp",
+      "implemented": "tests/unit/game/ui/pause/pause_help_test.cpp"
+    },
+    {
+      "current": "tests/controller_options_test.cpp",
+      "implemented": "tests/unit/game/ui/options/controller_options_test.cpp"
+    },
+    {
+      "current": "tests/menu_prompt_test.cpp",
+      "implemented": "tests/unit/game/ui/common/menu_prompt_test.cpp"
+    },
+    {
+      "current": "tests/ammunition_hud_test.cpp",
+      "implemented": "tests/unit/game/ui/hud/ammunition_hud_test.cpp"
+    },
+    {
+      "current": "tests/gameplay_hud_test.cpp",
+      "implemented": "tests/unit/game/ui/hud/gameplay_hud_test.cpp"
+    },
+    {
+      "current": "tests/initial_camera_test.cpp",
+      "implemented": "tests/unit/game/player/camera/initial_camera_test.cpp"
+    },
+    {
+      "current": "tests/player_camera_test.cpp",
+      "implemented": "tests/unit/game/player/camera/player_camera_test.cpp"
+    },
+    {
+      "current": "tests/placed_collision_test.cpp",
+      "implemented": "tests/unit/game/world/placed_collision_test.cpp"
+    },
+    {
+      "current": "tests/world_timing_test.cpp",
+      "implemented": "tests/unit/game/mission/world_timing_test.cpp"
+    },
+    {
+      "current": "tests/gameplay_integration_test.cpp",
+      "implemented": "tests/unit/game/mission/gameplay_integration_test.cpp"
+    },
+    {
+      "current": "tests/stage_shadow_test.cpp",
+      "implemented": "tests/unit/game/world/presentation/stage_shadow_test.cpp"
+    },
+    {
+      "current": "tests/motion_presentation_test.cpp",
+      "implemented": "tests/unit/game/actors/animation/motion_presentation_test.cpp"
+    },
+    {
+      "current": "tests/alicia_action_policy_test.cpp",
+      "implemented": "tests/unit/game/actors/alicia/alicia_action_policy_test.cpp"
+    },
+    {
+      "current": "tests/alicia_reaction_policy_test.cpp",
+      "implemented": "tests/unit/game/actors/alicia/alicia_reaction_policy_test.cpp"
+    },
+    {
+      "current": "tests/scripted_jump_policy_test.cpp",
+      "implemented": "tests/unit/game/actors/alicia/scripted_jump_policy_test.cpp"
+    },
+    {
+      "current": "tests/player_resources_test.cpp",
+      "implemented": "tests/unit/game/actors/alicia/player_resources_test.cpp"
+    },
+    {
+      "current": "tests/spell_presentation_policy_test.cpp",
+      "implemented": "tests/unit/game/actors/alicia/spell_presentation_policy_test.cpp"
+    },
+    {
+      "current": "tests/aim_posture_test.cpp",
+      "implemented": "tests/unit/game/actors/alicia/aim_posture_test.cpp"
+    },
+    {
+      "current": "tests/macos_cpu_backing_test.cpp",
+      "implemented": "tests/unit/platform/macos/macos_cpu_backing_test.cpp"
+    },
+    {
+      "current": "tests/macos_texture_allocation_test.mm",
+      "implemented": "tests/unit/platform/macos/macos_texture_allocation_test.mm"
+    },
+    {
+      "current": "tests/macos_final_edge_test.mm",
+      "implemented": "tests/unit/platform/macos/macos_final_edge_test.mm"
+    },
+    {
+      "current": "tests/macos_texture_mips_test.mm",
+      "implemented": "tests/unit/platform/macos/macos_texture_mips_test.mm"
+    },
+    {
+      "current": "tests/macos_scene_replay_test.mm",
+      "implemented": "tests/unit/platform/macos/macos_scene_replay_test.mm"
+    },
+    {
+      "current": "tests/macos_output_compositor_test.mm",
+      "implemented": "tests/unit/platform/macos/macos_output_compositor_test.mm"
+    },
+    {
+      "current": "tests/media_audio_memory_test.cpp",
+      "implemented": "tests/unit/platform/macos/media_audio_memory_test.cpp"
+    },
+    {
+      "current": "tests/gamepad_targeting_test.mm",
+      "implemented": "tests/unit/platform/macos/gamepad_targeting_test.mm"
+    },
+    {
+      "current": "tests/resource_cli_test.py",
+      "implemented": "tests/integration/resource_cli_test.py"
+    },
+    {
+      "current": "tests/test_repository_policy.py",
+      "implemented": "tests/integration/test_repository_policy.py"
+    },
+    {
+      "current": "tests/startup_corpus.cpp",
+      "implemented": "tests/integration/startup_corpus.cpp"
+    },
+    {
+      "current": "tests/media_memory_fixture.hpp",
+      "implemented": "tests/fixtures/media_memory_fixture.hpp"
+    },
+    {
+      "current": "tests/shape_fixture.hpp",
+      "implemented": "tests/fixtures/shape_fixture.hpp"
+    },
+    {
+      "current": "tests/model_fixture.hpp",
+      "implemented": "tests/fixtures/model_fixture.hpp"
+    },
+    {
+      "current": "tests/camera_fixture.hpp",
+      "implemented": "tests/fixtures/camera_fixture.hpp"
+    },
+    {
+      "current": "tests/menu_audio_test.cpp",
+      "implemented": "tests/unit/game/ui/audio/menu_audio_test.cpp"
+    },
+    {
+      "current": "tools/resource_inspector.cpp",
+      "implemented": "tools/resources/resource_inspector.cpp"
+    }
+  ]
+}

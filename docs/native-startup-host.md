@@ -102,36 +102,37 @@ the approved shots, external hosting and capture metadata needed before publicat
 
 | Responsibility | Source | Implemented boundary |
 |---|---|---|
-| Root/screen lifecycle | `src/game/startup_services.*` | Original root bytecode, reconstructed task policies and owned gameplay request |
-| Profile/menu composition | `src/game/frontend.*`, `profile_load_flow.*`, `menu_flow.*` | Resource/fade gates, profile/error choices, persistence and selections |
-| Menu presentation | `src/game/startup_menu_surface.*` | Original menu, font and authored costume textures through portable sprite commands |
-| Save storage/location | `src/platform/files/save_storage.cpp`, `src/platform/macos/save_directory.mm` | Shared bounded POSIX storage at the target-selected user location |
-| Movie transport | `include/bw/video/player.hpp`, `src/video/player.cpp` | Independent session, consumed-media clocks and terminal presentation |
-| Game media adapter | `src/game/startup_playback.*` | Game-relative path resolution and recovered fade arithmetic |
+| Root/screen lifecycle | `src/game/session/session_services.*` | Original root bytecode, reconstructed task policies and owned gameplay request |
+| Profile/menu composition | `src/game/ui/frontend/frontend.*`, `profile_load_flow.*`, `menu_flow.*` | Resource/fade gates, profile/error choices, persistence and selections |
+| Menu presentation | `src/game/ui/frontend/frontend_menu_surface.*` | Original menu, font and authored costume textures through portable sprite commands |
+| Save storage/location | `src/platform/posix/files/save_storage.cpp`, `src/platform/macos/files/save_directory.mm` | Shared bounded POSIX storage at the target-selected user location |
+| Movie transport | `include/bw/video/player.hpp`, `src/engine/video/player.cpp` | Independent session, consumed-media clocks and terminal presentation |
+| Game media adapter | `src/game/ui/startup/startup_playback.*` | Game-relative path resolution and recovered fade arithmetic |
 | Decoded samples | `include/bw/video/decoder.hpp` | Owned BGRA frames and stereo 48 kHz float PCM; see [decoder](video-decoder.md) |
 | Native media output | `include/bw/video/output.hpp` | Presentation plus independently serviced AudioOutput |
-| Host window and input | `include/bw/platform/startup_host.hpp` | Main-thread event sampling and output implementation, with no Apple types |
-| macOS presentation/input | `src/platform/macos/startup_host.mm` | Cocoa, Metal and GameController |
-| macOS media audio | `src/platform/macos/media_audio.mm` | Joined AudioQueue service, callback PCM feed, mapped device clock and drain |
-| Movie shader | `src/platform/macos/shaders/movie.metal` | Build-compiled movie texture sampling and black fade composition |
-| World output | `include/bw/render/world.hpp`, `src/platform/macos/world_renderer.*` | Retained geometry/textures and explicitly selected original surface/depth draws |
-| World shaders | `src/platform/macos/shaders/world_color.metal`, `world_depth.metal` | Static transforms, original geometric/normal/layered/sky surface families, cube reflection, alpha coverage/blending and projected depth |
+| Host window and input | `include/bw/platform/window_host.hpp` | Main-thread event sampling and output implementation, with no Apple types |
+| macOS window/output | `src/platform/macos/window/window_host.mm` | Cocoa window dispatch and sibling output forwarding |
+| macOS physical input | `src/platform/macos/input/input_source.mm` | Neutral keyboard/mouse/GameController sample; game mapping owns actions and repeats |
+| macOS media audio | `src/platform/macos/audio/media_audio.mm` | Joined AudioQueue service, callback PCM feed, mapped device clock and drain |
+| Movie shader | `src/platform/macos/render/shaders/movie.metal` | Build-compiled movie texture sampling and black fade composition |
+| World output | `include/bw/render/scene/world.hpp`, `src/platform/macos/render/world_renderer.*` | Retained geometry/textures and explicitly selected original surface/depth draws |
+| World shaders | `src/platform/macos/render/shaders/world_color.metal`, `world_depth.metal` | Static transforms, original geometric/normal/layered/sky surface families, cube reflection, alpha coverage/blending and projected depth |
 | Mac process entry | `src/platform/macos/main.cpp` | Parse launch options, own native services and select the FFmpeg factory |
-| Shared application composition | `src/framework/startup_application.*` | Resource/session ownership and input → media → game → presentation loop |
-| Software decoder backend | `src/video/ffmpeg/decoder.*` | Explicit factory and private FFmpeg implementation |
+| Game application composition | `src/game/application/application.*` | Resource/session ownership and input → media → game → presentation loop |
+| Software decoder backend | `src/engine/video/codecs/ffmpeg/decoder.*` | Explicit factory and private FFmpeg implementation |
 
 The public headers are shared contracts. A future target supplies its native
 backend behind those contracts. There is no Windows/Xbox backend in this slice;
 Apple API behavior is not prescribed for those implementations. Target entry
-points live beside their native implementations and reuse framework orchestration.
+points live beside their native implementations and reuse game application orchestration.
 The common host header hides the selected implementation through Pimpl. The
-framework borrows host/file/save services for the duration of the call; its
+game application borrows host/file/save services for the duration of the call; its
 session, front end, profile, presentation, playback and resources retire before
 the target entry destroys those services.
 
-Build targets preserve these boundaries: `bw_startup_framework` composes game
+Build targets preserve these boundaries: `bw_game_application` composes game
 and engine contracts; `bw_video` provides shared transport; `bw_video_ffmpeg`
-provides the selected codec; `bw_media_audio_macos` and `bw_startup_host_macos`
+provides the selected codec; `bw_media_audio_macos` and `bw_window_host_macos`
 provide native audio and window/presentation. The executable selects them.
 
 ```mermaid
@@ -168,7 +169,7 @@ execution policy or a performance claim. Audio stop/dispose is synchronous befor
 the callback owner or buffers are destroyed. [Metal command completion](https://developer.apple.com/documentation/metal/mtlcommandbuffer/waituntilcompleted()),
 [AudioQueue stop](https://developer.apple.com/documentation/audiotoolbox/audioqueuestop(_:_:)).
 
-The shader is compiled to `movie.metallib` during the build, beside `bw-startup`.
+The shader is compiled to `bullet_witch.metallib` during the build, beside `bullet-witch`.
 The backend locates it relative to the running executable, independent of the
 working directory. Shader code is not embedded in Objective-C++ strings and no
 source compiler runs during startup.
@@ -183,26 +184,22 @@ be traced. [Recovered startup contracts](../research/engine/subsystems/startup-n
 
 ## Input and current limits
 
-The development host maps Return/Space and connected controller A/Menu to the
-observed `0x1010` action group, and Escape/controller B to `0x2020`. These are
-explicit host bindings for the observed skip consumers, not a claim that the
-original game's physical controller mapping has been reconstructed. Native
-keyboard repeat does not emit repeated press edges. Devices are sampled before
-game tasks, and focus loss clears held state. General input remapping and rumble
-remain outside this startup slice. Arrow keys and controller
-D-pad/left-stick directions now supply navigation. Repeated directions are
-derived from held state with the recovered 0.5-second delay and 0.125-second
-interval; options volume changes consume pressed left/right edges. Focus loss
-resets repeat timers.
+WindowHost pumps native window events and returns `InputFrame`; InputSource owns
+physical key/button/axis/mouse observations. Game `ControllerInput` maps fixed
+UI confirmation/back/start/directions and saved gameplay settings into
+`MappedInput`. Native keyboard repeat does not emit repeated press edges, and
+a down/up pair drained in one pump preserves its press. Focus loss clears held
+state; the game mapper then retires repeat history on that same pump.
 
-Bounded traversal samples left-stick movement, right-stick look, held LT above
-0.1 for the original evasive leap, and Menu for pause. Keyboard aliases are
-W/A/S/D, I/J/K/L, Space and Escape respectively. Left-stick click or C toggles the original crouched stance once per press. A/B remain menu confirmation/cancellation, independently of captured gameplay
-intent. RT/F reports held fire intent; X/R, A/E, B/Q and RS-click/T report
-reload, attack, next-weapon and aim-mode press edges. Desktop letters are
-explicit review aliases. Capture does not accept shots, consume ammunition or
-implement weapon-specific aim modes; those belong to the game adapter. See
-[the source mapping](../research/engine/subsystems/alicia-action-policy.md#interactive-input-capture-and-admission-boundary).
+Fixed UI mapping remains independent of saved gameplay bindings. Its ActionRepeat
+uses the original 0.5-second delay and 0.125-second subtraction, driven by supplied
+presentation time; camera mouse scaling receives the separate wall delta.
+Loading uses this same mapper without delivering actions. This relocation does
+not fix the separately backlogged A/B prompts or change accepted controls.
+See [input ownership](../research/engine/subsystems/neutral-input-boundary.md) and
+[controller compatibility](../research/engine/subsystems/native-pause/controller-options.md).
+Mapped intentions do not accept shots, consume ammunition or choose action state;
+those operations belong to the owning gameplay systems.
 The game owner applies the
 recovered radial movement preprocessing and directional action policy.
 Pause presents the original gameplay root and native Help/Options children;
@@ -269,7 +266,7 @@ are included in the tracked result.
 
 ## Opening cinematic and title implementation
 
-`src/game/advertise_flow` and `title_flows` preserve recovered state, timing,
+`src/game/ui/startup/advertise_flow` and `title_flows` preserve recovered state, timing,
 fades, input outcomes and cleanup. `startup_title_surface` owns title/font and
 selected-loading resource interests, image construction and original draw data.
 `bw_images` supplies bounded PNG/FONT decoding; `render::SpriteOutput` supplies
@@ -335,7 +332,7 @@ and the original-root corpus passed. Native interaction and corpus assertions
 are distinct evidence, not additional unit-test counts. See
 [front-end integration](../research/engine/subsystems/frontend-integration.md).
 
-The current framework has no Steam achievement provider. Fresh achievement flags
+The current game application has no Steam achievement provider. Fresh achievement flags
 leave campaign Stage Select and Chaos/Hell entries gated; installed archives
 do not unlock them. Concept Mission access is enabled independently under the
 [user-approved reconstruction policy](../research/engine/subsystems/front-end-menu-policy.md#reconstruction-policy-concept-access-without-game-completion).
@@ -403,7 +400,7 @@ does not load or save a checkpoint. Add a pitch of `45` in place of the final
 `0` to look upward. Run plain `./run` for the authored fresh-start camera.
 
 The final slice-3 native capture shows textured ground, buildings, mountains and
-clouded sky through `StartupHost`, including its output-parameter forwarding.
+clouded sky through `WindowHost`, including its output-parameter forwarding.
 The initial cave and upward sky are also verified with the production renderer.
 The missing runtime SH selector and authored ambient inputs are corrected;
 the previous black sky and clipped-ground captures remain historical failures.

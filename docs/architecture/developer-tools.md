@@ -2,7 +2,7 @@
 
 Status: initial design agreed for later implementation. This document does not
 claim a working overlay, inspector or automation interface. Original gameplay
-pause remains the current priority; developer controls are separate from it.
+pause has user acceptance; developer controls remain separate from it.
 Key bindings, detailed layouts and activation controls have not been selected.
 
 ## Purpose and boundaries
@@ -55,3 +55,14 @@ flowchart LR
 Verification must cover production exclusion, command ownership, snapshot
 lifetimes, pause boundaries, override teardown and unchanged saved progression.
 The original gameplay pause menu must work identically with tools absent.
+
+## Existing preview compilation boundary
+
+The architecture redesign places the existing animation review implementation in
+`src/developer/animation_review`. `BW_DEVELOPER_VIEWS` is allowed only in Debug
+configurations. Ordinary builds retain inert request/status/catalog hooks and
+contain no concrete preview owner, capability implementation or menu resources.
+The enabled adapter receives bounded commands and const observations; no mutable
+actor/controller borrow is returned. This does not add the planned overlay,
+inspector, automation listener or new activation controls. See
+[the implementation evidence](../../research/engine/subsystems/developer-compilation-boundary.md).

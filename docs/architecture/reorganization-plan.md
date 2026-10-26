@@ -1,112 +1,103 @@
 # Engine and game reorganization plan
 
-**Accepted design · October 26, 2026. Slices 1 and 2 accepted.**
-The user agreed the comparison refinements. This document fixes the recommended
-boundaries, destination groups and implementation sequence. The user authorized
-execution; each slice remains subject to its own acceptance. No new gameplay
-capabilities are claimed. Read the
-[proposed diagrams](proposed-boundaries.md) alongside the
-[current implementation](current-ownership.md).
+**October 26, 2026 · revised architecture implemented, verified and accepted.**
+Slices 1 and 2 are accepted and committed. The initial slice 3 mechanical grouping
+was rejected: moving files had not resolved application, input, actor, developer
+and build ownership. Its passing checks are historical behavior-preservation
+evidence, not acceptance of this redesign. The user approved the
+[whole-repository architecture](../../research/engine/subsystems/architecture-layout-proposal.md)
+and accepted the integrated implementation. The rejected grouping was adapted
+directly and is not landed as an intermediate commit.
 
-## Settled design
+## Approved structure
 
-- Keep one `src/` root with peer engine families and `src/game/` for Bullet Witch.
-  Keep singular portable headers under `include/bw/`, native implementations and
-  shaders under their existing selected backend, and target-owned executable
-  entries. Do not add a second `src/engine/` hierarchy or empty future folders.
-- Distinguish **game world** (mission actors, actions, rules and script state)
-  from **RenderScene** (retained renderable/light membership and prepared data).
-  RenderScene is a responsibility name; final C++ contracts are designed in the
-  implementation slice. No generic entity framework is required by this pass.
-- Establish register, update, remove and retire operations. A narrow publisher
-  can be owned by an actor/component; actor-originated publication is not itself
-  a defect. Remove controller responsibility for evaluating lights or managing
-  renderer lifetime. Do not require centralized whole-world copying.
-- Keep lighting identifiable at `scene/lighting`, with scene-local instance data
-  and renderer-facing packets. Game adapters supply original channel/placement
-  meaning. Preserve accepted equations, sampling, shaders and CPU/GPU placement.
-- World rendering, movie output and UI rendering feed a final output compositor.
-  UI is not a world material pass. Native presentation owns device submission;
-  game screens own their behavior, artwork selection and timing.
-- Keep concrete gameplay/entity/controller/AI rules in game code. Extract a shared
-  mechanism only when its actual source contract or existing reuse warrants it.
-  A future world registry is not an engine object that controls every subsystem.
-- Keep resource resolution/residency separate from mission content readiness and
-  activation. Game/application policy validates the purchased install and selects
-  future packs; an ordered resolver applies the selected precedence. No pack loader,
-  new scripts, AI, dynamic physics, particle runtime or debug UX is implemented here.
+Use explicit `src/engine`, `src/game`, `src/platform`, and `src/developer` roots.
+Singular portable engine headers stay under `include/bw`; private declarations
+remain beside their implementation. This supersedes the earlier peer-root choice.
+No empty future systems or library-per-directory scheme is required.
 
-## Destination map
+| Root / family | Responsibility |
+| --- | --- |
+| `src/engine/` | Animation, audio/video, content formats/resources, input mechanism, lighting, spatial, render, memory, script/tasks and timing |
+| `src/game/application/` | Bullet Witch process composition, launch policy and main loop |
+| `src/game/session/`, `mission/`, `world/` | Root/session policy; mission admission/loading/effective state; current actor/contact/camera and world presentation |
+| `src/game/actors/animation/`, `actors/alicia/` | Common original animation publication adapter versus Alicia actions, animation modifiers, resources and audio policy |
+| `src/game/player/{input,camera}/` | Human-player mapping/routing and camera policy |
+| `src/game/content/original/` | Original game loader/namespace/channel policy; this is source code, not asset data |
+| `src/game/ui/`, `profile/`, `settings/` | Original screens, shared Options, persistent authority and device settings |
+| `src/platform/` | Actual common/POSIX/macOS adapters; macOS window/input/audio/files/memory/render, native shaders and process entry |
+| `src/developer/animation_review/` | Existing review tooling selected only in developer builds |
 
-These are implementation destinations, not additional runtime owners. Header/source
-pairs move together; portable engine headers keep their established paths. Existing
-basenames remain unless a responsibility split makes them misleading. `.*` below
-means the named implementation/header family, not arbitrary matching unrelated files.
+The [complete file map](../../research/engine/subsystems/architecture-layout-file-map.json)
+records every traced source/header/shader and required split. Actual assets stay
+outside `src/` and Git. Optional local `/assets/original` and `/assets/overrides`
+are ignored workspace locations, not a newly implemented pack resolver.
 
-| Current family | Destination | Kind |
-| --- | --- | --- |
-| `src/framework/startup_application.*` | `src/framework/application.*` | Rename after making process composition/phase calls explicit; preserve one loop. |
-| `src/game/startup_services.*`, `root_driver.*`, `startup_flows.*` | `src/game/session/` | Session/native-task composition; rename startup services to session services only after contracts establish the permanent role. |
-| `mission_driver.*`, `mission_loading.*`, `mission_package_inputs.cpp`, `mission_gameplay.*`, `mission_control.*`, `mission_transition.hpp`, `mission_interaction.*`, `mission_player_state.*`, `mission_help_state.*`, `initial_placement_shim.*` | `src/game/mission/` | Mission activation, control, reentry and effective state; retain explicitly named placement shim. |
-| `player_actor.*`, `player_controller.*`, `player_resources.*`, `player_targeting.*`, `alicia_*`, `aim_posture.*`, `character_animations.*`, `character_motion_player.*`, `facial_animation.*`, `motion_presentation.*`, `scripted_jump_policy.*`, `spell_selection.*`, `spell_presentation_policy.*` | `src/game/actors/` | Concrete actor/action and authored animation policy; shared numerical animation mechanisms stay in existing engine families. |
-| `placed_collision.*` | `src/game/mission/` | Mission/stage collision-content assembly consumed by simulation/spatial; never owned by visual presentation. |
-| `src/game/camera/` | Unchanged | Game camera policy is already grouped. |
-| `stage_inspection.*` | Split responsibilities into `src/game/mission/` and `src/game/presentation/`; preview-only code into `src/game/developer/` | Behavioral ownership repair first; do not move the existing mixed owner wholesale and call it fixed. |
-| `stage_environment.*`, `placed_lighting.*`, `stage_shadow.*`, `resident_model.hpp`, `npc_palette.*` | `src/game/presentation/` | Original visual stage/model adapters and scene membership. |
-| `frontend.*`, `menu_flow.*`, `title_flows.*`, `advertise_flow.*`, `startup_playback.*`, `startup_title_surface.*`, `startup_menu_surface.*`, `startup_loading_surface.*`, `title_surface.hpp`, `menu_surface.hpp`, `ranking_*`, `power_up_*` | `src/game/ui/frontend/` | Reachable frontend routing and presentation; Power Up mission-result producer remains future. |
-| `pause_menu.*`, `pause_menu_surface.*`, `pause_help.*`, `pause_help_surface.*`, `mission_pause_presentation.hpp`, `mission_pause_surface.*` | `src/game/ui/pause/` | Actual gameplay pause, help and pause-specific presentation. |
-| `gameplay_hud.*`, `gameplay_hud_surface.*`, `ammunition_hud.*`, `player_cockpit.*`, `hud_sprite.hpp` | `src/game/ui/hud/` | Gameplay observation/presentation; action owners retain resource mutations. |
-| `pause_options.*`, `pause_options_surface.*`, `frontend_options.hpp`, `frontend_options_surface.*`, `controller_options.*`, `controller_options_surface.*`, `menu_dialog.*`, `menu_prompt.*`, `sprite_text.*`, `sprite_color.hpp`, `pause_surface_text.hpp`, `menu_input.hpp`, `input_icon.*`, `help_input_icons.*` | `src/game/ui/shared/` | One shared Options/dialog/presentation family used by frontend and pause; remove pause-only naming where it misstates the shared contract. |
-| `controller_input.*`, `player_input_routing.*`, `controller_settings.*`, `device_options.*` | `src/game/input/`, settings data in `src/game/settings/` | Input policy versus persistent device options; shared physical input/repeat code stays `src/input/`. |
-| `profile.*`, `progression.*`, `progression_save.*`, `profile_load_flow.*` | `src/game/profile/` | Permanent state, codecs and save/load orchestration, preserving narrow System/Record authorities. |
-| `game_audio.*`, `frontend_audio.*`, `character_audio.*`, `character_audio_compatibility.inc`, `menu_audio.*`, `menu_sound_requests.cpp` | `src/game/audio/` | Original cue/bank/category policy; shared runtime/output stays `src/audio/` and selected backends. |
-| `animation_review.hpp`, `stage_animation_review.cpp`, `developer_review_flow.*`, `developer_views.hpp` | `src/game/developer/` | Existing gated diagnostics only; no new activation controls or inspector implementation. |
-| `source_random.hpp` | `src/game/compatibility/` | Recovered game-specific random behavior; do not silently replace it with generic math. |
-| `src/scene/{lighting,spatial,visibility}`, `src/render/`, `src/animation/`, other engine peer families | Retain existing families and singular `include/bw/` contracts | Make scene membership/pipeline responsibilities explicit within these families, not a new general engine framework. |
-| `src/platform/macos/` renderer/postprocess/shaders/host and target `main.cpp` | Retain selected backend family; group graphics files locally only if needed for discoverability | Native code stays native; OS, API and CPU ISA remain distinct selection axes. No generic shader replacement. |
-| `tests/` and CMake source lists/targets | Follow resulting responsibility groups without new executables per folder | Separate mechanical paths from target dependency repairs. Preserve existing test identities initially. |
+## Ownership repairs in this implementation
 
-No implementation file is to be left behind merely because it was absent from a
-wildcard above: each slice records its exact move manifest before editing. Ambiguous
-mixed files are split by their proven consumers, not assigned by filename alone.
+- Game application owns composition and the main loop; engine timing owns pacing
+  and world-clock mechanisms. `WorldRuntime` composes current simulation and
+  presentation; it does not claim a complete entity registry or mission startup.
+- Native `WindowHost` returns a neutral `InputFrame`. Native `InputSource` owns
+  physical acquisition; game `ControllerInput` owns fixed UI/saved mappings and
+  one supplied-time repeat history. Loading uses that same owner. See
+  [input contract](../../research/engine/subsystems/neutral-input-boundary.md).
+- Developer implementations compile only with `BW_DEVELOPER_VIEWS`; production
+  hooks are inert and do not link review navigation/preview owners or resources.
+  This is dependency repair, not a new inspector, overlay or activation UX.
+- Alicia raised-weapon action lifetime is separate from aim-pose blending.
+  Alicia/weapon semantic classification is supplied explicitly to the common
+  original animation adapter; unknown semantics remain unknown. The existing
+  support-hand adapter stays with Alicia animation; numerical two-bone geometry
+  stays in engine math.
+- Engine lighting, spatial and timing are visible separate families. Game world
+  presentation retains authored channel meanings. RenderScene retains membership
+  authority; actors publish pose/shape/visibility through narrow capabilities.
+- World, movie and UI remain sibling producers for native output composition.
+  Keep accepted source ordering, shader/math behavior and synchronous completion.
+- Game original-content loaders are distinct from engine binary schemas,
+  bounded `binary_reader.hpp`, catalog acquisition and residency. Session owns
+  game bank admission; UI/Alicia own their cue policy; no second audio runtime.
+- Build membership follows these dependencies in this changeset. `bw_profiles`
+  contains profile/settings authority; permanent application/presentation/playback
+  use `bw_game_application`, `bw_game_presentation`, `bw_game_playback`.
+  Native host is `bw_window_host_macos`; executable is `bullet-witch`;
+  `bw_metal_shaders` builds the complete `bullet_witch.metallib`.
 
-## Ordered implementation slices
+## Sequence and acceptance
 
-| Slice | Work and dependency | Completion/review boundary |
-| --- | --- | --- |
-| 1. Mission and presentation authority | Split StageInspection actor/camera/control and static-contact simulation from retained scene presentation and existing diagnostics in place. Establish RenderScene registration/update/removal/retirement contracts; retain actor publishers through narrow capabilities. Transfer authority once: no temporary duplicate authoritative draw or light registries. Preserve mission loading readiness and source phase ordering. | Headers/contracts reviewed before implementation; explicit owner/destruction map; current actor, costume, reentry and pause behavior retained. No directory sweep yet. |
-| 2. Lighting and output integration | Builds on slice 1. Give scene-local lighting registration/evaluation an explicit renderer-facing contract; keep game adapters separate. Expose world/movie/UI sibling output composition and resource retirement in portable contracts/native implementations. | Accepted lighting/pass order, UI overlay order, media audio timing and synchronous completion remain unchanged. No new frame graph, async submission or visual tuning. |
-| 3. Group game responsibilities | Apply destination map to session/mission, actors/camera/presentation, UI frontend/pause/HUD/shared, profile/settings/input/audio/developer families. Rename only misleading permanent startup/pause names. | Mechanical move commit distinct from ownership repair; includes/path updates and exact manifest. Shared Options, Profile, audio runtime and clocks remain single authorities. |
-| 4. Build boundaries and documentation closure | Repair target membership/dependencies exposed by grouping: e.g. menu policy must not hide inside `bw_profiles`, permanent UI must not pretend to be startup-only. Retain peer engine families, backend selection and public headers. Update source maps, architecture status and run documentation. | No library per folder requirement. Final dependency inspection, repository gate and short native acceptance walkthrough; no gameplay/features added. |
+| Work | State / completion boundary |
+| --- | --- |
+| 1. Mission and presentation authority | Accepted and committed `fd773fb`: simulation/presentation split and retained RenderScene publication/lifetime. |
+| 2. Lighting and output integration | Accepted and committed `a5577bb`: renderer-facing lighting, sibling output composition and retirement. |
+| Initial 3. Mechanical game grouping | Rejected; uncommitted work was replaced by the approved full architecture. Earlier checks remain historical only. |
+| Revised 3. Whole-repository ownership and layout | Implemented: concrete repairs above, exact source map, owner-mirrored tests, dependency/tooling/docs integration. Full gates for developer OFF/ON and purchased-content traversal pass. User accepted the integrated revision on October 26, 2026 and authorized its commit. |
+| Former 4. Build/documentation closure | Folded into revised slice 3. Do not defer required dependency repair to a cosmetic follow-up. |
 
-Each slice is a reviewable unit. User acceptance authorizes its commit; do not
-push without instruction. Do not bundle unaccepted following slices into an
-accepted commit. Slice 1 is committed as `fd773fb`. Slice 2 lighting/output
-integration passes the repository gate and is accepted after the October 26
-native review; slices 3 and 4 remain subsequent work.
+User acceptance authorizes the scoped implementation commit; pushing requires
+instruction. Both UI observations (costume pink block and A/B prompts) stay in
+backlog. No new gameplay, dynamic physics, NPC AI, effects, asset-pack runtime,
+render thread or debug UI belongs to this reorganization.
 
-## Required invariants and validation
+## Verification and preserved behavior
 
-Preserve original Lua task order/status, native menu eligibility/text/cues/BGM,
-Options save authority, controls, HUD, current supported reentry and costume
-retention. Preserve independent presentation/world/media clocks, pause admission,
-loading rebases, lighting math and native CPU/GPU partition. Retain the purchased
-installation requirement, read-only original data, repository content policy and
-no-assets/raw-decompiler-output rules.
+Preserve original Lua ordering, screen text/eligibility/cues, shared Options save
+authority, current controls/HUD, supported reentry and costume retention. Preserve
+separate presentation/world/media clocks, pause admission, loading rebases and
+accepted lighting/pass/CPU-GPU behavior. Originals remain purchased/read-only;
+assets and raw decompiler output stay out of Git.
 
-For C++ contracts and implementation, consult both required corpora at their
-respective phases, following the existing workflow. Run the required repository
-gate on each completed code slice. Add focused checks only for changed lifetime,
-publication or dependency contracts; mechanical moves do not require invented
-new behavioral tests. Existing tests cannot prove native appearance/audio parity.
+Consult both C++ corpora for design and implementation. Run the full repository
+gate, existing purchased-content traversal, and relevant native contracts after
+integration. Verify production developer exclusion and owner dependencies, not
+only runtime appearance. Existing tests are retained and regrouped by owner;
+fixture traversal is not native visual/audio parity.
 
-Before native verification, notify the user and coordinate navigation. A bounded
-walkthrough covers boot/title/frontend child return and audio; mission load;
-movement/aim/evade/weapon changes; HUD/ring; pause Options/Help; costume change;
-Stage Start/Return and title return. Inspect rendering at the accepted lighting
-baseline rather than reopening already accepted visual limitations. Run additional
-checks only for concrete failures or modified behavior. Documentation-only changes
-need links, structural Mermaid and whitespace checks, not a build.
+Notify before the native walkthrough: boot/title/frontend/audio, mission load,
+movement/aim/evade/weapons, HUD/ring, pause Help/Options, costume, restart/return.
+Do not reopen accepted lighting limitations or the separate UI backlog as
+incidental reorganization work. No current validation result is claimed here
+until the integrated revision has actually completed those checks.
 
 ## Reference hierarchy and comparison decisions
 

@@ -17,7 +17,7 @@
 #pragma once
 #include <optional>
 
-#include "bw/math/vector.hpp"
+#include "vector.hpp"
 
 namespace bw::math {
 template <std::floating_point T, std::size_t Rows, std::size_t Columns>

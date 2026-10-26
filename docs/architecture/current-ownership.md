@@ -1,16 +1,23 @@
 # Current systems and ownership review
 
-**October 26, 2026 · current implementation plus proposed repairs for review.**
-Baseline: accepted mission/presentation slice `fd773fb`, with slice 2 lighting
-publication and output composition verified and accepted after native review. The accepted
-plan is `79d7a72`; this map does not expand its execution scope. Begin here
-before using the broader [target architecture](logical-overview.md). The
-[source inventory](../../research/engine/subsystems/runtime-subsystem-inventory.md)
-records implemented, partial and planned responsibilities with concrete owners.
+> **Revised slice 3 implemented and accepted October 26, 2026.** The earlier
+> mechanical grouping was rejected. The explicit engine/game/platform/developer
+> layout and ownership repairs replace that proposal. Both configuration gates
+> and purchased-data checks pass; the user authorized the scoped commit.
 
-See [complete proposed boundaries](proposed-boundaries.md) for the whole-system
-design, lifetime ownership and proposed frame flow. The diagrams below first
-establish current implementation; the later extraction diagram is only one repair.
+**October 26, 2026 · revised ownership and physical layout implemented.**
+The accepted baseline is mission/presentation `fd773fb` and lighting/output
+`a5577bb`. The initial mechanical grouping was rejected; the approved
+[whole-repository redesign](../../research/engine/subsystems/architecture-layout-proposal.md)
+now replaces it. The diagrams and paths below describe the integrated working
+implementation. Both build configurations and purchased-content checks pass;
+the user accepted this revision. Earlier grouping checks are historical.
+
+[Approved boundaries](proposed-boundaries.md) and the
+[reorganization plan](reorganization-plan.md) define scope. The broader
+[target architecture](logical-overview.md) includes future capabilities that are
+not made real by naming a directory. No complete entity registry or generic
+EngineInstance aggregate is claimed.
 
 ## Current system context
 
@@ -20,9 +27,9 @@ mission `World` corresponding to the earlier target diagrams.
 
 ```mermaid
 flowchart TD
-  Entry[Mac main: selects native adapters and memory] --> App[Framework application loop]
+  Entry[Mac main: selects native adapters and memory] --> App[Game application loop]
   Entry --> Native[Mac host, Metal, files and audio factories]
-  App --> Session[StartupSession and original root Lua]
+  App --> Session[GameSession and original root Lua]
   App --> State[Profile and DeviceOptions]
   App --> Front[FrontEnd and native menu owners]
   App --> Mission[MissionLoading, MissionControl and MissionGameplay]
@@ -30,10 +37,10 @@ flowchart TD
   App --> Audio[GameAudio and movie playback]
   Session --> Tasks[Lua Context and TaskLifecycleScheduler]
   Front --> State
-  Mission --> Stage[StageInspection: current composition]
+  Mission --> Stage[WorldRuntime: current composition]
   Stage --> Simulation[MissionSimulation: contact, actor, controller and camera]
   Stage --> Presentation[StagePresentation: authored environment and materials]
-  Stage --> Review[PlayerAnimationReview: explicit diagnostics]
+  Debug[Developer-only adapter] -. bounded preview operations .-> Stage
   Simulation --> Actor[PlayerActor and PlayerController]
   Presentation --> Light[LightingPublication: receiver sampling and publication]
   Light --> LightPublisher[Restricted LightingPublisher]
@@ -47,22 +54,22 @@ flowchart TD
   Actor --> Animation[Shared animation mechanisms]
 ```
 
-Current public engine contracts remain under `include/bw/`; implementations are
-peer families under `src/`. Game-private headers stay with their implementation.
-The current source scan found no engine implementation importing concrete game
-classes; `platform/macos/main.cpp` deliberately imports framework composition.
-Scene being outside game is therefore meaningful, not a misplaced game folder.
+Portable engine contracts remain under `include/bw/`; implementations now live
+under `src/engine/`. Concrete Bullet Witch behavior lives under `src/game/`.
+`platform/macos/main.cpp` selects native services and invokes game application
+composition. Native acquisition publishes physical observations, never gameplay
+or menu actions. Developer implementations are build-selected outside game code.
 
 | Responsibility | Concrete current files / build targets | Status and boundary |
 | --- | --- | --- |
-| Process/application | [Mac entry](../../src/platform/macos/main.cpp), [application](../../src/framework/startup_application.cpp); `bw-startup`, `bw_startup_framework` | Implemented composition. The shared loop also explicitly selects game setup and teardown; its name is narrower than its current mission role. |
-| Session/root | [StartupSession](../../src/game/startup_services.hpp), [RootDriver](../../src/game/root_driver.hpp); `bw_game` | Implemented root-task and mission handoff. Not a complete world/entity lifecycle. |
-| Mission authority | [MissionGameplay](../../src/game/mission_gameplay.hpp), [MissionControl](../../src/game/mission_control.hpp), [MissionLoading](../../src/game/mission_loading.hpp) | Implemented admission, pause/reentry, assets and current Alicia scene. Authored mission/entity startup and complete checkpoint restoration remain partial. |
-| Rendering | [portable contracts](../../include/bw/render/world.hpp), [native renderer](../../src/platform/macos/world_renderer.hpp), [postprocess](../../src/platform/macos/world_postprocess.hpp); `bw_render`, `bw_world_renderer_macos` | Working admitted geometry/shadow/HDR pipeline. RenderScene controls current registration/replacement/removal/retirement; the native backend retains the sole draw registry. General gameplay entities remain future. |
-| Lighting | [LightingPublication](../../include/bw/scene/lighting/lighting_publication.hpp), [SceneLighting](../../include/bw/scene/lighting/scene_lighting.hpp), [Environment](../../include/bw/scene/environment.hpp); `bw_scene` | Engine sampler and sealed receiver publication own light packets/caches/draw distribution. Game source-channel interpretation remains outside it. |
-| Animation/game actors | [animation](../../include/bw/animation/), [PlayerActor](../../src/game/player_actor.hpp), [Alicia policy](../../src/game/alicia_action_policy.hpp); `bw_animation`, `bw_game` | Shared pose/playback/event mechanisms; current game integration centers on Alicia. Not a complete generic actor or NPC runtime. |
-| UI/settings/persistence | [FrontEnd](../../src/game/frontend.hpp), [Options](../../src/game/pause_options.hpp), [Profile](../../src/game/profile.hpp), [HUD](../../src/game/gameplay_hud.hpp) | Accepted frontend and gameplay pause/HUD. Original screen behavior remains game policy; shared sprite submission is an engine render contract. |
-| Audio/media | [GameAudio](../../src/game/game_audio.hpp), [audio contract](../../include/bw/audio/output.hpp), [video player](../../include/bw/video/player.hpp); `bw_audio_fact`, `bw_video`, decoder targets | One session game-audio runtime with menu/music and later mission bank admission; movie transport has its own PCM/timestamp synchronization. |
+| Process/application | [Mac entry](../../src/platform/macos/main.cpp), [application](../../src/game/application/application.cpp); `bullet-witch`, `bw_game_application` | Game `run_application` composition with `ApplicationOptions` and `ApplicationMemory`; one loop selects setup and teardown. |
+| Session/root | [GameSession](../../src/game/session/session_services.hpp), [RootDriver](../../src/game/session/root_driver.hpp); `bw_game` | Implemented root-task and mission handoff. Not a complete world/entity lifecycle. |
+| Mission authority | [MissionGameplay](../../src/game/mission/mission_gameplay.hpp), [MissionControl](../../src/game/mission/mission_control.hpp), [MissionLoading](../../src/game/mission/loading/mission_loading.hpp) | Implemented admission, pause/reentry, assets and current Alicia scene. Authored mission/entity startup and complete checkpoint restoration remain partial. |
+| Rendering | [portable contracts](../../include/bw/render/scene/world.hpp), [native renderer](../../src/platform/macos/render/world_renderer.hpp), [postprocess](../../src/platform/macos/render/world_postprocess.hpp); `bw_render`, `bw_world_renderer_macos` | Working admitted geometry/shadow/HDR pipeline. RenderScene controls current registration/replacement/removal/retirement; the native backend retains the sole draw registry. General gameplay entities remain future. |
+| Lighting | [LightingPublication](../../include/bw/lighting/lighting_publication.hpp), [SceneLighting](../../include/bw/lighting/scene_lighting.hpp), [Environment](../../include/bw/spatial/environment.hpp); `bw_lighting` | Engine sampler and sealed receiver publication own light packets/caches/draw distribution. Game source-channel interpretation remains outside it. |
+| Animation/game actors | [animation](../../include/bw/animation/), [PlayerActor](../../src/game/actors/alicia/player_actor.hpp), [Alicia policy](../../src/game/actors/alicia/actions/alicia_action_policy.hpp); `bw_animation`, `bw_game` | Shared pose/playback/event mechanisms; current game integration centers on Alicia. Not a complete generic actor or NPC runtime. |
+| UI/settings/persistence | [FrontEnd](../../src/game/ui/frontend/frontend.hpp), [Options](../../src/game/ui/options/options.hpp), [Profile](../../src/game/profile/profile.hpp), [HUD](../../src/game/ui/hud/gameplay_hud.hpp) | Accepted frontend and gameplay pause/HUD. Original screen behavior remains game policy; shared sprite submission is an engine render contract. |
+| Audio/media | [GameAudio](../../src/game/session/audio/game_audio.hpp), [audio contract](../../include/bw/audio/output.hpp), [video player](../../include/bw/video/player.hpp); `bw_audio_fact`, `bw_video`, decoder targets | One session game-audio runtime with menu/music and later mission bank admission; movie transport has its own PCM/timestamp synchronization. |
 
 Memory, resource, math, input, physics, AI, effects and jobs status is maintained
 in the linked inventory rather than duplicated as a second universal checklist.
@@ -74,14 +81,14 @@ render thread or fixed-step world accumulator is implied.
 
 ```mermaid
 flowchart TD
-  Wait[Framework waits for FrameClock deadline] --> Sample[Sample monotonic time]
+  Wait[Game application waits for FrameClock deadline] --> Sample[Sample monotonic time]
   Sample --> Times[Raw wall delta and capped presentation delta]
   Times --> Input[Host events and physical input; game mappings]
   Input --> Admit[MissionInteraction: UI, pause and transitions]
   Admit --> Clock[WorldClock publishes immutable WorldFrame]
   Clock --> Route[Resource admission and player input routing]
   Route --> Media[Movie transport advances]
-  Media --> Advance[MissionGameplay advances current StageInspection]
+  Media --> Advance[MissionGameplay advances current WorldRuntime]
   Advance --> Actor[Movement, camera, pose and action work]
   Actor --> Publish[Direct view, pose, material and lighting publication]
   Publish --> Cockpit[Resource completion and HUD observations]
@@ -99,12 +106,12 @@ simulation; restart/retirement handling after audio can skip the normal later
 session/presentation path. Loading has its own presentation pump. These branch
 orders must survive reorganization. See [world timing](world-timing.md) for exact admission rules.
 
-- The framework currently selects a 16,666,667 ns presentation period and calls
-  `sleep_until`; [FrameClock](../../src/timing/frame_clock.cpp) calculates deadlines
+- The game application selects a 16,666,667 ns presentation period and calls
+  `sleep_until`; [FrameClock](../../src/engine/timing/frame_clock.cpp) calculates deadlines
   and samples afterward. Its presentation delta caps at 100 ms; wall delta does
   not. A missed deadline rebases rather than inventing catch-up ticks. A 60 Hz
   presentation target is not a fixed 60 Hz physics simulation.
-- [WorldClock](../../src/world/world_clock.cpp) applies scale and publishes one
+- [WorldClock](../../src/engine/timing/world_clock.cpp) applies scale and publishes one
   owner-tagged frame; admitted simulation alone advances world total. Game
   `MissionControl` owns pause/input policy. Animation and material cursors consume
   that frame, not independent wall clocks. Actor-local movement subdivisions
@@ -123,7 +130,7 @@ orders must survive reorganization. See [world timing](world-timing.md) for exac
 Lighting is a subsystem, not merely scattered shader utilities. Its public
 contract owns prepared fields, emitters, receiver evaluation and copied lighting
 packets. The [lighting drill-in](lighting.md) retains source numerical behavior.
-Game-owned [stage environment](../../src/game/stage_environment.hpp) translates
+Game-owned [stage environment](../../src/game/world/presentation/stage_environment.hpp) translates
 original channel identities and published bounds/transforms. Controllers must
 not select probes, rank lights or compensate brightness. Rendering consumes
 lighting; the backend owns GPU representations and shaders.
@@ -150,15 +157,15 @@ flowchart LR
   Compose --> Retire[GPU completion before resource reuse]
 ```
 
-[WorldRenderer::prepare_presentation](../../src/platform/macos/world_renderer.mm)
-encodes shadow then scene work; [WorldPostprocess](../../src/platform/macos/world_postprocess.mm)
+[WorldRenderer::prepare_presentation](../../src/platform/macos/render/world_renderer.mm)
+encodes shadow then scene work; [WorldPostprocess](../../src/platform/macos/render/world_postprocess.mm)
 handles exposure/bloom/tone/filter resources. Shared `bw_render` calculates
 material, view, shadow and output semantics. Actual pass encoding and retained
 draw storage remain native. `MovieRenderer` and `SpriteRenderer` own their
-separate resources; [OutputCompositor](../../include/bw/render/output_compositor.hpp)
+separate resources; [OutputCompositor](../../include/bw/render/output/output_compositor.hpp)
 accepts a fixed immutable frame request and orders the three siblings before
 waiting for native completion. The window host forwards producer operations and
-retains input/audio/clock observations. There is no generic frame graph. See
+retains neutral input/audio/clock observations. There is no generic frame graph. See
 [output composition](../../research/engine/subsystems/output-composition.md).
 
 Actor animation state and rendering have separate owners. `MissionSimulation`
@@ -166,7 +173,8 @@ owns actor/controller/camera/contact state; `StagePresentation` borrows const
 actor observations and copied camera values. Actors receive `ActorPublisher`
 for pose, shape and visibility only. `RenderScene` controls registration,
 replacement/removal and retirement while the native backend retains the sole
-draw registry. `PlayerAnimationReview` owns existing preview state. A centralized
+draw registry. Existing preview state belongs to a build-selected developer adapter; production
+world hooks do not own or link its implementation. A centralized
 full-world copy is not required. See the
 [slice 1 record](../../research/engine/subsystems/mission-presentation-ownership.md)
 for validation and acceptance status.
@@ -233,21 +241,45 @@ asset/script layer. Optional packs must not substitute for validation of the
 required original installation. Pack precedence, compatibility and script API
 validation require an explicit design before runtime replacement is implemented.
 
-## Repair order before directory moves
+## Grouped game source responsibilities
 
-| Priority | Proposed change | Kind and invariant |
-| --- | --- | --- |
-| 1 | Identify mission/session lifetime and split current StageInspection roles: actor/camera simulation, scene presentation and diagnostics | Ownership refactor. Preserve frame admission, source update order, asset borrows, costume/restart transactions and teardown. No general world registry implied. |
-| 2 | Make retained render membership/publication/retirement explicit; name lighting as the engine subsystem it already is | Ownership refactor. Preserve CPU/GPU work placement, numeric lighting and native pass order. Do not add a generic frame graph or new lighting model. |
-| 3 | Group permanent frontend, shared Options/dialogs, HUD, input/settings/persistence and session audio | Primarily mechanical. Shared Options must remain one owner; game cue/bank policy stays outside engine audio backend. Rename startup/pause-only names only where their permanent shared roles are established. |
-| 4 | Align CMake names/dependencies and tests with the accepted owners | Mechanical unless dependencies actually change. `bw_profiles` currently includes menu policy; `bw_startup_presentation` includes permanent HUD/Power Up. Do not equate a folder with a required separate library. |
-| 5 | Agree the physical grouping | Mechanical after the above decisions. Retain one implementation root, portable include contracts and target-owned entry; native shaders stay with their backend. No empty future subsystem skeleton. |
+These are physical owners in the revised implementation, not new engine services.
+The [exact file map](../../research/engine/subsystems/architecture-layout-file-map.json)
+records the pre-reorganization paths and splits; the earlier grouping report is
+historical rejected work.
 
-The [finalized reorganization plan](reorganization-plan.md) settles the physical
-choices and supersedes the exploratory alternatives: peer engine families,
-`scene/lighting`, grouped game responsibilities and explicit retained render-scene
-ownership. Its four implementation slices separate behavioral repairs from moves.
-Existing native acceptance scenarios remain the behavioral baseline.
+| Group | Responsibility and representative owners |
+| --- | --- |
+| `src/game/application/` | Application composition, launch settings and one main loop |
+| `src/game/session/` | GameSession, root driver, original RNG and game audio bank admission |
+| `src/game/mission/`, `mission/loading/` | Mission admission/pause/reentry/effective state and retained content transactions |
+| `src/game/world/` | WorldRuntime, MissionSimulation, static-contact assembly and explicit initial-placement shim |
+| `src/game/world/presentation/` | StagePresentation, original environment/light/shadow adapters and RenderScene lifetime |
+| `src/game/actors/animation/` | Common original motion/catalog/event adapter, with explicit actor-specific semantic policy |
+| `src/game/actors/alicia/{actions,animation,audio}/` | Alicia action state, authored modifiers and voice/surface/action cue policy |
+| `src/game/player/{input,camera}/` | Human input mapping/routing and camera policy |
+| `src/game/content/original/` | Original loader/namespace/channel policy; contains code, never game asset data |
+| `src/game/ui/{startup,frontend,loading,power_up,pause,hud,options,common,audio}/` | Actual screen roles, shared Options transactions and UI cue policy |
+| `src/game/profile/`, `settings/` | Permanent profile/progression and device/binding settings |
+| `src/developer/animation_review/` | Build-selected existing diagnostics; production hooks are inert |
+
+Engine implementation families sit under `src/engine/`, with lighting/spatial/timing
+separate and render scene/materials/shadows/postprocess explicit. `binary_reader.hpp`
+is a portable bounded binary-schema primitive. macOS implementations are grouped
+by window/input/audio/files/memory/render responsibility; shaders stay native.
+
+`ControllerInput` holds the single UI repeat history and consumes both wall and
+presentation deltas from the application. `WindowHost` and its native `InputSource`
+return only neutral `InputFrame` observations. Loading advances the same mapper
+without delivering actions; no duplicate clocks or repeat owners are introduced.
+See [input ownership](../../research/engine/subsystems/neutral-input-boundary.md).
+
+Current build owners include `bw_game_content`, `bw_profiles`, `bw_game`,
+`bw_game_playback`, `bw_game_presentation`, `bw_game_application`, and selected
+native backends. The host is `bw_window_host_macos`; `bullet-witch` is the game
+executable; `bw_metal_shaders` produces `bullet_witch.metallib`. Build dependency
+repair and owner-mirrored tests are part of this revision, not postponed slice 4.
+Integrated checks pass; the user accepted this revision on October 26, 2026.
 
 ## Evidence used for this proposal
 
@@ -267,5 +299,5 @@ and `FScene`, `FIndirectLightingCache`, `FPrimitiveSceneInfo` and
 `FBasePassMeshProcessor` in [lighting references](../../research/engine/subsystems/lighting-reference-boundaries.md).
 These support separation of mutation, completed observations, scene membership
 and pass preparation. They do not require copying Unreal source, class names,
-threading, Lumen or its directory layout. This review introduces no concrete C++
-API/header contracts and does not claim a fresh Unreal source audit.
+threading, Lumen or its directory layout. The input boundary additionally records inspected pinned native/player input
+functions in its dedicated contract. No new engine framework is implied.

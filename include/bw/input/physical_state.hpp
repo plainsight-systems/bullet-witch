@@ -38,6 +38,9 @@ struct PhysicalState {
   std::uint16_t pad_held{}, pad_pressed{};
   std::uint8_t mouse_held{}, mouse_pressed{};
   std::array<float, 2> movement{}, look{}, mouse_delta{};
+  // Raw extrema across attached devices preserve opposing stick observations.
+  // Merged movement above retains maximum magnitude; consumers choose policy.
+  std::array<float, 2> movement_minimum{}, movement_maximum{};
   float left_trigger{}, right_trigger{};
   int wheel{};
   bool controller_connected{};

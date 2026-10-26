@@ -37,7 +37,7 @@
 #include <memory_resource>
 #include <mutex>
 
-#include "bw/memory/cpu_backing.hpp"
+#include "cpu_backing.hpp"
 
 namespace bw::memory {
 struct Limits {

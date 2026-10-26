@@ -19,7 +19,7 @@
 // recorded in research/engine/subsystems/motion-event-timeline.md.
 #pragma once
 
-#include "bw/formats/motion_events.hpp"
+#include "bw/content/formats/motion_events.hpp"
 
 namespace bw::animation {
 enum class MotionEventPhase : std::uint8_t { enter, update, exit, interrupt };

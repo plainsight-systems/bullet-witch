@@ -41,11 +41,11 @@ loaded animations cannot answer this policy question.
 
 | Responsibility | Implemented behavior | Missing contract |
 | --- | --- | --- |
-| [Profile](../../../src/game/profile.hpp), [implementation](../../../src/game/profile.cpp) | Owns 72-byte System and 992-byte Record payloads; preserves opaque bytes; exposes settings, difficulty, costume/content availability and checkpoint metadata | Typed gameplay progression, upgrade points and purchase rules |
+| [Profile](../../../src/game/profile/profile.hpp), [implementation](../../../src/game/profile/profile.cpp) | Owns 72-byte System and 992-byte Record payloads; preserves opaque bytes; exposes settings, difficulty, costume/content availability and checkpoint metadata | Typed gameplay progression, upgrade points and purchase rules |
 | Checkpoint input | Retains a validated 307,200-byte checkpoint file as read-only bytes | Gameplay capture, serialization and live restoration |
-| [Weapon selection](../../../src/framework/startup_application.cpp) | Cycles `(current_weapon_class() + 1) % 4` in the accepted presentation scene | Effective availability derived from the original mission/progression policy |
-| [Weapon replacement and actions](../../../src/game/stage_animation_review.cpp) | Validates class, grounded/action state and resource publication; presents fire/reload/melee | Ammo mutation, projectiles, hits, damage and gameplay admission |
-| [Menu gates](../../../src/game/menu_flow.hpp) | Keeps campaign difficulty/stage gates separate from installed content and the approved concept-menu exception | Complete local progression production/import |
+| [Weapon selection](../../../src/framework/application.cpp) | Cycles `(current_weapon_class() + 1) % 4` in the accepted presentation scene | Effective availability derived from the original mission/progression policy |
+| [Weapon replacement and actions](../../../src/game/developer/stage_animation_review.cpp) | Validates class, grounded/action state and resource publication; presents fire/reload/melee | Ammo mutation, projectiles, hits, damage and gameplay admission |
+| [Menu gates](../../../src/game/ui/frontend/menu_flow.hpp) | Keeps campaign difficulty/stage gates separate from installed content and the approved concept-menu exception | Complete local progression production/import |
 
 The current presentation deliberately exposes all four weapon models. Its fire
 and reload paths explicitly report no ammunition/projectile outcomes. This is

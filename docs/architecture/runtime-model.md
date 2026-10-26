@@ -1,5 +1,10 @@
 # Runtime objects and ownership
 
+> **Revised slice 3 implemented; native review pending.** The earlier mechanical
+> grouping was rejected. The approved explicit engine/game/platform/developer
+> layout and ownership repairs replace that proposal. Both configuration gates and purchased-data checks pass;
+> user acceptance remains pending for this revised implementation.
+
 The lifetime tree below is a target proposal. See the [current ownership map](current-ownership.md#current-lifetime-and-authority)
 for implemented composition; no complete EngineInstance/World/entity aggregate
 is implied by those target boxes.
@@ -97,32 +102,43 @@ resource operations. The session's UI scene presents those screen contributions.
 Menus can exist without a world, and a modal screen can overlay a world without
 implicitly stopping every world or service phase. Mode policy determines the gates.
 
-## Implemented startup ownership
+## Implemented application/session ownership
 
-The current executable realizes a bounded subset of this tree. The Mac entry
-constructs file access and the native host, then calls shared framework code.
-The framework owns catalog resources, shared playback, title asset composition and `StartupSession`
-within that call. Destruction runs in reverse: the session releases its root
-and screen tasks before playback stops media, and the host outlives both.
-Resources remain alive until root and title archive/tag interests are released.
-Title asset composition releases sprite commands and texture identities before
-its borrowed renderer is destroyed; the host outlives all game asset owners.
+The approved revised slice 3 implementation places `run_application` in
+`src/game/application`, invoked by the native process entry after selecting
+backends and memory capabilities. This is concrete game composition, not a
+shared engine framework. The initial mechanical grouping was rejected; the
+current ownership repair awaits integrated validation and native acceptance.
 
-For One Shot Kill, that same framework scope now owns a selected resource
-service, `MissionLoading`, `MissionDriver` and `StageInspection`, in that
-construction order. Destruction reverses the order: inspection retires native
-submission and mesh/texture handles; the mission destroys its Lua context and
-poll captures, cancels load owners and releases script tags; loading/catalog
-owners then retire. Files, domains and the native host outlive these borrowers.
-No worker captures or detached asynchronous work are introduced by this slice.
+The application scope constructs Profile/DeviceOptions, catalog/resource owners,
+UI surfaces, media transport, GameAudio and GameSession. The native host outlives
+its game borrowers. Screens release sprite submissions and resource interests
+before native renderer destruction; movie/audio retirement keeps their existing
+independent callback and worker completion rules.
 
-The root remains pending while original mission Lua executes `load()`. Genuine
-resource readiness is separate from blocked collision/material-animation/world
-consumers. Static inspection can own and submit its supported original-material
-subset during that wait; it neither starts gameplay nor completes root's mission
-wait. This implements mission/content ownership and a renderer consumer, not the
-planned actor/physics `World` object. See
-[mission launch](../../research/engine/subsystems/mission-launch.md).
+The same application scope owns one `ControllerInput`. WindowHost and native
+InputSource publish neutral device/window observations; the game mapper produces
+original fixed UI and saved gameplay intentions. Its one ActionRepeat history
+advances on every presentation/loading pump using presentation delta, while mouse
+scaling receives wall delta. No repeat authority or game action type lives in
+platform code. See [input boundary](../../research/engine/subsystems/neutral-input-boundary.md).
+
+For One Shot Kill the application constructs mission resource/loading owners,
+effective player state, MissionControl/WorldClock, MissionDriver and WorldRuntime.
+WorldRuntime composes MissionSimulation (static contact, Alicia/controller/camera)
+and StagePresentation (authored environment, RenderScene and lighting publication).
+Presentation/actor borrowers retire before mission assets; native synchronous
+completion remains unchanged. WorldRuntime names this current partial world,
+not a complete entity registry, mission startup or checkpoint implementation.
+
+Existing animation review is a build-selected adapter under `src/developer`.
+Production hooks are inert and neither own nor link its flow/preview resources.
+Developer commands use bounded game operations; normal simulation has its own
+path. No new debug overlay, inspector or keybindings are introduced here.
+
+The root remains pending where genuine mission-start consumers are unfinished.
+Current actor/contact/animation/rendering functionality does not fabricate those
+Lua startup completions. See [mission launch](../../research/engine/subsystems/mission-launch.md).
 
 The session owns one scheduler and its root driver; scheduler callbacks borrow
 the session and are destroyed before its flow/root storage. This prevents a
@@ -136,10 +152,10 @@ survives that retirement. See [startup runtime](../startup-runtime.md).
 flowchart TD
     Entry[Mac process entry] --> Host[Native host: window / Metal / AudioQueue]
     Entry --> Files[Host file adapter]
-    Entry --> Framework[Shared startup application scope]
+    Entry --> Framework[Game application scope]
     Framework --> Resources[Read-only resource service]
     Framework --> Playback[Game fade adapter and engine video Player]
-    Framework --> Session[StartupSession]
+    Framework --> Session[GameSession]
     Framework --> TitleAssets[Title asset composition / retained leases]
     Session -. borrows .-> TitleAssets
     TitleAssets -. borrows .-> Resources
@@ -154,8 +170,8 @@ flowchart TD
     Root -. borrows .-> Resources
 ```
 
-Solid arrows indicate ownership, dashed arrows borrowing. There is no world
-owner yet. The Player owns its decoder session; that decoder owns demux, audio
+Solid arrows indicate ownership, dashed arrows borrowing. WorldRuntime owns the current partial simulation/presentation composition;
+a complete entity/world registry remains future. The Player owns its decoder session; that decoder owns demux, audio
 and video workers, separate compressed queues and bounded decoded storage.
 The Mac host composes a separate MediaAudio service whose joined run-loop owner
 feeds the native device independently of game updates and drawing. Its callback

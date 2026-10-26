@@ -86,7 +86,7 @@ that every game sound or dialogue path is complete.
 
 The build fetches pinned source into ignored build directories, with no system
 package fallback. FAudio's Win32 WMA implementation is excluded and replaced by
-our clearly marked `src/audio/fact/wma_bridge.c`. `cmake/PatchFact.cmake` makes
+our clearly marked `src/engine/audio/backends/fact/wma_bridge.c`. `cmake/PatchFact.cmake` makes
 an exact-fragment-checked adaptation to cue/wave volume: a request-owned scalar
 multiplies, rather than replaces, authored RPC/category/fade volume. Native
 publication uses FACT's API lock; its unimplemented output-routing APIs are

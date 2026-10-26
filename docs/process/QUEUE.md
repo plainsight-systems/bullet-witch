@@ -1,17 +1,13 @@
 # Remaining work
 
-- Finalized design accepted and committed as `79d7a72`: see
-  [reorganization plan](../architecture/reorganization-plan.md) and
-  [boundary diagrams](../architecture/proposed-boundaries.md). Execution is
-  authorized; slice 1 mission/render-scene ownership is accepted after the
-  October 26 native walkthrough, with final gate and purchased-content checks
-  passing, committed as `fd773fb`. Slice 2 lighting/output composition is
-  accepted after the October 26 native review, with full gate and purchased-data
-  traversal passing. Next are (3)
-  mechanical game grouping and (4) build boundaries/documentation.
-  Peer engine families and grouped game folders are settled design. No production
-  broad directory moves or new gameplay/physics/AI/pack/debug capabilities belong
-  to slice 1. Slice acceptance authorizes commit; push needs instruction.
+- Revised architecture slice 3 was accepted on October 26, 2026; the user
+  authorized its scoped commit.
+  Implementation and both configuration gates/purchased-content traversals pass;
+  the ordinary developer-OFF build is restored. The revised slice includes the
+  former build/dependency/documentation step, so it is not deferred as slice 4.
+  See [verification](../../research/engine/subsystems/architecture-layout-implementation.md).
+  Slices 1 (`fd773fb`) and 2 (`a5577bb`) remain accepted. Pushing still needs
+  instruction. No additional native playthrough is inferred from acceptance.
 
 - Investigate the costume-selection screen's pink block over the currently
   displayed/selected menu item, reported during the October 26 walkthrough.
@@ -31,8 +27,9 @@
   [verification](../../research/engine/subsystems/frontend-verification.md).
 
 - Initial developer-tools design is recorded in
-  [developer-tools.md](../architecture/developer-tools.md). Later stage 1 covers compile-time exclusion, independent timing
-  overlay, separate inspector and temporary owned overrides; stage 2 adds
+  [developer-tools.md](../architecture/developer-tools.md). Compile-time exclusion of existing diagnostics is part of the current architecture
+  repair. Later stage 1 adds the independent timing overlay, separate inspector
+  and temporary owned overrides; stage 2 adds
   headless automation/input/capture through the same command/snapshot boundary.
   No key bindings or detailed debug UI are approved, and none are implemented.
 

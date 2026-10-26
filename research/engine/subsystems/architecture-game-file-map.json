@@ -1,0 +1,2156 @@
+{
+  "status": "Historical full-trace inventory supporting the approved revised architecture; implementation locations are authoritative in architecture-layout-file-map.json.",
+  "files": [
+    {
+      "current": "src/game/actors/aim_posture.cpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/aim_posture.cpp",
+        "src/game/actors/alicia/actions/raised_weapon_state.cpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/actors/aim_posture.hpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/aim_posture.hpp",
+        "src/game/actors/alicia/actions/raised_weapon_state.hpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [
+        "src/game/actors/player_actor.cpp",
+        "src/game/actors/player_controller.hpp",
+        "src/game/actors/aim_posture.cpp",
+        "tests/aim_posture_test.cpp",
+        "tests/gamepad_targeting_test.mm"
+      ],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/actors/alicia_action_owner.cpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/alicia_action_owner.cpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_action_owner.hpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/alicia_action_owner.hpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [
+        "src/game/actors/player_controller.hpp",
+        "src/game/actors/alicia_action_owner.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_action_policy.cpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/alicia_action_policy.cpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_action_policy.hpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/alicia_action_policy.hpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [
+        "src/game/actors/alicia_action_policy.cpp",
+        "src/game/actors/alicia_reaction_policy.hpp",
+        "src/game/actors/scripted_jump_policy.hpp",
+        "src/game/actors/spell_presentation_policy.hpp",
+        "src/game/actors/player_actor.hpp",
+        "tests/alicia_action_policy_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_motion_bindings.cpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/alicia_motion_bindings.cpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_reaction_policy.cpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/alicia_reaction_policy.cpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_reaction_policy.hpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/alicia_reaction_policy.hpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [
+        "src/game/actors/alicia_reaction_policy.cpp",
+        "src/game/actors/alicia_action_owner.hpp",
+        "tests/alicia_reaction_policy_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_secondary_motion.cpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/alicia_secondary_motion.cpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_secondary_motion.hpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/alicia_secondary_motion.hpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [
+        "src/game/actors/alicia_secondary_motion.cpp",
+        "src/game/actors/player_actor.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_support_arm.cpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/alicia_support_arm.cpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/alicia_support_arm.hpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/alicia_support_arm.hpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [
+        "src/game/actors/alicia_support_arm.cpp",
+        "src/game/actors/player_actor.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/character_animations.cpp",
+      "proposed": [
+        "src/game/actors/animation/character_animations.cpp",
+        "src/game/actors/alicia/animation/pose_semantics.cpp"
+      ],
+      "responsibility": "Original character publication/event adapter and reusable body/weapon motion bank owner; split Alicia metadata out",
+      "current_direct_consumers": [],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/actors/character_animations.hpp",
+      "proposed": [
+        "src/game/actors/animation/character_animations.hpp",
+        "src/game/actors/alicia/animation/pose_semantics.hpp"
+      ],
+      "responsibility": "Original character publication/event adapter and reusable body/weapon motion bank owner; split Alicia metadata out",
+      "current_direct_consumers": [
+        "src/game/developer/developer_review_flow.hpp",
+        "src/game/actors/alicia_motion_bindings.cpp",
+        "src/game/actors/character_motion_player.hpp",
+        "src/game/actors/character_animations.cpp",
+        "src/game/actors/player_actor.hpp"
+      ],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/actors/character_motion_player.cpp",
+      "proposed": [
+        "src/game/actors/animation/character_motion_player.cpp"
+      ],
+      "responsibility": "Original character publication/event adapter and reusable body/weapon motion bank owner; split Alicia metadata out",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/character_motion_player.hpp",
+      "proposed": [
+        "src/game/actors/animation/character_motion_player.hpp"
+      ],
+      "responsibility": "Original character publication/event adapter and reusable body/weapon motion bank owner; split Alicia metadata out",
+      "current_direct_consumers": [
+        "src/game/actors/character_motion_player.cpp",
+        "src/game/actors/player_actor.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/facial_animation.cpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/facial_animation.cpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/facial_animation.hpp",
+      "proposed": [
+        "src/game/actors/alicia/animation/facial_animation.hpp"
+      ],
+      "responsibility": "Alicia motion metadata, bone/face modifiers and aiming pose bindings",
+      "current_direct_consumers": [
+        "src/game/actors/player_actor.cpp",
+        "src/game/actors/facial_animation.cpp",
+        "tests/motion_presentation_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/motion_presentation.cpp",
+      "proposed": [
+        "src/game/actors/animation/motion_presentation.cpp"
+      ],
+      "responsibility": "Original character publication/event adapter and reusable body/weapon motion bank owner; split Alicia metadata out",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/motion_presentation.hpp",
+      "proposed": [
+        "src/game/actors/animation/motion_presentation.hpp"
+      ],
+      "responsibility": "Original character publication/event adapter and reusable body/weapon motion bank owner; split Alicia metadata out",
+      "current_direct_consumers": [
+        "src/game/audio/character_audio.hpp",
+        "src/game/actors/character_animations.hpp",
+        "src/game/actors/facial_animation.hpp",
+        "src/game/actors/motion_presentation.cpp",
+        "tests/motion_presentation_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_actor.cpp",
+      "proposed": [
+        "src/game/actors/alicia/player_actor.cpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_actor.hpp",
+      "proposed": [
+        "src/game/actors/alicia/player_actor.hpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [
+        "src/game/developer/player_animation_review.hpp",
+        "src/game/mission/mission_simulation.hpp",
+        "src/game/actors/player_actor.cpp",
+        "src/game/actors/player_controller.hpp",
+        "src/game/actors/alicia_action_owner.cpp",
+        "src/game/presentation/stage_presentation.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_controller.cpp",
+      "proposed": [
+        "src/game/actors/alicia/player_controller.cpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_controller.hpp",
+      "proposed": [
+        "src/game/actors/alicia/player_controller.hpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [
+        "src/game/developer/player_animation_review.hpp",
+        "src/game/mission/mission_simulation.hpp",
+        "src/game/actors/alicia_action_owner.cpp",
+        "src/game/actors/player_controller.cpp",
+        "tests/alicia_reaction_policy_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_resources.cpp",
+      "proposed": [
+        "src/game/actors/alicia/player_resources.cpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_resources.hpp",
+      "proposed": [
+        "src/game/actors/alicia/player_resources.hpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/input/player_input_routing.hpp",
+        "src/game/mission/mission_simulation.hpp",
+        "src/game/actors/player_resources.cpp",
+        "src/game/ui/hud/player_cockpit.hpp",
+        "tests/player_resources_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_targeting.cpp",
+      "proposed": [
+        "src/game/actors/alicia/player_targeting.cpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/player_targeting.hpp",
+      "proposed": [
+        "src/game/actors/alicia/player_targeting.hpp"
+      ],
+      "responsibility": "Alicia pose/appearance owner, movement/action coordination, targeting and live resources",
+      "current_direct_consumers": [
+        "src/game/developer/player_animation_review.hpp",
+        "src/game/mission/mission_simulation.hpp",
+        "src/game/actors/player_controller.cpp",
+        "src/game/actors/player_targeting.cpp",
+        "tests/gamepad_targeting_test.mm"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/scripted_jump_policy.cpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/scripted_jump_policy.cpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/scripted_jump_policy.hpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/scripted_jump_policy.hpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [
+        "src/game/actors/player_controller.hpp",
+        "src/game/actors/scripted_jump_policy.cpp",
+        "tests/scripted_jump_policy_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/spell_presentation_policy.cpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/spell_presentation_policy.cpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/spell_presentation_policy.hpp",
+      "proposed": [
+        "src/game/actors/alicia/actions/spell_presentation_policy.hpp"
+      ],
+      "responsibility": "Alicia exclusive/weapon/reaction/jump/spell action policy and admission",
+      "current_direct_consumers": [
+        "src/game/actors/spell_presentation_policy.cpp",
+        "src/game/actors/alicia_action_owner.hpp",
+        "tests/spell_presentation_policy_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/spell_selection.cpp",
+      "proposed": [
+        "src/game/ui/hud/spell_selection.cpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/actors/spell_selection.hpp",
+      "proposed": [
+        "src/game/ui/hud/spell_selection.hpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [
+        "src/game/input/player_input_routing.hpp",
+        "src/game/actors/spell_selection.cpp",
+        "src/game/ui/hud/gameplay_hud.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/character_audio.cpp",
+      "proposed": [
+        "src/game/actors/alicia/audio/character_audio.cpp"
+      ],
+      "responsibility": "Original Alicia action/surface/voice group22 policy and bank-local handles",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/character_audio.hpp",
+      "proposed": [
+        "src/game/actors/alicia/audio/character_audio.hpp"
+      ],
+      "responsibility": "Original Alicia action/surface/voice group22 policy and bank-local handles",
+      "current_direct_consumers": [
+        "src/game/audio/game_audio.hpp",
+        "src/game/audio/character_audio.cpp",
+        "src/game/actors/player_actor.cpp",
+        "tests/motion_presentation_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/character_audio_compatibility.inc",
+      "proposed": [
+        "src/game/actors/alicia/audio/character_audio_compatibility.inc"
+      ],
+      "responsibility": "Original Alicia action/surface/voice group22 policy and bank-local handles",
+      "current_direct_consumers": [
+        "src/game/audio/character_audio.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/frontend_audio.cpp",
+      "proposed": [
+        "src/game/ui/audio/frontend_audio.cpp"
+      ],
+      "responsibility": "Original UI cue scheduling and frontend BGM policy",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/frontend_audio.hpp",
+      "proposed": [
+        "src/game/ui/audio/frontend_audio.hpp"
+      ],
+      "responsibility": "Original UI cue scheduling and frontend BGM policy",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/audio/frontend_audio.cpp",
+        "src/game/session/session_services.cpp",
+        "src/game/ui/frontend/frontend.cpp",
+        "tests/startup_corpus.cpp",
+        "tests/menu_audio_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/game_audio.cpp",
+      "proposed": [
+        "src/game/session/audio/game_audio.cpp"
+      ],
+      "responsibility": "Session bank residency and single cue/music runtime admission",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/game_audio.hpp",
+      "proposed": [
+        "src/game/session/audio/game_audio.hpp"
+      ],
+      "responsibility": "Session bank residency and single cue/music runtime admission",
+      "current_direct_consumers": [
+        "src/framework/application.hpp",
+        "src/game/audio/game_audio.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/menu_audio.cpp",
+      "proposed": [
+        "src/game/ui/audio/menu_audio.cpp"
+      ],
+      "responsibility": "Original UI cue scheduling and frontend BGM policy",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/menu_audio.hpp",
+      "proposed": [
+        "src/game/ui/audio/menu_audio.hpp"
+      ],
+      "responsibility": "Original UI cue scheduling and frontend BGM policy",
+      "current_direct_consumers": [
+        "src/game/audio/menu_audio.cpp",
+        "src/game/audio/frontend_audio.hpp",
+        "src/game/audio/menu_sound_requests.cpp",
+        "src/game/ui/pause/pause_menu.hpp",
+        "src/game/ui/pause/pause_help.hpp",
+        "src/game/ui/frontend/title_flows.hpp",
+        "src/game/ui/frontend/power_up_flow.hpp",
+        "src/game/ui/frontend/menu_flow.hpp",
+        "src/game/ui/shared/controller_options.hpp",
+        "src/game/ui/shared/menu_dialog.hpp",
+        "src/game/ui/shared/options.hpp",
+        "tests/menu_audio_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/audio/menu_sound_requests.cpp",
+      "proposed": [
+        "src/game/ui/audio/menu_sound_requests.cpp"
+      ],
+      "responsibility": "Original UI cue scheduling and frontend BGM policy",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/camera/initial_camera.cpp",
+      "proposed": [
+        "src/game/player/camera/initial_camera.cpp"
+      ],
+      "responsibility": "Player follow/aim camera with authored collision policy",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/camera/initial_camera.hpp",
+      "proposed": [
+        "src/game/player/camera/initial_camera.hpp"
+      ],
+      "responsibility": "Player follow/aim camera with authored collision policy",
+      "current_direct_consumers": [
+        "src/game/camera/initial_camera.cpp",
+        "src/game/camera/player_camera.hpp",
+        "src/game/mission/initial_placement_shim.hpp",
+        "src/game/actors/player_actor.hpp",
+        "src/game/presentation/stage_presentation.hpp",
+        "tests/initial_camera_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/camera/player_camera.cpp",
+      "proposed": [
+        "src/game/player/camera/player_camera.cpp"
+      ],
+      "responsibility": "Player follow/aim camera with authored collision policy",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/camera/player_camera.hpp",
+      "proposed": [
+        "src/game/player/camera/player_camera.hpp"
+      ],
+      "responsibility": "Player follow/aim camera with authored collision policy",
+      "current_direct_consumers": [
+        "src/game/camera/player_camera.cpp",
+        "src/game/mission/mission_simulation.hpp",
+        "tests/player_camera_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/compatibility/source_random.hpp",
+      "proposed": [
+        "src/game/session/compatibility/source_random.hpp"
+      ],
+      "responsibility": "Original shared game RNG policy",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/actors/player_actor.cpp",
+        "src/game/ui/hud/ammunition_hud.hpp",
+        "tests/startup_corpus.cpp",
+        "tests/motion_presentation_test.cpp",
+        "tests/gameplay_hud_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/developer/animation_review.hpp",
+      "proposed": [
+        "src/developer/animation_review/animation_review.hpp"
+      ],
+      "responsibility": "Debug-only animation review implementation; reverse shipping dependencies must be removed before relocation",
+      "current_direct_consumers": [
+        "src/game/developer/player_animation_review.hpp",
+        "src/game/developer/developer_review_flow.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/developer/developer_review_flow.cpp",
+      "proposed": [
+        "src/developer/animation_review/developer_review_flow.cpp"
+      ],
+      "responsibility": "Debug-only animation review implementation; reverse shipping dependencies must be removed before relocation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/developer/developer_review_flow.hpp",
+      "proposed": [
+        "src/developer/animation_review/developer_review_flow.hpp"
+      ],
+      "responsibility": "Debug-only animation review implementation; reverse shipping dependencies must be removed before relocation",
+      "current_direct_consumers": [
+        "src/game/developer/developer_review_flow.cpp",
+        "src/game/mission/mission_interaction.hpp",
+        "tests/world_timing_test.cpp",
+        "tests/menu_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/developer/developer_views.hpp",
+      "proposed": [
+        "src/developer/animation_review/developer_views.hpp"
+      ],
+      "responsibility": "Debug-only animation review implementation; reverse shipping dependencies must be removed before relocation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/developer/player_animation_review.hpp",
+      "proposed": [
+        "src/developer/animation_review/player_animation_review.hpp"
+      ],
+      "responsibility": "Debug-only animation review implementation; reverse shipping dependencies must be removed before relocation",
+      "current_direct_consumers": [
+        "src/game/developer/stage_animation_review.cpp",
+        "src/game/mission/stage_inspection.hpp",
+        "src/game/mission/mission_simulation.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/developer/stage_animation_review.cpp",
+      "proposed": [
+        "src/developer/animation_review/stage_animation_review.cpp"
+      ],
+      "responsibility": "Debug-only animation review implementation; reverse shipping dependencies must be removed before relocation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/input/controller_input.cpp",
+      "proposed": [
+        "src/game/player/input/controller_input.cpp"
+      ],
+      "responsibility": "Saved Bullet Witch mappings and human-player command/ring arbitration",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/input/controller_input.hpp",
+      "proposed": [
+        "src/game/player/input/controller_input.hpp"
+      ],
+      "responsibility": "Saved Bullet Witch mappings and human-player command/ring arbitration",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/input/controller_input.cpp",
+        "src/game/ui/shared/controller_options.cpp",
+        "tests/controller_options_test.cpp",
+        "tests/gamepad_targeting_test.mm"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/input/player_input_routing.cpp",
+      "proposed": [
+        "src/game/player/input/player_input_routing.cpp"
+      ],
+      "responsibility": "Saved Bullet Witch mappings and human-player command/ring arbitration",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/input/player_input_routing.hpp",
+      "proposed": [
+        "src/game/player/input/player_input_routing.hpp"
+      ],
+      "responsibility": "Saved Bullet Witch mappings and human-player command/ring arbitration",
+      "current_direct_consumers": [
+        "src/game/input/player_input_routing.cpp",
+        "src/game/mission/mission_gameplay.hpp",
+        "src/game/mission/mission_interaction.cpp",
+        "tests/gameplay_integration_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/initial_placement_shim.cpp",
+      "proposed": [
+        "src/game/world/initial_placement_shim.cpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/initial_placement_shim.hpp",
+      "proposed": [
+        "src/game/world/initial_placement_shim.hpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/mission/initial_placement_shim.cpp",
+        "tests/initial_camera_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_control.cpp",
+      "proposed": [
+        "src/game/mission/mission_control.cpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_control.hpp",
+      "proposed": [
+        "src/game/mission/mission_control.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/developer/player_animation_review.hpp",
+        "src/game/developer/developer_review_flow.hpp",
+        "src/game/input/player_input_routing.hpp",
+        "src/game/mission/mission_driver.hpp",
+        "src/game/mission/mission_simulation.hpp",
+        "src/game/mission/mission_control.cpp",
+        "src/game/ui/pause/pause_menu.hpp",
+        "tests/startup_corpus.cpp",
+        "tests/world_timing_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_driver.cpp",
+      "proposed": [
+        "src/game/mission/mission_driver.cpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_driver.hpp",
+      "proposed": [
+        "src/game/mission/mission_driver.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/game/mission/mission_loading.hpp",
+        "src/game/mission/mission_driver.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_gameplay.cpp",
+      "proposed": [
+        "src/game/mission/mission_gameplay.cpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_gameplay.hpp",
+      "proposed": [
+        "src/game/mission/mission_gameplay.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/mission/mission_gameplay.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_help_state.cpp",
+      "proposed": [
+        "src/game/mission/mission_help_state.cpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_help_state.hpp",
+      "proposed": [
+        "src/game/mission/mission_help_state.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/game/mission/mission_help_state.cpp",
+        "src/game/ui/pause/pause_help.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_interaction.cpp",
+      "proposed": [
+        "src/game/mission/mission_interaction.cpp",
+        "src/developer/animation_review/mission_review_adapter.cpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/mission/mission_interaction.hpp",
+      "proposed": [
+        "src/game/mission/mission_interaction.hpp",
+        "src/developer/animation_review/mission_review_adapter.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/game/mission/mission_gameplay.hpp",
+        "src/game/mission/mission_interaction.cpp"
+      ],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/mission/mission_loading.cpp",
+      "proposed": [
+        "src/game/mission/loading/mission_loading.cpp"
+      ],
+      "responsibility": "Original mission admission, resource residency and activation inputs",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_loading.hpp",
+      "proposed": [
+        "src/game/mission/loading/mission_loading.hpp"
+      ],
+      "responsibility": "Original mission admission, resource residency and activation inputs",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/mission/mission_package_inputs.cpp",
+        "src/game/mission/mission_loading.cpp",
+        "src/game/mission/mission_simulation.cpp",
+        "src/game/mission/mission_interaction.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_package_inputs.cpp",
+      "proposed": [
+        "src/game/mission/loading/mission_package_inputs.cpp"
+      ],
+      "responsibility": "Original mission admission, resource residency and activation inputs",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_player_state.cpp",
+      "proposed": [
+        "src/game/mission/mission_player_state.cpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_player_state.hpp",
+      "proposed": [
+        "src/game/mission/mission_player_state.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/framework/application.hpp",
+        "src/game/mission/mission_driver.hpp",
+        "src/game/mission/mission_player_state.cpp",
+        "src/game/mission/mission_help_state.hpp",
+        "src/game/actors/player_resources.hpp",
+        "tests/progression_test.cpp",
+        "tests/power_up_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_simulation.cpp",
+      "proposed": [
+        "src/game/world/mission_simulation.cpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_simulation.hpp",
+      "proposed": [
+        "src/game/world/mission_simulation.hpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [
+        "src/game/mission/stage_inspection.hpp",
+        "src/game/mission/mission_simulation.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/mission_transition.hpp",
+      "proposed": [
+        "src/game/mission/mission_transition.hpp"
+      ],
+      "responsibility": "Mission Lua/lifecycle, frame admission, effective profile and UI/equipment transactions",
+      "current_direct_consumers": [
+        "src/game/mission/mission_interaction.hpp",
+        "src/game/mission/mission_gameplay.hpp",
+        "src/game/session/session_services.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/placed_collision.cpp",
+      "proposed": [
+        "src/game/world/placed_collision.cpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/placed_collision.hpp",
+      "proposed": [
+        "src/game/world/placed_collision.hpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [
+        "src/game/mission/placed_collision.cpp",
+        "src/game/mission/mission_simulation.cpp",
+        "tests/placed_collision_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/mission/stage_inspection.cpp",
+      "proposed": [
+        "src/game/world/world_runtime.cpp",
+        "src/developer/animation_review/world_review_adapter.cpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/mission/stage_inspection.hpp",
+      "proposed": [
+        "src/game/world/world_runtime.hpp",
+        "src/developer/animation_review/world_review_adapter.hpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/mission/mission_interaction.hpp",
+        "src/game/mission/stage_inspection.cpp",
+        "tests/startup_corpus.cpp",
+        "tests/world_timing_test.cpp"
+      ],
+      "needs_split": true
+    },
+    {
+      "current": "src/game/mission/stage_source.hpp",
+      "proposed": [
+        "src/game/world/stage_source.hpp"
+      ],
+      "responsibility": "Current world runtime, static contacts, player/camera simulation and explicit spawn shim",
+      "current_direct_consumers": [
+        "src/game/mission/mission_simulation.hpp",
+        "src/game/presentation/stage_presentation.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/npc_palette.cpp",
+      "proposed": [
+        "src/game/content/original/npc_palette.cpp"
+      ],
+      "responsibility": "Resident mission asset observations and original material palette mapping",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/npc_palette.hpp",
+      "proposed": [
+        "src/game/content/original/npc_palette.hpp"
+      ],
+      "responsibility": "Resident mission asset observations and original material palette mapping",
+      "current_direct_consumers": [
+        "src/game/mission/mission_loading.hpp",
+        "src/game/presentation/npc_palette.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/placed_lighting.cpp",
+      "proposed": [
+        "src/game/world/presentation/placed_lighting.cpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/placed_lighting.hpp",
+      "proposed": [
+        "src/game/world/presentation/placed_lighting.hpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [
+        "src/game/presentation/stage_presentation.cpp",
+        "src/game/presentation/placed_lighting.cpp",
+        "tests/placed_collision_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/resident_model.hpp",
+      "proposed": [
+        "src/game/content/original/resident_model.hpp"
+      ],
+      "responsibility": "Resident mission asset observations and original material palette mapping",
+      "current_direct_consumers": [
+        "src/game/mission/stage_source.hpp",
+        "src/game/mission/mission_loading.hpp",
+        "src/game/actors/player_actor.hpp",
+        "src/game/presentation/placed_lighting.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/stage_environment.cpp",
+      "proposed": [
+        "src/game/world/presentation/stage_environment.cpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/stage_environment.hpp",
+      "proposed": [
+        "src/game/world/presentation/stage_environment.hpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [
+        "src/game/presentation/stage_environment.cpp",
+        "src/game/presentation/stage_presentation.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/stage_presentation.cpp",
+      "proposed": [
+        "src/game/world/presentation/stage_presentation.cpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/stage_presentation.hpp",
+      "proposed": [
+        "src/game/world/presentation/stage_presentation.hpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [
+        "src/game/mission/stage_inspection.hpp",
+        "src/game/mission/mission_simulation.cpp",
+        "src/game/presentation/stage_presentation.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/stage_shadow.cpp",
+      "proposed": [
+        "src/game/world/presentation/stage_shadow.cpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/presentation/stage_shadow.hpp",
+      "proposed": [
+        "src/game/world/presentation/stage_shadow.hpp"
+      ],
+      "responsibility": "Authored world visual policy and retained scene assembly",
+      "current_direct_consumers": [
+        "src/game/presentation/stage_presentation.cpp",
+        "src/game/presentation/stage_shadow.cpp",
+        "tests/stage_shadow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/profile.cpp",
+      "proposed": [
+        "src/game/profile/profile.cpp"
+      ],
+      "responsibility": "Permanent save bytes/progression authority and codecs",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/profile.hpp",
+      "proposed": [
+        "src/game/profile/profile.hpp"
+      ],
+      "responsibility": "Permanent save bytes/progression authority and codecs",
+      "current_direct_consumers": [
+        "src/game/mission/mission_help_state.hpp",
+        "src/game/profile/profile_load_flow.hpp",
+        "src/game/profile/profile.cpp",
+        "src/game/ui/frontend/menu_flow.cpp",
+        "src/game/ui/frontend/power_up_flow.hpp",
+        "src/game/ui/shared/controller_options.hpp",
+        "tests/progression_test.cpp",
+        "tests/profile_test.cpp",
+        "tests/menu_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/profile_load_flow.cpp",
+      "proposed": [
+        "src/game/ui/startup/profile_load_flow.cpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/profile_load_flow.hpp",
+      "proposed": [
+        "src/game/ui/startup/profile_load_flow.hpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [
+        "src/game/profile/profile_load_flow.cpp",
+        "src/game/ui/frontend/frontend.hpp",
+        "tests/profile_load_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/progression.cpp",
+      "proposed": [
+        "src/game/profile/progression.cpp"
+      ],
+      "responsibility": "Permanent save bytes/progression authority and codecs",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/progression.hpp",
+      "proposed": [
+        "src/game/profile/progression.hpp"
+      ],
+      "responsibility": "Permanent save bytes/progression authority and codecs",
+      "current_direct_consumers": [
+        "src/game/profile/progression.cpp",
+        "src/game/profile/progression_save.hpp",
+        "src/game/actors/spell_selection.hpp",
+        "src/game/ui/frontend/power_up_presentation.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/progression_save.cpp",
+      "proposed": [
+        "src/game/profile/progression_save.cpp"
+      ],
+      "responsibility": "Permanent save bytes/progression authority and codecs",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/profile/progression_save.hpp",
+      "proposed": [
+        "src/game/profile/progression_save.hpp"
+      ],
+      "responsibility": "Permanent save bytes/progression authority and codecs",
+      "current_direct_consumers": [
+        "src/game/mission/mission_player_state.hpp",
+        "src/game/profile/progression_save.cpp",
+        "src/game/profile/profile.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/session/root_driver.cpp",
+      "proposed": [
+        "src/game/session/root_driver.cpp"
+      ],
+      "responsibility": "Session/root Lua and native task orchestration",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/session/root_driver.hpp",
+      "proposed": [
+        "src/game/session/root_driver.hpp"
+      ],
+      "responsibility": "Session/root Lua and native task orchestration",
+      "current_direct_consumers": [
+        "src/game/session/root_driver.cpp",
+        "src/game/session/session_services.hpp",
+        "src/game/ui/frontend/frontend.hpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/session/session_services.cpp",
+      "proposed": [
+        "src/game/session/session_services.cpp"
+      ],
+      "responsibility": "Session/root Lua and native task orchestration",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/session/session_services.hpp",
+      "proposed": [
+        "src/game/session/session_services.hpp"
+      ],
+      "responsibility": "Session/root Lua and native task orchestration",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/session/session_services.cpp",
+        "tests/startup_corpus.cpp",
+        "tests/startup_services_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/session/startup_flows.cpp",
+      "proposed": [
+        "src/game/ui/startup/startup_flows.cpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/session/startup_flows.hpp",
+      "proposed": [
+        "src/game/ui/startup/startup_flows.hpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [
+        "src/game/profile/profile_load_flow.hpp",
+        "src/game/session/startup_flows.cpp",
+        "src/game/session/session_services.hpp",
+        "src/game/ui/frontend/startup_playback.hpp",
+        "src/game/ui/frontend/advertise_flow.hpp",
+        "src/game/ui/frontend/title_flows.hpp",
+        "tests/startup_flows_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/settings/controller_settings.cpp",
+      "proposed": [
+        "src/game/settings/controller_settings.cpp"
+      ],
+      "responsibility": "Original binding codec and writable device settings authority",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/settings/controller_settings.hpp",
+      "proposed": [
+        "src/game/settings/controller_settings.hpp"
+      ],
+      "responsibility": "Original binding codec and writable device settings authority",
+      "current_direct_consumers": [
+        "src/game/settings/controller_settings.cpp",
+        "src/game/input/controller_input.hpp",
+        "src/game/profile/profile.cpp",
+        "src/game/ui/shared/controller_options.hpp",
+        "src/game/ui/shared/help_input_icons.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/settings/device_options.cpp",
+      "proposed": [
+        "src/game/settings/device_options.cpp"
+      ],
+      "responsibility": "Original binding codec and writable device settings authority",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/settings/device_options.hpp",
+      "proposed": [
+        "src/game/settings/device_options.hpp"
+      ],
+      "responsibility": "Original binding codec and writable device settings authority",
+      "current_direct_consumers": [
+        "src/game/settings/device_options.cpp",
+        "src/game/input/controller_input.hpp",
+        "src/game/ui/shared/controller_options.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/advertise_flow.cpp",
+      "proposed": [
+        "src/game/ui/startup/advertise_flow.cpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/advertise_flow.hpp",
+      "proposed": [
+        "src/game/ui/startup/advertise_flow.hpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [
+        "src/game/session/session_services.hpp",
+        "src/game/ui/frontend/advertise_flow.cpp",
+        "tests/advertise_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/frontend.cpp",
+      "proposed": [
+        "src/game/ui/frontend/frontend.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/frontend.hpp",
+      "proposed": [
+        "src/game/ui/frontend/frontend.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/game/session/session_services.hpp",
+        "src/game/ui/frontend/frontend.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/frontend_menu_surface.cpp",
+      "proposed": [
+        "src/game/ui/frontend/frontend_menu_surface.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/frontend_menu_surface.hpp",
+      "proposed": [
+        "src/game/ui/frontend/frontend_menu_surface.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/pause/mission_pause_surface.hpp",
+        "src/game/ui/frontend/frontend_menu_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/frontend_title_surface.cpp",
+      "proposed": [
+        "src/game/ui/frontend/frontend_title_surface.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/frontend_title_surface.hpp",
+      "proposed": [
+        "src/game/ui/frontend/frontend_title_surface.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/frontend/frontend_title_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/loading_surface.cpp",
+      "proposed": [
+        "src/game/ui/loading/loading_surface.cpp"
+      ],
+      "responsibility": "Mission loading artwork and supplied-time presentation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/loading_surface.hpp",
+      "proposed": [
+        "src/game/ui/loading/loading_surface.hpp"
+      ],
+      "responsibility": "Mission loading artwork and supplied-time presentation",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/frontend/loading_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/menu_flow.cpp",
+      "proposed": [
+        "src/game/ui/frontend/menu_flow.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/menu_flow.hpp",
+      "proposed": [
+        "src/game/ui/frontend/menu_flow.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/game/developer/developer_review_flow.hpp",
+        "src/game/ui/pause/pause_menu.hpp",
+        "src/game/ui/pause/pause_help.hpp",
+        "src/game/ui/frontend/menu_flow.cpp",
+        "src/game/ui/frontend/menu_surface.hpp",
+        "src/game/ui/frontend/power_up_flow.hpp",
+        "src/game/ui/shared/controller_options.hpp",
+        "src/game/ui/shared/options.hpp",
+        "tests/menu_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/menu_surface.hpp",
+      "proposed": [
+        "src/game/ui/frontend/menu_surface.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/game/mission/mission_gameplay.hpp",
+        "src/game/ui/frontend/frontend_menu_surface.hpp",
+        "src/game/ui/frontend/frontend.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/power_up_flow.cpp",
+      "proposed": [
+        "src/game/ui/power_up/power_up_flow.cpp"
+      ],
+      "responsibility": "Shared frontend/result upgrade screen; purchase capability remains Profile-owned",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/power_up_flow.hpp",
+      "proposed": [
+        "src/game/ui/power_up/power_up_flow.hpp"
+      ],
+      "responsibility": "Shared frontend/result upgrade screen; purchase capability remains Profile-owned",
+      "current_direct_consumers": [
+        "src/game/ui/frontend/power_up_flow.cpp",
+        "src/game/ui/frontend/frontend.hpp",
+        "tests/power_up_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/power_up_presentation.hpp",
+      "proposed": [
+        "src/game/ui/power_up/power_up_presentation.hpp"
+      ],
+      "responsibility": "Shared frontend/result upgrade screen; purchase capability remains Profile-owned",
+      "current_direct_consumers": [
+        "src/game/ui/frontend/power_up_surface.hpp",
+        "src/game/ui/frontend/power_up_flow.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/power_up_surface.cpp",
+      "proposed": [
+        "src/game/ui/power_up/power_up_surface.cpp"
+      ],
+      "responsibility": "Shared frontend/result upgrade screen; purchase capability remains Profile-owned",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/power_up_surface.hpp",
+      "proposed": [
+        "src/game/ui/power_up/power_up_surface.hpp"
+      ],
+      "responsibility": "Shared frontend/result upgrade screen; purchase capability remains Profile-owned",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/frontend/power_up_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/ranking_flow.cpp",
+      "proposed": [
+        "src/game/ui/frontend/ranking_flow.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/ranking_flow.hpp",
+      "proposed": [
+        "src/game/ui/frontend/ranking_flow.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/game/ui/frontend/ranking_surface.hpp",
+        "src/game/ui/frontend/ranking_flow.cpp",
+        "src/game/ui/frontend/frontend.hpp",
+        "tests/ranking_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/ranking_surface.cpp",
+      "proposed": [
+        "src/game/ui/frontend/ranking_surface.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/ranking_surface.hpp",
+      "proposed": [
+        "src/game/ui/frontend/ranking_surface.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/frontend/ranking_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/startup_playback.cpp",
+      "proposed": [
+        "src/game/ui/startup/startup_playback.cpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/startup_playback.hpp",
+      "proposed": [
+        "src/game/ui/startup/startup_playback.hpp"
+      ],
+      "responsibility": "Original logos/intro/storage UI policies and thin movie adapter",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/frontend/startup_playback.cpp",
+        "tests/startup_playback_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/title_flows.cpp",
+      "proposed": [
+        "src/game/ui/frontend/title_flows.cpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/title_flows.hpp",
+      "proposed": [
+        "src/game/ui/frontend/title_flows.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/game/ui/frontend/title_surface.hpp",
+        "src/game/ui/frontend/title_flows.cpp",
+        "tests/title_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/frontend/title_surface.hpp",
+      "proposed": [
+        "src/game/ui/frontend/title_surface.hpp"
+      ],
+      "responsibility": "Title/menu/ranking routing and original artwork/layout",
+      "current_direct_consumers": [
+        "src/game/session/session_services.hpp",
+        "src/game/ui/frontend/frontend_title_surface.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/ammunition_hud.cpp",
+      "proposed": [
+        "src/game/ui/hud/ammunition_hud.cpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/ammunition_hud.hpp",
+      "proposed": [
+        "src/game/ui/hud/ammunition_hud.hpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [
+        "src/game/ui/hud/ammunition_hud.cpp",
+        "src/game/ui/hud/gameplay_hud.hpp",
+        "tests/ammunition_hud_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/gameplay_hud.cpp",
+      "proposed": [
+        "src/game/ui/hud/gameplay_hud.cpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/gameplay_hud.hpp",
+      "proposed": [
+        "src/game/ui/hud/gameplay_hud.hpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [
+        "src/game/ui/hud/gameplay_hud.cpp",
+        "src/game/ui/hud/gameplay_hud_surface.hpp",
+        "src/game/ui/hud/player_cockpit.hpp",
+        "tests/gameplay_hud_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/gameplay_hud_surface.cpp",
+      "proposed": [
+        "src/game/ui/hud/gameplay_hud_surface.cpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/gameplay_hud_surface.hpp",
+      "proposed": [
+        "src/game/ui/hud/gameplay_hud_surface.hpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/hud/gameplay_hud_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/hud_sprite.hpp",
+      "proposed": [
+        "src/game/ui/hud/hud_sprite.hpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [
+        "src/game/ui/hud/ammunition_hud.hpp",
+        "src/game/ui/hud/gameplay_hud.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/player_cockpit.cpp",
+      "proposed": [
+        "src/game/ui/hud/player_cockpit.cpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/hud/player_cockpit.hpp",
+      "proposed": [
+        "src/game/ui/hud/player_cockpit.hpp"
+      ],
+      "responsibility": "Cockpit/ring UI state, observations and sprite presentation; no gameplay mutation",
+      "current_direct_consumers": [
+        "src/game/mission/mission_gameplay.hpp",
+        "src/game/ui/hud/player_cockpit.cpp",
+        "tests/gameplay_integration_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/mission_pause_presentation.hpp",
+      "proposed": [
+        "src/game/ui/pause/mission_pause_presentation.hpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [
+        "src/game/mission/mission_interaction.hpp",
+        "src/game/ui/pause/mission_pause_surface.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/mission_pause_surface.cpp",
+      "proposed": [
+        "src/game/ui/pause/mission_pause_surface.cpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/mission_pause_surface.hpp",
+      "proposed": [
+        "src/game/ui/pause/mission_pause_surface.hpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/pause/mission_pause_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_help.cpp",
+      "proposed": [
+        "src/game/ui/pause/pause_help.cpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_help.hpp",
+      "proposed": [
+        "src/game/ui/pause/pause_help.hpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/mission_pause_presentation.hpp",
+        "src/game/ui/pause/pause_help_surface.hpp",
+        "src/game/ui/pause/pause_help.cpp",
+        "tests/pause_help_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_help_surface.cpp",
+      "proposed": [
+        "src/game/ui/pause/pause_help_surface.cpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_help_surface.hpp",
+      "proposed": [
+        "src/game/ui/pause/pause_help_surface.hpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/pause_help_surface.cpp",
+        "src/game/ui/pause/mission_pause_surface.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_menu.cpp",
+      "proposed": [
+        "src/game/ui/pause/pause_menu.cpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_menu.hpp",
+      "proposed": [
+        "src/game/ui/pause/pause_menu.hpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/mission_pause_presentation.hpp",
+        "src/game/ui/pause/pause_menu_surface.hpp",
+        "src/game/ui/pause/pause_menu.cpp",
+        "tests/pause_menu_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_menu_surface.cpp",
+      "proposed": [
+        "src/game/ui/pause/pause_menu_surface.cpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/pause/pause_menu_surface.hpp",
+      "proposed": [
+        "src/game/ui/pause/pause_menu_surface.hpp"
+      ],
+      "responsibility": "Gameplay pause/help screens and view residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/mission_pause_surface.hpp",
+        "src/game/ui/pause/pause_menu_surface.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/controller_options.cpp",
+      "proposed": [
+        "src/game/ui/options/controller_options.cpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/controller_options.hpp",
+      "proposed": [
+        "src/game/ui/options/controller_options.hpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [
+        "src/game/ui/shared/controller_options_surface.hpp",
+        "src/game/ui/shared/options.hpp",
+        "src/game/ui/shared/controller_options.cpp",
+        "tests/controller_options_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/controller_options_surface.cpp",
+      "proposed": [
+        "src/game/ui/options/controller_options_surface.cpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/controller_options_surface.hpp",
+      "proposed": [
+        "src/game/ui/options/controller_options_surface.hpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/mission_pause_surface.hpp",
+        "src/game/ui/shared/frontend_options_surface.hpp",
+        "src/game/ui/shared/controller_options_surface.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/frontend_options.hpp",
+      "proposed": [
+        "src/game/ui/options/frontend_options.hpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [
+        "src/game/ui/frontend/frontend.hpp",
+        "src/game/ui/shared/frontend_options_surface.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/frontend_options_surface.cpp",
+      "proposed": [
+        "src/game/ui/options/frontend_options_surface.cpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/frontend_options_surface.hpp",
+      "proposed": [
+        "src/game/ui/options/frontend_options_surface.hpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [
+        "src/framework/application.cpp",
+        "src/game/ui/shared/frontend_options_surface.cpp",
+        "tests/startup_corpus.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/help_input_icons.cpp",
+      "proposed": [
+        "src/game/ui/common/help_input_icons.cpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/help_input_icons.hpp",
+      "proposed": [
+        "src/game/ui/common/help_input_icons.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/mission/mission_interaction.hpp",
+        "src/game/ui/pause/pause_help.hpp",
+        "src/game/ui/shared/help_input_icons.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/input_icon.cpp",
+      "proposed": [
+        "src/game/ui/common/input_icon.cpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/input_icon.hpp",
+      "proposed": [
+        "src/game/ui/common/input_icon.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/ui/pause/pause_help_surface.cpp",
+        "src/game/ui/frontend/frontend_menu_surface.cpp",
+        "src/game/ui/shared/help_input_icons.cpp",
+        "src/game/ui/shared/controller_options_surface.cpp",
+        "src/game/ui/shared/input_icon.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/localized_text.hpp",
+      "proposed": [
+        "src/game/ui/common/localized_text.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/ui/pause/pause_menu_surface.cpp",
+        "src/game/ui/frontend/frontend_menu_surface.cpp",
+        "src/game/ui/frontend/ranking_surface.cpp",
+        "src/game/ui/shared/options_surface.cpp",
+        "src/game/ui/shared/controller_options_surface.cpp",
+        "tests/profile_load_flow_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/menu_dialog.cpp",
+      "proposed": [
+        "src/game/ui/common/menu_dialog.cpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/menu_dialog.hpp",
+      "proposed": [
+        "src/game/ui/common/menu_dialog.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/profile/profile_load_flow.hpp",
+        "src/game/ui/pause/pause_menu.hpp",
+        "src/game/ui/frontend/menu_flow.hpp",
+        "src/game/ui/frontend/ranking_flow.hpp",
+        "src/game/ui/shared/controller_options.hpp",
+        "src/game/ui/shared/options.hpp",
+        "src/game/ui/shared/menu_dialog.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/menu_input.hpp",
+      "proposed": [
+        "src/game/ui/common/menu_input.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/ui/frontend/menu_flow.hpp",
+        "src/game/ui/shared/menu_dialog.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/menu_prompt.cpp",
+      "proposed": [
+        "src/game/ui/common/menu_prompt.cpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/menu_prompt.hpp",
+      "proposed": [
+        "src/game/ui/common/menu_prompt.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/ui/pause/pause_menu.hpp",
+        "src/game/ui/pause/pause_help.hpp",
+        "src/game/ui/frontend/menu_flow.hpp",
+        "src/game/ui/frontend/ranking_flow.hpp",
+        "src/game/ui/shared/menu_prompt.cpp",
+        "src/game/ui/shared/controller_options.hpp",
+        "src/game/ui/shared/options.hpp",
+        "tests/menu_prompt_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/options.cpp",
+      "proposed": [
+        "src/game/ui/options/options.cpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/options.hpp",
+      "proposed": [
+        "src/game/ui/options/options.hpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/mission_pause_presentation.hpp",
+        "src/game/ui/shared/frontend_options.hpp",
+        "src/game/ui/shared/options_surface.hpp",
+        "src/game/ui/shared/options.cpp",
+        "tests/controller_options_test.cpp",
+        "tests/pause_menu_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/options_surface.cpp",
+      "proposed": [
+        "src/game/ui/options/options_surface.cpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/options_surface.hpp",
+      "proposed": [
+        "src/game/ui/options/options_surface.hpp"
+      ],
+      "responsibility": "Shared settings transaction, controller child and context-specific residency",
+      "current_direct_consumers": [
+        "src/game/ui/pause/mission_pause_surface.hpp",
+        "src/game/ui/shared/options_surface.cpp",
+        "src/game/ui/shared/frontend_options_surface.hpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/sprite_color.hpp",
+      "proposed": [
+        "src/game/ui/common/sprite_color.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/ui/shared/options_surface.cpp",
+        "src/game/ui/shared/controller_options_surface.cpp",
+        "tests/controller_options_test.cpp"
+      ],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/sprite_text.cpp",
+      "proposed": [
+        "src/game/ui/common/sprite_text.cpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [],
+      "needs_split": false
+    },
+    {
+      "current": "src/game/ui/shared/sprite_text.hpp",
+      "proposed": [
+        "src/game/ui/common/sprite_text.hpp"
+      ],
+      "responsibility": "Original UI conventions, localization/icon art and sprite commands",
+      "current_direct_consumers": [
+        "src/game/ui/pause/pause_help_surface.cpp",
+        "src/game/ui/pause/pause_menu_surface.cpp",
+        "src/game/ui/frontend/power_up_surface.cpp",
+        "src/game/ui/frontend/frontend_menu_surface.cpp",
+        "src/game/ui/frontend/ranking_surface.cpp",
+        "src/game/ui/shared/options_surface.cpp",
+        "src/game/ui/shared/sprite_text.cpp",
+        "src/game/ui/shared/controller_options_surface.cpp",
+        "src/game/ui/hud/gameplay_hud_surface.cpp"
+      ],
+      "needs_split": false
+    }
+  ]
+}

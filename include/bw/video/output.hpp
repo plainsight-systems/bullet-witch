@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "bw/video/decoder.hpp"
+#include "decoder.hpp"
 
 namespace bw::video {
 struct AudioSnapshot {

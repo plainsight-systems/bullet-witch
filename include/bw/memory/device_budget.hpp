@@ -23,7 +23,7 @@
 #include <memory>
 #include <mutex>
 
-#include "bw/memory/domain.hpp"
+#include "domain.hpp"
 
 namespace bw::memory {
 struct DeviceLimits {

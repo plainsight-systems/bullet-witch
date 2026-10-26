@@ -2,7 +2,7 @@
 
 This is recovered Steam control policy, separate from the engine's prepared
 clips, playback rings and pose layers. The current implementation boundary is
-`src/game/alicia_action_policy.hpp`: original-slot requests with independent
+`src/game/actors/alicia_action_policy.hpp`: original-slot requests with independent
 body, upper-body, additive and weapon destinations. It does not authorize a
 shot, consume ammunition, resolve damage or pretend that unsupported game
 actions have succeeded.

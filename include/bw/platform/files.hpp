@@ -23,7 +23,7 @@
 #pragma once
 #include <filesystem>
 
-#include "bw/formats/resource_archive.hpp"
+#include "bw/content/formats/resource_archive.hpp"
 namespace bw::platform {
 class Files {
  public:

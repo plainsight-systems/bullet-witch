@@ -2,6 +2,7 @@
 /research/extracted/
 /research/vendor/
 /research/references/
+# Local purchased mount (original/) and derived/replacement data (overrides/).
 /assets/
 /game/
 /game-data/

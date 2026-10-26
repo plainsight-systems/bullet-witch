@@ -143,7 +143,7 @@ be recycled merely because the render consumer has finished encoding commands.
 | Memory | Existing domains, budgets, owner lifetimes, admission/failure and accounting | Native CPU backing, GPU placement/storage mode and actual device allocation accounting |
 
 Use the existing source map: portable `include/bw/render/` contracts, reusable
-`src/render/` behavior, and selected `src/platform/<target>/` implementations.
+`src/engine/render/` behavior, and selected `src/platform/<target>/` implementations.
 Game camera policy and stage assembly remain in game code. Standard device types
 do not escape into shared headers. This does not require a virtual interface or
 new library for every table row.
@@ -165,9 +165,9 @@ shader translator as a prerequisite for the whole registry.
 
 ## Implemented static geometry and surface boundary
 
-The singular portable [WorldOutput](../../include/bw/render/world.hpp) owns model
+The singular portable [WorldOutput](../../include/bw/render/scene/world.hpp) owns model
 and texture identities, immutable uploads, explicit runtime texture tables and
-ordered surface draws. [WorldRenderer](../../src/platform/macos/world_renderer.hpp)
+ordered surface draws. [WorldRenderer](../../src/platform/macos/render/world_renderer.hpp)
 is the selected Mac backend. Its standalone depth shader reconstructs projected
 bias behavior; its surface shader reconstructs the traced static families with
 geometric/normal-map surfaces, layered bases, vertex illumination/color,
@@ -261,7 +261,7 @@ flowchart LR
   Material --> Native
 ```
 
-[ViewTransforms](../../include/bw/render/view.hpp) validates a rigid camera basis
+[ViewTransforms](../../include/bw/render/scene/view.hpp) validates a rigid camera basis
 and symmetric perspective frustum, then constructs portable dot-product rows.
 View rows rotate into camera coordinates; material rows only subtract the eye
 and retain global axes for normals and light vectors. Mixing those spaces would

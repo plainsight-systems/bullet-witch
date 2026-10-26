@@ -9,7 +9,7 @@
 #pragma once
 #include <algorithm>
 
-#include "bw/math/vector.hpp"
+#include "vector.hpp"
 
 namespace bw::math {
 template <std::floating_point T>

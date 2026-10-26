@@ -8,7 +8,7 @@ The [reference design study](../research/engine/subsystems/movie-demux-and-decod
 records the inspected ffplay, Unreal and Godot mechanisms. This implements the
 transport/codec boundary; correct device playback is a separate acceptance gate.
 
-The explicit backend factory lives in `src/video/ffmpeg/decoder.hpp` and is
+The explicit backend factory lives in `src/engine/video/codecs/ffmpeg/decoder.hpp` and is
 linked through `bw_video_ffmpeg`. Target entry code selects it and passes it
 through shared composition to Player. `bw_video` has no default codec selection
 or FFmpeg link dependency.

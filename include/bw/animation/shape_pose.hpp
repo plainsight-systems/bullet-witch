@@ -16,7 +16,7 @@
 // preparation separate from allocation-free updates. Both phases consulted. See
 // facial-animation.md for original algorithm and pinned Unreal comparison.
 #pragma once
-#include "bw/formats/model.hpp"
+#include "bw/content/formats/model.hpp"
 #include "bw/math/vector.hpp"
 namespace bw::animation {
 class PreparedModelShapes {

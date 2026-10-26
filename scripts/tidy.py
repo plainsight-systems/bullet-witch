@@ -52,7 +52,19 @@ def run(build, jobs):
         commands.append({'directory': str(directory), 'file': str(source), 'arguments': arguments})
     # Missing authored translation units must fail coverage, not disappear from lint.
     expected = {str(p.resolve()) for p in source_files() if p.suffix in TRANSLATION_SUFFIXES}
+    # Developer sources are intentionally not compilation units in production.
+    # Verify exclusion here; the enabled configuration still requires every one.
+    cache = (build / 'CMakeCache.txt').read_text().splitlines()
+    developer = next((line.split('=', 1)[1] for line in cache
+                      if line.startswith('BW_DEVELOPER_VIEWS:BOOL=')), None)
+    if developer not in {'ON', 'OFF'}:
+        raise ValueError('Analysis requires explicit BW_DEVELOPER_VIEWS=ON/OFF')
+    excluded = {path for path in expected
+                if Path(path).is_relative_to(ROOT / 'src/developer')} if developer == 'OFF' else set()
+    expected -= excluded
     found = {entry['file'] for entry in commands}
+    if excluded & found:
+        raise ValueError('Production compilation database contains developer implementations')
     if not commands or expected - found:
         raise ValueError(f'Incomplete analysis database; missing: {sorted(expected - found)}. Configure with BUILD_TESTING=ON.')
     report = ROOT / 'research/evidence/workflow/clang-tidy'
@@ -76,6 +88,6 @@ def run(build, jobs):
         if result['exit_code']:
             print(f'  Diagnostics: {result["log"]}', flush=True)
     failed = sum(row['exit_code'] != 0 for row in results)
-    (report / 'summary.json').write_text(json.dumps({'llvm': LLVM_VERSION, 'build': str(build), 'failed': failed, 'results': results}, indent=2) + '\n')
+    (report / 'summary.json').write_text(json.dumps({'llvm': LLVM_VERSION, 'build': str(build), 'failed': failed, 'developer_views': developer, 'excluded_by_build': sorted(excluded), 'results': results}, indent=2) + '\n')
     if failed:
         raise ValueError(f'clang-tidy failed for {failed}/{len(results)} commands. Diagnostics remain enabled.')

@@ -27,9 +27,9 @@ upstream work; a callable rendering operation does not implement its producer.
 At initial review, `include/bw/render/world.hpp:330` exposes model/texture upload,
 binding and retirement together with retained draw/view/lighting/output mutation
 through `WorldOutput`. `StageInspection` retains that full interface at
-`src/game/stage_inspection.hpp:186`, although mission loading owns the resident
+`src/game/mission/stage_inspection.hpp:186`, although mission loading owns the resident
 assets. Conversely, `MissionLoading` and its `ResidentDefinition` retain the
-same full interface (`src/game/mission_loading.hpp:233–251`) although their job
+same full interface (`src/game/mission/mission_loading.hpp:233–251`) although their job
 is resource preparation and retirement, not scene publication or exposure.
 
 The inspected call sites currently respect this division. The finding is an API

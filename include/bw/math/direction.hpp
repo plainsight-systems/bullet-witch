@@ -14,7 +14,7 @@
 // performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // keeps the simulation operation allocation-free.
 #pragma once
-#include "bw/math/vector.hpp"
+#include "vector.hpp"
 
 namespace bw::math {
 template <std::floating_point T>

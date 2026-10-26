@@ -51,7 +51,7 @@ boundary.
 Shaders are first-class source assets in each native graphics backend. They are
 compiled by the build, with explicit entry points and CPU/shader binding contracts;
 host implementation files do not embed shader strings. The Mac movie pipeline
-uses `src/platform/macos/shaders/movie.metal`, compiled into `movie.metallib` and
+uses `src/platform/macos/render/shaders/movie.metal`, compiled into `bullet_witch.metallib` and
 loaded relative to the executable. This keeps shader changes independently
 reviewable and makes native GPU profiling and target-specific tuning possible.
 Shared material semantics can have different native shader implementations;

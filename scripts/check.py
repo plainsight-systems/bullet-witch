@@ -21,13 +21,14 @@ def configure(build):
 
 
 def host(build, jobs):
+    command(sys.executable, 'scripts/check_architecture.py')
     configure(build)
     command('cmake', '--build', build, '--parallel', jobs)
     command('ctest', '--test-dir', build, '--output-on-failure')
 
 
 def policy():
-    command(sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_repository_policy.py')
+    command(sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/integration', '-p', 'test_repository_policy.py')
     # Guard the full proposed snapshot, including untracked authored files, without
     # staging in the user's index or writing objects into their repository.
     with tempfile.TemporaryDirectory(prefix='bw-policy-') as tmp:

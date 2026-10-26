@@ -1,33 +1,54 @@
 # Current engineering decisions
 
-- The architecture comparison refinements are agreed; the finalized design is in
-  `docs/architecture/reorganization-plan.md` and `proposed-boundaries.md`.
-  Retain peer engine families/singular portable headers and group game files.
-  Separate game world from retained RenderScene; narrow actor publication is
-  allowed, with explicit registration/update/removal/retirement. Scene lighting
-  stays identifiable; world/movie/UI feed a final compositor. Resource residency
-  differs from game-owned activation. Original admission and future pack selection
-  remain policy above resolution. No whole-world copy, generic ECS, new clocks,
-  async renderer or gameplay expansion follows from this plan. The user accepted
-  and committed the design (`79d7a72`), then authorized execution. Slice 1 mission
-  simulation/retained presentation ownership is accepted after the October 26
-  native walkthrough; the final gate and purchased-content checks pass. The user
-  reported a separate costume-menu pink block, tracked in QUEUE outside this
-  accepted scope. Slice 1 acceptance authorizes its implementation commit.
+- The user accepted revised architecture slice 3 on October 26, 2026 and
+  authorized its commit after reviewing the lighting ownership walkthrough.
+  Both developer-OFF and developer-ON full gates and purchased-content traversal
+  pass, including native offscreen checks and production artifact exclusion.
+  The final build is OFF. This acceptance does not assert an additional native
+  playthrough; no push is authorized.
+  See `research/engine/subsystems/architecture-layout-implementation.md`.
 
-- Reorganization slice 2 is accepted after the October 26 native review. The
-  user confirmed it works; individual walkthrough sequences were not separately
-  reported. Acceptance authorizes commit. The repository gate and
-  purchased-content traversal pass. LightingPublication and
-  sealed receiver publications move packing/distribution/strict receiver caches
-  into scene lighting, borrowing only RenderScene's LightingPublisher. Game
-  adapters keep authored policy and observations. Native MovieRenderer and
-  SpriteRenderer own sibling resources; OutputCompositor owns their ordered
-  composition and synchronous completion. No shader/lighting math, clock,
-  gameplay, directory grouping or costume-menu fix is included. See
-  `research/engine/subsystems/lighting-output-integration.md` for validation state.
-  The reported apparently new A/B Accept/Back prompts across main-menu screens
-  are tracked separately in QUEUE; their cause and source fidelity are unverified.
+
+- The user approved the revised whole-repository architecture after rejecting
+  the initial mechanical slice 3 grouping. The approved map is
+  `research/engine/subsystems/architecture-layout-proposal.md` and its exact JSON
+  file map. Implementation is complete directly on the uncommitted work;
+  do not land the rejected grouping as an intermediate commit. Earlier passing
+  checks establish only behavior preservation of that rejected grouping.
+  Integrated validation passes; the implementation is accepted.
+
+- Physical roots are now explicit `src/engine`, `src/game`, `src/platform`, and
+  build-selected `src/developer`; portable engine contracts remain singular under
+  `include/bw`. This supersedes the earlier peer-root choice. Loader source uses
+  `src/game/content/original`; actual asset data stays outside `src` and Git.
+  Optional `/assets/original` and `/assets/overrides` are ignored local data
+  directories, not approval or implementation of a replacement-pack runtime.
+
+- Revised slice 3 includes actual ownership and build repairs: game application
+  and main loop; neutral InputFrame/native InputSource versus one game
+  ControllerInput mapping/repeat owner; current WorldRuntime; production-excluded
+  developer adapters; separate Alicia raised action and aim-pose policy; explicit
+  Alicia/weapon semantics supplied to common original animation adaptation;
+  original loader policy versus engine schemas/resources. Engine lighting,
+  spatial and timing have separate families. `binary_reader.hpp` is the bounded
+  public schema primitive. Build/dependency/documentation closure from former
+  slice 4 is included now, not deferred. Preserve source order, clock authority,
+  math/shaders, synchronous completion and the sole initial-placement shim.
+
+- Build owners use `bw_game_application`, `bw_game_presentation`,
+  `bw_game_playback`, `bw_window_host_macos`; executable `bullet-witch` and
+  `bw_metal_shaders` / `bullet_witch.metallib` reflect permanent responsibilities.
+  `bw_profiles` contains profile/settings authority. Test files are being grouped
+  by owner without deleting scenarios or changing their verification meaning.
+  No new gameplay, AI, effects, dynamic physics, inspector UX or asynchronous
+  render system is authorized by this architecture change.
+
+- Reorganization slices 1 and 2 remain accepted: mission/render-scene ownership
+  committed as `fd773fb`, lighting/output integration as `a5577bb`, after native
+  user review and their recorded gates. RenderScene owns membership/retirement;
+  narrow actor/lighting publishers retain one native draw registry. World/movie/UI
+  remain sibling outputs with synchronous GPU retirement. The separate costume
+  pink-block and main-menu A/B prompt observations remain in QUEUE.
 
 - Frontend scope is the entire original reachable menu system. Lua orchestrates
   native tasks; source task implementations define artwork, localization,
@@ -549,7 +570,7 @@
   explicitly single-threaded and not thread-safe; it is not a worker executor.
 
 - Native shaders are standalone backend source assets, compiled by the build.
-  The Mac movie shader lives in `src/platform/macos/shaders/movie.metal`; the host
+  The Mac movie shader lives in `src/platform/macos/render/shaders/movie.metal`; the host
   loads its compiled library beside the executable. Common headers carry no
   native graphics types. GPU optimization follows measured timing/bandwidth
   while preserving baseline behavior.
@@ -595,14 +616,12 @@
   and reconstructed game screen code retain playlist order, skip/fade policy and
   transitions for the faithful port. Movie playback has no logo-specific rules.
 
-- Source organization follows the inspected Doom 3 game/engine pattern: one
-  `src/` implementation root, common contracts under `include/bw/`, target-owned
-  entry points under `src/platform/<target>/`, and shared application composition
-  under `src/framework/`. Framework composes game and engine; engine mechanisms
-  cannot depend on game code. The Mac entry selects native services and the
-  explicit FFmpeg factory. Shared video, FFmpeg, native audio and native
-  presentation have separate build targets. Future target entries reuse the
-  shared framework; no additional target implementation is claimed.
+- Source organization retains the inspected integrated custom-game/engine
+  direction, with the approved revised explicit engine/game/platform/developer
+  roots documented above. Game application composition replaces the earlier
+  `src/framework` location. Native entry selects services and codec factories;
+  engine mechanisms do not depend on concrete game policy. Other native target
+  implementations remain future work.
 
 - The opening cinematic and title flow preserve recovered timing/input/status
   contracts. Title uses original PNG images, FONT glyphs and packed atlas

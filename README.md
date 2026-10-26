@@ -207,9 +207,11 @@ against the installed game.
 
 | Path | What it holds |
 | --- | --- |
-| `include/bw/`, `src/` | Shared engine contracts and their C++ implementations |
+| `include/bw/`, `src/engine/` | Portable engine contracts and their C++ implementations |
 | `src/game/` | Bullet Witch's script bindings and game-specific behavior |
-| `src/framework/`, `src/platform/` | Shared application composition, target entry points, native backends and shaders |
+| `src/game/application/` | Game composition, launch settings and main loop |
+| `src/platform/` | Target entry points, native backends and shaders |
+| `src/developer/` | Existing review tools, compiled only in developer builds |
 | `tools/` | The resource inspector and repository-content guard |
 | `tests/` | Contract tests and integration checks |
 | `scripts/`, `cmake/` | Build, formatting, analysis and dependency setup |
@@ -226,6 +228,8 @@ behavior fits into the engine being built here. The
 evidence.
 
 Game assets, extracted scripts and raw decompiler output stay outside Git.
+`src/game/content/original/` contains loader code. Optional local data belongs
+outside `src/`, such as ignored `assets/original/` and `assets/overrides/`.
 The public repository contains the implementation, research tools and written
 findings. Some research links point into local evidence that a clone will not
 contain.

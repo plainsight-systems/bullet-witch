@@ -2,7 +2,7 @@
 
 The current animation review scene does not satisfy the original mission-start
 admission contract. The user explicitly authorized **only the initial position**
-as the sole temporary shim for this slice. `src/game/initial_placement_shim.hpp`
+as the sole temporary shim for this slice. `src/game/mission/initial_placement_shim.hpp`
 and `.cpp` isolate that exception by name. The function accepts only fresh
 `cm01_00` / `st04_c`, rejects checkpoint restoration and all other identities,
 and returns the original fresh `start()` placement `(-61.91, .65, -97.57)` with

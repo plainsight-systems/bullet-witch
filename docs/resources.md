@@ -95,9 +95,9 @@ without claiming an unverified legacy encoding; the library retains string bytes
 
 ## Interfaces and ownership
 
-[Public header](../include/bw/resources.hpp) · [Resource archive decoder](../src/formats/resource_archive.cpp) · [Resource catalog decoder](../src/formats/resource_catalog.cpp)
-· [Catalog](../src/resources/catalog.cpp)
-· [Inspector](../tools/resource_inspector.cpp).
+[Public header](../include/bw/content/resources.hpp) · [Resource archive decoder](../src/engine/content/formats/resource_archive.cpp) · [Resource catalog decoder](../src/engine/content/formats/resource_catalog.cpp)
+· [Catalog](../src/engine/content/resources/catalog.cpp)
+· [Inspector](../tools/resources/resource_inspector.cpp).
 
 - `ResourceArchive::parse(Bytes)` and `ResourceCatalog::parse(Bytes)` own their input bytes.
   `content::open_archive/open_catalog(files, path)` reads and delegates to `parse`.

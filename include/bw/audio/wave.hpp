@@ -13,7 +13,7 @@
 // native callbacks. Both design corpora consulted. Reference:
 // animation-audio-presentation.md.
 #pragma once
-#include "bw/formats/audio_bank.hpp"
+#include "bw/content/formats/audio_bank.hpp"
 
 namespace bw::audio {
 // Explicit WMAv2 packet metadata shared by XACT and RIFF XWMA containers.

@@ -26,9 +26,9 @@
 #include <span>
 #include <stdexcept>
 
-#include "bw/audio/music.hpp"
 #include "bw/math/vector.hpp"
 #include "bw/memory/allocator.hpp"
+#include "music.hpp"
 
 namespace bw::audio {
 struct CueHandle {

@@ -4,7 +4,7 @@ The [current ownership review](current-ownership.md#lighting-and-the-render-pipe
 keeps lighting an identifiable implemented engine subsystem while separating
 game-authored policy, scene-local light membership and native render consumption.
 Slice 2 moves renderer packet packing and retained receiver publication into
-[LightingPublication](../../include/bw/scene/lighting/lighting_publication.hpp).
+[LightingPublication](../../include/bw/lighting/lighting_publication.hpp).
 Game presentation registers policy/bounds/destinations and supplies completed
 model transforms. The engine seals per-receiver draw bindings, retains the strict
 placement cache and publishes through a restricted RenderScene capability. The
@@ -113,7 +113,7 @@ flowchart TD
 ```
 
 The implemented owner is
-[`scene::SceneLighting`](../../include/bw/scene/lighting/scene_lighting.hpp).
+[`scene::SceneLighting`](../../include/bw/lighting/scene_lighting.hpp).
 Its state separates the following responsibilities:
 
 | State | Publication and consumer |

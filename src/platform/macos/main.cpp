@@ -39,11 +39,11 @@
 #include <span>
 #include <utility>
 
-#include "audio/fact/output.hpp"
 #include "bw/memory/device_budget.hpp"
-#include "framework/startup_application.hpp"
-#include "platform/macos/cpu_backing.hpp"
-#include "video/ffmpeg/decoder.hpp"
+#include "engine/audio/backends/fact/output.hpp"
+#include "engine/video/codecs/ffmpeg/decoder.hpp"
+#include "game/application/application.hpp"
+#include "platform/macos/memory/cpu_backing.hpp"
 
 namespace {
 class NativeGameAudioFactory final : public bw::game::GameAudioFactory {
@@ -59,7 +59,7 @@ class NativeGameAudioFactory final : public bw::game::GameAudioFactory {
 }  // namespace
 int main(int argc, char** argv) {
   try {
-    auto configuration = bw::framework::parse_startup_options(
+    auto configuration = bw::game::parse_application_options(
         std::span<char*>(argv, static_cast<std::size_t>(argc)));
     if (configuration.profile.empty()) {
       configuration.profile = bw::platform::default_save_directory();
@@ -77,19 +77,19 @@ int main(int argc, char** argv) {
     // Select target storage once, then retain separate subsystem domain
     // lifetimes.
     const auto backing = bw::platform::macos::make_cpu_backing();
-    const bw::framework::StartupMemory memory{
+    const bw::game::ApplicationMemory memory{
         .resources = bw::memory::Domain::create(backing),
         .runtime = bw::memory::Domain::create(backing),
         .media = bw::memory::Domain::create(backing)};
     const auto device_memory = bw::memory::DeviceBudget::create(memory.runtime);
     auto saves = bw::platform::make_save_storage(profile);
     bw::platform::HostFiles files;
-    bw::platform::StartupHost host(memory.runtime, device_memory,
-                                   configuration.window,
-                                   configuration.texture_mips);
+    bw::platform::WindowHost host(memory.runtime, device_memory,
+                                  configuration.window,
+                                  configuration.texture_mips);
     NativeGameAudioFactory game_audio;
     // The shared loop borrows services owned by this composition scope.
-    return bw::framework::run_startup(
+    return bw::game::run_application(
         configuration, host, files, *saves,
         [domain = memory.media](const std::filesystem::path& path) {
           return bw::video::ffmpeg::open_decoder_in_domain(path, domain);

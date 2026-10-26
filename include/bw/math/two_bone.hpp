@@ -14,7 +14,7 @@
 #include <limits>
 #include <optional>
 
-#include "bw/math/quaternion.hpp"
+#include "quaternion.hpp"
 
 namespace bw::math {
 template <std::floating_point T>

@@ -10,7 +10,7 @@
 #pragma once
 #include <span>
 
-#include "bw/audio/music.hpp"
+#include "music.hpp"
 
 namespace bw::audio {
 MusicSamples decode_segmented_music(

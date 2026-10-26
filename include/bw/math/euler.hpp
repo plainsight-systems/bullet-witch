@@ -8,7 +8,7 @@
 #pragma once
 #include <cmath>
 
-#include "bw/math/matrix.hpp"
+#include "matrix.hpp"
 namespace bw::math {
 template <std::floating_point T>
 struct EulerTransform {

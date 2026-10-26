@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "bw/memory/domain.hpp"
+#include "domain.hpp"
 
 namespace bw::memory {
 template <typename T>

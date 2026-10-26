@@ -1,6 +1,6 @@
 # Shared compressed-wave preparation. The same pinned LGPL FFmpeg build serves
 # movies and game audio; game decoding has its own finite sample contract.
-add_library(bw_audio_decode src/audio/ffmpeg/wave.cpp src/audio/ffmpeg/music.cpp)
+add_library(bw_audio_decode src/engine/audio/codecs/ffmpeg/wave.cpp src/engine/audio/codecs/ffmpeg/music.cpp)
 target_link_libraries(bw_audio_decode PUBLIC bw_resources PRIVATE
   bw_ffmpeg_avcodec bw_ffmpeg_avutil bw_ffmpeg_swresample)
 bw_strict(bw_audio_decode)
@@ -48,8 +48,8 @@ if(APPLE)
   # Vendor public headers use C extensions; keep authored C++ warnings strict.
   set_property(TARGET FAudio-static APPEND PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
     "${bw_audio_fact_SOURCE_DIR}/include" "${bw_audio_fact_SOURCE_DIR}/src")
-  add_library(bw_audio_fact src/audio/fact/output.cpp src/audio/fact/wma_bridge.c)
-  target_include_directories(bw_audio_fact PUBLIC include INTERFACE src PRIVATE src)
+  add_library(bw_audio_fact src/engine/audio/backends/fact/output.cpp src/engine/audio/backends/fact/wma_bridge.c)
+  target_include_directories(bw_audio_fact PUBLIC include PRIVATE src)
   target_compile_definitions(bw_audio_fact PRIVATE HAVE_WMADEC=1)
   target_link_libraries(bw_audio_fact PUBLIC bw_audio_decode PRIVATE FAudio-static)
   bw_strict(bw_audio_fact)

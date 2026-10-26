@@ -38,7 +38,7 @@
 #include <memory>
 #include <variant>
 
-#include "bw/formats/common.hpp"
+#include "bw/content/formats/common.hpp"
 #include "bw/memory/coalescing_heap.hpp"
 namespace bw::script {
 inline constexpr std::size_t kRootHeapBytes = std::size_t{64} * 1024;

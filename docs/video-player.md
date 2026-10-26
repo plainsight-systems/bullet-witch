@@ -82,8 +82,8 @@ that audio timeline is pending/buffering. Video-only playback uses measured wall
 time. After explicit audio EOF and real device drain, a new wall baseline can
 finish an arbitrarily long video tail. Game timestep caps do not affect media.
 
-The Mac implementation is [media_audio.mm](../src/platform/macos/media_audio.mm),
-behind [media_audio.hpp](../include/bw/platform/media_audio.hpp). A joined
+The Mac implementation is [media_audio.mm](../src/platform/macos/audio/media_audio.mm),
+behind [media_audio.hpp](../src/platform/macos/audio/media_audio.hpp). A joined
 CFRunLoop thread owns AudioQueue, its callbacks and mapping retirement. Its
 three preallocated blocks and 256 fixed mapping records are independent of the
 main thread. Each mapping records device sample range, media start and whether

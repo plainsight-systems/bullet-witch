@@ -16,7 +16,7 @@
 
 #include <stdexcept>
 
-#include "bw/math/matrix.hpp"
+#include "matrix.hpp"
 
 namespace bw::math {
 inline constexpr std::size_t kPerspectivePlaneCount = 5;

@@ -37,7 +37,7 @@ storage. These rules do not themselves establish animation fidelity.
 ## Composition comparison
 
 Direct comparison of `423d20`, `425540`, `630400`, and `6667e0` with
-`src/animation/pose.cpp`, `src/game/alicia_action_policy.cpp`, and the actor's
+`src/animation/pose.cpp`, `src/game/actors/alicia_action_policy.cpp`, and the actor's
 layer assembly found no additional demonstrated divergence in these inspected
 operations:
 
@@ -208,9 +208,9 @@ acceptance. Final corpus source SHA-256:
 
 Production source reviewed:
 
-- `src/game/player_actor.cpp` SHA-256
+- `src/game/actors/player_actor.cpp` SHA-256
   `7824c075c7fa4776072ed786bc05ba4869952004fdefeb634db2c7a63b7f4d41`.
-- `src/game/player_actor.hpp` SHA-256
+- `src/game/actors/player_actor.hpp` SHA-256
   `c27502d971050837cf2b45a0fa7bbff65246dba2a1a81d3e5a693b8f274b1bba`.
 
 At the initial root-only review, the root defect had an independently confirmed

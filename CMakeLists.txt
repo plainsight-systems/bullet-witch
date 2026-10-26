@@ -7,17 +7,22 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BW_WARNINGS_AS_ERRORS "Treat project compiler warnings as errors" ON)
 option(BW_SANITIZE "Enable compiler sanitizers" OFF)
 option(BW_DEVELOPER_VIEWS "Enable separate developer inspection views" OFF)
+if(BW_DEVELOPER_VIEWS AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  message(FATAL_ERROR "BW_DEVELOPER_VIEWS requires a Debug configuration; production builds exclude developer tools")
+endif()
 set(BW_SANITIZERS "address,undefined" CACHE STRING "Sanitizers to enable with BW_SANITIZE")
 include(cmake/Lua502.cmake)
 add_library(bw_math INTERFACE)
 target_include_directories(bw_math INTERFACE include)
 target_compile_features(bw_math INTERFACE cxx_std_20)
-add_library(bw_resources src/formats/named_file_package.cpp src/resources/service.cpp src/formats/common.cpp src/formats/resource_archive.cpp src/formats/resource_catalog.cpp
-  src/resources/catalog.cpp src/content/access.cpp src/formats/model.cpp src/formats/section_table.cpp src/formats/text_table.cpp src/formats/audio_bank.cpp src/formats/animation_definition.cpp src/formats/motion_events.cpp src/formats/control_points.cpp src/formats/stage_definitions.cpp src/formats/background_placement.cpp src/formats/stage_environment.cpp src/formats/customization.cpp src/formats/player_camera.cpp src/content/stage.cpp src/content/character_support.cpp src/platform/files/host.cpp)
-target_sources(bw_resources PRIVATE src/formats/model_shapes.cpp)
+add_library(bw_resources src/engine/content/formats/named_file_package.cpp src/engine/content/resources/service.cpp src/engine/content/formats/common.cpp src/engine/content/formats/resource_archive.cpp src/engine/content/formats/resource_catalog.cpp
+  src/engine/content/resources/catalog.cpp src/engine/content/resources/access.cpp src/engine/content/formats/model.cpp src/engine/content/formats/section_table.cpp src/engine/content/formats/text_table.cpp src/engine/content/formats/audio_bank.cpp src/engine/content/formats/animation_definition.cpp src/engine/content/formats/motion_events.cpp src/engine/content/formats/control_points.cpp src/engine/content/formats/stage_definitions.cpp src/engine/content/formats/background_placement.cpp src/engine/content/formats/customization.cpp)
+target_sources(bw_resources PRIVATE src/engine/content/formats/model_shapes.cpp)
 target_include_directories(bw_resources PUBLIC include)
 target_compile_features(bw_resources PUBLIC cxx_std_20)
 function(bw_strict target)
+  # Authored private implementation headers never propagate through a library.
+  target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src")
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /permissive-)
     if(BW_WARNINGS_AS_ERRORS)
@@ -31,149 +36,178 @@ function(bw_strict target)
   endif()
 endfunction()
 bw_strict(bw_resources)
-add_library(bw_input src/input/action_repeat.cpp)
+add_library(bw_input src/engine/input/action_repeat.cpp)
 target_include_directories(bw_input PUBLIC include)
 target_compile_features(bw_input PUBLIC cxx_std_20)
 bw_strict(bw_input)
-add_library(bw_timing src/timing/frame_clock.cpp src/world/world_clock.cpp)
+add_library(bw_timing src/engine/timing/frame_clock.cpp src/engine/timing/world_clock.cpp)
 target_include_directories(bw_timing PUBLIC include)
 target_compile_features(bw_timing PUBLIC cxx_std_20)
 bw_strict(bw_timing)
-add_library(bw_memory src/memory/domain.cpp src/memory/coalescing_heap.cpp src/memory/device_budget.cpp)
+add_library(bw_memory src/engine/memory/domain.cpp src/engine/memory/coalescing_heap.cpp src/engine/memory/device_budget.cpp)
 target_include_directories(bw_memory PUBLIC include)
 target_compile_features(bw_memory PUBLIC cxx_std_20)
 bw_strict(bw_memory)
 target_link_libraries(bw_resources PUBLIC bw_memory bw_math)
-add_library(bw_render src/render/render_scene.cpp src/render/world_material.cpp src/render/world_output.cpp src/render/view.cpp src/render/shadow.cpp src/render/material_animation.cpp)
+add_library(bw_render src/engine/render/scene/render_scene.cpp src/engine/render/materials/world_material.cpp src/engine/render/postprocess/world_output.cpp src/engine/render/scene/view.cpp src/engine/render/shadows/shadow.cpp src/engine/render/materials/material_animation.cpp)
 target_include_directories(bw_render PUBLIC include)
 target_link_libraries(bw_render PUBLIC bw_math)
 target_compile_features(bw_render PUBLIC cxx_std_20)
 bw_strict(bw_render)
-add_library(bw_scene src/scene/spatial/static_collision.cpp src/scene/spatial/character_collision.cpp
-  src/scene/lighting/irradiance_field.cpp src/scene/lighting/local_lights.cpp
-  src/scene/lighting/scene_lighting.cpp src/scene/lighting/reflection_field.cpp
-  src/scene/lighting/lighting_publication.cpp
-  src/scene/visibility/shadow_casters.cpp)
-target_sources(bw_scene PRIVATE src/scene/spatial/area_regions.cpp src/scene/environment.cpp)
-target_link_libraries(bw_scene PUBLIC bw_resources bw_animation bw_render)
-bw_strict(bw_scene)
-add_library(bw_animation src/animation/pose.cpp src/animation/secondary_motion.cpp
-  src/animation/clip_catalog.cpp)
-target_sources(bw_animation PRIVATE src/animation/event_timeline.cpp src/animation/shape_pose.cpp)
-target_sources(bw_animation PRIVATE src/animation/playback_ring.cpp src/animation/scalar_animation.cpp)
+add_library(bw_spatial src/engine/spatial/static_collision.cpp
+  src/engine/spatial/character_collision.cpp src/engine/spatial/area_regions.cpp
+  src/engine/spatial/environment.cpp)
+target_link_libraries(bw_spatial PUBLIC bw_resources bw_animation)
+bw_strict(bw_spatial)
+add_library(bw_lighting src/engine/lighting/irradiance_field.cpp
+  src/engine/lighting/local_lights.cpp src/engine/lighting/scene_lighting.cpp
+  src/engine/lighting/reflection_field.cpp src/engine/lighting/lighting_publication.cpp)
+target_link_libraries(bw_lighting PUBLIC bw_resources bw_render bw_spatial)
+bw_strict(bw_lighting)
+target_sources(bw_render PRIVATE src/engine/render/shadows/shadow_casters.cpp)
+target_link_libraries(bw_render PUBLIC bw_animation)
+add_library(bw_animation src/engine/animation/pose.cpp src/engine/animation/secondary_motion.cpp
+  src/engine/animation/clip_catalog.cpp)
+target_sources(bw_animation PRIVATE src/engine/animation/event_timeline.cpp src/engine/animation/shape_pose.cpp)
+target_sources(bw_animation PRIVATE src/engine/animation/playback_ring.cpp src/engine/animation/scalar_animation.cpp)
 target_link_libraries(bw_animation PUBLIC bw_resources)
 bw_strict(bw_animation)
 include(cmake/PngDecoder.cmake)
-add_library(bw_video src/video/player.cpp src/video/pcm_buffer.cpp)
+add_library(bw_video src/engine/video/player.cpp src/engine/video/pcm_buffer.cpp)
 target_link_libraries(bw_video PUBLIC bw_memory)
 target_include_directories(bw_video PUBLIC include)
 target_compile_features(bw_video PUBLIC cxx_std_20)
 bw_strict(bw_video)
 include(cmake/MovieDecoder.cmake)
 include(cmake/GameAudio.cmake)
-add_library(bw_runtime src/script/chunk.cpp src/script/context.cpp src/tasks/task_lifecycle_scheduler.cpp)
+add_library(bw_runtime src/engine/script/chunk.cpp src/engine/script/context.cpp src/engine/tasks/task_lifecycle_scheduler.cpp)
 target_link_libraries(bw_runtime PUBLIC bw_resources PRIVATE bw_lua502)
 bw_strict(bw_runtime)
-add_library(bw_profiles src/game/menu_dialog.cpp src/game/menu_sound_requests.cpp src/game/profile.cpp src/game/profile_load_flow.cpp
-  src/game/progression.cpp src/game/progression_save.cpp src/game/mission_player_state.cpp
-  src/game/power_up_flow.cpp)
+add_library(bw_host_files src/platform/common/files/host.cpp)
+target_link_libraries(bw_host_files PUBLIC bw_resources)
+bw_strict(bw_host_files)
+add_library(bw_game_content src/game/content/original/stage_environment_settings.cpp
+  src/game/player/camera/player_camera_settings.cpp src/game/content/original/stage.cpp
+  src/game/content/original/character_support.cpp)
+target_link_libraries(bw_game_content PUBLIC bw_resources)
+bw_strict(bw_game_content)
+add_library(bw_profiles src/game/profile/profile.cpp src/game/profile/progression.cpp
+  src/game/profile/progression_save.cpp src/game/settings/controller_settings.cpp
+  src/game/settings/device_options.cpp)
 target_link_libraries(bw_profiles PUBLIC bw_resources)
-target_include_directories(bw_profiles PUBLIC src)
 bw_strict(bw_profiles)
 if(UNIX)
-  add_library(bw_save_storage_posix src/platform/files/save_storage.cpp)
+  add_library(bw_save_storage_posix src/platform/posix/files/save_storage.cpp)
   target_link_libraries(bw_save_storage_posix PUBLIC bw_resources)
   bw_strict(bw_save_storage_posix)
 endif()
-add_library(bw_game src/game/mission_control.cpp src/game/developer_review_flow.cpp src/game/camera/initial_camera.cpp src/game/camera/player_camera.cpp src/game/placed_collision.cpp src/game/placed_lighting.cpp src/game/stage_inspection.cpp src/game/mission_simulation.cpp src/game/stage_presentation.cpp src/game/stage_animation_review.cpp src/game/stage_shadow.cpp src/game/mission_driver.cpp src/game/initial_placement_shim.cpp src/game/mission_loading.cpp src/game/mission_package_inputs.cpp src/game/npc_palette.cpp src/game/root_driver.cpp src/game/startup_flows.cpp src/game/startup_services.cpp src/game/advertise_flow.cpp src/game/title_flows.cpp src/game/menu_flow.cpp src/game/frontend.cpp src/game/ranking_flow.cpp)
-target_sources(bw_profiles PRIVATE src/game/controller_settings.cpp)
-target_sources(bw_game PRIVATE src/game/device_options.cpp src/game/controller_input.cpp src/game/controller_options.cpp)
-target_sources(bw_game PRIVATE src/game/stage_environment.cpp src/game/player_actor.cpp src/game/player_controller.cpp src/game/alicia_secondary_motion.cpp src/game/alicia_support_arm.cpp
-  src/game/character_animations.cpp src/game/alicia_motion_bindings.cpp src/game/motion_presentation.cpp
-  src/game/facial_animation.cpp src/game/character_audio.cpp src/game/game_audio.cpp src/game/frontend_audio.cpp
-  src/game/character_motion_player.cpp)
-target_sources(bw_game PRIVATE src/game/ammunition_hud.cpp src/game/gameplay_hud.cpp src/game/spell_selection.cpp src/game/player_resources.cpp src/game/alicia_action_policy.cpp
-  src/game/alicia_reaction_policy.cpp
-  src/game/scripted_jump_policy.cpp
-  src/game/spell_presentation_policy.cpp
-  src/game/player_targeting.cpp
-  src/game/aim_posture.cpp
-  src/game/alicia_action_owner.cpp)
-target_link_libraries(bw_game PUBLIC bw_runtime bw_profiles bw_timing PRIVATE bw_images bw_render bw_scene bw_animation bw_audio_decode)
+add_library(bw_game src/game/mission/mission_control.cpp src/game/player/camera/initial_camera.cpp src/game/player/camera/player_camera.cpp src/game/world/placed_collision.cpp src/game/world/presentation/placed_lighting.cpp src/game/world/world_runtime.cpp src/game/world/mission_simulation.cpp src/game/world/presentation/stage_presentation.cpp src/game/world/presentation/stage_shadow.cpp src/game/mission/mission_driver.cpp src/game/world/initial_placement_shim.cpp src/game/mission/loading/mission_loading.cpp src/game/mission/loading/mission_package_inputs.cpp src/game/content/original/npc_palette.cpp src/game/session/root_driver.cpp src/game/ui/startup/startup_flows.cpp src/game/session/session_services.cpp src/game/ui/startup/advertise_flow.cpp src/game/ui/frontend/title_flows.cpp src/game/ui/frontend/menu_flow.cpp src/game/ui/frontend/frontend.cpp src/game/ui/frontend/ranking_flow.cpp)
+target_sources(bw_game PRIVATE src/game/player/input/controller_input.cpp src/game/ui/options/controller_options.cpp)
+target_sources(bw_game PRIVATE src/game/world/presentation/stage_environment.cpp src/game/actors/alicia/player_actor.cpp src/game/actors/alicia/player_controller.cpp src/game/actors/alicia/animation/alicia_secondary_motion.cpp src/game/actors/alicia/animation/alicia_support_arm.cpp
+  src/game/actors/animation/character_animations.cpp src/game/actors/alicia/animation/alicia_motion_bindings.cpp src/game/actors/animation/motion_presentation.cpp
+  src/game/actors/alicia/animation/facial_animation.cpp src/game/actors/alicia/audio/character_audio.cpp src/game/session/audio/game_audio.cpp src/game/ui/audio/frontend_audio.cpp
+  src/game/actors/animation/character_motion_player.cpp)
+target_sources(bw_game PRIVATE src/game/ui/hud/ammunition_hud.cpp src/game/ui/hud/gameplay_hud.cpp src/game/ui/hud/spell_selection.cpp src/game/actors/alicia/player_resources.cpp src/game/actors/alicia/actions/alicia_action_policy.cpp
+  src/game/actors/alicia/actions/alicia_reaction_policy.cpp
+  src/game/actors/alicia/actions/scripted_jump_policy.cpp
+  src/game/actors/alicia/actions/spell_presentation_policy.cpp
+  src/game/actors/alicia/player_targeting.cpp
+  src/game/actors/alicia/animation/aim_posture.cpp
+  src/game/actors/alicia/actions/alicia_action_owner.cpp)
+target_link_libraries(bw_game PUBLIC bw_runtime bw_profiles bw_timing PUBLIC bw_game_content PRIVATE bw_images bw_render bw_spatial bw_lighting bw_animation bw_audio_decode bw_host_files bw_input)
 target_compile_definitions(bw_game PUBLIC BW_DEVELOPER_VIEWS=$<BOOL:${BW_DEVELOPER_VIEWS}>)
-target_sources(bw_game PRIVATE src/game/menu_audio.cpp
-  src/game/menu_prompt.cpp src/game/pause_menu.cpp src/game/pause_help.cpp
-  src/game/mission_help_state.cpp src/game/pause_options.cpp
-  src/game/input_icon.cpp src/game/help_input_icons.cpp)
+target_sources(bw_game PRIVATE
+  src/game/ui/common/menu_dialog.cpp src/game/ui/audio/menu_sound_requests.cpp
+  src/game/ui/startup/profile_load_flow.cpp src/game/mission/mission_player_state.cpp
+  src/game/ui/power_up/power_up_flow.cpp
+  src/game/actors/alicia/animation/pose_semantics.cpp
+  src/game/actors/alicia/actions/raised_weapon_state.cpp
+  src/game/ui/audio/menu_audio.cpp
+  src/game/ui/common/menu_prompt.cpp src/game/ui/pause/pause_menu.cpp src/game/ui/pause/pause_help.cpp
+  src/game/mission/mission_help_state.cpp src/game/ui/options/options.cpp
+  src/game/ui/common/input_icon.cpp src/game/ui/common/help_input_icons.cpp)
 bw_strict(bw_game)
-add_library(bw_startup_playback src/game/startup_playback.cpp)
-target_link_libraries(bw_startup_playback PUBLIC bw_game bw_video)
-target_include_directories(bw_startup_playback PUBLIC src)
-bw_strict(bw_startup_playback)
-add_library(bw_startup_presentation src/game/frontend_options_surface.cpp src/game/ranking_surface.cpp src/game/power_up_surface.cpp src/game/gameplay_hud_surface.cpp src/game/sprite_text.cpp src/game/startup_title_surface.cpp src/game/startup_menu_surface.cpp src/game/startup_loading_surface.cpp)
-target_link_libraries(bw_startup_presentation PUBLIC bw_game PRIVATE bw_images)
-target_include_directories(bw_startup_presentation PUBLIC src)
-target_sources(bw_startup_presentation PRIVATE src/game/controller_options_surface.cpp src/game/pause_menu_surface.cpp src/game/pause_help_surface.cpp src/game/pause_options_surface.cpp src/game/mission_pause_surface.cpp)
+# Developer implementations are absent from the shipping archive and binary.
+# An object target avoids a reverse static-library dependency on the game owner.
+if(BW_DEVELOPER_VIEWS)
+  add_library(bw_developer OBJECT
+    src/developer/animation_review/developer_review_flow.cpp
+    src/developer/animation_review/player_animation_review.cpp
+    src/developer/animation_review/game_adapter.cpp)
+  target_compile_definitions(bw_developer PRIVATE BW_DEVELOPER_VIEWS=1)
+  target_link_libraries(bw_developer PRIVATE bw_runtime bw_profiles bw_timing
+    bw_game_content bw_animation bw_render bw_spatial bw_lighting bw_images)
+  bw_strict(bw_developer)
+  target_sources(bw_game PRIVATE $<TARGET_OBJECTS:bw_developer>)
+endif()
+add_library(bw_game_playback src/game/ui/startup/startup_playback.cpp)
+target_link_libraries(bw_game_playback PUBLIC bw_game bw_video)
+target_include_directories(bw_game_playback PRIVATE src)
+bw_strict(bw_game_playback)
+add_library(bw_game_presentation src/game/ui/options/frontend_options_surface.cpp src/game/ui/frontend/ranking_surface.cpp src/game/ui/power_up/power_up_surface.cpp src/game/ui/hud/gameplay_hud_surface.cpp src/game/ui/common/sprite_text.cpp src/game/ui/frontend/frontend_title_surface.cpp src/game/ui/frontend/frontend_menu_surface.cpp src/game/ui/loading/loading_surface.cpp)
+target_link_libraries(bw_game_presentation PUBLIC bw_game PRIVATE bw_images)
+target_include_directories(bw_game_presentation PRIVATE src)
+target_sources(bw_game_presentation PRIVATE src/game/ui/options/controller_options_surface.cpp src/game/ui/pause/pause_menu_surface.cpp src/game/ui/pause/pause_help_surface.cpp src/game/ui/options/options_surface.cpp src/game/ui/pause/mission_pause_surface.cpp)
 # Display the target OS, including when a toolchain selects a cross-build target.
 set(bw_target_platform_name "${CMAKE_SYSTEM_NAME}")
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   set(bw_target_platform_name "macOS")
 endif()
-target_compile_definitions(bw_startup_presentation PRIVATE
+target_compile_definitions(bw_game_presentation PRIVATE
   BW_TARGET_PLATFORM_NAME="${bw_target_platform_name}")
-bw_strict(bw_startup_presentation)
-target_sources(bw_game PRIVATE src/game/player_input_routing.cpp
-  src/game/player_cockpit.cpp src/game/mission_interaction.cpp
-  src/game/mission_gameplay.cpp)
+bw_strict(bw_game_presentation)
+target_sources(bw_game PRIVATE src/game/player/input/player_input_routing.cpp
+  src/game/ui/hud/player_cockpit.cpp src/game/mission/mission_interaction.cpp
+  src/game/mission/mission_gameplay.cpp)
 
-add_library(bw_startup_framework src/framework/startup_application.cpp src/framework/startup_options.cpp)
-target_link_libraries(bw_startup_framework PUBLIC bw_startup_playback PRIVATE bw_startup_presentation)
-bw_strict(bw_startup_framework)
+add_library(bw_game_application src/game/application/application.cpp src/game/application/application_options.cpp)
+target_link_libraries(bw_game_application PUBLIC bw_game_playback PRIVATE bw_game_presentation)
+bw_strict(bw_game_application)
 if(APPLE)
-  add_library(bw_cpu_backing_macos src/platform/macos/cpu_backing.cpp)
-  target_include_directories(bw_cpu_backing_macos PUBLIC src)
+  add_library(bw_cpu_backing_macos src/platform/macos/memory/cpu_backing.cpp)
+  target_include_directories(bw_cpu_backing_macos PRIVATE src)
   target_link_libraries(bw_cpu_backing_macos PUBLIC bw_memory)
   bw_strict(bw_cpu_backing_macos)
-  add_library(bw_save_directory_macos src/platform/macos/save_directory.mm)
+  add_library(bw_save_directory_macos src/platform/macos/files/save_directory.mm)
   set_target_properties(bw_save_directory_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
   target_compile_options(bw_save_directory_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_save_directory_macos PUBLIC bw_resources PRIVATE "-framework Foundation")
   bw_strict(bw_save_directory_macos)
-  add_library(bw_media_audio_macos src/platform/macos/media_audio.mm)
+  add_library(bw_media_audio_macos src/platform/macos/audio/media_audio.mm)
   set_target_properties(bw_media_audio_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
   target_compile_options(bw_media_audio_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_media_audio_macos PUBLIC bw_video PRIVATE
     "-framework AudioToolbox" "-framework CoreFoundation")
   bw_strict(bw_media_audio_macos)
-  add_library(bw_texture_allocation_macos src/platform/macos/texture_allocation.mm)
+  add_library(bw_texture_allocation_macos src/platform/macos/render/texture_allocation.mm)
   set_target_properties(bw_texture_allocation_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
-  target_include_directories(bw_texture_allocation_macos PUBLIC src)
+  target_include_directories(bw_texture_allocation_macos PRIVATE src)
   target_compile_options(bw_texture_allocation_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_texture_allocation_macos PUBLIC bw_memory PRIVATE "-framework Metal" objc)
   bw_strict(bw_texture_allocation_macos)
-  add_library(bw_world_renderer_macos src/platform/macos/buffer_allocation.mm src/platform/macos/world_renderer.mm src/platform/macos/world_postprocess.mm)
+  add_library(bw_world_renderer_macos src/platform/macos/render/buffer_allocation.mm src/platform/macos/render/world_renderer.mm src/platform/macos/render/world_postprocess.mm)
   set_target_properties(bw_world_renderer_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
-  target_include_directories(bw_world_renderer_macos PUBLIC src)
+  target_include_directories(bw_world_renderer_macos PRIVATE src)
   target_compile_options(bw_world_renderer_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_world_renderer_macos PUBLIC bw_resources bw_render PRIVATE bw_images bw_texture_allocation_macos "-framework Metal" objc)
   bw_strict(bw_world_renderer_macos)
-  add_library(bw_output_compositor_macos src/platform/macos/movie_renderer.mm src/platform/macos/sprite_renderer.mm src/platform/macos/output_compositor.mm)
+  add_library(bw_output_compositor_macos src/platform/macos/render/movie_renderer.mm src/platform/macos/render/sprite_renderer.mm src/platform/macos/render/output_compositor.mm)
   set_target_properties(bw_output_compositor_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
-  target_include_directories(bw_output_compositor_macos PUBLIC src)
+  target_include_directories(bw_output_compositor_macos PRIVATE src)
   target_compile_options(bw_output_compositor_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_output_compositor_macos PUBLIC bw_world_renderer_macos bw_video bw_render PRIVATE bw_images bw_texture_allocation_macos "-framework Metal" "-framework QuartzCore" objc)
   bw_strict(bw_output_compositor_macos)
-  add_library(bw_startup_host_macos src/platform/macos/startup_host.mm src/platform/macos/gamepad_actions.mm)
-  set_target_properties(bw_startup_host_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
-  target_compile_options(bw_startup_host_macos PRIVATE -fobjc-arc)
-  target_link_libraries(bw_startup_host_macos PUBLIC bw_video bw_resources bw_input PRIVATE
+  add_library(bw_window_host_macos src/platform/macos/window/window_host.mm src/platform/macos/input/gamepad.mm src/platform/macos/input/input_source.mm)
+  set_target_properties(bw_window_host_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
+  target_compile_options(bw_window_host_macos PRIVATE -fobjc-arc)
+  target_link_libraries(bw_window_host_macos PUBLIC bw_video bw_resources PRIVATE
     bw_media_audio_macos bw_texture_allocation_macos bw_world_renderer_macos bw_output_compositor_macos "-framework Cocoa" "-framework Metal"
     "-framework QuartzCore" "-framework GameController")
-  bw_strict(bw_startup_host_macos)
-  add_executable(bw-startup src/platform/macos/main.cpp)
-  target_link_libraries(bw-startup PRIVATE bw_startup_framework
-    bw_startup_host_macos bw_video_ffmpeg bw_save_storage_posix bw_save_directory_macos bw_cpu_backing_macos bw_audio_fact)
-  bw_strict(bw-startup)
+  bw_strict(bw_window_host_macos)
+  add_executable(bullet-witch src/platform/macos/main.cpp)
+  target_link_libraries(bullet-witch PRIVATE bw_game_application
+    bw_window_host_macos bw_video_ffmpeg bw_save_storage_posix bw_save_directory_macos bw_cpu_backing_macos bw_audio_fact)
+  bw_strict(bullet-witch)
   include(cmake/MacShaders.cmake)
 endif()
 if(BW_SANITIZE)
@@ -187,76 +221,87 @@ if(BW_SANITIZE)
   target_compile_options(bw_video PUBLIC -fsanitize=${BW_SANITIZERS} -fno-omit-frame-pointer)
   target_link_options(bw_video PUBLIC -fsanitize=${BW_SANITIZERS})
 endif()
-add_executable(bw-resource tools/resource_inspector.cpp)
-target_link_libraries(bw-resource PRIVATE bw_resources)
+add_executable(bw-resource tools/resources/resource_inspector.cpp)
+target_link_libraries(bw-resource PRIVATE bw_resources bw_host_files)
 bw_strict(bw-resource)
 include(CTest)
 if(BUILD_TESTING)
-  add_executable(memory-tests tests/memory_test.cpp tests/device_budget_test.cpp)
+  add_executable(memory-tests tests/unit/engine/memory/memory_test.cpp tests/unit/engine/memory/device_budget_test.cpp)
   target_link_libraries(memory-tests PRIVATE bw_memory)
   if(APPLE)
-    target_sources(memory-tests PRIVATE tests/macos_cpu_backing_test.cpp tests/macos_texture_allocation_test.mm tests/macos_final_edge_test.mm tests/macos_texture_mips_test.mm tests/macos_scene_replay_test.mm tests/macos_output_compositor_test.mm tests/media_audio_memory_test.cpp)
+    target_sources(memory-tests PRIVATE tests/unit/platform/macos/macos_cpu_backing_test.cpp tests/unit/platform/macos/macos_texture_allocation_test.mm tests/unit/platform/macos/macos_final_edge_test.mm tests/unit/platform/macos/macos_texture_mips_test.mm tests/unit/platform/macos/macos_scene_replay_test.mm tests/unit/platform/macos/macos_output_compositor_test.mm tests/unit/platform/macos/media_audio_memory_test.cpp)
     set_target_properties(memory-tests PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
     target_compile_options(memory-tests PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
     target_link_libraries(memory-tests PRIVATE bw_cpu_backing_macos bw_texture_allocation_macos bw_media_audio_macos bw_world_renderer_macos bw_output_compositor_macos "-framework Metal")
-    add_dependencies(memory-tests bw_movie_shaders)
-    target_compile_definitions(memory-tests PRIVATE BW_WORLD_SHADER_LIBRARY="${bw_movie_library}")
+    add_dependencies(memory-tests bw_metal_shaders)
+    target_compile_definitions(memory-tests PRIVATE BW_WORLD_SHADER_LIBRARY="${bw_metal_library}")
     target_compile_definitions(memory-tests PRIVATE BW_TEST_MACOS_MEMORY=1)
   endif()
   bw_strict(memory-tests)
   add_test(NAME memory COMMAND memory-tests)
   set_tests_properties(memory PROPERTIES TIMEOUT 30)
-  add_executable(profile-tests tests/profile_test.cpp tests/profile_load_flow_test.cpp tests/progression_test.cpp tests/power_up_flow_test.cpp)
-  target_link_libraries(profile-tests PRIVATE bw_profiles)
+  add_executable(profile-tests tests/unit/game/profile/profile_test.cpp tests/unit/game/ui/startup/profile_load_flow_test.cpp tests/unit/game/profile/progression_test.cpp tests/unit/game/ui/power_up/power_up_flow_test.cpp)
+  target_link_libraries(profile-tests PRIVATE bw_game)
   bw_strict(profile-tests)
   add_test(NAME profile COMMAND profile-tests)
   set_tests_properties(profile PROPERTIES TIMEOUT 30)
-  add_executable(image-font-tests tests/image_font_test.cpp tests/texture_mips_test.cpp)
+  add_executable(image-font-tests tests/unit/engine/content/formats/image_font_test.cpp tests/unit/engine/content/formats/texture_mips_test.cpp)
   target_link_libraries(image-font-tests PRIVATE bw_images)
   bw_strict(image-font-tests)
   add_test(NAME image-font COMMAND image-font-tests)
   set_tests_properties(image-font PROPERTIES TIMEOUT 30)
-  add_executable(runtime-tests tests/runtime_test.cpp tests/task_memory_test.cpp tests/lua_memory_test.cpp tests/startup_flows_test.cpp
-    tests/startup_services_test.cpp tests/startup_playback_test.cpp tests/pcm_buffer_test.cpp tests/advertise_flow_test.cpp tests/title_flow_test.cpp tests/menu_flow_test.cpp tests/initial_camera_test.cpp tests/player_camera_test.cpp tests/placed_collision_test.cpp tests/startup_options_test.cpp tests/stage_shadow_test.cpp)
-  target_sources(runtime-tests PRIVATE tests/ammunition_hud_test.cpp tests/gameplay_hud_test.cpp tests/gameplay_integration_test.cpp tests/motion_presentation_test.cpp tests/world_timing_test.cpp)
-  target_sources(runtime-tests PRIVATE tests/controller_options_test.cpp tests/pause_menu_test.cpp tests/ranking_test.cpp tests/pause_help_test.cpp tests/menu_audio_test.cpp
-  tests/menu_prompt_test.cpp)
-  target_sources(runtime-tests PRIVATE tests/alicia_action_policy_test.cpp
-    tests/alicia_reaction_policy_test.cpp
-    tests/scripted_jump_policy_test.cpp
-    tests/player_resources_test.cpp
-    tests/spell_presentation_policy_test.cpp
-    tests/aim_posture_test.cpp)
-  target_link_libraries(runtime-tests PRIVATE bw_startup_playback bw_startup_framework bw_input)
+  add_executable(runtime-tests tests/unit/engine/runtime/runtime_test.cpp tests/unit/engine/runtime/task_memory_test.cpp tests/unit/engine/runtime/lua_memory_test.cpp tests/unit/game/ui/startup/startup_flows_test.cpp
+    tests/unit/game/session/startup_services_test.cpp tests/unit/game/ui/startup/startup_playback_test.cpp tests/unit/engine/video/pcm_buffer_test.cpp tests/unit/game/ui/startup/advertise_flow_test.cpp tests/unit/game/ui/frontend/title_flow_test.cpp tests/unit/game/ui/frontend/menu_flow_test.cpp tests/unit/game/player/camera/initial_camera_test.cpp tests/unit/game/player/camera/player_camera_test.cpp tests/unit/game/world/placed_collision_test.cpp tests/unit/game/application/startup_options_test.cpp tests/unit/game/world/presentation/stage_shadow_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/ui/hud/ammunition_hud_test.cpp tests/unit/game/ui/hud/gameplay_hud_test.cpp tests/unit/game/mission/gameplay_integration_test.cpp tests/unit/game/actors/animation/motion_presentation_test.cpp tests/unit/game/mission/world_timing_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/ui/options/controller_options_test.cpp tests/unit/game/ui/pause/pause_menu_test.cpp tests/unit/game/ui/frontend/ranking_test.cpp tests/unit/game/ui/pause/pause_help_test.cpp tests/unit/game/ui/audio/menu_audio_test.cpp
+  tests/unit/game/ui/common/menu_prompt_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/actors/alicia/alicia_action_policy_test.cpp
+    tests/unit/game/actors/alicia/alicia_reaction_policy_test.cpp
+    tests/unit/game/actors/alicia/scripted_jump_policy_test.cpp
+    tests/unit/game/actors/alicia/player_resources_test.cpp
+    tests/unit/game/actors/alicia/spell_presentation_policy_test.cpp
+    tests/unit/game/actors/alicia/aim_posture_test.cpp)
+  target_link_libraries(runtime-tests PRIVATE bw_game_playback bw_game_application bw_input)
   if(APPLE)
-    target_sources(runtime-tests PRIVATE tests/gamepad_targeting_test.mm)
-    set_source_files_properties(tests/gamepad_targeting_test.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_sources(runtime-tests PRIVATE tests/unit/platform/macos/gamepad_targeting_test.mm)
+    set_source_files_properties(tests/unit/platform/macos/gamepad_targeting_test.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     set_target_properties(runtime-tests PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
-    target_link_libraries(runtime-tests PRIVATE bw_startup_host_macos)
+    target_link_libraries(runtime-tests PRIVATE bw_window_host_macos)
   endif()
   target_include_directories(runtime-tests PRIVATE src)
   bw_strict(runtime-tests)
   add_test(NAME runtime COMMAND runtime-tests)
   set_tests_properties(runtime PROPERTIES TIMEOUT 30)
-  add_executable(startup-corpus tests/startup_corpus.cpp)
-  target_link_libraries(startup-corpus PRIVATE bw_startup_presentation bw_save_storage_posix bw_audio_decode)
+  add_executable(startup-corpus tests/integration/startup_corpus.cpp)
+  target_link_libraries(startup-corpus PRIVATE bw_game_presentation bw_save_storage_posix bw_audio_decode bw_host_files)
   target_include_directories(startup-corpus PRIVATE src)
   if(APPLE)
     target_link_libraries(startup-corpus PRIVATE bw_cpu_backing_macos)
     target_compile_definitions(startup-corpus PRIVATE BW_TEST_MACOS_MEMORY=1)
   endif()
   bw_strict(startup-corpus)
-  add_executable(resource-tests tests/render_scene_test.cpp tests/resources_test.cpp tests/model_test.cpp tests/audio_bank_test.cpp tests/stage_definitions_test.cpp tests/animation_definition_test.cpp tests/world_output_test.cpp tests/world_material_test.cpp tests/view_test.cpp tests/shadow_test.cpp tests/material_animation_test.cpp tests/customization_test.cpp tests/static_collision_test.cpp tests/irradiance_field_test.cpp)
-  target_sources(resource-tests PRIVATE tests/skeletal_pose_test.cpp tests/math_test.cpp tests/secondary_motion_test.cpp tests/motion_events_test.cpp tests/shape_pose_test.cpp)
-  target_sources(resource-tests PRIVATE tests/local_light_view_test.cpp tests/local_lights_test.cpp tests/reflection_field_test.cpp tests/shadow_casters_test.cpp tests/scalar_area_test.cpp)
-  target_link_libraries(resource-tests PRIVATE bw_resources bw_render bw_scene bw_animation)
+  add_executable(resource-tests tests/unit/engine/render/render_scene_test.cpp tests/unit/engine/content/resources/resources_test.cpp tests/unit/engine/content/formats/model_test.cpp tests/unit/engine/content/formats/audio_bank_test.cpp tests/unit/engine/content/formats/stage_definitions_test.cpp tests/unit/engine/content/formats/animation_definition_test.cpp tests/unit/engine/render/world_output_test.cpp tests/unit/engine/render/world_material_test.cpp tests/unit/engine/render/view_test.cpp tests/unit/engine/render/shadow_test.cpp tests/unit/engine/render/material_animation_test.cpp tests/unit/engine/content/formats/customization_test.cpp tests/unit/engine/spatial/static_collision_test.cpp tests/unit/engine/lighting/irradiance_field_test.cpp)
+  target_sources(resource-tests PRIVATE tests/unit/engine/animation/skeletal_pose_test.cpp tests/unit/engine/math/math_test.cpp tests/unit/engine/animation/secondary_motion_test.cpp tests/unit/engine/animation/motion_events_test.cpp tests/unit/engine/animation/shape_pose_test.cpp)
+  target_sources(resource-tests PRIVATE tests/unit/engine/lighting/local_light_view_test.cpp tests/unit/engine/lighting/local_lights_test.cpp tests/unit/engine/lighting/reflection_field_test.cpp tests/unit/engine/render/shadows/shadow_casters_test.cpp tests/unit/engine/spatial/scalar_area_test.cpp)
+  target_link_libraries(resource-tests PRIVATE bw_resources bw_render bw_spatial bw_lighting bw_animation bw_game_content bw_host_files)
   bw_strict(resource-tests)
   add_test(NAME resources COMMAND resource-tests)
   set_tests_properties(resources PROPERTIES TIMEOUT 30)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
   if(Python3_Interpreter_FOUND)
     add_test(NAME resource-cli COMMAND ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/tests/resource_cli_test.py $<TARGET_FILE:bw-resource>)
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/resource_cli_test.py $<TARGET_FILE:bw-resource>)
     set_tests_properties(resource-cli PROPERTIES TIMEOUT 90)
   endif()
 endif()
+
+# Portable headers are the only include surface exported by authored libraries.
+get_property(bw_authored_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(bw_target IN LISTS bw_authored_targets)
+  get_target_property(bw_public_includes ${bw_target} INTERFACE_INCLUDE_DIRECTORIES)
+  foreach(bw_include IN LISTS bw_public_includes)
+    if(bw_include STREQUAL "${PROJECT_SOURCE_DIR}/src")
+      message(FATAL_ERROR "${bw_target} exports private implementation headers")
+    endif()
+  endforeach()
+endforeach()
