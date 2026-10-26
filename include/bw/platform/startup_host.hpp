@@ -1,12 +1,19 @@
-// Texture construction policy is captured once before any DDS sprite upload.
-// Enabled uploads build a complete portable mip candidate, then native
-// residency; video frame uploads remain separate. No mutable launch settings
-// are borrowed. Both-phase E.6/I.11 and COPY.5 preserve candidate cleanup,
-// bounded borrowing and stable host identity (source references below). Mip
-// bytes count against both sprite residency limits and complete device
-// accounting. Presentation timing is supplied by the engine frame publisher,
-// including while world simulation is paused. No target-local wall clock drives
-// exposure. Both-phase Core I.1 (#ri-explicit) exposes this dependency; MEM.9
+// Host is the window/input/audio composition adapter. World, movie and UI
+// resources are owned by sibling native renderers; final
+// composition/presentation and synchronous GPU retirement belong to
+// OutputCompositor. This compatibility facade forwards producer operations
+// without retaining a second registry. Both-phase R.1/I.11/COPY.5/GPU.1
+// ownership rules below apply to the delegated owners; no scene snapshots or
+// mutable compositor capabilities escape. Texture construction policy is
+// captured once before any DDS sprite upload. Enabled uploads build a complete
+// portable mip candidate, then native residency; video frame uploads remain
+// separate. No mutable launch settings are borrowed. Both-phase E.6/I.11 and
+// COPY.5 preserve candidate cleanup, bounded borrowing and stable host identity
+// (source references below). Mip bytes count against both sprite residency
+// limits and complete device accounting. Presentation timing is supplied by the
+// engine frame publisher, including while world simulation is paused. No
+// target-local wall clock drives exposure. Both-phase Core I.1 (#ri-explicit)
+// exposes this dependency; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps the snapshot
 // inline. Action input reports normalized fire intent and one-shot button edges
 // only; game owners admit shots, reloads, weapon switches and aim modes. Native
@@ -135,7 +142,7 @@ class StartupHost final : public video::Output,
   // Retain uploaded pixels independently of the caller's decoded frame.
   void upload(const video::VideoFrame& frame) override;
   void clear_video() noexcept override;
-  // Present video then ordered sprites; retire GPU use before returning.
+  // Compose world output, movie, then ordered UI; retire GPU use before return.
   bool draw(float opacity) override;
   video::AudioOutput& audio() noexcept override;
   // Sprite resources and commands share the portable SpriteOutput contract.

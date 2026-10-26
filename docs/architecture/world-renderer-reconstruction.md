@@ -59,8 +59,10 @@ and final transforms. Spatial receivers query the selected field and model-light
 list; static receivers use stage ambient and the global view packet; sky retains
 its white policy. Unknown policy rejects. Controllers own none of these algorithms.
 
-Stage composes the engine owner and publishes fixed results to retained renderer
-destinations. Body and weapon observe separately because original callbacks use
+Stage composes `LightingPublication` and registers authored receiver bounds,
+field policy and destinations. Its sealed `ReceiverPublication` values own the
+cache/packet distribution and publish through RenderScene's restricted lighting
+capability; the native draw registry remains authoritative. Body and weapon observe separately because original callbacks use
 each model's bounds. Camera changes refresh scene light admission once. Runtime
 publication performs no field decoding, geometry upload or draw-list replacement.
 

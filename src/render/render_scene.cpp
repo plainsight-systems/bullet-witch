@@ -59,10 +59,9 @@ void RenderScene::update_world_texture_offsets(
   require_active();
   output_.update_world_texture_offsets(updates);
 }
-void RenderScene::update_world_lighting(
-    std::span<const WorldLightingUpdate> updates) {
-  require_active();
-  output_.update_world_lighting(updates);
+void LightingPublisher::publish(std::span<const WorldLightingUpdate> updates) {
+  scene_.require_active();
+  scene_.output_.update_world_lighting(updates);
 }
 void RenderScene::update_world_visibility(
     std::span<const WorldVisibilityUpdate> updates) {

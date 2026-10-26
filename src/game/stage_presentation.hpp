@@ -1,3 +1,7 @@
+// Slice 2 design F.7 (#rf-smart), C.32 (#rc-dtor-ptr), COPY.4 and CDSA.32:
+// scene-owned receiver publication borrows stable output; game policy supplies
+// authored bounds/fields/channels. Prepared destination storage moves without
+// throwing after native appearance replacement.
 // Ownership split of the existing stage runtime; no new simulation algorithm.
 // Design Core I.1 (#ri-explicit), C.9 (#rc-private) and R.21 (#rr-unique)
 // keep authority private and borrows explicit. Implementation E.6 (#re-raii)
@@ -18,7 +22,7 @@
 #include "bw/render/material_animation.hpp"
 #include "bw/render/render_scene.hpp"
 #include "bw/render/shadow.hpp"
-#include "bw/scene/lighting/scene_lighting.hpp"
+#include "bw/scene/lighting/lighting_publication.hpp"
 #include "bw/scene/visibility/shadow_casters.hpp"
 #include "camera/initial_camera.hpp"
 #include "player_actor.hpp"
@@ -66,32 +70,23 @@ class StagePresentation {
   const PlayerActor* player_;
   std::shared_ptr<memory::Domain> memory_;
   float initial_far_distance_{};
-  void append_player_draws(memory::Vector<render::WorldColorDraw>&,
-                           const PlayerActor&, bool,
-                           const InitialPlayerCamera&);
+  scene::ReceiverPublication append_player_draws(
+      memory::Vector<render::WorldColorDraw>&, const PlayerActor&, bool,
+      const InitialPlayerCamera&);
   // Scene owns fields and emitter selection; game maps authored field slots
   // and supplies model observations. Controllers never own lighting state.
   std::optional<scene::ReflectionField> reflection_field_;
-  std::array<render::WorldTextureHandle, scene::kReflectionSlotCount>
-      reflection_textures_{};
-  std::optional<scene::SceneLighting> lighting_;
+  std::optional<scene::LightingPublication> lighting_;
   scene::LightingFieldId character_field_, enemy_field_;
-  memory::Vector<render::WorldLightingUpdate> static_lighting_updates_;
+  // Receiver publication owns prepared destination packets and cache state.
+  // They retire before the scene sampler, which retires before RenderScene.
+  std::optional<scene::ReceiverPublication> static_lighting_;
+  memory::Vector<scene::ReceiverPublication> placed_lighting_;
+  std::array<std::optional<scene::ReceiverPublication>, 2> player_lighting_;
   memory::Vector<render::WorldVisibilityUpdate> static_shadow_updates_;
-  // Each placed model owns a strict-field cache and a contiguous draw-packet
-  // range. Instance IDs isolate copies of the same resident mesh. SceneLighting
-  // is declared first and therefore outlives these borrowed receiver owners.
-  // I.1/R.20/MEM.9: fixed observations, explicit lifetime, loading allocation.
-  struct PlacedLighting {
-    scene::RetainedLightingReceiver receiver;
-    math::Vector3<float> root_position{};
-    float radius{};
-    std::size_t first_update{}, update_count{};
-  };
-  memory::Vector<PlacedLighting> placed_lighting_;
-  memory::Vector<render::WorldLightingUpdate> placed_lighting_updates_;
-  render::WorldLightingUpdate model_lighting(
-      const ResidentModelView& resident, const animation::Matrix& transform);
+  scene::LightingReceiver model_receiver(
+      const ResidentModelView& resident,
+      const animation::Matrix& transform) const;
   void publish_player_lighting();
   void publish_shadow_owners(const InitialPlayerCamera& camera,
                              bool force_player_visibility);

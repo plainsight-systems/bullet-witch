@@ -51,6 +51,7 @@
 void BWTestFinalEdge(id<MTLDevice> device);
 void BWTestTextureMips(id<MTLDevice> device);
 void BWTestSceneReplay(id<MTLDevice> device);
+void BWTestOutputCompositor(id<MTLDevice> device);
 namespace {
 void require(bool condition, const char* message) {
   if (!condition) {
@@ -2129,6 +2130,7 @@ void BWMacosTextureAllocationTests() {
     require(device != nil, "No Metal device for native memory acceptance");
     world_geometry_contract(device);
     BWTestSceneReplay(device);
+    BWTestOutputCompositor(device);
     world_surface_contract(device);
     world_output_contract(device);
     BWTestTextureMips(device);

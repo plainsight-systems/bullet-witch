@@ -1,8 +1,8 @@
 # Current systems and ownership review
 
 **October 26, 2026 · current implementation plus proposed repairs for review.**
-Baseline: accepted frontend commit `cac036f`, with slice 1 ownership changes now
-implemented in the working tree and awaiting native acceptance. The accepted
+Baseline: accepted mission/presentation slice `fd773fb`, with slice 2 lighting
+publication and output composition verified and accepted after native review. The accepted
 plan is `79d7a72`; this map does not expand its execution scope. Begin here
 before using the broader [target architecture](logical-overview.md). The
 [source inventory](../../research/engine/subsystems/runtime-subsystem-inventory.md)
@@ -32,10 +32,13 @@ flowchart TD
   Front --> State
   Mission --> Stage[StageInspection: current composition]
   Stage --> Simulation[MissionSimulation: contact, actor, controller and camera]
-  Stage --> Presentation[StagePresentation: environment, lighting and materials]
+  Stage --> Presentation[StagePresentation: authored environment and materials]
   Stage --> Review[PlayerAnimationReview: explicit diagnostics]
   Simulation --> Actor[PlayerActor and PlayerController]
-  Presentation --> Render[RenderScene: membership and retirement]
+  Presentation --> Light[LightingPublication: receiver sampling and publication]
+  Light --> LightPublisher[Restricted LightingPublisher]
+  LightPublisher --> Render[RenderScene: membership and retirement]
+  Presentation --> Render
   Actor --> Publisher[ActorPublisher: pose, shape and visibility]
   Publisher --> Render
   Render --> Native
@@ -55,8 +58,8 @@ Scene being outside game is therefore meaningful, not a misplaced game folder.
 | Process/application | [Mac entry](../../src/platform/macos/main.cpp), [application](../../src/framework/startup_application.cpp); `bw-startup`, `bw_startup_framework` | Implemented composition. The shared loop also explicitly selects game setup and teardown; its name is narrower than its current mission role. |
 | Session/root | [StartupSession](../../src/game/startup_services.hpp), [RootDriver](../../src/game/root_driver.hpp); `bw_game` | Implemented root-task and mission handoff. Not a complete world/entity lifecycle. |
 | Mission authority | [MissionGameplay](../../src/game/mission_gameplay.hpp), [MissionControl](../../src/game/mission_control.hpp), [MissionLoading](../../src/game/mission_loading.hpp) | Implemented admission, pause/reentry, assets and current Alicia scene. Authored mission/entity startup and complete checkpoint restoration remain partial. |
-| Rendering | [portable contracts](../../include/bw/render/world.hpp), [native renderer](../../src/platform/macos/world_renderer.hpp), [postprocess](../../src/platform/macos/world_postprocess.hpp); `bw_render`, `bw_world_renderer_macos` | Working admitted geometry/shadow/HDR pipeline. Complete dynamic render-scene membership and an explicit extraction owner are missing. |
-| Lighting | [SceneLighting](../../include/bw/scene/lighting/scene_lighting.hpp), [Environment](../../include/bw/scene/environment.hpp); `bw_scene` | Identifiable implemented engine subsystem. Game source-channel interpretation remains outside it. |
+| Rendering | [portable contracts](../../include/bw/render/world.hpp), [native renderer](../../src/platform/macos/world_renderer.hpp), [postprocess](../../src/platform/macos/world_postprocess.hpp); `bw_render`, `bw_world_renderer_macos` | Working admitted geometry/shadow/HDR pipeline. RenderScene controls current registration/replacement/removal/retirement; the native backend retains the sole draw registry. General gameplay entities remain future. |
+| Lighting | [LightingPublication](../../include/bw/scene/lighting/lighting_publication.hpp), [SceneLighting](../../include/bw/scene/lighting/scene_lighting.hpp), [Environment](../../include/bw/scene/environment.hpp); `bw_scene` | Engine sampler and sealed receiver publication own light packets/caches/draw distribution. Game source-channel interpretation remains outside it. |
 | Animation/game actors | [animation](../../include/bw/animation/), [PlayerActor](../../src/game/player_actor.hpp), [Alicia policy](../../src/game/alicia_action_policy.hpp); `bw_animation`, `bw_game` | Shared pose/playback/event mechanisms; current game integration centers on Alicia. Not a complete generic actor or NPC runtime. |
 | UI/settings/persistence | [FrontEnd](../../src/game/frontend.hpp), [Options](../../src/game/pause_options.hpp), [Profile](../../src/game/profile.hpp), [HUD](../../src/game/gameplay_hud.hpp) | Accepted frontend and gameplay pause/HUD. Original screen behavior remains game policy; shared sprite submission is an engine render contract. |
 | Audio/media | [GameAudio](../../src/game/game_audio.hpp), [audio contract](../../include/bw/audio/output.hpp), [video player](../../include/bw/video/player.hpp); `bw_audio_fact`, `bw_video`, decoder targets | One session game-audio runtime with menu/music and later mission bank admission; movie transport has its own PCM/timestamp synchronization. |
@@ -86,7 +89,7 @@ flowchart TD
   Audio --> Transition[Handle requested mission transition and teardown]
   Transition --> Session[Advance session and original root tasks]
   Session --> UI[MissionGameplay publishes pause or cockpit UI]
-  UI --> Draw[Host renders current world, movie and UI]
+  UI --> Draw[OutputCompositor renders sibling world, movie and UI]
   Draw --> Complete[Present and wait for GPU completion]
   Complete --> Wait
 ```
@@ -132,15 +135,18 @@ flowchart LR
   Definition[Mission definitions and resident assets] --> Assembly[StagePresentation assembly]
   Animation[PlayerActor evaluated pose and visibility] --> Publisher[Restricted ActorPublisher]
   Publisher --> Updates[RenderScene publication]
-  Assembly --> Lighting[SceneLighting view and receiver evaluation]
-  Lighting --> Updates
+  Assembly --> Lighting[LightingPublication: scene sampler and receiver publications]
+  Lighting --> LightPublisher[Restricted LightingPublisher]
+  LightPublisher --> Updates
   Assembly --> Updates
   Updates --> Retained[Native retained models, draws and copied parameters]
   Retained --> Shadow[Shadow map preparation]
   Shadow --> Color[Ordered sky and world color/preparation passes into HDR target]
   Color --> Output[Exposure reduction and optional bloom]
   Output --> Tone[Tone output and optional final edge filter]
-  Tone --> Compose[Drawable, movie and ordered UI composition]
+  Tone --> Compose[OutputCompositor: native drawable composition]
+  Movie[MovieRenderer: retained decoded image] --> Compose
+  UI[SpriteRenderer: retained ordered sprites] --> Compose
   Compose --> Retire[GPU completion before resource reuse]
 ```
 
@@ -148,7 +154,12 @@ flowchart LR
 encodes shadow then scene work; [WorldPostprocess](../../src/platform/macos/world_postprocess.mm)
 handles exposure/bloom/tone/filter resources. Shared `bw_render` calculates
 material, view, shadow and output semantics. Actual pass encoding and retained
-draw storage remain largely native. There is no generic frame graph to move.
+draw storage remain native. `MovieRenderer` and `SpriteRenderer` own their
+separate resources; [OutputCompositor](../../include/bw/render/output_compositor.hpp)
+accepts a fixed immutable frame request and orders the three siblings before
+waiting for native completion. The window host forwards producer operations and
+retains input/audio/clock observations. There is no generic frame graph. See
+[output composition](../../research/engine/subsystems/output-composition.md).
 
 Actor animation state and rendering have separate owners. `MissionSimulation`
 owns actor/controller/camera/contact state; `StagePresentation` borrows const
@@ -160,7 +171,7 @@ full-world copy is not required. See the
 [slice 1 record](../../research/engine/subsystems/mission-presentation-ownership.md)
 for validation and acceptance status.
 
-**Remaining proposed integration, building on the implemented owner split:**
+**Implemented owner integration (slice 2 accepted):**
 
 ```mermaid
 flowchart TD
@@ -168,8 +179,8 @@ flowchart TD
   Mission --> Presentation[Retained render-scene owner]
   Sim -->|Pose, shape and visibility through narrow publisher| Presentation
   Assets[Mission asset residency] -->|Borrowed stable definitions and handles| Presentation
-  Presentation --> Light[Engine lighting evaluation]
-  Light -->|Owned packets| Presentation
+  Presentation --> Light[Engine LightingPublication]
+  Light -->|Prepared packets through restricted capability| Pipeline
   Presentation -->|Pose, visibility, view, material and light publication| Pipeline[Engine render pipeline contract]
   Pipeline --> Backend[Selected native pass encoding and resource lifetime]
   Inspector[Developer inspection commands] -->|Defined owner boundaries only| Mission
@@ -191,9 +202,10 @@ These are actual responsibilities, not new aggregate class declarations:
 | Session | Root Lua/task state; Profile and device settings are separate stable authorities supplied by composition | Frontend uses narrow save/settings controls; renderer never mutates progression. |
 | Mission | Asset/model residency, mission control, world clock and current gameplay instances | Scene/actor/menu borrowers retire before mission assets and native handles. Reentry tears down and reconstructs supported mission state. |
 | Mission simulation | Static contact, actor/controller/camera, actions and appearance transactions | Borrows admitted clock/resource capabilities; survives presentation retirement. |
-| Stage presentation | RenderScene lifetime, lighting/environment and materials | Borrows const actor and resident assets; copied camera observations; retires submitted work before asset retirement. |
+| Stage presentation | RenderScene lifetime, authored environment/material adapters and receiver registration | Borrows const actor and resident assets; copied camera observations; retires submitted work before asset retirement. |
 | Actor | Motion/action playback, logical pose and attachments | Borrows resident resources; publishes completed values through restricted ActorPublisher. Scene membership and retirement stay with RenderScene. |
-| Native submission | GPU resources and current command buffer | Current serial completion precedes resource reuse; future asynchronous retirement needs its own explicit contract. |
+| Scene lighting publication | Prepared fields/emitters, receiver packet distribution and strict-placement caches | Borrowed RenderScene lighting capability; receiver publications die before sampler and reflection resources. |
+| Native output | World, movie and sprite owners retain separate GPU resources; compositor owns current command submission | Compositor dies before borrowed producers. Every successful submission completes before resource reuse; unavailable drawable retains producer state for retry. |
 
 Settings save capabilities distinguish System from Record; Costume does not save
 pending parent Options edits. Development overrides must remain temporary and

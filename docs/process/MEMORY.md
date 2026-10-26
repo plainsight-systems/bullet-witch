@@ -15,6 +15,20 @@
   reported a separate costume-menu pink block, tracked in QUEUE outside this
   accepted scope. Slice 1 acceptance authorizes its implementation commit.
 
+- Reorganization slice 2 is accepted after the October 26 native review. The
+  user confirmed it works; individual walkthrough sequences were not separately
+  reported. Acceptance authorizes commit. The repository gate and
+  purchased-content traversal pass. LightingPublication and
+  sealed receiver publications move packing/distribution/strict receiver caches
+  into scene lighting, borrowing only RenderScene's LightingPublisher. Game
+  adapters keep authored policy and observations. Native MovieRenderer and
+  SpriteRenderer own sibling resources; OutputCompositor owns their ordered
+  composition and synchronous completion. No shader/lighting math, clock,
+  gameplay, directory grouping or costume-menu fix is included. See
+  `research/engine/subsystems/lighting-output-integration.md` for validation state.
+  The reported apparently new A/B Accept/Back prompts across main-menu screens
+  are tracked separately in QUEUE; their cause and source fidelity are unverified.
+
 - Frontend scope is the entire original reachable menu system. Lua orchestrates
   native tasks; source task implementations define artwork, localization,
   eligibility, transitions, input and audio. Generic child lists and invented

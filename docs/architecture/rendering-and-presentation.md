@@ -2,8 +2,11 @@
 
 Current implementation versus proposed extraction is shown in
 [current ownership](current-ownership.md#lighting-and-the-render-pipeline). The
-broader RenderScene/render-consumer structure below is a target; current actor
-publication and pass encoding still cross StageInspection and native owners.
+broader structure below remains a target for missing gameplay systems. Current
+RenderScene controls retained membership, LightingPublication owns receiver
+packet production, and native OutputCompositor combines sibling world/movie/UI
+outputs with synchronous completion. See the
+[slice 2 record](../../research/engine/subsystems/lighting-output-integration.md).
 
 The independent movie transport completes both company movies on the Mac.
 Its [design record](../video-player-redesign.md),
@@ -75,19 +78,21 @@ flowchart TD
     Assets["Mesh, texture and shader definitions"] --> Material
     Visibility --> Passes["Render-pass construction and ordered draw contributions"]
     Material --> Passes
-    UI["UI scene: sprites and text"] --> Passes
-    Video["Retained decoded video sample"] --> Passes
+    UI["SpriteRenderer: UI sprites and text"] --> Compose
+    Video["MovieRenderer: retained decoded sample"] --> Compose
     Passes --> Commands["Command encoding and retained submission storage"]
     Commands --> Consumer["Render consumer"]
     Consumer --> Device["Selected graphics device adapter"]
-    Device --> Output["Render targets and presentation"]
-    Device --> Completion["Device completion / resource retirement"]
+    Device --> WorldImage["World image after postprocess"]
+    WorldImage --> Compose["OutputCompositor: world, movie, ordered UI"]
+    Compose --> Output["Native presentation"]
+    Output --> Completion["Device completion / resource retirement"]
     Consumer --> CPU["CPU command-consumption completion"]
 ```
 
 Arrows are data dependencies. Passes determine actual ordering; the drawing does
-not claim UI/video always run last or that a particular lighting/postprocess
-sequence has been recovered. CPU consumption and device retirement are separate
+preserves the implemented world/postprocess → movie → ordered UI layering.
+New gameplay systems do not alter that order implicitly. CPU consumption and device retirement are separate
 completion outputs. Exact camera, full visibility, lighting and pass behavior
 remain unresolved within the assigned units below.
 

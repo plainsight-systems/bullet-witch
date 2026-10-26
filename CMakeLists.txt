@@ -52,9 +52,10 @@ bw_strict(bw_render)
 add_library(bw_scene src/scene/spatial/static_collision.cpp src/scene/spatial/character_collision.cpp
   src/scene/lighting/irradiance_field.cpp src/scene/lighting/local_lights.cpp
   src/scene/lighting/scene_lighting.cpp src/scene/lighting/reflection_field.cpp
+  src/scene/lighting/lighting_publication.cpp
   src/scene/visibility/shadow_casters.cpp)
 target_sources(bw_scene PRIVATE src/scene/spatial/area_regions.cpp src/scene/environment.cpp)
-target_link_libraries(bw_scene PUBLIC bw_resources bw_animation)
+target_link_libraries(bw_scene PUBLIC bw_resources bw_animation bw_render)
 bw_strict(bw_scene)
 add_library(bw_animation src/animation/pose.cpp src/animation/secondary_motion.cpp
   src/animation/clip_catalog.cpp)
@@ -156,11 +157,17 @@ if(APPLE)
   target_compile_options(bw_world_renderer_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_world_renderer_macos PUBLIC bw_resources bw_render PRIVATE bw_images bw_texture_allocation_macos "-framework Metal" objc)
   bw_strict(bw_world_renderer_macos)
+  add_library(bw_output_compositor_macos src/platform/macos/movie_renderer.mm src/platform/macos/sprite_renderer.mm src/platform/macos/output_compositor.mm)
+  set_target_properties(bw_output_compositor_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
+  target_include_directories(bw_output_compositor_macos PUBLIC src)
+  target_compile_options(bw_output_compositor_macos PRIVATE -fobjc-arc)
+  target_link_libraries(bw_output_compositor_macos PUBLIC bw_world_renderer_macos bw_video bw_render PRIVATE bw_images bw_texture_allocation_macos "-framework Metal" "-framework QuartzCore" objc)
+  bw_strict(bw_output_compositor_macos)
   add_library(bw_startup_host_macos src/platform/macos/startup_host.mm src/platform/macos/gamepad_actions.mm)
   set_target_properties(bw_startup_host_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
   target_compile_options(bw_startup_host_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_startup_host_macos PUBLIC bw_video bw_resources bw_input PRIVATE
-    bw_media_audio_macos bw_texture_allocation_macos bw_world_renderer_macos "-framework Cocoa" "-framework Metal"
+    bw_media_audio_macos bw_texture_allocation_macos bw_world_renderer_macos bw_output_compositor_macos "-framework Cocoa" "-framework Metal"
     "-framework QuartzCore" "-framework GameController")
   bw_strict(bw_startup_host_macos)
   add_executable(bw-startup src/platform/macos/main.cpp)
@@ -188,10 +195,10 @@ if(BUILD_TESTING)
   add_executable(memory-tests tests/memory_test.cpp tests/device_budget_test.cpp)
   target_link_libraries(memory-tests PRIVATE bw_memory)
   if(APPLE)
-    target_sources(memory-tests PRIVATE tests/macos_cpu_backing_test.cpp tests/macos_texture_allocation_test.mm tests/macos_final_edge_test.mm tests/macos_texture_mips_test.mm tests/macos_scene_replay_test.mm tests/media_audio_memory_test.cpp)
+    target_sources(memory-tests PRIVATE tests/macos_cpu_backing_test.cpp tests/macos_texture_allocation_test.mm tests/macos_final_edge_test.mm tests/macos_texture_mips_test.mm tests/macos_scene_replay_test.mm tests/macos_output_compositor_test.mm tests/media_audio_memory_test.cpp)
     set_target_properties(memory-tests PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
     target_compile_options(memory-tests PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-    target_link_libraries(memory-tests PRIVATE bw_cpu_backing_macos bw_texture_allocation_macos bw_media_audio_macos bw_world_renderer_macos "-framework Metal")
+    target_link_libraries(memory-tests PRIVATE bw_cpu_backing_macos bw_texture_allocation_macos bw_media_audio_macos bw_world_renderer_macos bw_output_compositor_macos "-framework Metal")
     add_dependencies(memory-tests bw_movie_shaders)
     target_compile_definitions(memory-tests PRIVATE BW_WORLD_SHADER_LIBRARY="${bw_movie_library}")
     target_compile_definitions(memory-tests PRIVATE BW_TEST_MACOS_MEMORY=1)

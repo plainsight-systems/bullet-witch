@@ -1,6 +1,9 @@
-// Implement the owner contract in the matching header. Design I.1/C.9 keeps
-// authoritative state private; implementation E.6 (#re-raii) preserves cleanup
-// on failed preparation. Both-phase MEM.9
+// Slice 2 implementation E.6 (#re-raii) and MEM.9 retain prepared receiver
+// storage and transactional native appearance replacement. LightingPublication
+// owns sample packing/distribution; this adapter supplies authored
+// observations. Implement the owner contract in the matching header. Design
+// I.1/C.9 keeps authoritative state private; implementation E.6 (#re-raii)
+// preserves cleanup on failed preparation. Both-phase MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps retained buffers
 // fixed during admitted frames. Existing source algorithms and ordering remain.
 #include "stage_presentation.hpp"
@@ -270,34 +273,6 @@ void environment_parameters(const formats::StageEnvironment& environment,
   parameters.light_specular = light.specular;
   parameters.light_direction = light.direction;
 }
-// Presentation converts prepared engine values to backend-neutral bindings;
-// no scene sampling or field ownership belongs to the actor/controller.
-render::WorldLightingUpdate lighting_packet(
-    const scene::ReceiverLighting& lighting,
-    const std::array<render::WorldTextureHandle, scene::kReflectionSlotCount>&
-        reflections) {
-  render::WorldLightingUpdate update;
-  update.irradiance_coefficients = lighting.irradiance;
-  update.reflection_texture = lighting.reflection_slot
-                                  ? reflections.at(*lighting.reflection_slot)
-                                  : render::WorldTextureHandle{};
-  const auto& selected = lighting.local_lights;
-  update.local_light_count = static_cast<std::uint32_t>(selected.count);
-  for (std::size_t index = 0; index < selected.count; ++index) {
-    const auto& source = selected.lights.at(index);
-    auto& destination = update.local_lights.at(index);
-    destination.position = {source.position[0], source.position[1],
-                            source.position[2], 1};
-    destination.diffuse = {source.diffuse[0], source.diffuse[1],
-                           source.diffuse[2], 1};
-    destination.specular = {source.specular[0], source.specular[1],
-                            source.specular[2], 1};
-    destination.attenuation = {source.attenuation[0], source.attenuation[1],
-                               source.attenuation[2],
-                               selected.contribution_threshold};
-  }
-  return update;
-}
 scene::LocalLightViewQuery lighting_view(const InitialPlayerCamera& camera) {
   const auto& pose = camera.pose;
   const auto& perspective = camera.perspective;
@@ -320,13 +295,9 @@ StagePresentation::StagePresentation(
     : output_(output),
       player_(player),
       memory_(domain),
-      static_lighting_updates_(
-          memory::Allocator<render::WorldLightingUpdate>(domain)),
+      placed_lighting_(memory::Allocator<scene::ReceiverPublication>(domain)),
       static_shadow_updates_(
           memory::Allocator<render::WorldVisibilityUpdate>(domain)),
-      placed_lighting_(memory::Allocator<PlacedLighting>(domain)),
-      placed_lighting_updates_(
-          memory::Allocator<render::WorldLightingUpdate>(domain)),
       animated_curves_(memory::Allocator<AnimatedCurve>(domain)),
       animated_materials_(memory::Allocator<AnimatedMaterial>(domain)),
       texture_updates_(
@@ -424,6 +395,7 @@ StagePresentation::StagePresentation(
     }
   }
   scene::ReflectionSlotResidency reflection_residency{};
+  scene::ReflectionBindings reflection_textures{};
   for (std::size_t slot = 0; slot < stage.environment_textures.size(); ++slot) {
     const auto index = stage.environment_textures.at(slot);
     if (!index) continue;
@@ -431,7 +403,7 @@ StagePresentation::StagePresentation(
         stage_source.textures[*index].value == 0) {
       throw std::invalid_argument("Scene reflection texture is not resident");
     }
-    reflection_textures_.at(slot) = stage_source.textures[*index];
+    reflection_textures.at(slot) = stage_source.textures[*index];
     reflection_residency.at(slot) = true;
   }
   if (reflection_regions != nullptr && reflection_table != nullptr) {
@@ -450,17 +422,12 @@ StagePresentation::StagePresentation(
            {environment.light_vector, environment.light_diffuse,
             environment.light_specular}},
           reflection_field_ ? &*reflection_field_ : nullptr},
-      domain);
+      reflection_textures, output_.lighting_publisher(), domain);
   const auto directional = lighting_->directional_lighting();
   const auto& direction = directional.direction;
   lighting_->set_view(lighting_view(camera));
-  const auto static_lighting = lighting_packet(
-      lighting_->evaluate(
-          {.policy = scene::ReceiverLightingPolicy::stage_ambient}),
-      reflection_textures_);
-  const auto sky_lighting = lighting_packet(
-      lighting_->evaluate({.policy = scene::ReceiverLightingPolicy::sky_white}),
-      reflection_textures_);
+  const auto sky_lighting =
+      lighting_->evaluate({.policy = scene::ReceiverLightingPolicy::sky_white});
   const auto view =
       render::make_view_transforms(camera.pose, camera.perspective);
   const auto sky_transform = sky_view(view, environment);
@@ -498,7 +465,8 @@ StagePresentation::StagePresentation(
   }
   draws.reserve(capacity + background_capacity);
   static_shadow_updates_.reserve(capacity);
-  placed_lighting_updates_.reserve(background_capacity);
+  static_lighting_.emplace(lighting_->prepare_receiver(
+      {.policy = scene::ReceiverLightingPolicy::stage_ambient}, capacity));
   if (background.placements != nullptr) {
     placed_lighting_.reserve(background.placements->placements().size());
   }
@@ -520,7 +488,6 @@ StagePresentation::StagePresentation(
     }
     std::size_t selected = 0;
     std::optional<std::size_t> placed_index;
-    auto model_light = sky ? sky_lighting : static_lighting;
     if (placement != nullptr) {
       if (resident == nullptr || background.placements == nullptr) {
         throw std::logic_error("Placed lighting requires its resident owner");
@@ -532,14 +499,10 @@ StagePresentation::StagePresentation(
       const resources::detail::Reader header{model.header()};
       constexpr std::size_t kGroupRadius = 0x40;
       placed_index = placed_lighting_.size();
-      auto& observation = placed_lighting_.emplace_back(PlacedLighting{
-          scene::RetainedLightingReceiver(*lighting_, character_field_),
-          root_position, std::bit_cast<float>(header.u32(kGroupRadius)),
-          placed_lighting_updates_.size(), 0});
-      model_light =
-          lighting_packet(observation.receiver.evaluate(
-                              observation.root_position, observation.radius),
-                          reflection_textures_);
+      placed_lighting_.push_back(lighting_->prepare_placed(
+          character_field_, root_position,
+          std::bit_cast<float>(header.u32(kGroupRadius)),
+          model.draws().size()));
     }
     for (std::size_t index = 0; index < model.draws().size(); ++index) {
       const auto group = model.draws().at(index).group;
@@ -575,25 +538,7 @@ StagePresentation::StagePresentation(
       environment_parameters(
           environment, sky ? sky_transform : view, sky, directional,
           -view.camera_relative_world_rows[1][3], draw.parameters);
-      draw.reflection_texture = model_light.reflection_texture;
-      draw.parameters.irradiance_coefficients =
-          model_light.irradiance_coefficients;
-      draw.parameters.local_lights = model_light.local_lights;
-      draw.parameters.local_light_meta[0] = model_light.local_light_count;
-      if (!sky) {
-        auto update = model_light;
-        update.model = handle;
-        update.draw = index;
-        if (placed_index) {
-          draw.instance = *placed_index + 1;
-          update.instance = draw.instance;
-          placed_lighting_updates_.push_back(update);
-          ++placed_lighting_.at(*placed_index).update_count;
-        } else {
-          update.instance = draw.instance;
-          static_lighting_updates_.push_back(update);
-        }
-      }
+      if (placed_index) draw.instance = *placed_index + 1;
       if (placement != nullptr) {
         if (resident == nullptr || requirements.joint_influences == 0 ||
             resident->body_joints.size() != placement->matrix_count) {
@@ -699,9 +644,21 @@ StagePresentation::StagePresentation(
         texture_updates_.push_back(
             {handle, index, draw.parameters.texture_offset});
       }
+      if (sky) {
+        draw.reflection_texture = sky_lighting.reflection_texture;
+        draw.parameters.irradiance_coefficients =
+            sky_lighting.irradiance_coefficients;
+        draw.parameters.local_lights = sky_lighting.local_lights;
+        draw.parameters.local_light_meta[0] = sky_lighting.local_light_count;
+      } else if (placed_index) {
+        placed_lighting_.at(*placed_index).add_draw(draw);
+      } else {
+        static_lighting_->add_draw(draw);
+      }
       draws.push_back(draw);
       ++selected;
     }
+    if (placed_index) placed_lighting_.at(*placed_index).seal();
     return selected;
   };
   // Sky supplies the original textured backdrop. It writes no depth so the
@@ -736,8 +693,10 @@ StagePresentation::StagePresentation(
   if (player_) {
     const auto before_player = draws.size();
     auto& admitted_player = *player_;
-    append_player_draws(draws, admitted_player, false, camera);
-    append_player_draws(draws, admitted_player, true, camera);
+    player_lighting_[0].emplace(
+        append_player_draws(draws, admitted_player, false, camera));
+    player_lighting_[1].emplace(
+        append_player_draws(draws, admitted_player, true, camera));
     player_draws_ = draws.size() - before_player;
   }
   if (selected_draws_ == 0 || sky_draws_ == 0) {
@@ -767,13 +726,18 @@ StagePresentation::StagePresentation(
   // the mission, so view construction neither duplicates nor releases assets.
   output_.set_world_output_parameters(
       display_parameters(environment.tone_mapping));
+  if (!static_lighting_) {
+    throw std::logic_error("Stage lighting receiver was not prepared");
+  }
+  static_lighting_->seal();
   output_.register_draws(draws);
   auto published_camera = cameras.completed;
   published_camera.perspective.far_plane = initial_far_distance_;
   publish_view(published_camera, force_player_visibility);
 }
-render::WorldLightingUpdate StagePresentation::model_lighting(
-    const ResidentModelView& resident, const animation::Matrix& transform) {
+scene::LightingReceiver StagePresentation::model_receiver(
+    const ResidentModelView& resident,
+    const animation::Matrix& transform) const {
   if (!lighting_) throw std::logic_error("Scene lighting was not prepared");
   const resources::detail::Reader reader{resident.definition.get().header()};
   scene::LightingReceiver receiver;
@@ -786,26 +750,20 @@ render::WorldLightingUpdate StagePresentation::model_lighting(
         std::bit_cast<float>(reader.u32(kGroupCenter + axis * sizeof(float)));
   }
   receiver.model_radius = std::bit_cast<float>(reader.u32(kGroupRadius));
-  auto update =
-      lighting_packet(lighting_->evaluate(receiver), reflection_textures_);
-  update.model = resident.handle;
-  return update;
+  return receiver;
 }
 void StagePresentation::publish_player_lighting() {
   if (!player_) return;
-  const auto& actor = *player_;
   for (const bool weapon : {false, true}) {
-    const auto& resident = weapon ? actor.source().weapon : actor.source().body;
-    auto update = model_lighting(resident, actor.model_transform(weapon));
-    for (std::size_t draw = 0; draw < resident.definition.get().draws().size();
-         ++draw) {
-      if (!actor.includes_draw(weapon, draw)) continue;
-      update.draw = draw;
-      output_.update_world_lighting(std::span(&update, 1));
+    auto& receiver = player_lighting_.at(weapon ? 1 : 0);
+    if (!receiver) {
+      throw std::logic_error("Player lighting receiver was not prepared");
     }
+    receiver->publish_model(
+        math::affine_part(player_->model_transform(weapon)));
   }
 }
-void StagePresentation::append_player_draws(
+scene::ReceiverPublication StagePresentation::append_player_draws(
     memory::Vector<render::WorldColorDraw>& draws, const PlayerActor& actor,
     bool weapon, const InitialPlayerCamera& camera) {
   const auto& resident = weapon ? actor.source().weapon : actor.source().body;
@@ -824,7 +782,9 @@ void StagePresentation::append_player_draws(
       camera.pose, camera.perspective,
       initial_stage_shadow_settings(environment.shadow),
       {direction[0], direction[1], direction[2]});
-  const auto lighting = model_lighting(resident, actor.model_transform(weapon));
+  auto lighting = lighting_->prepare_receiver(
+      model_receiver(resident, actor.model_transform(weapon)),
+      model.draws().size());
   for (std::size_t index = 0; index < model.draws().size(); ++index) {
     if (!actor.includes_draw(weapon, index)) continue;
     const auto& source_draw = model.draws().at(index);
@@ -858,10 +818,6 @@ void StagePresentation::append_player_draws(
     require_textures(material, requirements);
     environment_parameters(environment, view, false, directional,
                            camera.pose.eye[1], draw.parameters);
-    draw.reflection_texture = lighting.reflection_texture;
-    draw.parameters.irradiance_coefficients = lighting.irradiance_coefficients;
-    draw.parameters.local_lights = lighting.local_lights;
-    draw.parameters.local_light_meta[0] = lighting.local_light_count;
     draw.parameters.shadow_clip_rows = shadow.clip_rows;
     draw.parameters.shadow_parameters = {
         1, 0,
@@ -882,8 +838,11 @@ void StagePresentation::append_player_draws(
                   material_blend(material),
                   4,
                   render::WorldMipFilter::linear};
+    lighting.add_draw(draw);
     draws.push_back(draw);
   }
+  lighting.seal();
+  return lighting;
 }
 void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
                                               bool force_player_visibility) {
@@ -955,8 +914,7 @@ void StagePresentation::publish_view(const InitialPlayerCamera& camera,
                                      bool force_player_visibility) {
   if (!environment_ || !lighting_) return;
   const auto& environment = *environment_;
-  auto& scene_lighting = *lighting_;
-  const auto directional = scene_lighting.directional_lighting();
+  const auto directional = lighting_->directional_lighting();
   const auto& direction = directional.direction;
   const auto world =
       render::make_view_transforms(camera.pose, camera.perspective);
@@ -1009,35 +967,11 @@ void StagePresentation::publish_view(const InitialPlayerCamera& camera,
   publish_shadow_owners(camera, force_player_visibility);
   output_.set_world_output_parameters(
       display_parameters(environment.tone_mapping));
-  if (!static_lighting_updates_.empty()) {
-    const auto packet = lighting_packet(
-        scene_lighting.evaluate(
-            {.policy = scene::ReceiverLightingPolicy::stage_ambient}),
-        reflection_textures_);
-    for (auto& update : static_lighting_updates_) {
-      update.irradiance_coefficients = packet.irradiance_coefficients;
-      update.local_lights = packet.local_lights;
-      update.local_light_count = packet.local_light_count;
-      update.reflection_texture = packet.reflection_texture;
-    }
-    output_.update_world_lighting(static_lighting_updates_);
+  if (!static_lighting_) {
+    throw std::logic_error("Stage lighting receiver was not prepared");
   }
-  for (auto& placed : placed_lighting_) {
-    const auto packet = lighting_packet(
-        placed.receiver.evaluate(placed.root_position, placed.radius),
-        reflection_textures_);
-    for (auto& update :
-         std::span(placed_lighting_updates_)
-             .subspan(placed.first_update, placed.update_count)) {
-      update.irradiance_coefficients = packet.irradiance_coefficients;
-      update.local_lights = packet.local_lights;
-      update.local_light_count = packet.local_light_count;
-      update.reflection_texture = packet.reflection_texture;
-    }
-  }
-  if (!placed_lighting_updates_.empty()) {
-    output_.update_world_lighting(placed_lighting_updates_);
-  }
+  static_lighting_->publish();
+  for (auto& placed : placed_lighting_) placed.publish();
 }
 std::optional<float> StagePresentation::update_environment(
     const InitialPlayerCamera& camera) {
@@ -1098,13 +1032,18 @@ void StagePresentation::replace_appearance(const PlayerActor& candidate,
   memory::Vector<render::WorldColorDraw> draws{
       memory::Allocator<render::WorldColorDraw>(memory_)};
   draws.reserve(resident.definition.get().draws().size());
-  append_player_draws(draws, candidate, weapon, camera);
+  auto lighting = append_player_draws(draws, candidate, weapon, camera);
   std::size_t old_draws = 0;
   for (std::size_t index = 0; index < previous.definition.get().draws().size();
        ++index) {
     if (player_->includes_draw(weapon, index)) ++old_draws;
   }
   output_.replace_model_draws(previous.handle, draws);
+  // Candidate draw destinations/caches are already prepared; adoption cannot
+  // allocate or throw after the native transaction has committed.
+  auto& installed = player_lighting_.at(weapon ? 1 : 0);
+  installed.reset();
+  installed.emplace(std::move(lighting));
   player_draws_ = player_draws_ - old_draws + draws.size();
 }
 }  // namespace bw::game

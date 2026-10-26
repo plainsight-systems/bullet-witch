@@ -6,8 +6,12 @@
 #include "bw/render/render_scene.hpp"
 
 #include <array>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
+
+#include "bw/scene/lighting/lighting_publication.hpp"
+#include "camera_fixture.hpp"
 
 namespace {
 using bw::render::ActorPublisher;
@@ -57,6 +61,9 @@ static_assert(!std::is_convertible_v<ActorPublisher*, WorldPresentation*>);
 
 class Output final : public WorldPresentation {
  public:
+  std::array<WorldLightingUpdate, 4> lighting{};
+  std::size_t lighting_count{};
+  bool reject_lighting{};
   WorldGeometryStatus geometry_status(WorldModelHandle) const override {
     return {};
   }
@@ -81,7 +88,15 @@ class Output final : public WorldPresentation {
   }
   void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate>) override {}
-  void update_world_lighting(std::span<const WorldLightingUpdate>) override {}
+  void update_world_lighting(
+      std::span<const WorldLightingUpdate> updates) override {
+    if (reject_lighting) {
+      throw std::invalid_argument("Fixture lighting rejection");
+    }
+    require(updates.size() <= lighting.size(), "Fixture packet capacity");
+    std::ranges::copy(updates, lighting.begin());
+    lighting_count = updates.size();
+  }
   void update_world_poses(std::span<const WorldPoseUpdate>) override {
     ++poses;
   }
@@ -208,8 +223,146 @@ void construction_unwinding() {
   require(output.clears == 1,
           "Rejected initial registration does not clear unrelated state");
 }
+// Prepared receiver membership transfers without sharing scene authority.
+// This fixture checks public packets/lifetimes; existing sampler and native
+// corpus checks independently cover source arithmetic and rendered material
+// use.
+void lighting_publication() {
+  using bw::scene::LightingPublication;
+  using bw::scene::ReceiverLightingPolicy;
+  using bw::scene::ReceiverPublication;
+  static_assert(!std::is_copy_constructible_v<LightingPublication> &&
+                !std::is_move_constructible_v<LightingPublication>);
+  static_assert(!std::is_copy_constructible_v<ReceiverPublication> &&
+                std::is_nothrow_move_constructible_v<ReceiverPublication>);
+  static_assert(!RetiresScene<bw::render::LightingPublisher> &&
+                !ReplacesDraws<bw::render::LightingPublisher>);
+  static_assert(!PublishesLighting<RenderScene>);
+  auto domain =
+      bw::memory::Domain::create(std::make_shared<camera_fixture::Backing>());
+  Output output;
+  {
+    RenderScene render(output);
+    bw::scene::SceneLightingParameters parameters;
+    parameters.ambient = {.2F, .3F, .4F};
+    // Minimal synthetic field with a constant fallback and no spatial zones.
+    // Local-light membership then independently exposes model-transform input.
+    bw::resources::Bytes field(160);
+    camera_fixture::word(field, 0, 0x544c4853);
+    camera_fixture::word(field, 4, 1);
+    camera_fixture::word(field, 16, 32);
+    camera_fixture::word(field, 20, 152);
+    camera_fixture::scalar(field, 24, 1);
+    camera_fixture::scalar(field, 152, 1);
+    const std::array<bw::scene::SceneLightFieldSource, 1> fields{{{field, 1}}};
+    const std::array<bw::scene::LocalLight, 1> lights{
+        {{{3, 0, 0}, {1, 1, 1}, {2, 3, 4}, {1, 1, 0}}}};
+    LightingPublication scene(
+        {fields, lights, {.2F, .2F, 4, false}, parameters}, {},
+        render.lighting_publisher(), domain);
+    rejects(
+        [&] {
+          (void)scene.prepare_receiver(
+              {.policy = ReceiverLightingPolicy::stage_ambient}, 2);
+        },
+        "Receiver registration requires its published view");
+    const bw::math::Affine3<float> camera{
+        {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -5}}};
+    scene.set_view(
+        {{0, 0, -5},
+         bw::math::make_perspective_frustum(camera, {-1, 1, -1, 1, 1, 100})});
+    auto receiver = scene.prepare_receiver(
+        {.policy = ReceiverLightingPolicy::stage_ambient}, 2);
+    std::array<WorldColorDraw, 2> draws{};
+    draws[0].model = {1};
+    draws[0].draw = 3;
+    draws[0].instance = 4;
+    draws[1].model = {1};
+    draws[1].draw = 5;
+    draws[1].instance = 6;
+    receiver.add_draw(draws[0]);
+    receiver.add_draw(draws[1]);
+    rejects([&] { receiver.add_draw(draws[0]); }, "Receiver capacity is fixed");
+    rejects([&] { receiver.publish(); }, "Unsealed receiver cannot publish");
+    receiver.seal();
+    rejects([&] { receiver.add_draw(draws[0]); },
+            "Sealed membership is immutable");
+    rejects([&] { receiver.publish(); },
+            "Unregistered scene rejects publication");
+    render.register_draws(draws);
+    const auto prepared = domain->snapshot();
+    receiver.publish();
+    require(output.lighting_count == 2 && output.lighting[0].draw == 3 &&
+                output.lighting[1].instance == 6 &&
+                output.lighting[0].irradiance_coefficients ==
+                    draws[0].parameters.irradiance_coefficients,
+            "Prepared destination identities and initial coefficients survive");
+    parameters.ambient = {.6F, .4F, .2F};
+    scene.set_parameters(parameters);
+    auto installed = std::move(receiver);
+    installed.publish();
+    require(output.lighting[0].irradiance_coefficients !=
+                    draws[0].parameters.irradiance_coefficients &&
+                output.lighting[0].irradiance_coefficients ==
+                    output.lighting[1].irradiance_coefficients,
+            "One new scene observation updates every bound receiver draw");
+    require(domain->snapshot().live_bytes == prepared.live_bytes &&
+                domain->snapshot().peak_live_bytes == prepared.peak_live_bytes,
+            "Sealed publication uses only prepared domain storage");
+    rejects([&] { installed.publish_model(camera); },
+            "Static policy cannot be replaced with a model transform");
+    output.reject_lighting = true;
+    rejects([&] { installed.publish(); }, "Native rejection propagates");
+    output.reject_lighting = false;
+    installed.publish();
+    auto model =
+        scene.prepare_receiver({.policy = ReceiverLightingPolicy::spatial,
+                                .model_center = {3, 0, 0},
+                                .model_radius = .1F,
+                                .field = {0}},
+                               1);
+    model.add_draw(draws[0]);
+    model.seal();
+    auto placed = scene.prepare_placed({0}, {3, 0, 0}, .1F, 1);
+    placed.add_draw(draws[1]);
+    placed.seal();
+    model.publish();
+    require(output.lighting[0].local_light_count == 1,
+            "Model receiver consumes its own transformed center");
+    const auto direct = output.lighting[0].local_lights[0];
+    require(direct.position == bw::math::Vector<float, 4>{3, 0, 0, 1} &&
+                direct.specular == bw::math::Vector<float, 4>{2, 3, 4, 1},
+            "Receiver packing preserves source local-light components");
+    auto transform = camera;
+    transform[3] = {100, 0, 0};
+    model.publish_model(transform);
+    require(output.lighting[0].local_light_count == 0,
+            "Changed model transform refreshes local-light admission");
+    transform[0][0] = std::numeric_limits<float>::quiet_NaN();
+    rejects([&] { model.publish_model(transform); },
+            "Invalid model observation rejects before publication");
+    model.publish();
+    require(output.lighting[0].local_light_count == 0,
+            "Rejected observation retains prior transform");
+    placed.publish();
+    require(output.lighting[0].local_light_count == 1 &&
+                output.lighting[0].instance == 6,
+            "Placed publication retains independent root and destination");
+    rejects([&] { placed.publish_model(camera); },
+            "Placed cache cannot silently switch to actor policy");
+    render.retire();
+    rejects([&] { installed.publish(); }, "Retired scene rejects old receiver");
+    RenderScene next(output);
+    next.register_draws(draws);
+    rejects([&] { installed.publish(); },
+            "Old receiver cannot publish to reentry");
+  }
+  require(domain->snapshot().live_bytes == 0,
+          "Receiver storage retires with owners");
+}
 }  // namespace
 void render_scene_contracts() {
   admission_and_retirement();
   construction_unwinding();
+  lighting_publication();
 }

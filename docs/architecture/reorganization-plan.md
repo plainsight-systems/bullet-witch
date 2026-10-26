@@ -1,9 +1,10 @@
 # Engine and game reorganization plan
 
-**Finalized design for review · October 26, 2026. Execution is next, not started.**
+**Accepted design · October 26, 2026. Slices 1 and 2 accepted.**
 The user agreed the comparison refinements. This document fixes the recommended
-boundaries, destination groups and implementation sequence; it does not authorize
-production moves or claim new gameplay capabilities. Read the
+boundaries, destination groups and implementation sequence. The user authorized
+execution; each slice remains subject to its own acceptance. No new gameplay
+capabilities are claimed. Read the
 [proposed diagrams](proposed-boundaries.md) alongside the
 [current implementation](current-ownership.md).
 
@@ -80,8 +81,9 @@ mixed files are split by their proven consumers, not assigned by filename alone.
 
 Each slice is a reviewable unit. User acceptance authorizes its commit; do not
 push without instruction. Do not bundle unaccepted following slices into an
-accepted commit. Finalized design does not start these edits: execution is next
-once the user asks to proceed.
+accepted commit. Slice 1 is committed as `fd773fb`. Slice 2 lighting/output
+integration passes the repository gate and is accepted after the October 26
+native review; slices 3 and 4 remain subsequent work.
 
 ## Required invariants and validation
 

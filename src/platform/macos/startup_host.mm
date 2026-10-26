@@ -1,90 +1,29 @@
-// DDS sprite construction captures an immutable launch policy. Enabled chains
-// use the same source-faithful portable generator as mission textures; no
-// filtering is moved into frame submission or movie playback. Both-phase E.6
-// (#re-raii), I.11 (#ri-raw), COPY.5 (guidelines/copy-move/
-// COPY.5-resource-owning-types-are-move-only.md) require complete candidate
-// creation before publishing identities/counters. All generation storage uses
-// the decoded resource's allocator domain and unwinds without altering live slots on failure.
-// Engine presentation time is an explicit snapshot, including paused frames;
-// exposure never reads a target-local wall clock. Both-phase I.1 (#ri-explicit)
-// exposes the input; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
-// keeps the handoff inline and allocation-free. Lighting equations are unchanged.
-// Fullscreen failure diagnostics distinguish AppKit rejection from an unfinished
-// transition and record activation/key state without changing launch behavior.
-// Both MCP phases: Core E.6 (#re-raii) keeps failed native construction under
-// existing ownership cleanup; performance MEM.9 (guidelines/memory/
-// MEM.9-embedded-allocate-at-init.md) confines diagnostic formatting to failure.
-// Action input extends the existing main-thread snapshot: retain keyboard taps,
-// sample controller holds, clear on focus loss, then derive one-shot edges.
-// Raw triggers retain analog magnitude; the game mapper owns saved bindings.
-// Shoulders and face buttons publish independent physical edges/holds. No
-// chord, selection priority or ring lifecycle is interpreted by this target.
-// Both MCP phases apply I.1 (#ri-explicit) to this platform/game boundary and
-// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) to fixed masks.
-// No callback, allocation, repeat timer or gameplay service is added per action.
-// Component replacement applies I.1 (#ri-explicit), C.85 (#rc-swap-noexcept),
-// and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md): validate/prepare before
-// nonthrowing publication, keeping GPU assets resident. Both MCP phases read.
-// Physical keyboard taps retain down/up edges consumed within one
-// event pump. A stays menu confirmation. Both-phase I.1/E.4 expose distinct
-// hold/edge meanings; MEM.9 stores fixed input state without frame allocation.
-// Physical key presses retain event edges separately from final held state
-// (P.1 #rp-direct); MEM.9 uses fixed bitsets without frame-time allocation.
-// Sprite canvas fit is independent of world residency. Implementation ES.22
-// (#res-init) initializes the complete viewport before either pass uses it;
-// MEM.9 keeps this per-frame arithmetic in fixed stack storage.
-// Material animation forwards an explicit borrowed constant-update batch
-// (both-phase I.1 #ri-explicit and GPU.1 retained-device-data guidance).
-// The host preserves the native owner and main-thread access boundary.
-// Forward authored display policy to the retained world renderer used by draw.
-// C.128 (#rh-override) makes the adapter override explicit; GPU.9
-// (guidelines/gpu/GPU.9-suballocate-and-alias-transient-gpu-memory.md) retains
-// the existing target pool rather than allocating another output owner.
-// World uploads delegate to the native immutable geometry owner. They neither
-// change movie/sprite ordering nor publish color-ready materials. E.6 and GPU.1
-// were retrieved in both phases; see render/world.hpp and world-renderer.hpp.
-// Memory ownership: host State/control and path scratch use the injected CPU
-// domain. Native texture owners separately admit/reconcile logical and reported
-// Metal sizes, retain charges through use, and release after synchronous command
-// completion. Existing sprite cap is preserved. Cocoa/pipeline/drawable storage
-// remains external. E.6 (#re-raii), SL.con.3 (#rsl-bounds), GPU.1
-// (guidelines/gpu/GPU.1-keep-data-on-device.md), COPY.5
-// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) apply in
-// both consulted phases. See device-memory-ownership.md.
-// Input implementation: original 0x41cfd0 per-bit elapsed-time repeat, fixed
-// 32 timers; focus loss clears held/repeat state. Retrieved SL.con.3 bounds
-// iteration, MEM.9 confines storage to setup. See frontend-presentation.md.
-// Native full screen uses completed AppKit delegate transitions before returning
-// from construction; no media session runs during startup animation. SDL Cocoa
-// source and the bounded event-pump design are in sprite-presentation-design.md.
-// Sprite implementation MCP: cpp-guidelines SL.con.3 (#rsl-bounds) validates
-// complete bounded submissions before mutation; cpp-performance GPU.1
-// (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded sprite textures.
-// Sprite state owns at most 128 textures/128 MiB and 511 ordered quads; each
-// submission copies commands into fixed storage, resolves texture slots once,
-// and performs no heap allocation. Release removes referencing queued quads.
-// Native allocations remain explicit setup costs pending engine memory work.
-// macOS startup window/input and Metal presentation; reusable audio is composed
-// through MediaAudio, with its own execution and lifetime contract. Main-thread
-// calls own Cocoa, one retained BGRA texture and the compiled movie pipeline.
-// Events become development action edges; upload changes the texture; draw
-// aspect-fits and applies game-supplied opacity, waiting for GPU completion before
-// reuse. No game timing, media buffering or audio callback work lives here.
-// Cost: one width*height*4 upload per selected frame, no video readback. Shaders
-// load from executable-relative movie.metallib. ARC owns native ObjC handles.
-// Design/implementation MCP: cpp-guidelines R.1 (#rr-raii) pairs platform
-// ownership; cpp-performance COPY.5 (guidelines/copy-move/
-// COPY.5-resource-owning-types-are-move-only.md) fixes native owner identity;
-// GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded frames.
+// Native window/input/media-audio integration. Rendering producers and final
+// output composition have independent owners: WorldRenderer, MovieRenderer,
+// SpriteRenderer and OutputCompositor. Existing producer-facing APIs forward
+// to those owners; the host only updates drawable size and submits immutable
+// opacity/timing snapshots. No game timing or rendering algorithm lives here.
+// Main-thread event pump preserves physical/action edges and focus loss;
+// native fullscreen completes before any media starts. MediaAudio retains its
+// independent device execution and callback lifetime. The window owns its
+// layer; the compositor borrows sibling renderers and is destroyed first.
+// Every completed draw has retired native work before future upload/release.
+// Native owner state/path scratch use the injected CPU domain; Cocoa objects
+// remain external. Errors unwind owned resources; no async work is introduced.
+// Both design and implementation retrieved Core R.1 (#rr-raii), I.11
+// (#ri-raw), performance COPY.5 (guidelines/copy-move/
+// COPY.5-resource-owning-types-are-move-only.md), and GPU.1
+// (guidelines/gpu/GPU.1-keep-data-on-device.md): stable resource owners,
+// explicit borrowed encoders, no intermediate CPU copies. Native ARC handles
+// and budgeted allocations release automatically after synchronous completion.
 #include "bw/platform/startup_host.hpp"
 #include <IOKit/hidsystem/IOLLEvent.h>
-#include "bw/formats/texture_mips.hpp"
 #include "bw/input/action_repeat.hpp"
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
 #include "gamepad_actions.hpp"
 #include "physical_keys.hpp"
-#include "platform/macos/texture_allocation.hpp"
+#include "platform/macos/output_compositor.hpp"
 #include "platform/macos/world_renderer.hpp"
 
 #import <Cocoa/Cocoa.h>
@@ -181,20 +120,6 @@ std::uint32_t key_action(unsigned short code) {
       return 0;
   }
 }
-constexpr std::size_t kTextureByteBudget = std::size_t{128} * 1024 * 1024;
-struct SpriteParameters {
-  std::array<float, 4> rectangle;
-  std::array<float, 4> uv;
-  std::array<float, 4> color;
-  std::array<float, 4> sampling;
-  std::array<float, 4> transform;
-};
-bool valid_rectangle(const render::Rect& rect) {
-  return std::isfinite(rect.x) && std::isfinite(rect.y) && std::isfinite(rect.width) &&
-         std::isfinite(rect.height) && rect.width > 0 && rect.height > 0 &&
-         std::isfinite(rect.x + rect.width) && std::isfinite(rect.y + rect.height);
-}
-bool unit_value(float value) { return std::isfinite(value) && value >= 0 && value <= 1; }
 void require_main_thread() {
   if (![NSThread isMainThread]) {
     throw std::runtime_error("StartupHost requires the main thread");
@@ -207,42 +132,19 @@ struct StartupHost::State {
   NSWindow* window{};
   BWStartupWindowDelegate* window_delegate{};
   CAMetalLayer* layer{};
-  id<MTLDevice> device{};
-  id<MTLCommandQueue> commands{};
-  id<MTLRenderPipelineState> pipeline{};
-  id<MTLLibrary> shader_library{};
-  macos::TextureAllocation video;
-  std::shared_ptr<memory::DeviceBudget> device_budget;
   std::shared_ptr<macos::WorldRenderer> world;
-  id<MTLRenderPipelineState> sprite_pipeline{};
-  id<MTLRenderPipelineState> sprite_additive_pipeline{};
-  struct Texture {
-    render::TextureHandle handle;
-    macos::TextureAllocation native;
-    std::size_t bytes{};
-  };
-  struct SubmittedSprite {
-    render::Sprite sprite;
-    std::size_t texture_slot{};
-  };
-  std::array<Texture, render::kMaximumTextures> textures;
-  std::array<SubmittedSprite, render::kMaximumSprites> sprites;
-  std::size_t sprite_count{};
-  std::size_t texture_bytes{};
-  std::uint64_t next_texture{1};
-  const bool texture_mips;
+  std::optional<macos::MovieRenderer> movie;
+  std::optional<macos::SpriteRenderer> sprites;
+  // Declared after its producers: destroy the compositor before them.
+  std::optional<macos::OutputCompositor> output;
   MediaAudio media_audio;
-  render::TextureHandle upload_sprite(std::uint32_t width, std::uint32_t height,
-                                      MTLPixelFormat format, std::uint32_t mip_levels,
-                                      std::span<const std::uint8_t> pixels);
   input::PhysicalState physical;
   std::uint32_t keyboard_keys{};
   macos::GamepadButtonEdges pad_edges;
   std::uint32_t previous_held{};
   std::optional<timing::FrameTiming> frame_timing;
   input::ActionRepeat action_repeat;
-  State(const std::shared_ptr<memory::Domain>& cpu_domain, bool generate_mips)
-      : texture_mips(generate_mips), media_audio(cpu_domain) {}
+  explicit State(const std::shared_ptr<memory::Domain>& cpu_domain) : media_audio(cpu_domain) {}
   ~State() {
     media_audio.stop();
     [window close];
@@ -256,10 +158,8 @@ struct StartupHost::State {
 StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
                          std::shared_ptr<memory::DeviceBudget> device_budget, WindowOptions options,
                          bool texture_mips)
-    : state_(std::allocate_shared<State>(memory::Allocator<State>(cpu_domain), cpu_domain,
-                                         texture_mips)) {
+    : state_(std::allocate_shared<State>(memory::Allocator<State>(cpu_domain), cpu_domain)) {
   if (!device_budget) throw std::invalid_argument("Missing device memory budget");
-  state_->device_budget = std::move(device_budget);
   require_main_thread();
   constexpr std::uint32_t maximum_window_dimension = 16384;
   if (options.width == 0 || options.height == 0 || options.width > maximum_window_dimension ||
@@ -270,14 +170,15 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     auto& state = *state_;
-    state.device = MTLCreateSystemDefaultDevice();
-    if (state.device == nil) {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (device == nil) {
       throw std::runtime_error("No Metal device is available");
     }
-    state.commands = [state.device newCommandQueue];
+    id<MTLCommandQueue> commands = [device newCommandQueue];
+    if (commands == nil) throw std::runtime_error("Could not create Metal output queue");
     state.world = std::allocate_shared<macos::WorldRenderer>(
-        memory::Allocator<macos::WorldRenderer>(cpu_domain), state.device, state.commands,
-        cpu_domain, state.device_budget);
+        memory::Allocator<macos::WorldRenderer>(cpu_domain), device, commands, cpu_domain,
+        device_budget);
     NSError* error = nil;
     // Resolve compiled shaders beside the executable, independent of working directory.
     std::uint32_t path_size = 0;
@@ -293,41 +194,13 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
       throw std::runtime_error("Shader library path is not valid UTF-8");
     }
     NSURL* shader_url = [NSURL fileURLWithPath:shader_name];
-    id<MTLLibrary> library = [state.device newLibraryWithURL:shader_url error:&error];
+    id<MTLLibrary> library = [device newLibraryWithURL:shader_url error:&error];
     if (library == nil) {
       throw std::runtime_error("Metal movie shader: " +
                                std::string(error.localizedDescription.UTF8String));
     }
-    state.shader_library = library;
-    MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
-    descriptor.vertexFunction = [library newFunctionWithName:@"movie_vertex"];
-    descriptor.fragmentFunction = [library newFunctionWithName:@"movie_fragment"];
-    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    state.pipeline = [state.device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-    if (state.commands == nil || state.pipeline == nil) {
-      throw std::runtime_error("Could not initialize Metal movie pipeline");
-    }
-    // Sprites composite straight-alpha color after the opaque movie pass.
-    descriptor.vertexFunction = [library newFunctionWithName:@"sprite_vertex"];
-    descriptor.fragmentFunction = [library newFunctionWithName:@"sprite_fragment"];
-    descriptor.colorAttachments[0].blendingEnabled = YES;
-    descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-    descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    state.sprite_pipeline = [state.device newRenderPipelineStateWithDescriptor:descriptor
-                                                                         error:&error];
-    if (state.sprite_pipeline == nil) {
-      throw std::runtime_error("Could not initialize Metal sprite pipeline");
-    }
-    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
-    descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-    descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
-    state.sprite_additive_pipeline = [state.device newRenderPipelineStateWithDescriptor:descriptor
-                                                                                  error:&error];
-    if (state.sprite_additive_pipeline == nil) {
-      throw std::runtime_error("Could not initialize additive sprite pipeline");
-    }
+    state.movie.emplace(device, library, device_budget);
+    state.sprites.emplace(device, library, std::move(device_budget), texture_mips);
     const NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                                     NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
     // Clamp requested content points to the display before native fullscreen transition.
@@ -349,10 +222,12 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
         NSLocalizedString(@"Bullet Witch — startup reconstruction", @"Startup window title");
     state.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
     state.layer = [CAMetalLayer layer];
-    state.layer.device = state.device;
+    state.layer.device = device;
     state.layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     state.layer.framebufferOnly = YES;
     state.layer.opaque = YES;
+    state.output.emplace(commands, library, state.layer, *state.world, *state.movie,
+                         *state.sprites);
     state.window.contentView.wantsLayer = YES;
     state.window.contentView.layer = state.layer;
     [state.window center];
@@ -564,28 +439,9 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
 }
 void StartupHost::upload(const video::VideoFrame& frame) {
   require_main_thread();
-  constexpr std::uint32_t max_dimension = 8192;
-  constexpr std::size_t channels = 4;
-  if (frame.width == 0 || frame.height == 0 || frame.width > max_dimension ||
-      frame.height > max_dimension ||
-      frame.bgra.size() != static_cast<std::size_t>(frame.width) * frame.height * channels) {
-    throw std::runtime_error("Invalid BGRA video frame");
-  }
-  @autoreleasepool {
-    auto& state = *state_;
-    if (state.video.get() == nil || state.video.get().width != frame.width ||
-        state.video.get().height != frame.height) {
-      // Publish resized storage only after its upload succeeds.
-      auto replacement = macos::TextureAllocation::create(
-          state.device, state.device_budget, frame.width, frame.height, MTLPixelFormatBGRA8Unorm);
-      replacement.upload(frame.bgra);
-      state.video = std::move(replacement);
-    } else {
-      state.video.upload(frame.bgra);
-    }
-  }
+  state_->movie->upload(frame);
 }
-void StartupHost::clear_video() noexcept { state_->video.reset(); }
+void StartupHost::clear_video() noexcept { state_->movie->clear(); }
 void StartupHost::set_frame_timing(timing::FrameTiming frame) {
   require_main_thread();
   if (!std::isfinite(frame.presentation_seconds) || frame.presentation_seconds < 0 ||
@@ -596,212 +452,29 @@ void StartupHost::set_frame_timing(timing::FrameTiming frame) {
 }
 bool StartupHost::draw(float opacity) {
   require_main_thread();
-  if (!std::isfinite(opacity) || opacity < 0 || opacity > 1) {
-    throw std::runtime_error("Invalid movie opacity");
-  }
-  @autoreleasepool {
-    auto& state = *state_;
-    const auto bounds = state.window.contentView.bounds;
-    const auto scale = state.window.backingScaleFactor;
-    state.layer.drawableSize = CGSizeMake(bounds.size.width * scale, bounds.size.height * scale);
-    id<CAMetalDrawable> drawable = [state.layer nextDrawable];
-    if (drawable == nil) {
-      return false;  // Minimized/occluded windows may have no drawable.
-    }
-    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-    pass.colorAttachments[0].texture = drawable.texture;
-    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
-    id<MTLCommandBuffer> command = [state.commands commandBuffer];
-    const double canvas_width = static_cast<double>(drawable.texture.width);
-    const double canvas_height = static_cast<double>(drawable.texture.height);
-    const double canvas_fit =
-        std::min(canvas_width / render::kCanvasWidth, canvas_height / render::kCanvasHeight);
-    const auto scene_width = static_cast<std::uint32_t>(render::kCanvasWidth * canvas_fit);
-    const auto scene_height = static_cast<std::uint32_t>(render::kCanvasHeight * canvas_fit);
-    // Fit the logical canvas even when only title/menu sprites are resident.
-    // Pixel alignment also preserves the world pass's destination sample offset.
-    const MTLViewport canvas_viewport{std::floor((canvas_width - scene_width) / 2),
-                                      std::floor((canvas_height - scene_height) / 2),
-                                      static_cast<double>(scene_width),
-                                      static_cast<double>(scene_height),
-                                      0,
-                                      1};
-    if (state.world->has_color_draws()) {
-      if (!state.frame_timing) throw std::logic_error("World presentation has no frame timing");
-      state.world->prepare_presentation(command, state.shader_library, scene_width, scene_height,
-                                        *state.frame_timing);
-    }
-    id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
-    if (command == nil || encoder == nil) {
-      throw std::runtime_error("Could not encode movie presentation");
-    }
-    if (state.world->has_color_draws()) {
-      // Preserve the inspection projection's logical aspect through the same
-      // centered canvas fit used by menu presentation; clear retains black bars.
-      [encoder setViewport:canvas_viewport];
-      state.world->encode_presentation(encoder, state.shader_library, opacity);
-      [encoder endEncoding];
-      pass.colorAttachments[0].loadAction = MTLLoadActionLoad;
-      pass.depthAttachment.texture = nil;
-      encoder = [command renderCommandEncoderWithDescriptor:pass];
-      if (encoder == nil) {
-        throw std::runtime_error("Could not encode overlays after world presentation");
-      }
-    }
-    // Aspect-fit the movie into the cleared drawable, preserving black bars.
-    if (state.video.get() != nil) {
-      const double width = static_cast<double>(drawable.texture.width);
-      const double height = static_cast<double>(drawable.texture.height);
-      const double video_width = static_cast<double>(state.video.get().width);
-      const double video_height = static_cast<double>(state.video.get().height);
-      const double fit = std::min(width / video_width, height / video_height);
-      [encoder setViewport:MTLViewport{(width - video_width * fit) / 2,
-                                       (height - video_height * fit) / 2, video_width * fit,
-                                       video_height * fit, 0, 1}];
-      [encoder setRenderPipelineState:state.pipeline];
-      [encoder setFragmentTexture:state.video.get() atIndex:0];
-      [encoder setFragmentBytes:&opacity length:sizeof(opacity) atIndex:0];
-      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-    }
-    // Overlay ordered quads in the shared logical canvas with the same fade.
-    if (state.sprite_count != 0) {
-      [encoder setViewport:canvas_viewport];
-      for (const auto& submitted : std::span(state.sprites).first(state.sprite_count)) {
-        const auto& sprite = submitted.sprite;
-        [encoder setRenderPipelineState:sprite.blend == render::SpriteBlend::additive
-                                            ? state.sprite_additive_pipeline
-                                            : state.sprite_pipeline];
-        const SpriteParameters parameters{
-            .rectangle = {sprite.destination.x, sprite.destination.y, sprite.destination.width,
-                          sprite.destination.height},
-            .uv = {sprite.uv.x, sprite.uv.y, sprite.uv.width, sprite.uv.height},
-            .color = {sprite.color.red * opacity, sprite.color.green * opacity,
-                      sprite.color.blue * opacity, sprite.color.alpha},
-            .sampling = {static_cast<float>(sprite.channel), 0, 0, 0},
-            .transform = {std::cos(sprite.rotation_radians), std::sin(sprite.rotation_radians),
-                          sprite.rotation_origin_x, sprite.rotation_origin_y}};
-        [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:0];
-        [encoder setFragmentBytes:&parameters length:sizeof(parameters) atIndex:0];
-        [encoder setFragmentTexture:state.textures.at(submitted.texture_slot).native.get()
-                            atIndex:0];
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-      }
-    }
-    [encoder endEncoding];
-    [command presentDrawable:drawable];
-    [command commit];
-    // Retire all GPU consumers before uploads, releases or frame reuse can follow.
-    [command waitUntilCompleted];
-    if (command.status == MTLCommandBufferStatusError) {
-      throw std::runtime_error("Metal movie command failed");
-    }
-    return true;
-  }
-}
-render::TextureHandle StartupHost::State::upload_sprite(std::uint32_t width, std::uint32_t height,
-                                                        MTLPixelFormat format,
-                                                        std::uint32_t mip_levels,
-                                                        std::span<const std::uint8_t> pixels) {
-  auto& state = *this;
-  const auto slot = std::ranges::find_if(
-      textures, [](const auto& texture) { return texture.native.get() == nil; });
-  if (slot == textures.end() || pixels.size() > kTextureByteBudget - texture_bytes ||
-      next_texture == std::numeric_limits<std::uint64_t>::max()) {
-    throw std::runtime_error("Sprite texture residency limit exceeded");
-  }
-  @autoreleasepool {
-    auto texture = macos::TextureAllocation::create(
-        state.device, state.device_budget, width, height, format, MTLTextureType2D,
-        MTLTextureUsageShaderRead, {.count = mip_levels});
-    texture.upload(pixels);
-    // Publish only after the entire candidate chain has uploaded successfully.
-    slot->handle = {next_texture++};
-    slot->native = std::move(texture);
-    slot->bytes = pixels.size();
-    texture_bytes += pixels.size();
-    return slot->handle;
-  }
+  auto& state = *state_;
+  const auto bounds = state.window.contentView.bounds;
+  const auto scale = state.window.backingScaleFactor;
+  state.layer.drawableSize = CGSizeMake(bounds.size.width * scale, bounds.size.height * scale);
+  return state.output->present({.opacity = opacity, .timing = state.frame_timing});
 }
 render::TextureHandle StartupHost::upload_texture(std::uint32_t width, std::uint32_t height,
                                                   std::span<const std::uint8_t> rgba) {
   require_main_thread();
-  return state_->upload_sprite(width, height, MTLPixelFormatRGBA8Unorm, 1, rgba);
+  return state_->sprites->upload_texture(width, height, rgba);
 }
 render::TextureHandle StartupHost::upload_texture(const formats::WorldTextureImage& image) {
   require_main_thread();
-  if (image.shape != formats::WorldTextureShape::two_dimensional || image.mip_levels != 1 ||
-      (image.format != formats::WorldTextureFormat::rgba8 &&
-       image.format != formats::WorldTextureFormat::rgba4 &&
-       image.format != formats::WorldTextureFormat::rgba16_float)) {
-    throw std::invalid_argument("Invalid decoded DDS sprite texture");
-  }
-  std::optional<formats::WorldTextureImage> chain;
-  if (state_->texture_mips) {
-    chain = formats::generate_texture_mips(image, image.pixels.get_allocator());
-  }
-  const auto& prepared = chain ? chain.value() : image;
-  const auto format = prepared.format == formats::WorldTextureFormat::rgba16_float
-                          ? MTLPixelFormatRGBA16Float
-                          : MTLPixelFormatRGBA8Unorm;
-  return state_->upload_sprite(prepared.width, prepared.height, format, prepared.mip_levels,
-                               prepared.pixels);
+  return state_->sprites->upload_texture(image);
 }
 void StartupHost::release_texture(render::TextureHandle texture) noexcept {
-  auto& state = *state_;
-  const auto slot = std::ranges::find_if(state.textures, [texture](const auto& entry) {
-    return entry.handle == texture && entry.native.get() != nil;
-  });
-  if (slot == state.textures.end()) {
-    return;
-  }
-  state.texture_bytes -= slot->bytes;
-  *slot = {};
-  // Remove queued users of the retired identity before the next draw.
-  auto commands = std::span(state.sprites).first(state.sprite_count);
-  const auto removed = std::ranges::remove_if(
-      commands, [texture](const auto& entry) { return entry.sprite.texture == texture; });
-  state.sprite_count -= static_cast<std::size_t>(removed.size());
+  state_->sprites->release_texture(texture);
 }
 void StartupHost::set_sprites(std::span<const render::Sprite> sprites) {
   require_main_thread();
-  if (sprites.size() > render::kMaximumSprites) {
-    throw std::runtime_error("Sprite command limit exceeded");
-  }
-  auto& state = *state_;
-  // Validate and resolve every texture before mutating the previous submission.
-  std::array<std::size_t, render::kMaximumSprites> slots{};
-  std::size_t index = 0;
-  for (const auto& sprite : sprites) {
-    const auto& uv = sprite.uv;
-    const auto& color = sprite.color;
-    if (!std::isfinite(sprite.rotation_radians) || !std::isfinite(sprite.rotation_origin_x) ||
-        !std::isfinite(sprite.rotation_origin_y) || !valid_rectangle(sprite.destination) ||
-        !valid_rectangle(uv) || !unit_value(uv.x) || !unit_value(uv.y) ||
-        !unit_value(uv.x + uv.width) || !unit_value(uv.y + uv.height) || !unit_value(color.red) ||
-        !unit_value(color.green) || !unit_value(color.blue) || !unit_value(color.alpha) ||
-        sprite.channel > render::TextureChannel::alpha ||
-        sprite.blend > render::SpriteBlend::additive) {
-      throw std::runtime_error("Invalid sprite geometry or color");
-    }
-    const auto texture = std::ranges::find_if(state.textures, [&sprite](const auto& entry) {
-      return entry.handle == sprite.texture && entry.native.get() != nil;
-    });
-    if (texture == state.textures.end()) {
-      throw std::runtime_error("Unknown sprite texture");
-    }
-    slots.at(index++) = static_cast<std::size_t>(texture - state.textures.begin());
-  }
-  // Commit the complete command list into fixed storage after validation succeeds.
-  index = 0;
-  for (const auto& sprite : sprites) {
-    state.sprites.at(index) = {.sprite = sprite, .texture_slot = slots.at(index)};
-    ++index;
-  }
-  state.sprite_count = sprites.size();
+  state_->sprites->set_sprites(sprites);
 }
-void StartupHost::clear_sprites() noexcept { state_->sprite_count = 0; }
+void StartupHost::clear_sprites() noexcept { state_->sprites->clear_sprites(); }
 
 render::WorldModelHandle StartupHost::upload_model(const formats::ModelDefinition& model) {
   require_main_thread();

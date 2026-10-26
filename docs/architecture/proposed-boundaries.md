@@ -1,8 +1,9 @@
 # Proposed architecture boundaries
 
-**Finalized design for review · October 26, 2026. Execution not started.**
+**Accepted target boundaries · October 26, 2026. Execution underway.**
 The [reorganization plan](reorganization-plan.md) fixes destination groups and four
-implementation slices. These diagrams do not claim those repairs already exist.
+implementation slices. Slice 1 is accepted (`fd773fb`), and slice 2 is accepted after native review.
+These target diagrams do not claim every proposed repair already exists.
 This is the complete proposed system view, complementing the
 [current implementation](current-ownership.md). The proposal retains recovered
 Bullet Witch behavior and existing portable contracts/native implementations.

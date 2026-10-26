@@ -5,8 +5,10 @@
   [boundary diagrams](../architecture/proposed-boundaries.md). Execution is
   authorized; slice 1 mission/render-scene ownership is accepted after the
   October 26 native walkthrough, with final gate and purchased-content checks
-  passing. Remaining: (2) lighting/output composition, (3) mechanical game
-  grouping, (4) build boundaries/documentation.
+  passing, committed as `fd773fb`. Slice 2 lighting/output composition is
+  accepted after the October 26 native review, with full gate and purchased-data
+  traversal passing. Next are (3)
+  mechanical game grouping and (4) build boundaries/documentation.
   Peer engine families and grouped game folders are settled design. No production
   broad directory moves or new gameplay/physics/AI/pack/debug capabilities belong
   to slice 1. Slice acceptance authorizes commit; push needs instruction.
@@ -15,6 +17,11 @@
   displayed/selected menu item, reported during the October 26 walkthrough.
   Cause and source behavior are unverified. This is a separate UI backlog item,
   outside the accepted reorganization slice 1; no fix is included in that slice.
+
+- Investigate A/B Accept/Back prompts appearing across main-menu screens, reported
+  during the October 26 slice 2 review as apparently new behavior. Scope, first
+  appearance, cause and source fidelity are unverified. This is a separate UI
+  backlog item, outside the accepted slice 2; no fix is included here.
 
 - The complete source-defined frontend is accepted after the October 26 native
   walkthrough, including frontend Options and reachable Power Up. Preserve the

@@ -3,7 +3,14 @@
 The [current ownership review](current-ownership.md#lighting-and-the-render-pipeline)
 keeps lighting an identifiable implemented engine subsystem while separating
 game-authored policy, scene-local light membership and native render consumption.
-This review proposes no new lighting equations or visual adjustments.
+Slice 2 moves renderer packet packing and retained receiver publication into
+[LightingPublication](../../include/bw/scene/lighting/lighting_publication.hpp).
+Game presentation registers policy/bounds/destinations and supplies completed
+model transforms. The engine seals per-receiver draw bindings, retains the strict
+placement cache and publishes through a restricted RenderScene capability. The
+original SceneLighting algorithms are unchanged. See the
+[integration record](../../research/engine/subsystems/lighting-output-integration.md);
+this ownership work introduces no visual adjustment.
 
 **Reconstructed lighting baseline accepted · October 25, 2026.**
 
@@ -44,7 +51,8 @@ as hardware depth. It is not a color-disabled depth prepass or geometry rendered
 into the temporary R32F setup target. Source order and color-write state are
 part of the contract even when later color normally overwrites those pixels.
 
-The initial scene composition remains `StageInspection` while genuine world
+The initial scene composition remains `StageInspection`, delegating authored
+visual policy to `StagePresentation`, while genuine world
 startup is reconstructed. It translates source resource identities and publishes
 complete observations; field sampling, receiver retention, material algorithms,
 pass policy and native output history belong to their engine owners. Do not add

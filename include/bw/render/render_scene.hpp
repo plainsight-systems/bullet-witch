@@ -21,6 +21,23 @@
 
 namespace bw::render {
 class RenderScene;
+// Scene lighting borrows only coefficient publication. It cannot register,
+// remove or retire draws, alter poses, or access backend resources. F.7/C.32
+// make the stable owner borrow explicit; COPY.4 deletes identity transfer.
+class LightingPublisher {
+ public:
+  ~LightingPublisher() = default;
+  LightingPublisher(const LightingPublisher&) = delete;
+  LightingPublisher& operator=(const LightingPublisher&) = delete;
+  LightingPublisher(LightingPublisher&&) = delete;
+  LightingPublisher& operator=(LightingPublisher&&) = delete;
+  void publish(std::span<const WorldLightingUpdate> updates);
+
+ private:
+  friend class RenderScene;
+  explicit LightingPublisher(RenderScene& scene) : scene_(scene) {}
+  RenderScene& scene_;
+};
 // Actor-originated publication is deliberately narrower than scene ownership.
 // Callers identify their own submitted model/draw destinations; the backend
 // validates every destination. Visibility cannot alter shadow/opacity policy.
@@ -51,6 +68,7 @@ class RenderScene {
   RenderScene(RenderScene&&) = delete;
   RenderScene& operator=(RenderScene&&) = delete;
   ActorPublisher& actor_publisher() { return actor_; }
+  LightingPublisher& lighting_publisher() { return lighting_; }
   WorldGeometryStatus geometry_status(WorldModelHandle model) const;
   // Preparing or active; initial authored output configuration precedes draws.
   void set_world_output_parameters(const WorldOutputParameters& parameters);
@@ -63,7 +81,6 @@ class RenderScene {
   void remove_model_draws(WorldModelHandle model);
   void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate> updates);
-  void update_world_lighting(std::span<const WorldLightingUpdate> updates);
   void update_world_visibility(std::span<const WorldVisibilityUpdate> updates);
   void update_world_view(const WorldViewUpdate& update);
   // Existing host synchronously completes submissions before returning. No
@@ -73,11 +90,13 @@ class RenderScene {
 
  private:
   friend class ActorPublisher;
+  friend class LightingPublisher;
   enum class State : std::uint8_t { preparing, active, retired };
   void require_active() const;
   void require_live() const;
   WorldPresentation& output_;
   State state_{State::preparing};
   ActorPublisher actor_{*this};
+  LightingPublisher lighting_{*this};
 };
 }  // namespace bw::render
