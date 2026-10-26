@@ -1,5 +1,9 @@
 # Runtime objects and ownership
 
+The lifetime tree below is a target proposal. See the [current ownership map](current-ownership.md#current-lifetime-and-authority)
+for implemented composition; no complete EngineInstance/World/entity aggregate
+is implied by those target boxes.
+
 **Target architecture · working baseline · October 22, 2026.**
 [Engine architecture](logical-overview.md) · [Execution contracts](execution-contracts.md).
 

@@ -1,5 +1,10 @@
 # Rendering and presentation architecture
 
+Current implementation versus proposed extraction is shown in
+[current ownership](current-ownership.md#lighting-and-the-render-pipeline). The
+broader RenderScene/render-consumer structure below is a target; current actor
+publication and pass encoding still cross StageInspection and native owners.
+
 The independent movie transport completes both company movies on the Mac.
 Its [design record](../video-player-redesign.md),
 [reference findings](../../research/engine/subsystems/media-reference-design.md)
@@ -104,9 +109,12 @@ visibility helpers can be internal to scene preparation. The boundary matters
 because changes to camera policy, shader equations, scene membership and API
 resource lifetime have different callers and correctness criteria.
 
-## Scene extraction and cameras
+## Render-scene publication and cameras
 
-World/system producers publish renderable instance changes at designated phases.
+Actors/components and other producers publish renderable instance changes through
+narrow engine-facing capabilities at designated phases. Retained RenderScene
+registration, update, removal and retirement are explicit; actor-originated
+publication is allowed. A centralized whole-world extraction copy is not required.
 A renderable includes stable identity, mesh/group selection, world transform,
 required pose/deformation data, material overrides, bounds and its resource uses.
 Stage geometry can be represented without an actor dispatcher. Effects can submit
@@ -115,7 +123,7 @@ model or sprite/triangle contributions through the same lifetime boundary.
 RenderScene is a projection of authoritative state. Synchronous preparation can
 borrow a stable pose; asynchronous consumption requires a copy or retained version
 that will not be mutated. This is a per-submission contract, not a requirement to
-copy the whole world every frame. Deregistration prevents new extraction, while
+copy the whole world every frame. Deregistration prevents new publication, while
 old packets retain what they already use.
 
 A view description records camera transforms, projection, viewport and the

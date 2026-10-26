@@ -1,5 +1,13 @@
 # Remaining work
 
+- Finalized design: review [reorganization plan](../architecture/reorganization-plan.md)
+  and [boundary diagrams](../architecture/proposed-boundaries.md). Execute only
+  when asked to proceed: (1) mission/render-scene ownership, (2) lighting/output
+  composition, (3) mechanical game grouping, (4) build boundaries/documentation.
+  Peer engine families and grouped game folders are settled design. No production
+  moves or new gameplay/physics/AI/pack/debug capabilities are implemented by this
+  documentation task. Slice acceptance authorizes commit; push needs instruction.
+
 - The complete source-defined frontend is accepted after the October 26 native
   walkthrough, including frontend Options and reachable Power Up. Preserve the
   explicit boundaries for Steam services and gameplay checkpoint/result

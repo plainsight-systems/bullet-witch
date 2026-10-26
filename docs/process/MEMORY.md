@@ -1,5 +1,16 @@
 # Current engineering decisions
 
+- The architecture comparison refinements are agreed; the finalized design is in
+  `docs/architecture/reorganization-plan.md` and `proposed-boundaries.md`.
+  Retain peer engine families/singular portable headers and group game files.
+  Separate game world from retained RenderScene; narrow actor publication is
+  allowed, with explicit registration/update/removal/retirement. Scene lighting
+  stays identifiable; world/movie/UI feed a final compositor. Resource residency
+  differs from game-owned activation. Original admission and future pack selection
+  remain policy above resolution. No whole-world copy, generic ECS, new clocks,
+  async renderer or gameplay expansion follows from this plan. Execution is next
+  when requested; current work is documentation only, not production approval.
+
 - Frontend scope is the entire original reachable menu system. Lua orchestrates
   native tasks; source task implementations define artwork, localization,
   eligibility, transitions, input and audio. Generic child lists and invented

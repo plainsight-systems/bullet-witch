@@ -26,6 +26,56 @@ reconcile estimates with reported native bytes and retire after completion.
 See [the current implementation record](../../research/engine/subsystems/memory-migration-completion.md)
 for measured coverage and remaining external boundaries.
 
+## Content and script resolution: implemented status
+
+October 26, 2026 implementation snapshot. See the
+[current ownership review](current-ownership.md) for the cross-subsystem entry
+point. Resource lifetime is implemented; a general replacement-pack manager and
+complete installation validator are not.
+
+| Boundary | Implemented owner and behavior | Remaining boundary |
+|---|---|---|
+| Installation selection | [`run`](../../run) selects the read-only game directory and checks for `data/data/stable/stable.rat` before launching. [`run_startup`](../../src/framework/startup_application.cpp) opens required catalogs and later consumers open their required files. | This is presence checking plus validation on use, not a complete installation manifest, version/hash compatibility check or Steam ownership verification. Purchased game data remains required. |
+| Asset identity and precedence | [`CatalogSet`](../../src/resources/catalog.cpp) owns parsed catalogs, normalizes ASCII resource names, resolves the smallest priority key and rejects ties at the winning priority. Selective mounts expose specified identities without leaking all aliases. | Framework composition still selects concrete startup/costume/concept mounts. Priority resolution alone does not implement user-selectable replacement packs. |
+| File access and structural validation | [`content::open_catalog`, `open_archive`, `archive_path`](../../src/content/access.cpp) compose read-only file access with format parsing; canonical path-component checks reject catalog archive paths escaping their catalog directory. | Validation is format-specific. This is not a cryptographic integrity check, complete install inventory or race-proof hostile-file sandbox. |
+| Encoded resource residency | [`ResourceService`](../../src/resources/service.cpp) resolves dependency closure, retains tag interests, pumps loading/publication phases, reports failures and lends immutable archive leases. A lease can outlive tag release or the service. | The service is single-threaded and admits its supported USER/image record forms; it is not the original complete CALL/graphics dispatcher or a background streaming scheduler. Typed model/stage/image consumers perform their own supported decoding and native preparation. |
+| Script selection and execution | [`RootDriver`](../../src/game/root_driver.cpp) resolves `script.root.dpk` and `root.lub`; [`MissionDriver`](../../src/game/mission_driver.cpp) selects validated mission package/member identities. [`NamedFilePackage`](../../src/formats/named_file_package.cpp) owns member bytes; [`Context`](../../src/script/context.cpp) loads original Lua bytecode through host-format adaptation and registered native bindings. | Decoded resource readiness does not imply every script binding or mission world owner exists. The current native gameplay composition admits One Shot Kill; other selectable content is not a claim of complete mission execution. |
+
+The current [CMake targets](../../CMakeLists.txt) reflect this split only partly:
+`bw_resources` groups format decoders, catalog/service policy, content adapters
+and host file access; `bw_runtime` groups Lua adaptation/context and task
+scheduling. Game drivers own script-to-game orchestration; framework composition
+chooses installed mounts and service lifetimes. These are the actual boundaries,
+not a claim that the file layout already expresses the eventual engine design.
+
+Original ordering, publication and teardown evidence is recorded in
+[resource dispatch](../../research/engine/subsystems/resource-dispatch.md) and
+[startup runtime](../startup-runtime.md). The original
+[background worker](../../research/engine/subsystems/background-resource-worker.md)
+is mapped research, not an implemented worker behind `ResourceService`.
+[Resource memory migration](../../research/engine/subsystems/resource-memory-migration.md)
+and [package ownership](../../research/engine/subsystems/memory-package-ownership.md)
+record the current retention rules. The existing
+[Unreal source study](../../research/engine/subsystems/memory-unreal-reference.md),
+pinned to `f45729c0b6f097038e72b52d366a62baeca3275b`, supports the allocation and
+lifetime separation; it does not establish an adopted Unreal asset/pack system.
+
+### Future replacement packs and installation admission
+
+The proposed upgrade direction is to validate the original installation before
+admitting optional replacements, keep that installation read-only, and mount
+separately identified, explicitly ordered asset/script packs. A pack would need
+an explicit manifest, base-content compatibility rules and a rollback/disable
+path that restores original resolution. Generated replacement assets remain
+outside Git. The existing namespace/priority/lease machinery supplies useful
+pieces, but no end-to-end replacement-pack workflow is implemented.
+
+Manifest schema, identification by hash/version, precedence and collision policy,
+script ABI/native-binding compatibility, and the point at which a pack can be
+safely changed remain design decisions. A live lease or executing Lua context
+must not be invalidated by changing mounts. This section records future concerns;
+it does not approve a new API, runtime hot swapping or a particular pack format.
+
 ## Ownership and native backing
 
 The eventual application composition constructs `MemorySystem` before services and keeps it

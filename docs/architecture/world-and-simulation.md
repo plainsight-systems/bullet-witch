@@ -1,5 +1,10 @@
 # World, scene and simulation
 
+This document describes the target world/entity model and recovered contracts.
+The current implementation has a mission WorldClock and bounded gameplay owners,
+not this complete World/registry/AI/physics/effects aggregate. See
+[current systems](current-ownership.md) and the [source inventory](../../research/engine/subsystems/runtime-subsystem-inventory.md).
+
 **Target architecture · working baseline · October 22, 2026.**
 [Engine architecture](logical-overview.md) · [Runtime ownership](runtime-model.md) ·
 

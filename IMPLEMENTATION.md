@@ -16,6 +16,14 @@ material. Existing scripts, assets, native exports and maps remain the foundatio
 
 ## Architecture before the next source slice
 
+**October 26 update:** the next bounded work is the
+[finalized reorganization plan](docs/architecture/reorganization-plan.md), with
+[proposed diagrams](docs/architecture/proposed-boundaries.md) and
+[current implemented status](docs/architecture/current-ownership.md). That plan
+supersedes historical startup-only status and path alternatives below; production
+execution has not started. It preserves the accepted frontend, HUD, actor and
+lighting baseline before full gameplay work.
+
 The [engine architecture](docs/architecture/logical-overview.md),
 [runtime ownership](docs/architecture/runtime-model.md),
 [world and simulation](docs/architecture/world-and-simulation.md),

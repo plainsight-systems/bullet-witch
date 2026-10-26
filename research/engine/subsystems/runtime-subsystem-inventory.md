@@ -1,117 +1,90 @@
 # Runtime subsystem inventory
 
-**Source inventory · October 24, 2026.** This is a status checkpoint for the
-single-player 3D Bullet Witch reconstruction, not a universal engine checklist.
-Responsibilities need explicit ownership; they do not each require a singleton,
-library or new abstraction. Networking, a general editor and unrelated engine
-features are not missing requirements for this port.
+**Source/build checkpoint · October 26, 2026 · `cac036f`.** This describes the
+current single-player Bullet Witch reconstruction. It distinguishes working
+mechanisms from the larger engine/game owners still required; it does not
+prescribe one library or singleton per responsibility. Networking beyond the
+original online services, a general editor and unrelated engine features are
+not prerequisites for this port.
 
-## Reading the status
+**Present** means an implemented owner exists for the stated scope, not complete
+original-game parity. **Partial** means implemented behavior has explicit
+remaining integration or coverage. **Planned** means there is no corresponding
+runtime implementation, even where extensive original-source research exists.
 
-- **Present:** an implemented owner/mechanism exists for the stated scope. This
-  does not mean complete original-game parity or physical acceptance.
-- **Partial:** working code covers part of the responsibility, but integration,
-  ownership or required behavior is incomplete.
-- **Planned:** described/researched, without the corresponding runtime system.
+The [build targets](../../../CMakeLists.txt), linked contracts and source are the
+evidence. The [target architecture](../../../docs/architecture/README.md) is not
+proof of implementation. Frontend, pause, timing, lighting and HUD acceptance
+apply to their recorded slices, not the remaining full-gameplay systems.
 
-The [build targets](../../../CMakeLists.txt), headers and implementations are
-the evidence below. The [architecture](../../../docs/architecture/README.md)
-also describes the finished target; a box in that architecture is not evidence
-that the system exists. This inspection found ownership/completion gaps, not a
-new demonstrated rendering, animation or gameplay correctness failure.
+## Implemented scope and missing boundaries
 
-## Implemented responsibilities and remaining scope
+| Responsibility | Current implementation / build target | Remaining boundary |
+| --- | --- | --- |
+| Platform/devices | **Present for macOS.** [Platform contracts](../../../include/bw/platform/) and [native adapters](../../../src/platform/macos/); `bw_startup_host_macos`, `bw_world_renderer_macos`, device/backing/storage targets compose `bw-startup`. | Windows/Xbox runtime backends and platform verification are not implemented. Shared code compiling is not platform acceptance. |
+| Math | **Present.** Header-only `bw_math`: [vectors, matrices, quaternions, frusta, scalar responses and two-bone solver](../../../include/bw/math/). | Target-specific SIMD kernels are future implementation choices behind these contracts, not a missing math library. |
+| Memory | **Present foundation.** `bw_memory`: [Domain](../../../include/bw/memory/domain.hpp), [CoalescingHeap](../../../include/bw/memory/coalescing_heap.hpp), [DeviceBudget](../../../include/bw/memory/device_budget.hpp), allocator adapters and `bw_cpu_backing_macos`. Resource/runtime/media ownership, reclaiming Lua allocation and device accounting are implemented. | AI linear arenas, future world/worker reset lifetimes, asynchronous GPU retirement and remaining external/default-heap boundaries are not complete. See [migration](memory-migration-completion.md) and [concurrency](memory-concurrency-refinement.md). |
+| Resources/loading | **Partial.** `bw_resources`: [ResourceService](../../../include/bw/resources/service.hpp), catalogs, archive/format readers and retained leases; `bw_game` [MissionLoading](../../../src/game/mission_loading.hpp) coordinates original load requests and presentation. | ResourceService is single-threaded. General asynchronous streaming and unsupported original handlers remain unfinished. |
+| Frame/world time | **Present for admitted execution.** `bw_timing`: [FrameClock](../../../include/bw/timing/frame_clock.hpp) and [WorldClock / immutable WorldFrame](../../../include/bw/world/world_clock.hpp). `bw_game` [MissionControl](../../../src/game/mission_control.hpp) owns pause admission; [MissionGameplay](../../../src/game/mission_gameplay.hpp) publishes one frame and sequences consumers. | This is not the complete original entity hierarchy, physics/script phase schedule or a world aggregate. Local animation/media cursors do not own world time. See [timing](../../../docs/architecture/world-timing.md). |
+| World/entity lifecycle | **Planned aggregate; partial composition.** Framework creates mission owners; [MissionGameplay](../../../src/game/mission_gameplay.hpp) and [StageInspection](../../../src/game/stage_inspection.hpp) coordinate the current bounded scene in `bw_game`. `include/bw/world/` currently provides the clock only. | No general entity registry, hierarchy, spawn/despawn lifecycle or complete world phase owner. A class named MissionGameplay does not establish those systems. |
+| Rendering | **Partial.** `bw_render` [output/material/view/shadow contracts](../../../include/bw/render/), `bw_world_renderer_macos` and [Metal shaders](../../../src/platform/macos/shaders/) render static/actor geometry, skinning, shadows, HDR/postprocessing and authored sampler/mip paths. | Dynamic membership/visibility, particles and complete original pass coverage remain. Scene assembly still substantially lives in StageInspection. |
+| Lighting/environment | **Present for admitted scene.** `bw_scene`: [SceneLighting](../../../include/bw/scene/lighting/scene_lighting.hpp), irradiance/reflection fields, local lights, [Environment](../../../include/bw/scene/environment.hpp), regions and shadow-caster selection. `bw_game` [stage environment](../../../src/game/stage_environment.cpp) maps original game channels. | Dynamic entities, weather/event/effect producers and destruction-driven membership require their owning gameplay systems. Accepted appearance does not close every original comparison; see [lighting architecture](../../../docs/architecture/lighting.md). |
+| Animation/character motion | **Present mechanisms; partial actor coverage.** `bw_animation`: [pose, clips, playback, events, shape/secondary motion](../../../include/bw/animation/). `bw_game` owns Alicia policy, support arm, locomotion, targeting and camera. | NPC/boss consumers, world-affecting action events and shared actor publication ownership remain. Animation playback alone does not implement combat. |
+| Static collision/custom controller | **Present for traversal; partial physics.** `bw_scene` [static and character collision](../../../include/bw/scene/spatial/); `bw_game` placed-collision preparation and custom PlayerController consume these queries. | This is genuine static contact, not a middleware simulation. Dynamic bodies, impulses, constraints, destruction and the original PhysX scene step have no implemented provider. [Original physics](physics-and-collision.md) and [placed geometry](placed-physics-collision.md) distinguish those boundaries. |
+| Lua/task lifecycle | **Present mechanisms.** `bw_runtime`: [Context](../../../include/bw/script/context.hpp), original Lua 5.0.2 and [TaskLifecycleScheduler](../../../include/bw/tasks/task_lifecycle_scheduler.hpp); game root/mission drivers own bindings. | Lifecycle tasks run on their caller thread. Mission/native bindings and genuine world startup remain incomplete; this scheduler is not a job pool. |
+| Jobs/workers | **Planned general service.** No general job-system target or shared worker scheduler exists. Video decoder/audio dependencies have their own workers. | Recover ordering, completion and quiescence contracts before adding concurrent world/resource jobs. Existing media threads do not supply that service. |
+| Input/settings | **Present for current gameplay/UI.** `bw_input` [physical samples/repeat](../../../include/bw/input/); `bw_game` [controller mapping](../../../src/game/controller_input.hpp), [PlayerInputRouting](../../../src/game/player_input_routing.hpp), controller options and device options. Native sampling stays in platform; copied settings drive game mappings and fixed UI input. | Sampling is still exposed through StartupHost. Future actor/action contexts and gameplay vibration producers remain; persisted remapping, camera options and live settings are no longer missing. |
+| Audio | **Present service; partial producers.** [Audio contracts](../../../include/bw/audio/), `bw_audio_decode` and `bw_audio_fact` in [GameAudio.cmake](../../../cmake/GameAudio.cmake); `bw_game` [GameAudio](../../../src/game/game_audio.hpp) owns session banks/output, FrontEndAudio and character/menu adapters consume them. Original menu BGM/cues and persisted mix levels work. | Full combat, impact, foley, environment and spell event producers belong to future gameplay slices. Backend/spatial playback capability is not proof those events are connected. |
+| Video | **Present.** `bw_video`, `bw_video_ffmpeg` and native output implement [Player](../../../include/bw/video/player.hpp), decode queues, audio/video pacing, drain and retirement. | Opening/logo playback does not implement every in-game cinematic consumer. Media clocks remain distinct from world simulation. |
+| HUD/menus/text | **Present accepted slice.** `bw_startup_presentation` provides purchased art/localization; `bw_game` owns [cockpit/HUD](../../../src/game/player_cockpit.hpp), spell ring, original frontend and pause/Help/Options/controller/calibration/costume flows. Frontend Power Up is reachable. | Live world effects/targets, mission-result production and subtitle event producers remain. Ranking follows original unavailable-provider behavior; Steam networking is not implemented. See [frontend acceptance](frontend-verification.md) and [pause](native-pause-menu.md). |
+| Progression/live resources | **Present for current scope.** `bw_profiles`: [Profile/progression](../../../src/game/profile.hpp), MissionPlayerState and PowerUpFlow; `bw_game` [PlayerResources](../../../src/game/player_resources.hpp) owns health/magic/four magazines and restricted action transactions. Concept completion context is separate from permanent saves. | Combat outcomes, spell prerequisite owners, death/objectives and genuine result awards are not implemented merely because HUD values and purchases work. |
+| Persistence | **Partial.** `bw_profiles` ProfileLoadFlow and narrow System/Record save capabilities; `bw_save_storage_posix` atomic storage and macOS save-directory adapter. Original load/create/overwrite/autosave dialogs and settings transactions work. | Validating imported checkpoint bytes does not implement nonzero world restoration. Consistent world/entity capture and mission-result persistence remain unfinished. |
+| NPC AI/navigation | **Planned runtime; researched source.** [AI runtime](ai-runtime.md) maps original trees, Lua evaluation and native actions. `bw_game` [npc_palette](../../../src/game/npc_palette.hpp) prepares content metadata. | No running enemy/boss AI, navigation or action executor. Loading palettes and auditing scripts are not NPC execution. |
+| Particles/effects | **Planned runtime; researched source.** [Particle contracts](particle-runtime-contracts.md) and [effects mapping](particles-and-effects.md) trace original emission, simulation, submission and retirement. | No particle instance/simulation/render service. Spell presentation, scalar animation and effect resource observations do not implement active particles or scenery interactions. |
+| Diagnostics | **Partial.** Memory/device snapshots, media statistics, resource inspectors and controlled corpus tools exist; normal builds disable developer views. | No unified logging/profiling service or accepted new debug UI. [Developer tools](../../../docs/architecture/developer-tools.md) remain a design boundary. |
 
-| Responsibility | Status and source evidence | Remaining boundary |
-|---|---|---|
-| Platform and devices | **Present, Mac scope.** [Platform contracts](../../../include/bw/platform/) and [Mac adapters](../../../src/platform/macos/) cover files, storage, window/events, graphics and audio. | Windows/Xbox implementations and verification are planned. |
-| Shared math | **Present.** `bw_math`, [math headers](../../../include/bw/math/): vectors, matrices, quaternions, frusta and scalar/direction helpers. | Target-specialized kernels can replace shared calculations behind the same contracts when warranted. |
-| Memory | **Present foundation.** [`Domain`](../../../include/bw/memory/domain.hpp), [`CoalescingHeap`](../../../include/bw/memory/coalescing_heap.hpp), [`DeviceBudget`](../../../include/bw/memory/device_budget.hpp) and native backing implement ownership, coalescing, accounting and retirement. | World/AI allocation lifetimes, asynchronous retirement and documented default-heap migration boundaries remain. Do not invent arenas before their reset/quiescence contracts exist. |
-| Resources and loading | **Partial.** [`ResourceService`](../../../include/bw/resources/service.hpp), catalog/format readers and [`MissionLoading`](../../../src/game/mission_loading.hpp) provide phased publication, retained leases and mission resource residency. | General asynchronous loading/streaming and complete handlers are unfinished. `ResourceService` is explicitly single-threaded. |
-| Rendering | **Partial.** [`WorldOutput`](../../../include/bw/render/world.hpp), shared material/view/shadow/output kernels, native [`WorldRenderer`](../../../src/platform/macos/world_renderer.hpp) and [`WorldPostprocess`](../../../src/platform/macos/world_postprocess.hpp). Static/actor geometry, skinning, shadows and HDR composition work. | Dynamic-world membership/visibility, effects and complete original pass coverage remain. Scene assembly still resides substantially in game inspection code. |
-| Lighting and environment | **Present for admitted scene.** [`SceneLighting`](../../../include/bw/scene/lighting/scene_lighting.hpp) owns fields, emitters and receiver selection; [`Environment`](../../../include/bw/scene/environment.hpp) owns region/curve transitions. | Dynamic entity membership must join the future world owner. [`stage_environment`](../../../src/game/stage_environment.cpp) correctly maps original game channel meanings outside the engine. |
-| Animation | **Present mechanisms; partial game coverage.** [Animation library](../../../include/bw/animation/) owns poses, clip catalogs, playback rings, events, shape/secondary motion and scalar curves. | Other actors and world-affecting animation events need their own consumers. Alicia action policy belongs in game code. |
-| Collision and spatial queries | **Partial.** [Static/character collision and area regions](../../../include/bw/scene/spatial/) provide prepared geometry queries and custom character contact. | Dynamic bodies, destruction and associated world ownership are planned. Static contact is real collision, not a substitute claim of completed physics. |
-| Scripting and task lifecycle | **Present mechanisms.** [`script::Context`](../../../include/bw/script/context.hpp) and [`TaskLifecycleScheduler`](../../../include/bw/tasks/task_lifecycle_scheduler.hpp). | Mission/native bindings are incomplete. The lifecycle scheduler runs on its caller thread; it is not a worker pool or authoritative world scheduler. |
-| Input | **Partial.** [`StartupInput` / `StartupHost::pump`](../../../include/bw/platform/startup_host.hpp), [native action edges](../../../src/platform/macos/gamepad_actions.hpp). Hardware input, focus handling and button edges work. | Input remains bundled with the startup host. Gameplay/UI contexts, configurable bindings and persisted options require their owning boundary. |
-| Audio | **Partial.** [`CueOutput`](../../../include/bw/audio/output.hpp) and [FACT backend](../../../src/audio/fact/) implement bank/cue lifecycle, listener/spatial playback and pause. Character/mission adapters resolve game events. | Persisted volumes do not yet control gain; menu cues/music and broader world event audio remain. |
-| Video | **Present.** [`video::Player`](../../../include/bw/video/player.hpp), decoder/output interfaces, FFmpeg workers and native presentation provide separate media timing, drain and lifetime ownership. | Wider gameplay integration and original observation gaps remain; media consumption clocks are not world simulation clocks. |
-| UI and text | **Partial.** [`SpriteOutput`](../../../include/bw/render/sprites.hpp), font/image decoding and game title/menu/loading/pause surfaces work. | Authoritative gameplay HUD and complete original pause/retry/exit flow remain. UI presentation primitives belong in engine; menu/progression policy belongs in game. |
-| Persistence | **Partial.** [`Profile`](../../../src/game/profile.hpp), profile load flow and [`SaveStorage`](../../../include/bw/platform/save_storage.hpp) implement profiles/settings. | Consistent world/checkpoint capture and restoration are unfinished. Storage and serialization mechanisms must remain separate from progression policy. |
-| Diagnostics | **Partial.** Domain/device snapshots, video statistics, startup timing and resource/native inspection tools exist. | No unified engine logging/profiling service. These counters do not establish whole-level performance acceptance. |
+## Ownership work before full gameplay
 
-## Integration gaps to close deliberately
+1. Establish the world/entity aggregate and original phase ownership without
+   replacing the accepted timing authority. [MissionDriver](../../../src/game/mission_driver.hpp)
+   still stops at `awaiting_world_setup`; the sole authorized
+   [initial-placement shim](../../../src/game/initial_placement_shim.hpp) is not
+   script-owned spawning. Pause reentry/retirement now exists, while genuine
+   checkpoint restoration and the full mission outcome loop do not.
+2. Separate scene/actor publication from controller policy as more actors arrive.
+   [PlayerController](../../../src/game/player_controller.cpp) still publishes
+   through PlayerActor to WorldOutput; StageInspection still assembles scene
+   observations. Preserve original parent/model ordering and keep game material,
+   camera and progression policy out of generic engine owners.
+3. Review file and build boundaries against those responsibilities. Current
+   `bw_game` and `bw_startup_presentation` group many implemented owners; their
+   flat file layout is not evidence that every owner is missing. Conversely,
+   moving files cannot supply the absent world, physics, AI or particle systems.
 
-1. **World lifecycle and authoritative time/pause — planned owner, partial
-   execution.** [`startup_application`](../../../src/framework/startup_application.cpp)
-   and [`StageInspection`](../../../src/game/stage_inspection.hpp) orchestrate a
-   bounded traversal scene. They do not implement the target world entity
-   registry, hierarchy, phase schedule or universal pause contract. Establish
-   those contracts before adding more independently timed gameplay systems.
-2. **Scene assembly — partial ownership.** `StageInspection` still selects draws,
-   combines model observations and coordinates presentation updates. Its working
-   engine mechanisms should be composed through world/render-scene ownership;
-   do not move game material compatibility or camera-follow policy into generic
-   engine code merely to empty this class.
-3. **Simulation/render publication — coupled existing responsibility.**
-   [`PlayerController::advance`](../../../src/game/player_controller.cpp) accepts
-   `render::WorldOutput&` and invokes
-   [`PlayerActor::publish_pose` / `publish_completed_pose`](../../../src/game/player_actor.cpp).
-   The future common actor/world owner needs an explicit model/render observation
-   phase, preserving the recovered parent/model update order. Repeating this
-   controller-to-render dependency for every NPC would compound the ownership
-   gap. This is an integration risk, not a newly demonstrated rendered defect.
-4. **Input ownership — partial existing responsibility.** `StartupHost` combines
-   window/device presentation with action sampling. Keep native event/controller
-   access in platform code, but give input state and gameplay/UI context routing
-   explicit ownership before more screens and actors compete for actions.
-5. **Mission startup and outcome — planned game integration.**
-   [`MissionPhase::awaiting_world_setup`](../../../src/game/mission_driver.hpp)
-   preserves the original VM at the missing startup boundary. Genuine spawn,
-   checkpoint, death/retry/exit and completion must replace the sole authorized
-   [initial-placement shim](../../../src/game/initial_placement_shim.hpp).
-6. **AI/navigation, combat and effects — planned runtime systems.** Loading NPC
-   palettes or mapping effect formats is not executing enemies, hits/damage,
-   objectives, particle instances or spells that affect scenery. Reusable
-   entity/query/effect mechanisms belong in engine; enemy decisions, damage
-   rules, spell policy and mission goals remain game responsibilities.
-7. **Worker/execution services — planned where source requires them.** Media
-   workers already exist, but no general job/resource worker system follows from
-   that fact. Recover ordering and completion obligations rather than assigning
-   one thread per subsystem or introducing concurrency for its own sake.
+## Original and established-reference boundaries
 
-The current [queue](../../../docs/process/QUEUE.md) already places authoritative
-world tick/pause and real gameplay pause/HUD after animation-slice acceptance.
-The missing runtime systems above are mostly planned work. The ownership issue
-is allowing temporary application/inspection composition to become the permanent
-home for world, input or scene responsibilities as those systems grow.
+Original behavior remains primary: [timing source](world-timing-source.md),
+[physics](physics-and-collision.md), [actor/AI lifecycle](actor-lifecycle.md),
+[particle contracts](particle-runtime-contracts.md) and the frontend/pause reports
+record recovered consumers and their limits. Keep research-only mappings separate
+from runtime rows above.
 
-## Documentation drift
+Existing pinned Unreal comparisons remain in [timing ownership](world-timing-reference.md),
+[memory](memory-unreal-reference.md), [media](media-reference-design.md) and
+[lighting](lighting-reference-boundaries.md). They document concrete inspected
+functions and applicability; they do not establish Bullet Witch parity or imply
+adoption of Unreal's complete engine. No new implementation/reference choice is
+made by this inventory.
 
-The [architecture index](../../../docs/architecture/README.md) still calls
-extra-mission native status/routing unresolved, although the current mission
-implementation and [MEMORY](../../../docs/process/MEMORY.md) record that routing.
-Some broad renderer/lighting unknowns also predate the implemented environment
-and lighting owners. Keep target architecture and implementation status distinct;
-reconcile these descriptions in the next architecture update. This inventory
-does not silently rewrite those files or declare their entire target complete.
-
-## External comparison boundary
-
-[Godot's official architecture overview](https://docs.godotengine.org/en/stable/engine_details/architecture/godot_architecture_diagram.html)
-distinguishes scene organization, rendering/audio/physics services, native drivers,
-shared core and engine lifecycle. It is a useful completeness check, not a reason
-to adopt Godot's singleton/server design.
-
-[Doom 3's `Common.cpp`](https://github.com/id-Software/DOOM-3/blob/master/neo/framework/Common.cpp)
-provides a game-and-engine comparison for shared lifecycle and diagnostics rather
-than requiring a general-purpose editor engine. These references are general
-comparison material only: no implementation was copied and neither establishes
-Bullet Witch source behavior or parity.
+[Godot's architecture overview](https://docs.godotengine.org/en/stable/engine_details/architecture/godot_architecture_diagram.html)
+and [Doom 3's Common.cpp](https://github.com/id-Software/DOOM-3/blob/master/neo/framework/Common.cpp)
+remain general completeness comparisons, not runtime evidence or required layouts.
 
 ## Verification scope
 
-Read-only source/build-target/document inspection, followed by this research
-note. No new runtime defect was reproduced, no production code was changed and
-no builds or tests were run for this inventory. The note receives a whitespace
-diff check; existing slice verification is recorded separately.
+Source, build-target and existing acceptance-report inspection at `cac036f`.
+Only this research note changed. Local links and whitespace were checked; no
+production edits, build, tests or native launch were performed for this update.
+Earlier source notes/queue entries may describe superseded pre-menu gaps; the
+accepted slice reports and current source take precedence for implementation
+status, without promoting their scope to complete gameplay.

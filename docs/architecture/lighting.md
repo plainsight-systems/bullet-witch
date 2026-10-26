@@ -1,5 +1,10 @@
 # Scene lighting
 
+The [current ownership review](current-ownership.md#lighting-and-the-render-pipeline)
+keeps lighting an identifiable implemented engine subsystem while separating
+game-authored policy, scene-local light membership and native render consumption.
+This review proposes no new lighting equations or visual adjustments.
+
 **Reconstructed lighting baseline accepted · October 25, 2026.**
 
 The completed [source audit](../../research/engine/subsystems/lighting-source-fidelity-investigation.md)

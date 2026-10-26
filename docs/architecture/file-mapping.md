@@ -1,5 +1,11 @@
 # Source ownership and dependency mapping
 
+The [finalized reorganization plan](reorganization-plan.md) is the next-execution
+manifest at module-group level. Its peer-engine/grouped-game choices supersede
+physical alternatives in the older broad target tree below. That target tree
+still describes future capabilities, not folders to create during this pass.
+Current portable contracts/native boundaries remain intact; no files have moved.
+
 **Target architecture · working baseline · October 22, 2026.**
 [Engine structure](logical-overview.md) · [Runtime ownership](runtime-model.md) ·
 [Change axes](change-axes.md).

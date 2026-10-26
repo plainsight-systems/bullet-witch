@@ -1,5 +1,10 @@
 # Engine architecture
 
+This is the proposed completed-engine structure, not a present-tense inventory.
+The [current ownership review](current-ownership.md) identifies actual owners and
+missing world/entity/render-scene aggregates. Later target diagrams and subsystem
+descriptions below retain that proposed status.
+
 **Target architecture · working baseline · October 22, 2026.**
 [Architecture index](README.md).
 
