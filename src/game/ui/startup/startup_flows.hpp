@@ -22,6 +22,8 @@
 #include <string_view>
 #include <vector>
 
+#include "game/player/input/menu_bindings.hpp"
+
 namespace bw::game {
 enum class FlowStatus : std::uint8_t { idle, pending, complete, failed };
 struct ScreenProgress {
@@ -49,8 +51,8 @@ class LogoMedia {
 struct LogoUpdate {
   float delta{};
   std::uint32_t pressed_actions{};
-  // Front-end prompts observe the platform input family; no input authority.
-  bool controller_connected{};
+  // Copied active family from the input owner, not device availability.
+  MenuInputDevice prompt_device{MenuInputDevice::keyboard_mouse};
 };
 class CompanyLogoFlow {
  public:

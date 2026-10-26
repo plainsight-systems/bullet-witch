@@ -1,3 +1,10 @@
+// Child input precedes response evaluation and copied publication. A nested
+// difficulty view borrows the retained parent carousel presentation. Both-phase
+// E.4 (#re-design-invariants) and MEM.9 preserve this temporal invariant.
+// Original prompt admission and costume confirmation use the supplied UI
+// interval, with copied outputs and fixed storage. Both-phase I.1
+// (#ri-explicit) and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md); see frontend-menu-repairs.md.
 // Localized-text repair: design I.1 and implementation E.4, with MEM.9
 // retrieved in both phases. Policy publishes content IDs; the surface owns
 // prepared purchased text/art. No English fallback or frame-time decoding.
@@ -55,6 +62,7 @@ void MenuFlow::start() {
   save_requested_ = save_pending_ = false;
   difficulty_pending_ = false;
   stage_backdrop_ = {};
+  stage_obscuration_ = 0;
   stage_ = 1;
   difficulty_ = profile_.get().difficulty();
   costume_ = profile_.get().costume();
@@ -70,6 +78,8 @@ void MenuFlow::start() {
   for (auto& value : scale_) value.value = 1;
   description_ = {};
   pulse_seconds_ = 0;
+  footer_opacity_ = 0;
+  costume_confirmation_pending_ = false;
   sounds_ = {};
   constexpr float kPanelCueDelay = .3F;
   sounds_.add(MenuSound::panel, kPanelCueDelay);
@@ -285,7 +295,8 @@ void MenuFlow::accept() {
                                                               : extra_status);
       break;
     case MenuPage::costume:
-      start_dialog(FrontendDialog::change_costume);
+      selector_confirmation_seconds_ = 0;
+      costume_confirmation_pending_ = true;
       break;
     case MenuPage::options:
     case MenuPage::confirm:
@@ -355,6 +366,30 @@ void MenuFlow::update(MenuInput input, float seconds) {
   if (!std::isfinite(seconds) || seconds < 0) {
     throw std::invalid_argument("Invalid menu presentation interval");
   }
+  advance(input, seconds);
+  update_footer(seconds);
+}
+// The original prompt receiver is separate from page art and has its own
+// quarter-second reveal/conceal. Only the admitted task selects its contents.
+void MenuFlow::update_footer(float seconds) {
+  const bool main = presentation_.page == MenuPage::main &&
+                    feedback_.motion == MainMenuMotion::idle;
+  const bool child = (presentation_.page == MenuPage::costume ||
+                      presentation_.page == MenuPage::difficulty ||
+                      presentation_.page == MenuPage::stage ||
+                      presentation_.page == MenuPage::extra) &&
+                     child_.motion == ChildMenuMotion::active;
+  const bool visible = (main || child) && !selection_ &&
+                       presentation_.dialog == FrontendDialog::none &&
+                       !costume_confirmation_pending_ && !save_pending_ &&
+                       !difficulty_pending_;
+  constexpr float kFadeSpeed = 4;
+  const float target = visible ? 1.F : 0.F;
+  footer_opacity_ += std::clamp(target - footer_opacity_, -kFadeSpeed * seconds,
+                                kFadeSpeed * seconds);
+  presentation_.footer_opacity = footer_opacity_;
+}
+void MenuFlow::advance(MenuInput input, float seconds) {
   sounds_ = {};
   if (selection_) {
     if (presentation_.page == MenuPage::difficulty) {
@@ -490,11 +525,16 @@ void MenuFlow::update(MenuInput input, float seconds) {
 // parent main task waits; no world clock or render-time mutation is involved.
 void MenuFlow::enter_child(MenuPage page) {
   constexpr float kCostumeCueDelay = .1F, kStageCueDelay = .3F;
+  if (page == MenuPage::difficulty && previous_ != MenuPage::main) {
+    stage_backdrop_ = presentation_.stage;
+  }
   populate(page);
   child_ = {};
+  footer_opacity_ = 0;
+  costume_confirmation_pending_ = false;
   child_.current_costume = costume_;
   child_description_ = {};
-  scroll_ = {};
+  if (page != MenuPage::difficulty || previous_ == MenuPage::main) scroll_ = {};
   child_highlight_ = {};
   constexpr float kCursorInitial = -100;
   for (auto& position : selector_position_) position = {kCursorInitial, 0};
@@ -681,10 +721,32 @@ void MenuFlow::update_child_animation(float seconds) {
   const bool costume = presentation_.page == MenuPage::costume;
   const bool difficulty = presentation_.page == MenuPage::difficulty;
   const float pitch = costume ? 172.F : 298.F;
-  scroll_ = math::damped_response(
-      scroll_,
-      {-static_cast<float>(presentation_.selected) * pitch, kScrollResponse},
-      seconds);
+  // Original parent veil is a type-zero response at 1.4 units/second. Its
+  // target returns only when the nested task finishes, preserving exit art.
+  constexpr float kObscurationSpeed = 1.4F;
+  const float obscuration_target =
+      difficulty && previous_ != MenuPage::main ? 1.F : 0.F;
+  stage_obscuration_ +=
+      std::clamp(obscuration_target - stage_obscuration_,
+                 -kObscurationSpeed * seconds, kObscurationSpeed * seconds);
+
+  // Difficulty has a separate cursor; its parent carousel keeps advancing
+  // toward the mission selection while input belongs to the child.
+  const auto scroll_selection =
+      difficulty ? stage_selection_ : presentation_.selected;
+  if (!difficulty || previous_ != MenuPage::main) {
+    scroll_ = math::damped_response(
+        scroll_,
+        {-static_cast<float>(scroll_selection) * pitch, kScrollResponse},
+        seconds);
+  }
+  if (difficulty && previous_ != MenuPage::main) {
+    stage_backdrop_.obscuration = stage_obscuration_;
+    stage_backdrop_.motion.scroll = scroll_.value;
+    stage_backdrop_.motion.pulse =
+        std::fmod(stage_backdrop_.motion.pulse + seconds, kPulsePeriod);
+    presentation_.stage = stage_backdrop_;
+  }
   child_description_ = math::damped_response(
       child_description_,
       {child_.motion == ChildMenuMotion::active ? 1.F : 0.F,
@@ -711,6 +773,19 @@ void MenuFlow::update_child_animation(float seconds) {
   child_.input_delay = std::max(0.F, child_.input_delay - seconds);
   child_.elapsed += seconds;
   if (difficulty) update_difficulty_selector(seconds);
+  if (costume) {
+    // The pink plate is a one-shot half-sine confirmation, not the cursor.
+    constexpr float kConfirmationDuration = .4F;
+    child_.selector_opacity = 0;
+    if (costume_confirmation_pending_) {
+      selector_confirmation_seconds_ += seconds;
+      if (selector_confirmation_seconds_ < kConfirmationDuration) {
+        child_.selector_opacity = math::half_sine_interpolate(
+            math::PeriodicSineEndpoints<float>{0, 1},
+            selector_confirmation_seconds_ / kConfirmationDuration);
+      }
+    }
+  }
   presentation_.child = child_;
   if (presentation_.page == MenuPage::stage ||
       presentation_.page == MenuPage::extra) {
@@ -720,6 +795,7 @@ void MenuFlow::update_child_animation(float seconds) {
     stage.count = presentation_.count;
     stage.selected = presentation_.selected;
     stage.motion = child_;
+    stage.obscuration = stage_obscuration_;
     for (std::size_t i = 0; i < stage.count; ++i) {
       stage.identities.at(i) = presentation_.rows.at(i).compatibility_id;
     }
@@ -728,9 +804,25 @@ void MenuFlow::update_child_animation(float seconds) {
   }
 }
 void MenuFlow::update_child(MenuInput input, float seconds) {
-  update_child_animation(seconds);
+  advance_child(input, seconds);
+  if (presentation_.page == MenuPage::costume ||
+      presentation_.page == MenuPage::difficulty ||
+      presentation_.page == MenuPage::stage ||
+      presentation_.page == MenuPage::extra) {
+    update_child_animation(seconds);
+  }
+}
+void MenuFlow::advance_child(MenuInput input, float seconds) {
   if (presentation_.dialog != FrontendDialog::none) {
     update_dialog(input, seconds);
+    return;
+  }
+  if (costume_confirmation_pending_) {
+    constexpr float kConfirmationDuration = .4F;
+    if (selector_confirmation_seconds_ >= kConfirmationDuration) {
+      costume_confirmation_pending_ = false;
+      start_dialog(FrontendDialog::change_costume);
+    }
     return;
   }
   if (save_pending_ || costume_complete_) return;
@@ -772,10 +864,9 @@ void MenuFlow::update_child(MenuInput input, float seconds) {
     } else if (difficulty && previous_ != MenuPage::main) {
       populate(previous_);
       presentation_.selected = stage_selection_;
+      child_ = stage_backdrop_.motion;
       child_.motion = ChildMenuMotion::active;
       child_.elapsed = kStageEntry;
-      constexpr float kStagePitch = 298.F;
-      scroll_.value = -static_cast<float>(stage_selection_) * kStagePitch;
       presentation_.child = child_;
     } else {
       populate(MenuPage::main);

@@ -302,8 +302,10 @@ int run_application(const ApplicationOptions& configuration,
            .menu = {input.pressed_actions, input.repeated_actions,
                     input.menu_vertical_axis},
            .physical = input.physical,
-           .help_icons = game::help_input_icons(controller_settings,
-                                                input.controller_connected)});
+           .prompt_device = input.prompt_device,
+           .help_icons = game::help_input_icons(
+               controller_settings,
+               input.prompt_device == game::MenuInputDevice::controller)});
       if (mission_frame.resource_transaction) {
         frame_clock.rebase(std::chrono::steady_clock::now());
       }
@@ -392,7 +394,7 @@ int run_application(const ApplicationOptions& configuration,
             ? 0U
             : input.pressed_actions;
     const auto result = session.advance(
-        {presentation_delta, actions, input.controller_connected},
+        {presentation_delta, actions, input.prompt_device},
         configuration.verify || stage_inspection || mission_frame.ui_consumed
             ? 0U
             : input.repeated_actions,

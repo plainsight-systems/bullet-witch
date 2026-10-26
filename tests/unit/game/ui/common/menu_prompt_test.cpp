@@ -1,5 +1,5 @@
 // Copied native UI prompts remain independent of gameplay bindings. Verify
-// availability, source image identities, distinct geometry and invalid runs.
+// active family, source image identities, distinct geometry and invalid runs.
 // Core I.1 and performance MEM.9 apply as in menu_prompt.hpp.
 #include "game/ui/common/menu_prompt.hpp"
 
@@ -14,9 +14,10 @@ void require(bool value, const char* message) {
 }  // namespace
 void menu_prompt_contracts() {
   using bw::game::menu_prompts;
+  using bw::game::MenuInputDevice;
   using bw::game::valid_menu_prompt;
-  const auto pad = menu_prompts(true);
-  const auto keyboard = menu_prompts(false);
+  const auto pad = menu_prompts(MenuInputDevice::controller);
+  const auto keyboard = menu_prompts(MenuInputDevice::keyboard_mouse);
   require(pad.confirm.count == 1 && pad.confirm.icons[0] == 120 &&
               pad.back.count == 1 && pad.back.icons[0] == 121,
           "Xbox prompts use fixed UI face buttons");
@@ -29,9 +30,16 @@ void menu_prompt_contracts() {
               std::abs(pad.confirm.text_advance - 44.8F) < .001F,
           "Source scale-pivot advance yields the final canvas icon pitch");
   for (const auto prompt :
-       {pad.confirm, pad.back, keyboard.confirm, keyboard.back}) {
+       {pad.confirm, pad.back, pad.navigate, keyboard.confirm, keyboard.back,
+        keyboard.navigate}) {
     require(valid_menu_prompt(prompt), "Published prompt is valid");
   }
+  require(
+      pad.navigate.count == 1 && pad.navigate.icons[0] == 102 &&
+          keyboard.navigate.count == 4 && keyboard.navigate.icons[0] == 98 &&
+          keyboard.navigate.icons[1] == 97 &&
+          keyboard.navigate.icons[2] == 16 && keyboard.navigate.icons[3] == 30,
+      "Main navigation hint retains the original fixed device icon run");
   auto invalid = pad.confirm;
   invalid.count = 5;
   require(!valid_menu_prompt(invalid), "Run overflow rejects before access");

@@ -41,7 +41,8 @@ constexpr std::array<Track, 5> kTracks{{{268, {0, 0}, {0, 0}, 0, 1},
                                         {275, {1274, 30}, {250, 30}, .2F, 1.5F},
                                         {276, {-730, 0}, {0, 0}, 0, 1},
                                         {269, {0, 1330}, {0, 610}, 0, 1}}};
-constexpr float kHalf = .5F, kDialogX = 640, kDialogTextSize = 48,
+constexpr float kHalf = .5F, kDialogX = 640,
+                kDialogTextSize = menu_dialog_font_size,
                 kDialogAlpha = 178.F / 255, kTrackSeconds = 1.5F;
 constexpr render::Color kText{230.F / 255, 228.F / 255, 213.F / 255, 1};
 memory::Allocator<std::byte> storage_for(

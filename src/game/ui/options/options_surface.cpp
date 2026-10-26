@@ -443,7 +443,7 @@ struct OptionsSurface::State {
                     ? kSave
                     : (view.settings.autosave ? kAutoSaved : kManualSaved))
             .data();
-    constexpr float kSize = 48, kLeftX = 448, kRightX = 832;
+    constexpr float kSize = menu_dialog_font_size, kLeftX = 448, kRightX = 832;
     const auto lines =
         1 + static_cast<unsigned>(std::ranges::count(message, '\n'));
     const auto geometry = menu_dialog_geometry(view.dialog_progress, lines,
@@ -463,7 +463,8 @@ struct OptionsSurface::State {
     sprite(kDialogEdge, {0, bottom - edge.height * kHalf}, {1, 1, 1, opacity});
     auto color = kText;
     color.alpha = decoration;
-    text(message, {kCenterX, geometry.text_y}, color, true, kSize);
+    text(message, {kCenterX, geometry.text_y - kSize * kHalf}, color, true,
+         kSize);
     if (view.page == OptionsPage::saved) {
       // The original acknowledgment embeds the ordinary confirm-button prompt
       // at the final panel boundary; it is not the loading spinner variant.
@@ -488,7 +489,8 @@ struct OptionsSurface::State {
              {x - button.width * kHalf, y - button.height * kHalf},
              button_tint);
       tint.alpha *= decoration;
-      text(dialog_text.at(choice).data(), {x, y}, tint, true, kSize);
+      text(dialog_text.at(choice).data(), {x, y - kSize * kHalf}, tint, true,
+           kSize);
     }
   }
   void show(const OptionsPresentation& view) {
@@ -529,7 +531,7 @@ struct OptionsSurface::State {
       prompt(view.prompts.back, {kCalibrationIconX, kCalibrationIconY});
       text(calibration_text.at(1).data(),
            {kCalibrationConfirmX + view.prompts.back.text_advance -
-                menu_prompts(true).back.text_advance,
+                menu_prompts(MenuInputDevice::controller).back.text_advance,
             kCenterX});
       const auto shade =
           view.opening
@@ -637,14 +639,14 @@ struct OptionsSurface::State {
     constexpr std::size_t kConfirmText = 2, kBackText = 3;
     text(calibration_text.at(kConfirmText).data(),
          {footer.x + kFooterTextX + view.prompts.confirm.text_advance -
-              menu_prompts(true).confirm.text_advance,
+              menu_prompts(MenuInputDevice::controller).confirm.text_advance,
           footer.y + kFooterTextY},
          kText, false, kPromptFontSize);
     prompt(view.prompts.back,
            {footer.x + kFooterBackIconX, footer.y + kFooterIconY});
     text(calibration_text.at(kBackText).data(),
          {footer.x + kFooterBackTextX + view.prompts.back.text_advance -
-              menu_prompts(true).back.text_advance,
+              menu_prompts(MenuInputDevice::controller).back.text_advance,
           footer.y + kFooterTextY},
          kText, false, kPromptFontSize);
     if (view.page == OptionsPage::notice) notice(view.notice);

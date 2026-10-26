@@ -574,13 +574,13 @@ struct PauseHelpSurface::State {
       prompt(view.prompts.confirm, kPromptX);
       text(prompts.at(0), view.input_icons,
            {kPromptTextX + view.prompts.confirm.text_advance -
-                menu_prompts(true).confirm.text_advance,
+                menu_prompts(MenuInputDevice::controller).confirm.text_advance,
             kPromptTextY},
            1, false, false, 0, kPromptSize / kTextSize);
       prompt(view.prompts.back, kPromptSecondX);
       text(prompts.at(1), view.input_icons,
            {kPromptSecondTextX + view.prompts.back.text_advance -
-                menu_prompts(true).back.text_advance,
+                menu_prompts(MenuInputDevice::controller).back.text_advance,
             kPromptTextY},
            1, false, false, 0, kPromptSize / kTextSize);
     }

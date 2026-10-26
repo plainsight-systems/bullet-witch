@@ -21,7 +21,7 @@ enum class RankingPhase : std::uint8_t {
 struct RankingPresentation {
   RankingPhase phase{RankingPhase::complete};
   float elapsed{}, opacity{}, dialog_progress{};
-  MenuPrompts prompts{menu_prompts(true)};
+  MenuPrompts prompts{menu_prompts(MenuInputDevice::controller)};
 };
 class RankingOutput {
  public:

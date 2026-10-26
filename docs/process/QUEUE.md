@@ -9,15 +9,17 @@
   Slices 1 (`fd773fb`) and 2 (`a5577bb`) remain accepted. Pushing still needs
   instruction. No additional native playthrough is inferred from acceptance.
 
-- Investigate the costume-selection screen's pink block over the currently
-  displayed/selected menu item, reported during the October 26 walkthrough.
-  Cause and source behavior are unverified. This is a separate UI backlog item,
-  outside the accepted reorganization slice 1; no fix is included in that slice.
-
-- Investigate A/B Accept/Back prompts appearing across main-menu screens, reported
-  during the October 26 slice 2 review as apparently new behavior. Scope, first
-  appearance, cause and source fidelity are unverified. This is a separate UI
-  backlog item, outside the accepted slice 2; no fix is included here.
+- Frontend menu repairs were reopened after the first live review rejected
+  overlapping costume labels and scrolling. Source text size/alignment/additive
+  shadow transforms, input-before-response order, retained parent carousel and
+  its missing difficulty veil are now repaired alongside the prompt/pink-flash
+  fixes. Temporal production-Metal sequences and independent original-x86
+  comparisons pass. Active prompts now follow accepted keyboard/mouse or pad
+  activity through the shared input binding boundary, including fixed WASD
+  navigation. Final full gate, purchased-content/startup traversals and native
+  switching captures pass. The user accepted these repairs on October 26,
+  2026 and authorized their scoped commit; both menu backlog items are closed.
+  See [source findings and verification](../../research/engine/subsystems/frontend-menu-repairs.md).
 
 - The complete source-defined frontend is accepted after the October 26 native
   walkthrough, including frontend Options and reachable Power Up. Preserve the

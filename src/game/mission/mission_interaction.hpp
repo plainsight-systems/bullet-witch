@@ -34,6 +34,7 @@ struct MissionInput {
   bool pause_pressed{};
   MenuInput menu;
   input::PhysicalState physical;
+  MenuInputDevice prompt_device{MenuInputDevice::keyboard_mouse};
   HelpInputIcons help_icons{
       help_input_icons(controller_default_settings(), false)};
 };

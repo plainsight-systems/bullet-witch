@@ -229,6 +229,71 @@ void input_history_contract() {
   require(mapped.pressed_actions == 0x1000 && !mapped.attack_pressed,
           "fixed face confirmation does not follow remapped gameplay attack");
 }
+// Switching presentation family must follow new activity, not a plugged-in
+// controller or stale held state. Fixed menu input and saved gameplay differ.
+void prompt_activity_contract() {
+  using bw::game::MenuInputDevice;
+  using bw::input::PadButton;
+  bw::game::ControllerInput mapper;
+  auto settings = bw::game::controller_default_settings();
+  bw::input::InputFrame frame;
+  frame.physical.controller_connected = true;
+  const auto map = [&] { return mapper.map(frame, settings, {}, 0, 0); };
+  require(map().prompt_device == MenuInputDevice::keyboard_mouse,
+          "idle connected pad does not hide keyboard bindings");
+  frame.physical.pad_held = bw::input::pad_bit(PadButton::south);
+  frame.physical.pad_pressed = frame.physical.pad_held;
+  require(map().prompt_device == MenuInputDevice::controller,
+          "new controller action selects controller artwork");
+  frame.physical.pad_pressed = 0;
+  frame.physical.keys_pressed.set(44);
+  require(map().prompt_device == MenuInputDevice::keyboard_mouse,
+          "keyboard action selects keyboard despite connected held pad");
+  frame.physical.keys_pressed.reset();
+  require(map().prompt_device == MenuInputDevice::keyboard_mouse,
+          "stale held pad cannot reclaim prompt family");
+  frame.physical.movement[1] = .8F;
+  require(map().prompt_device == MenuInputDevice::controller,
+          "new accepted stick navigation selects controller");
+  frame.physical.mouse_delta = {1, 0};
+  require(map().prompt_device == MenuInputDevice::keyboard_mouse,
+          "mouse motion selects keyboard and mouse artwork");
+  frame.physical.mouse_delta = {};
+  frame.physical.pad_pressed = bw::input::pad_bit(PadButton::east);
+  frame.physical.wheel = 1;
+  require(map().prompt_device == MenuInputDevice::keyboard_mouse,
+          "same-pump keyboard and mouse activity takes deterministic priority");
+  frame.physical.wheel = 0;
+  require(map().prompt_device == MenuInputDevice::controller,
+          "next pad action restores controller family");
+  frame = {};
+  require(map().prompt_device == MenuInputDevice::keyboard_mouse,
+          "disconnect restores available keyboard family");
+  frame.physical.controller_connected = true;
+  frame.physical.pad_pressed = bw::input::pad_bit(PadButton::south);
+  const auto short_tap = map();
+  require(short_tap.pressed_actions == 0x1000 &&
+              short_tap.repeated_actions == 0x1000,
+          "controller tap released in one pump still confirms exactly once");
+  frame = {};
+  (void)map();
+  settings.keys[0] = 0x10;  // Gameplay forward remapped from W to Q.
+  frame.physical.keys_pressed.set(26);
+  frame.physical.keys_held.set(26);
+  const auto navigation = map();
+  require(navigation.movement[1] == 0 &&
+              (navigation.pressed_actions & 0x01000000U) != 0,
+          "advertised W remains fixed UI navigation after gameplay remapping");
+  frame = {};
+  (void)map();
+  frame.physical.keys_pressed.set(44);
+  require((map().pressed_actions & 0x1000U) != 0,
+          "advertised Space produces menu confirmation");
+  frame = {};
+  frame.physical.keys_pressed.set(225);
+  require((map().pressed_actions & 0x2000U) != 0,
+          "advertised Shift produces menu back");
+}
 void capture_contract() {
   Storage storage;
   bw::game::Profile profile;
@@ -326,6 +391,7 @@ void controller_options_contracts() {
   device_contract();
   input_contract();
   input_history_contract();
+  prompt_activity_contract();
   capture_contract();
   child_fade_contract();
 }

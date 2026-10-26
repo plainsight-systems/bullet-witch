@@ -148,6 +148,10 @@ void pause_review_transactions() {
 }
 #endif
 void main_menu_feedback() {
+  const auto dialog = bw::game::menu_dialog_geometry(1, 2);
+  require(dialog.top == 254 && dialog.bottom == 466 && dialog.text_y == 306 &&
+              dialog.choice_y == 404 && bw::game::menu_dialog_font_size == 32,
+          "Native dialog measures two 32-pixel lines and centers its labels");
   using bw::game::MainMenuMotion;
   using bw::game::MenuFlow;
   using bw::game::MenuPage;
@@ -342,18 +346,40 @@ void persisted_availability() {
   unlocks.stage_select = true;
   bw::game::MenuFlow flow(profile, unlocks);
   flow.start();
+  require(flow.presentation().footer_opacity == 0,
+          "Main prompt receiver is not admitted before entry");
   settle(flow);
+  require(flow.presentation().footer_opacity == 1,
+          "Main prompt receiver fades in after entry");
   down(flow);
   down(flow);
   down(flow);
   accept(flow);
   flow.begin_costume_child();
+  require(flow.presentation().footer_opacity == 0,
+          "Costume child begins with its own hidden prompt receiver");
   settle(flow);
   require(flow.presentation().count == 6 &&
               flow.presentation().rows.at(5).compatibility_id == 5,
           "Steam refresh enables all five costumes without achievement gates");
   for (unsigned index = 0; index < 5; ++index) down(flow);
-  accept(flow);
+  require(flow.presentation().child.selector_opacity == 0 &&
+              flow.presentation().footer_opacity == 1,
+          "Ordinary costume navigation has no pink confirmation flash");
+  flow.update({0x1010, 0});
+  flow.update({0, 0x01000000}, .2F);
+  require(
+      flow.presentation().selected == 5 &&
+          flow.presentation().dialog == bw::game::FrontendDialog::none &&
+          std::abs(flow.presentation().child.selector_opacity - 1) < .001F &&
+          flow.presentation().footer_opacity < 1,
+      "Confirmation owns a half-sine flash and closes navigation before "
+      "dialog");
+  flow.update({}, .2F);
+  require(flow.presentation().child.selector_opacity == 0 &&
+              flow.presentation().footer_opacity == 0,
+          "Confirmation plate and ordinary prompts retire before dialog");
+  settle(flow);
   require(
       profile.costume() == 0 && flow.presentation().dialog ==
                                     bw::game::FrontendDialog::change_costume,
@@ -411,6 +437,12 @@ void options_and_stage() {
   settle(flow);
   require(flow.presentation().page == bw::game::MenuPage::costume,
           "Shared Options explicitly enters the costume child");
+  flow.update({0, 0x02000000}, 1.F / 60);
+  require(
+      flow.presentation().selected == 1 &&
+          std::abs(flow.presentation().child.scroll + 11.3759003F) < .001F &&
+          flow.presentation().child.highlight.at(1) > 0,
+      "Costume input advances source scroll and highlight in the same tick");
   cancel(flow);
   require(flow.costume_child_complete(),
           "Unchanged costume leaves after original conceal");
@@ -421,11 +453,24 @@ void options_and_stage() {
   accept(flow);
   require(flow.presentation().count == 6,
           "All six campaign stages are selectable");
-  down(flow);
+  flow.update({0, 0x02000000}, 1.F / 60);
+  require(
+      std::abs(flow.presentation().stage.motion.scroll + 19.7094116F) < .001F,
+      "Stage input advances the original carousel in the same tick");
+  settle(flow);
   down(flow);
   accept(flow);
-  require(flow.presentation().page == bw::game::MenuPage::difficulty,
-          "Stage selection precedes difficulty");
+  require(flow.presentation().page == bw::game::MenuPage::difficulty &&
+              flow.presentation().stage.obscuration == 1,
+          "Stage selection precedes difficulty with its parent veil");
+  down(flow);
+  cancel(flow);
+  require(flow.presentation().page == bw::game::MenuPage::stage &&
+              flow.presentation().selected == 2 &&
+              flow.presentation().stage.obscuration == 0 &&
+              std::abs(flow.presentation().stage.motion.scroll + 596.F) < .001F,
+          "Difficulty cursor cannot reset or move its parent carousel");
+  accept(flow);
   accept(flow);
   require(flow.selection() && flow.selection()->original_status == 3 &&
               flow.selection()->stage == 3,

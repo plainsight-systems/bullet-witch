@@ -31,7 +31,7 @@ enum class PauseHelpPhase : std::uint8_t {
   complete
 };
 struct PauseHelpPresentation {
-  MenuPrompts prompts{menu_prompts(true)};
+  MenuPrompts prompts{menu_prompts(MenuInputDevice::controller)};
   HelpInputIcons input_icons{
       help_input_icons(controller_default_settings(), false)};
   PauseHelpPhase phase{PauseHelpPhase::complete};

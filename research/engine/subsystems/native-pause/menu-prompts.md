@@ -23,11 +23,20 @@ brightness and save acknowledgments use the corresponding single action run.
 Device discovery clears the keyboard-mode bit (`41c541`, `41cb2d`), failed
 polling eventually sets it (`41c64f`, `41cfbe`), and mapped pad activity clears
 it (`41d1a1`). Inspection of direct global references finds no keyboard-event
-writer switching this bit. The admitted native Xbox device's copied
-`controller_connected` observation therefore selects the presentation mode.
-This is device availability, not a last-used-input heuristic. Platform connection
-reporting replaces the Windows polling/discovery mechanism; no additional game
-clock or duplicate device owner is introduced.
+writer switching this bit. That original discovery policy does not establish last-used keyboard switching.
+The earlier reconstruction used copied `controller_connected` for presentation.
+The user rejected that behavior in the frontend repair: a plugged-in controller
+must not hide the bindings for keyboard/mouse input currently being used.
+
+`ControllerInput` now publishes a copied active family from new keyboard/mouse
+activity, pad button edges or accepted stick navigation edges. Idle connection
+and stale holds do not override it; disconnect restores keyboard/mouse. The
+shared fixed UI binding descriptor drives both accepted actions and glyph
+resolution, while Help mode zero continues to resolve saved gameplay bindings.
+This activity policy is an explicit user-requested adaptation guided by pinned
+Unreal CommonInput, not a claim about an untraced original keyboard-mode writer.
+See [frontend repair](../frontend-menu-repairs.md) for source/reference details
+and native switching verification. No additional clock or device owner exists.
 
 Core Guidelines I.1 and performance MEM.9 were read in both design and
 implementation. Explicit copied snapshots separate input policy from resource

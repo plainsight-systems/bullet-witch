@@ -491,7 +491,7 @@ struct ControllerOptionsSurface::State {
           menu_dialog_geometry(view.dialog_view.progress, lines);
       constexpr float kPanelAlpha = 178.F / 255, kCanvasWidth = 1280,
                       kCenterX = 640, kChoiceLeft = 448, kChoiceRight = 832,
-                      kDialogSize = 48, kInactiveAlpha = .8F;
+                      kDialogSize = menu_dialog_font_size, kInactiveAlpha = .8F;
       if (layout.bottom > layout.top) {
         commands.at(count++) = {
             image(kWhite).texture,

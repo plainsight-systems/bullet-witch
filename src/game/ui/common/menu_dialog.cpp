@@ -68,9 +68,9 @@ MenuDialogGeometry menu_dialog_geometry(float progress, unsigned text_lines,
       text_lines == 0) {
     throw std::invalid_argument("Invalid dialog geometry");
   }
-  constexpr float kSize = 48, kBorder = 36, kGap = 12, kChoiceHeight = 64,
-                  kCenterY = 360, kHalf = .5F, kChoiceOffset = 26,
-                  kExpansionEnd = .9F, kOpacityStart = .3F,
+  constexpr float kSize = menu_dialog_font_size, kBorder = 36, kGap = 12,
+                  kChoiceHeight = 64, kCenterY = 360, kHalf = .5F,
+                  kChoiceOffset = 26, kExpansionEnd = .9F, kOpacityStart = .3F,
                   kDecorationStart = .7F, kChannelDuration = .3F;
   const auto half_height =
       (static_cast<float>(text_lines) * kSize + 2 * kBorder +

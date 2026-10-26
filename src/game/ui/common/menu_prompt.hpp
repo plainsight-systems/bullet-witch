@@ -1,14 +1,14 @@
-// Native PC fixed UI-mode prompts, copied into presentation snapshots. Device
-// availability selects keyboard or admitted Xbox artwork; gameplay remapping
-// does not alter these UI defaults. Views receive no input or Profile
-// authority. Source 472270/472930/472dd0; evidence:
-// native-pause/menu-prompts.md. Core I.1
-// (#ri-explicit) and performance MEM.9 (guidelines/memory/
-// MEM.9-embedded-allocate-at-init.md), read for design and implementation,
-// require explicit values and bounded, allocation-free publication.
+// Original UI prompt glyph runs resolved from the same fixed binding descriptor
+// used by action translation. The input owner publishes active family; neither
+// device availability nor saved gameplay remaps change UI bindings. Views get
+// copied values, no input/Profile authority. Both-phase Core I.1 (#ri-explicit)
+// and MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keep
+// explicit bounded observations. Source/reference: frontend-menu-repairs.md.
 #pragma once
 #include <array>
 #include <cstdint>
+
+#include "game/player/input/menu_bindings.hpp"
 
 namespace bw::game {
 struct MenuPrompt {
@@ -17,11 +17,10 @@ struct MenuPrompt {
   float icon_pitch{}, text_advance{};
 };
 struct MenuPrompts {
-  MenuPrompt confirm, back;
+  MenuPrompt confirm, back, navigate;
 };
-// No last-used-device heuristic: original device discovery/loss selects this
-// mode. The platform has already resolved device availability in its sample.
-MenuPrompts menu_prompts(bool controller_connected) noexcept;
+// Resolve physical binding positions to the original admitted icon atlas.
+MenuPrompts menu_prompts(MenuInputDevice device) noexcept;
 // Reject malformed copied data before publishing any sprite commands.
 bool valid_menu_prompt(const MenuPrompt& prompt) noexcept;
 }  // namespace bw::game

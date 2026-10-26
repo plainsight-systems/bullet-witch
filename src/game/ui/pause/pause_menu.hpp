@@ -49,7 +49,7 @@ struct PauseMenuItem {
   float x{}, y{}, scale{1}, alpha{}, brightness{1};
 };
 struct PauseMenuPresentation {
-  MenuPrompts prompts{menu_prompts(true)};
+  MenuPrompts prompts{menu_prompts(MenuInputDevice::controller)};
   PauseMenuPhase phase{PauseMenuPhase::inactive};
   PauseMenuAction selected{PauseMenuAction::help};
   std::array<PauseMenuItem, pause_menu_item_count> items{};

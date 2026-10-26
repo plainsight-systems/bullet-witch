@@ -33,6 +33,10 @@ class MenuDialog {
   float elapsed_{};
   MenuDialogMode mode_{MenuDialogMode::yes_no};
 };
+// Native text defaults to 32 pixels; 0x30 is center alignment, not size.
+// text_y is the first line center, choice_y is the choice label center.
+// Both rendering and measured panel height use this one font-size contract.
+inline constexpr float menu_dialog_font_size = 32;
 struct MenuDialogGeometry {
   float top{}, bottom{}, text_y{}, choice_y{}, opacity{}, decoration{};
 };

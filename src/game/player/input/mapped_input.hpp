@@ -8,14 +8,16 @@
 // inline.
 #pragma once
 #include "bw/input/physical_state.hpp"
+#include "menu_bindings.hpp"
 namespace bw::game {
 struct MappedInput {
   input::PhysicalState physical;
   std::uint32_t pressed_actions{};
   std::uint32_t repeated_actions{};
   bool close_requested{};
-  // Device availability observation for honest platform button prompts.
+  // Availability admits device configuration; active family selects prompts.
   bool controller_connected{};
+  MenuInputDevice prompt_device{MenuInputDevice::keyboard_mouse};
   // Fixed UI receiver axis, populated by the game adapter from positional
   // stick Y plus wheel impulses. Independent of saved gameplay bindings.
   float menu_vertical_axis{};

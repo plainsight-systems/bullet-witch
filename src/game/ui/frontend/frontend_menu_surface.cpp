@@ -1,4 +1,11 @@
-// Localized-text repair: design I.1 and implementation E.4, with MEM.9
+// Text contracts distinguish font size from horizontal/vertical alignment;
+// shadow translation is additive. Both-phase E.4 (#re-design-invariants) and
+// MEM.9 retain validated placements and fixed sprite publication.
+// Original menu repair: depth-sorted costume plates precede labels, and
+// source-owned footer/confirmation opacity arrives in the copied snapshot.
+// Both-phase I.1 (#ri-explicit) and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) retain explicit state and prepared
+// assets. Localized-text repair: design I.1 and implementation E.4, with MEM.9
 // retrieved in both phases. Policy publishes content IDs; the surface owns
 // prepared purchased text/art. No English fallback or frame-time decoding.
 // Main-menu feedback implementation: original supplied-time tracks and copied
@@ -67,12 +74,13 @@ memory::Allocator<std::byte> storage_for(
   return domain ? memory::Allocator<std::byte>(domain)
                 : memory::Allocator<std::byte>{};
 }
+enum class TextAlignment : std::uint8_t { top_left, top_center, center };
 struct TextPosition {
   float x{}, y{}, size{};
 };
 constexpr unsigned kMainBackground = 334, kStageBackground = 306;
 constexpr resources::ResourceTag kMenuTag = 12;
-constexpr std::size_t kCostumeCount = 6;
+constexpr std::size_t kCostumeCount = 6, kCommonLabelCount = 5;
 constexpr unsigned kCostumeImageBase = 10000, kCampaignImageBase = 11000,
                    kConceptImageBase = 12000, kWhiteImage = 13000,
                    kIconAtlas = 13001;
@@ -277,7 +285,7 @@ struct FrontendMenuSurface::State {
              static_cast<std::size_t>(FrontendDialog::profile_enable_autosave) +
                  1>
       dialog_labels{};
-  std::array<Text, 4> common_labels{};
+  std::array<Text, kCommonLabelCount> common_labels{};
   render::TextureHandle font_texture;
   std::array<render::Sprite, render::kMaximumSprites> commands{};
   std::size_t count{};
@@ -382,8 +390,8 @@ struct FrontendMenuSurface::State {
             localized_text::prepare_text(
                 original_text(table, kDialogKeys.at(i)), dialog_labels.at(i));
           }
-          constexpr std::array<std::string_view, 4> kCommonKeys{"0001", "0002",
-                                                                "0027", "0028"};
+          constexpr std::array<std::string_view, kCommonLabelCount> kCommonKeys{
+              "0001", "0002", "0027", "0028", "0026"};
           for (std::size_t i = 0; i < kCommonKeys.size(); ++i) {
             localized_text::prepare_text(
                 original_text(table, {"sys", kCommonKeys.at(i)}),
@@ -543,17 +551,21 @@ struct FrontendMenuSurface::State {
                              std::to_string(id));
   }
   void text(std::string_view value, TextPosition position, render::Color tint,
-            bool centered = false) {
+            TextAlignment alignment = TextAlignment::top_left) {
     constexpr float kHalf = .5F;
 
     if (!font) throw std::logic_error("Missing menu font");
+    if (alignment == TextAlignment::center) {
+      const auto lines = 1 + std::ranges::count(value, '\n');
+      position.y -= static_cast<float>(lines) * position.size * kHalf;
+    }
     std::size_t begin = 0;
     for (;;) {
       const auto end = value.find('\n', begin);
       const auto line = value.substr(
           begin, end == std::string_view::npos ? end : end - begin);
       float width = 0;
-      if (centered) {
+      if (alignment != TextAlignment::top_left) {
         for (const auto character : line) {
           const auto glyph = font->glyph(static_cast<unsigned char>(character));
           if (!glyph) throw std::runtime_error("Original menu glyph missing");
@@ -599,22 +611,26 @@ struct FrontendMenuSurface::State {
     }
   }
   void footer(const MenuPresentation& view) {
-    constexpr float kConfirmX = 32;
-    constexpr float kBackX = 232;
-    constexpr float kIconY = 26;
-
-    // Fixed UI mode2: copied prompts reflect controller admission, not gameplay
-    // remaps. Source text advance and pivot-derived icon pitch are shared.
-    constexpr float kTextInset = 6, kTextY = 39, kSize = 22;
-    prompt(view.prompts.confirm, kConfirmX, kIconY);
-    prompt(view.prompts.back, kBackX, kIconY);
-    text(common_labels.at(2).data(),
-         {kConfirmX + kTextInset + view.prompts.confirm.text_advance, kTextY,
-          kSize},
-         kText);
-    text(common_labels.at(3).data(),
-         {kBackX + kTextInset + view.prompts.back.text_advance, kTextY, kSize},
-         kText);
+    if (view.footer_opacity == 0) return;
+    constexpr float kOriginX = 840, kOriginY = 636, kIconInset = 14;
+    constexpr float kBackOffset = 200, kNavigationOffset = 40;
+    constexpr float kTextInset = 6, kTextY = 13, kSize = 22;
+    const auto emit = [&](const MenuPrompt& run, float x, float y,
+                          std::size_t label) {
+      prompt(run, x, y, view.footer_opacity);
+      auto tint = kText;
+      tint.alpha = view.footer_opacity;
+      text(common_labels.at(label).data(),
+           {x + kTextInset + run.text_advance, y + kTextY, kSize}, tint);
+    };
+    // The original receiver anchors these offsets in the bottom-right footer;
+    // Options owns a separate moving footer, not this task's coordinates.
+    emit(view.prompts.confirm, kOriginX - kIconInset, kOriginY, 2);
+    emit(view.prompts.back, kOriginX - kIconInset + kBackOffset, kOriginY, 3);
+    if (view.page == MenuPage::main) {
+      emit(view.prompts.navigate, kOriginX - kIconInset,
+           kOriginY + kNavigationOffset, 4);
+    }
   }
   void dialog(const MenuPresentation& view) {
     constexpr float kCanvasWidth = 1280;
@@ -625,7 +641,7 @@ struct FrontendMenuSurface::State {
     constexpr float kHalf = .5F;
     constexpr float kInactiveAlpha = .8F;
     constexpr float kCenterX = 640;
-    constexpr float kFontSize = 48;
+    constexpr float kFontSize = menu_dialog_font_size;
     constexpr float kAcknowledgeX = 1076;
     constexpr float kAcknowledgeInset = 64;
 
@@ -653,7 +669,8 @@ struct FrontendMenuSurface::State {
           {1, 1, 1, geometry.opacity});
     auto tint = kText;
     tint.alpha = geometry.decoration;
-    text(label, {kCenterX, geometry.text_y, kFontSize}, tint, true);
+    text(label, {kCenterX, geometry.text_y - kFontSize * kHalf, kFontSize},
+         tint, TextAlignment::top_center);
     if (!view.dialog_interactive) return;
     if (!choices) {
       const auto settled = menu_dialog_geometry(1, lines, false);
@@ -677,7 +694,7 @@ struct FrontendMenuSurface::State {
           button_color);
       color.alpha *= geometry.decoration;
       text(common_labels.at(choice).data(), {x, geometry.choice_y, kFontSize},
-           color, true);
+           color, TextAlignment::center);
     }
   }
   void stage(const StageMenuFeedback& view) {
@@ -803,6 +820,18 @@ struct FrontendMenuSurface::State {
     if (view.selected + 1 < view.count) {
       image(kArrowDown, {kArrowX, kArrowDownY - wobble});
     }
+    // The parent stage receiver obscures its content beneath difficulty.
+    // Authored color is packed to bytes before its opacity response multiplies
+    // alpha. Preserve this separate layer instead of tinting child widgets.
+    constexpr float kVeilColorByte = 89, kVeilAlphaByte = 165,
+                    kColorMaximum = 255;
+    constexpr float kVeilColor = kVeilColorByte / kColorMaximum,
+                    kVeilAlpha = kVeilAlphaByte / kColorMaximum;
+    if (view.obscuration > 0) {
+      image(
+          kWhiteImage, {0, 0, render::kCanvasWidth, render::kCanvasHeight},
+          {kVeilColor, kVeilColor, kVeilColor, kVeilAlpha * view.obscuration});
+    }
     auto title = track_position(kStageTracks.at(kDecorationCount), view.motion,
                                 kDuration);
     image(view.is_concept ? kConceptTitle : kCampaignTitle, title);
@@ -815,9 +844,9 @@ struct FrontendMenuSurface::State {
     constexpr unsigned kCurrentCostumeImage = 451;
     constexpr float kShadowX = 231;
     constexpr float kShadowY = 84;
-    constexpr float kLabelX = 223;
-    constexpr float kLabelY = 76;
-    constexpr float kLabelSize = 48;
+    constexpr float kLabelX = 227;
+    constexpr float kLabelY = 80;
+    constexpr float kLabelSize = 32;
     constexpr unsigned kScrollTop = 57;
     constexpr unsigned kScrollBottom = 58;
     constexpr unsigned kScrollMiddle = 59;
@@ -851,18 +880,26 @@ struct FrontendMenuSurface::State {
       if (i < 0 || static_cast<std::size_t>(i) >= view.count) continue;
       const auto row = static_cast<std::size_t>(i);
       const auto id = view.rows.at(row).compatibility_id;
-      // Authored label draws a four-pixel black offset before the pale glyphs.
-      text(costume_labels.at(id).data(),
-           {list.x + kShadowX, y + kShadowY, kLabelSize}, {0, 0, 0, 1}, true);
-      text(costume_labels.at(id).data(),
-           {list.x + kLabelX, y + kLabelY, kLabelSize}, kText, true);
       const auto shade = std::clamp(1 + shimmer, 0.F, 1.F);
       image(kRowHighlight, {list.x, y},
             {shade, shade, shade, view.child.highlight.at(row)});
-      if (row == view.selected) image(kSelectionImage, {list.x, y});
+      if (row == view.selected && view.child.selector_opacity > 0) {
+        image(kSelectionImage, {list.x, y},
+              {1, 1, 1, view.child.selector_opacity});
+      }
       if (id == view.child.current_costume) {
         image(kCurrentCostumeImage, {list.x, y});
       }
+      // Original admission sorts plates at depth0 and labels at depth1.
+      // Preserve that visible order before the depth2 aperture masks.
+      // Font defaults to32; center flags do not change its size. The shadow
+      // adds four pixels, then the inverse translation restores the anchor.
+      text(costume_labels.at(id).data(),
+           {list.x + kShadowX, y + kShadowY, kLabelSize}, {0, 0, 0, 1},
+           TextAlignment::center);
+      text(costume_labels.at(id).data(),
+           {list.x + kLabelX, y + kLabelY, kLabelSize}, kText,
+           TextAlignment::center);
     }
     // Depth2 occluders mask rows beyond the original scrolling aperture.
     for (const auto index : {3U, 4U, 5U}) {
@@ -1007,7 +1044,10 @@ void FrontendMenuSurface::show(const MenuPresentation& presentation) {
     }
   }
   if (!valid_menu_prompt(presentation.prompts.confirm) ||
-      !valid_menu_prompt(presentation.prompts.back)) {
+      !valid_menu_prompt(presentation.prompts.back) ||
+      !valid_menu_prompt(presentation.prompts.navigate) ||
+      !std::isfinite(presentation.footer_opacity) ||
+      presentation.footer_opacity < 0 || presentation.footer_opacity > 1) {
     throw std::invalid_argument("Invalid frontend input prompts");
   }
   state.count = 0;

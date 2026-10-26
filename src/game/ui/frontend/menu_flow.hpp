@@ -1,3 +1,11 @@
+// Temporal list contract: accept input before advancing supplied-time
+// responses; nested difficulty retains its parent carousel state. Both-phase
+// E.4
+// (#re-design-invariants) and MEM.9 keep one owner and fixed observations.
+// Prompt/confirmation repair: I.1 (#ri-explicit) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md), read in both
+// phases, keep original UI animation in this supplied-time owner. Footer and
+// confirmation opacity are copied observations; rendering never advances them.
 // Localized-text repair: design I.1 and implementation E.4, with MEM.9
 // retrieved in both phases. Policy publishes content IDs; the surface owns
 // prepared purchased text/art. No English fallback or frame-time decoding.
@@ -14,10 +22,11 @@
 // pressed action/repeated direction, then publish the selected action after
 // confirmation. Concept missions are selectable without game completion by
 // project policy; campaign-stage and higher-difficulty gates remain injected.
-// Navigation wraps and skips disabled entries as original
-// 0x4c6570 does. Costs: bounded O(64) row/navigation work, no per-update
-// allocations. Design MCP: cpp-guidelines Enum.3 (#renum-class) keeps
-// pages/actions distinct; cpp-performance COPY.7
+// Main/difficulty navigation wraps and skips disabled entries (4c6570);
+// costume/stage/concept lists clamp at their endpoints (4c6610). Costs: bounded
+// O(64) row/navigation work, no per-update allocations. Design MCP:
+// cpp-guidelines Enum.3 (#renum-class) keeps pages/actions distinct;
+// cpp-performance COPY.7
 // (guidelines/copy-move/COPY.7-eliminate-hidden-copies.md) uses small explicit
 // value copies and borrows the larger profile. Concept-menu policy design and
 // implementation consult I.1 (#ri-explicit): expose the intentional departure
@@ -121,6 +130,8 @@ struct StageMenuFeedback {
   std::size_t count{}, selected{};
   unsigned best_rank{};
   std::uint32_t best_score{};
+  // Parent-owned veil response while difficulty owns input, not a child tint.
+  float obscuration{};
   ChildMenuFeedback motion;
 };
 struct MenuPresentation {
@@ -138,8 +149,9 @@ struct MenuPresentation {
   bool dialog_interactive{true};
   // CharacterLoad is a separate black native task, not Continue artwork.
   bool storage_background{};
-  MenuPrompts prompts{menu_prompts(false)};
+  MenuPrompts prompts{menu_prompts(MenuInputDevice::keyboard_mouse)};
   float opacity{1};
+  float footer_opacity{};
 };
 struct MenuSelection {
   MenuAction action{MenuAction::new_game};
@@ -184,9 +196,12 @@ class MenuFlow {
   void acknowledge_settings() { settings_changed_ = false; }
 
  private:
+  void advance(MenuInput input, float seconds);
+  void update_footer(float seconds);
   void populate(MenuPage page);
   void enter_child(MenuPage page);
   void update_child(MenuInput input, float seconds);
+  void advance_child(MenuInput input, float seconds);
   void start_dialog(FrontendDialog dialog, bool yes = true);
   void update_dialog(MenuInput input, float seconds);
   void begin_child_exit(bool accepted);
@@ -216,6 +231,7 @@ class MenuFlow {
   std::array<math::DampedResponseState<float>, main_menu_row_count> scale_{};
   math::DampedResponseState<float> description_;
   float pulse_seconds_{};
+  float footer_opacity_{};
   std::size_t main_selection_{};
   bool pending_accept_{};
   bool options_return_{};
@@ -232,10 +248,10 @@ class MenuFlow {
   std::array<math::DampedResponseState<float>, menu_row_capacity>
       child_highlight_{};
   MenuDialog dialog_;
-  bool costume_complete_{}, costume_changed_{};
+  bool costume_complete_{}, costume_changed_{}, costume_confirmation_pending_{};
   bool save_requested_{}, save_pending_{}, child_exit_accept_{};
   std::size_t stage_selection_{};
-  float child_transition_{};
+  float child_transition_{}, stage_obscuration_{};
   bool difficulty_pending_{};
   StageMenuFeedback stage_backdrop_;
 };

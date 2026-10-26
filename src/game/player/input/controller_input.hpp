@@ -45,5 +45,8 @@ class ControllerInput final {
  private:
   std::uint32_t previous_ui_held_{};
   input::ActionRepeat ui_repeat_;
+  // One active prompt family; idle/held devices cannot override new activity.
+  std::uint32_t previous_pad_ui_held_{};
+  MenuInputDevice prompt_device_{MenuInputDevice::keyboard_mouse};
 };
 }  // namespace bw::game

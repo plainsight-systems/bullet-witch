@@ -49,7 +49,7 @@ MissionTransition MissionInteraction::transition_requested() const {
 InteractionResult MissionInteraction::admit(float seconds,
                                             const MissionInput& input) {
   menu_audio_.advance(seconds);
-  prompts_ = menu_prompts(input.physical.controller_connected);
+  prompts_ = menu_prompts(input.prompt_device);
   help_icons_ = input.help_icons;
   if (input.pause_pressed || input.player.reload_pressed ||
       input.player.attack_pressed || input.player.aim_mode_pressed ||

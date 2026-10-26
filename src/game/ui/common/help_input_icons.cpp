@@ -19,7 +19,7 @@ constexpr unsigned kNoBinding = 0x100, kMouseCameraIcon = 99, kMoveIcon = 100,
                    kCameraIcon = 101;
 }  // namespace
 HelpInputIcons help_input_icons(const ControllerSettings& settings,
-                                bool controller_connected) {
+                                bool controller_active) {
   HelpInputIcons result;
   const auto& buttons = settings.controller_identity == kSourceXinputIdentity
                             ? settings.buttons
@@ -35,7 +35,7 @@ HelpInputIcons help_input_icons(const ControllerSettings& settings,
         run.icons.at(run.count++) = static_cast<std::uint16_t>(icon);
       }
     };
-    if (controller_connected) {
+    if (controller_active) {
       if (action == static_cast<unsigned>(HelpInputAction::movement)) {
         append(kMoveIcon);
       } else if (action == static_cast<unsigned>(HelpInputAction::camera)) {

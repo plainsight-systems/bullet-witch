@@ -29,7 +29,7 @@ enum class ControllerSection : std::uint8_t {
 };
 enum class ControllerDialog : std::uint8_t { none, defaults, discard };
 struct ControllerOptionsPresentation {
-  MenuPrompts prompts{menu_prompts(true)};
+  MenuPrompts prompts{menu_prompts(MenuInputDevice::controller)};
   ControllerSettings settings;
   DeviceOptionsSnapshot device;
   ControllerSection selected{ControllerSection::keyboard},

@@ -68,7 +68,7 @@ struct OptionsSettings {
   unsigned music{}, effects{}, costume{};
 };
 struct OptionsPresentation {
-  MenuPrompts prompts{menu_prompts(true)};
+  MenuPrompts prompts{menu_prompts(MenuInputDevice::controller)};
   OptionsContext context{OptionsContext::mission};
   OptionsPage page{OptionsPage::complete};
   Option selected{Option::subtitles};

@@ -42,7 +42,8 @@ constexpr std::array<float, 4> kBackgroundY{0, 36, 160, 272};
 constexpr std::array<unsigned, 6> kRows{231, 232, 234, 235, 233, 230};
 constexpr std::array<std::string_view, 5> kSystemKeys{"0001", "0002", "0005",
                                                       "0006", "0007"};
-constexpr float kHalf = .5F, kDialogX = 640, kDialogTextSize = 48,
+constexpr float kHalf = .5F, kDialogX = 640,
+                kDialogTextSize = menu_dialog_font_size,
                 kDialogAlpha = 178.F / 255;
 constexpr render::Color kText{230.F / 255, 228.F / 255, 213.F / 255, 1};
 memory::Allocator<std::byte> storage_for(

@@ -1,3 +1,6 @@
+// Active prompts and fixed UI actions share the immutable binding descriptor.
+// Input activity updates one owner; connection only admits controller use.
+// Both-phase I.1/MEM.9 keep that family a bounded copied observation.
 // Source keyboard scan positions are translated from USB observations, then
 // duplicate-free saved bindings select held/pressed game intentions. Controller
 // compatibility applies the original device-map fallback. Mouse look remains
@@ -98,21 +101,27 @@ MappedInput ControllerInput::map(const input::InputFrame& sample,
   // Keep merged holds distinct from explicit key-down edges: a second key
   // mapped to the same UI action still reports its tap, and down/up in one pump
   // survives.
-  constexpr std::size_t kEnterKey = 40, kSpaceKey = 44, kEscapeKey = 41,
-                        kUpKey = 82, kDownKey = 81, kLeftKey = 80,
-                        kRightKey = 79;
+  constexpr std::size_t kEnterKey = 40, kEscapeKey = 41, kUpKey = 82,
+                        kDownKey = 81, kLeftKey = 80, kRightKey = 79;
   constexpr std::uint32_t kConfirmAction = 0x1000, kCancelAction = 0x2000,
                           kStartAction = 0x10, kUpAction = 0x01000000,
                           kDownAction = 0x02000000, kLeftAction = 0x04000000,
                           kRightAction = 0x08000000;
   const auto keyboard_ui = [](const auto& keys) {
-    return ((keys.test(kEnterKey) || keys.test(kSpaceKey)) ? kConfirmAction
-                                                           : 0U) |
+    const auto bound = [&](std::size_t slot) {
+      return keys.test(
+          source_key_to_usb(kOriginalMenuBindings.navigation_keys.at(slot)));
+    };
+    return ((keys.test(kEnterKey) ||
+             keys.test(
+                 source_key_to_usb(kOriginalMenuBindings.confirm_keys[1])))
+                ? kConfirmAction
+                : 0U) |
            (keys.test(kEscapeKey) ? kCancelAction : 0U) |
-           (keys.test(kUpKey) ? kUpAction : 0U) |
-           (keys.test(kDownKey) ? kDownAction : 0U) |
-           (keys.test(kLeftKey) ? kLeftAction : 0U) |
-           (keys.test(kRightKey) ? kRightAction : 0U);
+           ((keys.test(kUpKey) || bound(0)) ? kUpAction : 0U) |
+           ((keys.test(kDownKey) || bound(1)) ? kDownAction : 0U) |
+           ((keys.test(kLeftKey) || bound(2)) ? kLeftAction : 0U) |
+           ((keys.test(kRightKey) || bound(3)) ? kRightAction : 0U);
   };
   const auto held_button = [&](input::PadButton button) {
     return (physical.pad_held & input::pad_bit(button)) != 0;
@@ -126,10 +135,10 @@ MappedInput ControllerInput::map(const input::InputFrame& sample,
     return std::max(physical.movement.at(axis),
                     physical.movement_maximum.at(axis));
   };
-  const auto held =
-      keyboard_ui(physical.keys_held) |
-      (held_button(input::PadButton::south) ? kConfirmAction : 0U) |
-      (held_button(input::PadButton::east) ? kCancelAction : 0U) |
+  const auto pad_ui =
+      (held_button(kOriginalMenuBindings.confirm_button) ? kConfirmAction
+                                                         : 0U) |
+      (held_button(kOriginalMenuBindings.back_button) ? kCancelAction : 0U) |
       (held_button(input::PadButton::menu) ? kStartAction : 0U) |
       ((held_button(input::PadButton::up) ||
         axis_maximum(1) > kNavigationThreshold)
@@ -147,8 +156,34 @@ MappedInput ControllerInput::map(const input::InputFrame& sample,
         axis_maximum(0) > kNavigationThreshold)
            ? kRightAction
            : 0U);
+  const auto held = keyboard_ui(physical.keys_held) | pad_ui;
+  const bool keyboard_mouse_activity =
+      physical.keys_pressed.any() || physical.mouse_pressed != 0 ||
+      physical.wheel != 0 || physical.mouse_delta[0] != 0 ||
+      physical.mouse_delta[1] != 0;
+  const bool pad_activity =
+      physical.pad_pressed != 0 || (pad_ui & ~previous_pad_ui_held_) != 0;
+  if (!physical.controller_connected || keyboard_mouse_activity) {
+    prompt_device_ = MenuInputDevice::keyboard_mouse;
+  } else if (pad_activity) {
+    prompt_device_ = MenuInputDevice::controller;
+  }
+  previous_pad_ui_held_ = pad_ui;
+  result.prompt_device = prompt_device_;
+  // Preserve controller taps released within the same native pump, just as
+  // keyboard edges survive independently of the final held observation.
+  const auto pad_tap = [&](input::PadButton button, std::uint32_t action) {
+    return (physical.pad_pressed & input::pad_bit(button)) != 0 ? action : 0U;
+  };
   result.pressed_actions =
-      keyboard_ui(physical.keys_pressed) | (held & ~previous_ui_held_);
+      keyboard_ui(physical.keys_pressed) | (held & ~previous_ui_held_) |
+      pad_tap(kOriginalMenuBindings.confirm_button, kConfirmAction) |
+      pad_tap(kOriginalMenuBindings.back_button, kCancelAction) |
+      pad_tap(input::PadButton::menu, kStartAction) |
+      pad_tap(input::PadButton::up, kUpAction) |
+      pad_tap(input::PadButton::down, kDownAction) |
+      pad_tap(input::PadButton::left, kLeftAction) |
+      pad_tap(input::PadButton::right, kRightAction);
   result.repeated_actions =
       ui_repeat_.advance({held, result.pressed_actions}, presentation_seconds);
   previous_ui_held_ = held;
@@ -156,10 +191,12 @@ MappedInput ControllerInput::map(const input::InputFrame& sample,
   // gameplay binding table. Preserve the fixed navigation repeat stream above.
   constexpr std::uint32_t kConfirm = 0x1000, kBack = 0x2000, kDefaults = 0x8000;
   const auto ui_aliases =
-      ((key_state(physical, 0x12c, true) || key_state(physical, 0x39, true))
+      ((key_state(physical, kOriginalMenuBindings.confirm_keys[0], true) ||
+        key_state(physical, kOriginalMenuBindings.confirm_keys[1], true))
            ? kConfirm
            : 0U) |
-      ((key_state(physical, 0x12d, true) || key_state(physical, 0x2a, true))
+      ((key_state(physical, kOriginalMenuBindings.back_keys[0], true) ||
+        key_state(physical, kOriginalMenuBindings.back_keys[1], true))
            ? kBack
            : 0U);
   const auto defaults =

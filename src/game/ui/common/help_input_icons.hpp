@@ -1,5 +1,5 @@
 // Copied logical Help icon runs, resolved by game input policy from an
-// immutable settings observation and device availability. Literal artwork is
+// immutable settings observation and active input family. Literal artwork is
 // not mapped. No Profile/device/GPU authority crosses into presentation. Six
 // supported original kico actions, at most four icons each, bounded
 // allocation-free work. Core I.1/C.9 (#ri-explicit/#rc-private) and MEM.9
@@ -32,6 +32,6 @@ struct HelpInputIcons {
       actions{};
 };
 HelpInputIcons help_input_icons(const ControllerSettings& settings,
-                                bool controller_connected);
+                                bool controller_active);
 bool valid_help_input_icons(const HelpInputIcons& icons) noexcept;
 }  // namespace bw::game

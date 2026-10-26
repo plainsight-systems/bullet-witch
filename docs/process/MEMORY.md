@@ -48,7 +48,15 @@
   user review and their recorded gates. RenderScene owns membership/retirement;
   narrow actor/lighting publishers retain one native draw registry. World/movie/UI
   remain sibling outputs with synchronous GPU retirement. The separate costume
-  pink-block and main-menu A/B prompt observations remain in QUEUE.
+  menu repairs were reopened after live review: native font/alignment and
+  additive shadow semantics, list update order, retained parent carousel and
+  difficulty veil are repaired alongside pink-flash/prompt ownership. Temporal
+  native/source verification passes. One input owner publishes active prompt
+  family from new activity; shared fixed UI bindings drive actions and artwork,
+  separate from saved gameplay/Help mappings. Final full gate, original-content
+  traversal and native switching captures pass. The user accepted the menu
+  repairs and authorized their scoped commit on October 26, 2026.
+  See `research/engine/subsystems/frontend-menu-repairs.md`.
 
 - Frontend scope is the entire original reachable menu system. Lua orchestrates
   native tasks; source task implementations define artwork, localization,

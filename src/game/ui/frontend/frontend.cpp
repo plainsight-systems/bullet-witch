@@ -119,7 +119,7 @@ void FrontEnd::update(Screen screen, LogoUpdate input, std::uint32_t repeated,
                       const input::PhysicalState& physical,
                       float vertical_axis) {
   const MenuInput menu_input{input.pressed_actions, repeated, vertical_axis};
-  menu_.set_prompts(menu_prompts(input.controller_connected));
+  menu_.set_prompts(menu_prompts(input.prompt_device));
   if (screen == Screen::character_load) {
     const bool ready = surface_.ready();
     load_.update(input, ready);
@@ -132,7 +132,7 @@ void FrontEnd::update(Screen screen, LogoUpdate input, std::uint32_t repeated,
       view.dialog = profile_dialog(loaded.identity);
       view.dialog_view = loaded.dialog;
       view.dialog_interactive = loaded.interactive;
-      view.prompts = menu_prompts(input.controller_connected);
+      view.prompts = menu_prompts(input.prompt_device);
       surface_.show(view);
     }
     return;
@@ -294,7 +294,7 @@ void FrontEnd::update_options(LogoUpdate input, MenuInput menu_input,
       complete_options_child();
     } else {
       auto view = ranking_.presentation();
-      view.prompts = menu_prompts(input.controller_connected);
+      view.prompts = menu_prompts(input.prompt_device);
       ranking_output_->show(view);
     }
     return;
@@ -343,14 +343,14 @@ void FrontEnd::update_options(LogoUpdate input, MenuInput menu_input,
     options_output_->activate(FrontendOptionsView::controls);
     if (options_output_->ready()) {
       auto view = options_->controller_presentation();
-      view.prompts = menu_prompts(input.controller_connected);
+      view.prompts = menu_prompts(input.prompt_device);
       options_output_->show(view);
     }
   } else {
     options_output_->activate(FrontendOptionsView::options);
     if (options_output_->ready()) {
       auto view = options_->presentation();
-      view.prompts = menu_prompts(input.controller_connected);
+      view.prompts = menu_prompts(input.prompt_device);
       options_output_->show(view);
     }
   }
@@ -399,7 +399,7 @@ void FrontEnd::update_power_up(LogoUpdate input, std::uint32_t repeated) {
   if (audio_ != nullptr) audio_->submit(power_up_.take_sounds());
   if (power_up_progress_.visible) {
     auto view = power_up_.presentation();
-    view.input_layout = input.controller_connected
+    view.input_layout = input.prompt_device == MenuInputDevice::controller
                             ? PowerUpInputLayout::controller
                             : PowerUpInputLayout::keyboard;
     power_up_output_->show(view);
