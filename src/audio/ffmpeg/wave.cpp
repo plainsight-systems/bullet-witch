@@ -82,7 +82,25 @@ PreparedWave PreparedWave::decode(
       source.loop_length > source.duration - source.loop_start) {
     throw std::invalid_argument("Unsupported or over-budget XACT WMAv2 wave");
   }
-  const auto block = kBlockBytes.at(block_index);
+  return decode(WmaWave{channels, rate, kAverageBytes.at(average_index),
+                        kBlockBytes.at(block_index), source.duration,
+                        source.encoded, source.seek_entries},
+                maximum_samples, domain);
+}
+
+PreparedWave PreparedWave::decode(
+    const WmaWave& source, std::size_t maximum_samples,
+    const std::shared_ptr<memory::Domain>& domain) {
+  const auto channels = source.channels;
+  const auto rate = source.sample_rate;
+  const auto block = source.block_bytes;
+  if (channels == 0 || channels > 2 || rate == 0 || rate > kMaximumRate ||
+      block == 0 ||
+      block > static_cast<std::uint32_t>(std::numeric_limits<int>::max()) ||
+      source.average_bytes_per_second == 0 || source.duration == 0 ||
+      source.duration > maximum_samples / channels) {
+    throw std::invalid_argument("Unsupported or over-budget WMAv2 wave");
+  }
   if (source.encoded.empty() || source.encoded.size() % block != 0) {
     throw std::invalid_argument("Truncated XACT WMAv2 packet data");
   }
@@ -117,7 +135,7 @@ PreparedWave PreparedWave::decode(
   codec->pkt_timebase = {1, static_cast<int>(rate)};
   av_channel_layout_default(&codec->ch_layout, static_cast<int>(channels));
   codec->block_align = static_cast<int>(block);
-  auto average = kAverageBytes.at(average_index);
+  auto average = source.average_bytes_per_second;
   // FFmpeg7.1.1 xwma_read_header corrects documented xWMA encoder rates.
   constexpr std::uint32_t kLowRate = 22050, kMidRate = 32000, kMonoRate = 44100,
                           kLowAverage = 6000, kHighAverage = 24000,

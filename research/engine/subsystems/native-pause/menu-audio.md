@@ -81,7 +81,7 @@ verification before claiming those live controls are complete.
 
 ## Reconstructed boundary
 
-`MissionAudio` already owns the one FACT-backed `CueOutput`, prepares the
+`GameAudio` already owns the one FACT-backed `CueOutput`, prepares the
 common/voice banks and selected game-voice closure, then seals registration.
 There is no need to load another menu bank. The FACT bridge explicitly admits
 only one runtime because allocator/decoder callback ownership is process-wide.
@@ -148,7 +148,7 @@ A fake output can check routing but cannot establish native audibility.
 
 ## Settings gain implementation
 
-The game-facing `AudioMixLevels` accepts stored values 0–256. `MissionAudio`
+The game-facing `AudioMixLevels` accepts stored values 0–256. `GameAudio`
 observes that value and applies `MixGains`, with effects and voice both using
 `effects / 256`. This path has no authority to mutate or save a Profile.
 `CueRequest::mix_bus` identifies effects, music or voice; original voice

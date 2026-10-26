@@ -53,6 +53,7 @@ void world_timing_contracts();
 void menu_audio_contracts();
 void menu_prompt_contracts();
 void pause_menu_contracts();
+void ranking_contracts();
 void pause_help_contracts();
 void controller_options_contracts();
 void player_resource_contracts();
@@ -225,6 +226,7 @@ int main() {
     menu_audio_contracts();
     menu_prompt_contracts();
     pause_menu_contracts();
+    ranking_contracts();
     pause_help_contracts();
     controller_options_contracts();
     player_resource_contracts();

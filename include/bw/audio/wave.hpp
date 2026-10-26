@@ -16,10 +16,19 @@
 #include "bw/formats/audio_bank.hpp"
 
 namespace bw::audio {
+// Explicit WMAv2 packet metadata shared by XACT and RIFF XWMA containers.
+// Spans are borrowed only for decode; no container encoding is synthesized.
+struct WmaWave {
+  std::uint32_t channels{}, sample_rate{}, average_bytes_per_second{};
+  std::uint32_t block_bytes{}, duration{};
+  std::span<const std::uint8_t> encoded, seek_entries;
+};
 class PreparedWave {
  public:
   static PreparedWave decode(const formats::AudioWave& source,
                              std::size_t maximum_samples,
+                             const std::shared_ptr<memory::Domain>& domain);
+  static PreparedWave decode(const WmaWave& source, std::size_t maximum_samples,
                              const std::shared_ptr<memory::Domain>& domain);
   std::uint32_t sample_rate() const { return sample_rate_; }
   std::uint32_t channels() const { return channels_; }

@@ -31,7 +31,7 @@ all surfaces. The ignored table snapshot records all23 player mappings.
 Required publications include BW_COMMON bank0 and VOICE bank4. GAME_VOICE bank50
 and SE_STREAM bank2 use external streaming wave banks. The startup audio owner
 also requests `audio.xgs.BulletWitch`; its categories, RPC and DSP settings must
-be initialized before faithful cue execution. MissionAudio now loads the settings/common/voice publications and the selected
+be initialized before faithful cue execution. GameAudio now loads the settings/common/voice publications and the selected
 GAME_VOICE closure independently of stage-bank metadata.
 
 ## Actual codec gate
@@ -221,7 +221,7 @@ all26 variant resolutions, priority/history, surface lookup, mode suppression,
 retained-position updates, per-bank reset and the strict6-frame boundary. The
 policy dispatch itself does not change charged allocations; native FACT cue
 allocations remain an explicit backend boundary. An SDL dummy-device probe
-loads actual MissionAudio, emits footstep+dodge voice, then preempts with a
+loads actual GameAudio, emits footstep+dodge voice, then preempts with a
 streaming death voice, pauses/resumes/stops, rejects an unprepared bank50 cue
 and releases all charged bytes. That probe retained266,765,062 charged bytes
 while prepared, including its catalog and native owners, then returned to0.
@@ -239,7 +239,7 @@ publications remain outside the implemented Alicia animation receiver.
 
 The ignored `motion_audio_probe` uses the canonical controlled geometry output
 with real MissionDriver/MissionLoading, StageInspection, actor/controller motion
-clocks, typed event receivers, MissionAudio and FACT/FAudio. It creates no window
+clocks, typed event receivers, GameAudio and FACT/FAudio. It creates no window
 and sends no input to the user's game. The bounded 10.5-second sequence after
 loading walks, pauses, performs an evade, then holds Thunder's start phase long
 enough to cross its authored frame115 voice event, with another pause/resume.

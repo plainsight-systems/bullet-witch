@@ -1,3 +1,6 @@
+// Startup content operations preserve stable Profile identity and validate
+// before publication. I.1 and MEM.9 were queried for design/implementation:
+// explicit replacement admission, bounded save buffers, no frame allocations.
 // Progression mutations decode one candidate, validate the complete operation,
 // then encode only mapped Record fields. Unknown bytes remain unchanged.
 // Design C.9/I.30; implementation E.4 (#re-design-invariants) preserves state;
@@ -15,7 +18,8 @@
 // Profile format implementation. Validate all bounded file inputs before
 // publishing a candidate; retain unknown bytes and change only mapped fields.
 // Original defaults: 0x4bb800/0x4bb900, persistence 0x4c2eb0/0x4c3050.
-// Save checkpoint bytes are read-only here; world serialization is not implied.
+// Existing checkpoint bytes are read-only; startup may create only the
+// original all-zero absent-checkpoint encoding, never world serialization.
 // Fixed-size settings/record owners and move-published checkpoint buffer bound
 // work to O(input bytes). Main-thread only; storage is borrowed for each call.
 // Design/implementation: cpp-guidelines R.1 (#rr-raii) owns every buffer;
@@ -105,6 +109,23 @@ bool valid_checkpoint(std::span<const std::byte> data) {
          std::to_integer<unsigned>(data[base + 2]) <= 4;
 }
 }  // namespace
+// Menu records read the retained best score and rank; no result is invented
+// for the currently running mission. Unmapped companion bytes remain opaque.
+MissionBestRecord Profile::mission_best(bool is_concept,
+                                        unsigned mission_id) const {
+  constexpr std::size_t kCampaignBase = 0x8c, kConceptBase = 0xe0;
+  constexpr std::size_t kEntryBytes = 12, kScoreOffset = 4, kRankOffset = 8;
+  if ((!is_concept && (mission_id == 0 || mission_id > kStageCount)) ||
+      (is_concept && mission_id >= kExtraCount)) {
+    throw std::invalid_argument(
+        "Mission record identity outside source bounds");
+  }
+  const auto index = is_concept ? mission_id : mission_id - 1;
+  const auto offset =
+      (is_concept ? kConceptBase : kCampaignBase) + index * kEntryBytes;
+  return {read32(record_, offset + kScoreOffset),
+          std::to_integer<unsigned>(record_.at(offset + kRankOffset))};
+}
 Profile::Profile() {
   write16(system_, 0, 1);
   write16(system_, 2, 3);
@@ -133,6 +154,13 @@ Profile::Profile() {
   }
 }
 ProfileResult Profile::load(platform::SaveStorage& storage) {
+  return load_files(storage, false);
+}
+ProfileResult Profile::load_startup(platform::SaveStorage& storage) {
+  return load_files(storage, true);
+}
+ProfileResult Profile::load_files(platform::SaveStorage& storage,
+                                  bool require_all) {
   // Validate a complete candidate so failed reads leave the active profile
   // intact.
   Profile candidate;
@@ -145,6 +173,7 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
     }
     std::ranges::copy(system.bytes, candidate.system_.begin());
   } else if (system.status == platform::SaveStatus::missing) {
+    if (require_all) return {system.status, kSystem};
     candidate.system_dirty_ = true;
   } else {
     return {system.status, kSystem};
@@ -163,12 +192,19 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
     }
     std::ranges::copy(record.bytes, candidate.record_.begin());
   } else if (record.status == platform::SaveStatus::missing) {
+    if (require_all) return {record.status, kRecord};
     candidate.record_dirty_ = true;
   } else {
     return {record.status, kRecord};
   }
   auto checkpoint = storage.read(kCheckpoint, kCheckpointBytes);
-  if (checkpoint.status == platform::SaveStatus::ok) {
+  if (checkpoint.status == platform::SaveStatus::ok &&
+      checkpoint.bytes.size() == kCheckpointBytes &&
+      std::ranges::all_of(checkpoint.bytes,
+                          [](std::byte byte) { return byte == std::byte{}; })) {
+    // Original content creation persists the zeroed 4931c0 buffer. It is a
+    // stored absence of a checkpoint, never a fabricated world snapshot.
+  } else if (checkpoint.status == platform::SaveStatus::ok) {
     if (!valid_checkpoint(checkpoint.bytes)) {
       return {platform::SaveStatus::invalid, kCheckpoint};
     }
@@ -178,6 +214,14 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
       return {platform::SaveStatus::invalid, kCheckpoint};
     }
     candidate.checkpoint_ = std::move(checkpoint.bytes);
+  } else if (require_all &&
+             checkpoint.status == platform::SaveStatus::missing) {
+    // Earlier reconstruction builds saved these validated System/Record files
+    // without the original empty checkpoint file. Preserve that progression:
+    // materialize only the known empty sentinel, never repair nonzero data.
+    const std::vector<std::byte> empty_checkpoint(kCheckpointBytes);
+    const auto status = storage.write(kCheckpoint, empty_checkpoint);
+    if (status != platform::SaveStatus::ok) return {status, kCheckpoint};
   } else if (checkpoint.status != platform::SaveStatus::missing) {
     return {checkpoint.status, kCheckpoint};
   }
@@ -190,6 +234,24 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
   ++system_generation_;
   system_dirty_ = candidate.system_dirty_;
   record_dirty_ = candidate.record_dirty_;
+  return {};
+}
+ProfileResult Profile::create_defaults(platform::SaveStorage& storage) {
+  // Compatibility I.1/MEM.9: explicit startup operation; allocation is bounded
+  // to the original save-buffer size and stays outside ordinary frame work.
+  Profile candidate;
+  const std::vector<std::byte> empty_checkpoint(kCheckpointBytes);
+  auto status = storage.write(kSystem, candidate.system_);
+  if (status != platform::SaveStatus::ok) return {status, kSystem};
+  status = storage.write(kCheckpoint, empty_checkpoint);
+  if (status != platform::SaveStatus::ok) return {status, kCheckpoint};
+  status = storage.write(kRecord, candidate.record_);
+  if (status != platform::SaveStatus::ok) return {status, kRecord};
+  system_ = candidate.system_;
+  record_ = candidate.record_;
+  checkpoint_.clear();
+  system_dirty_ = record_dirty_ = false;
+  ++system_generation_;
   return {};
 }
 ProfileResult Profile::save(platform::SaveStorage& storage) {
@@ -211,6 +273,12 @@ ProfileResult Profile::save(platform::SaveStorage& storage) {
     record_dirty_ = false;
   }
   return {};
+}
+platform::SaveStatus RecordSaveControl::save() const {
+  if (!profile_->record_dirty_) return platform::SaveStatus::ok;
+  const auto result = storage_->write(kRecord, profile_->record_);
+  if (result == platform::SaveStatus::ok) profile_->record_dirty_ = false;
+  return result;
 }
 SettingsCheckpoint SettingsControl::checkpoint() const {
   return {profile_, profile_->system_, profile_->system_dirty_,

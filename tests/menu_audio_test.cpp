@@ -11,14 +11,32 @@
 #include <stdexcept>
 #include <type_traits>
 
+#include "game/frontend_audio.hpp"
+
 namespace {
 using bw::game::MenuSound;
 using bw::game::MenuSoundRequests;
 void require(bool value, const char* reason) {
   if (!value) throw std::runtime_error(reason);
 }
-class Output final : public bw::audio::CueOutput {
+class Output final : public bw::audio::CueOutput,
+                     public bw::audio::MusicOutput {
  public:
+  bw::audio::MusicOutput& music() override { return *this; }
+  void prepare_music(bw::audio::MusicSamples) override { ++preparations; }
+  void start_music() override {
+    ++starts;
+    playing = true;
+  }
+  void stop_music() noexcept override {
+    ++stops;
+    playing = false;
+  }
+  void set_music_envelope(float value) override { envelope = value; }
+  bool music_active() const override { return playing; }
+  std::size_t preparations{}, starts{}, stops{};
+  bool playing{};
+  float envelope{1};
   void register_bank(std::uint16_t, std::span<const std::uint8_t>,
                      std::span<const std::uint8_t>,
                      std::span<const std::uint16_t>) override {
@@ -80,10 +98,13 @@ void mapping_and_timing() {
           "delayed panel emits once after its source deadline");
   audio.advance(1);
   require(output.count == 2, "due request is retired even if playback rejects");
-  constexpr std::array sounds{MenuSound::confirm,     MenuSound::back,
-                              MenuSound::cursor,      MenuSound::error,
-                              MenuSound::dialog_open, MenuSound::dialog_close};
-  constexpr std::array<std::uint16_t, 6> cues{362, 0, 363, 5, 2, 4};
+  constexpr std::array sounds{
+      MenuSound::confirm,         MenuSound::back,
+      MenuSound::cursor,          MenuSound::error,
+      MenuSound::dialog_open,     MenuSound::dialog_close,
+      MenuSound::title_start,     MenuSound::mission_start,
+      MenuSound::upgrade_purchase};
+  constexpr std::array<std::uint16_t, 9> cues{362, 0, 363, 5, 2, 4, 8, 10, 17};
   for (std::size_t i = 0; i < sounds.size(); ++i) {
     MenuSoundRequests request;
     request.add(sounds.at(i));
@@ -148,8 +169,66 @@ void invalid_requests_are_atomic() {
   audio.advance(1);
   require(output.count == 36, "completed requests release queue capacity");
 }
+void frontend_lifetime_and_fade() {
+  Output output;
+  unsigned preparations = 0;
+  bw::game::FrontEndAudio frontend(output, [&] { ++preparations; });
+  MenuSoundRequests title;
+  title.add(MenuSound::title_start);
+  frontend.submit(title);
+  require(output.count == 1 && output.requests[0].cue == 8 &&
+              preparations == 0 && output.starts == 0,
+          "title cue does not prepare or start main music");
+  frontend.start_menu_music();
+  require(preparations == 1 && output.starts == 1 && output.playing,
+          "first main entry prepares and starts music");
+  frontend.advance(10);
+  require(output.playing && output.stops == 0 && output.owner_operations == 0,
+          "frontend updates preserve music and do not pump shared device");
+  frontend.stop_menu_music(1);
+  frontend.advance(.25F);
+  require(output.playing && output.envelope == .75F,
+          "title return fades existing music over original one second");
+  frontend.advance(.75F);
+  require(!output.playing && output.stops == 1 && output.envelope == 0,
+          "fade completion stops only music");
+  frontend.start_menu_music();
+  require(preparations == 1 && output.starts == 2 && output.envelope == 1,
+          "reentry reuses preparation and restores full envelope");
+  frontend.stop_menu_music(3);
+  frontend.advance(1.5F);
+  require(output.envelope == .5F && output.playing,
+          "mission transition uses original three second fade");
+  const auto before = output.envelope;
+  rejects<std::invalid_argument>([&] { frontend.advance(-1); },
+                                 "invalid delta rejects");
+  rejects<std::invalid_argument>(
+      [&] {
+        frontend.stop_menu_music(std::numeric_limits<float>::quiet_NaN());
+      },
+      "invalid fade rejects");
+  require(output.envelope == before && output.playing,
+          "invalid input preserves native state");
+  frontend.advance(2);
+  require(output.stops == 2 && !output.playing,
+          "oversized frame completes fade once");
+  frontend.advance(2);
+  require(output.stops == 2, "completed fade is retired");
+  Output rejected;
+  unsigned attempts = 0;
+  bw::game::FrontEndAudio failing(rejected, [&] {
+    if (++attempts == 1) throw std::runtime_error("preparation failure");
+  });
+  rejects<std::runtime_error>([&] { failing.start_menu_music(); },
+                              "preparation failure is surfaced");
+  require(rejected.starts == 0, "failed preparation does not start playback");
+  failing.start_menu_music();
+  require(attempts == 2 && rejected.starts == 1,
+          "failed preparation does not publish readiness");
+}
 }  // namespace
 void menu_audio_contracts() {
+  frontend_lifetime_and_fade();
   mapping_and_timing();
   invalid_requests_are_atomic();
 }

@@ -15,9 +15,13 @@
 // readiness and media observations; cpp-performance COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) prevents
 // duplicate movie cleanup; moves are disabled to preserve borrowed identity.
+// Title acceptance publishes its original one-shot cue through a copied batch.
+// E.6 and MEM.9 were read for both phases: no audio device ownership or frame
+// allocation is added; the session drains events into its shared runtime.
 #pragma once
 #include <array>
 
+#include "menu_audio.hpp"
 #include "startup_flows.hpp"
 
 namespace bw::game {
@@ -40,6 +44,7 @@ class TitleFlow {
   ScreenProgress progress() const { return progress_; }
   TitlePresentation presentation() const;
   const std::string& diagnostic() const { return diagnostic_; }
+  MenuSoundRequests take_sounds();
 
  private:
   enum class Phase : std::uint8_t {
@@ -84,5 +89,6 @@ class TitleFlow {
   bool owns_movie_{};
   bool movie_available_{};
   std::string diagnostic_;
+  MenuSoundRequests sounds_;
 };
 }  // namespace bw::game

@@ -39,6 +39,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "game/frontend_audio.hpp"
+
 namespace bw::game {
 namespace {
 constexpr int kScreenTaskPriority = 0x2000;
@@ -58,13 +60,15 @@ constexpr unsigned kCampaignStages = 6;
 }  // namespace
 StartupSession::StartupSession(LogoMedia& media, TitleSurface* title_surface,
                                FrontEnd* frontend,
-                               std::shared_ptr<memory::Domain> runtime_memory)
+                               std::shared_ptr<memory::Domain> runtime_memory,
+                               FrontEndAudio* audio)
     : logos_(media,
              {"data/movie/marvelousLogo.ssu", "data/movie/xeedLogo.ssu"}),
       advertise_(media),
       title_(media),
       title_surface_(title_surface),
       frontend_(frontend),
+      audio_(audio),
       runtime_memory_(std::move(runtime_memory)),
       scheduler_(runtime_memory_
                      ? tasks::TaskLifecycleScheduler(runtime_memory_)
@@ -88,15 +92,20 @@ void StartupSession::start_root(resources::ResourceService& resources,
   root_ = std::move(root);
 }
 script::RunResult StartupSession::advance(LogoUpdate input,
-                                          std::uint32_t repeated) {
+                                          std::uint32_t repeated,
+                                          const input::PhysicalState& physical,
+                                          float vertical_axis) {
   if (!std::isfinite(input.delta) || input.delta < 0) {
     throw std::invalid_argument("Startup delta must be finite and nonnegative");
   }
   if (root_result_.state == script::RunState::failed) {
     return root_result_;
   }
+  if (audio_ != nullptr) audio_->advance(input.delta);
   input_ = input;
   repeated_ = repeated;
+  physical_ = physical;
+  vertical_axis_ = vertical_axis;
   // Screen priority precedes root priority, so Lua observes this tick's screen
   // work.
   scheduler_.tick(false);
@@ -240,12 +249,13 @@ void StartupSession::update(Screen screen) {
     logos_.update(input_);
   } else if (screen == Screen::title) {
     title_.update(input_, title_surface_->ready());
+    if (audio_ != nullptr) audio_->submit(title_.take_sounds());
     title_surface_->show(title_.progress().visible, title_.presentation());
   } else if (screen == Screen::advertise) {
     advertise_.update(input_);
   } else if (screen == Screen::character_load || screen == Screen::title_menu ||
              screen == Screen::power_up) {
-    frontend_->update(screen, input_, repeated_);
+    frontend_->update(screen, input_, repeated_, physical_, vertical_axis_);
     if (screen == Screen::character_load &&
         frontend_->progress(screen).status == FlowStatus::complete) {
       campaign_stage_ = frontend_->profile().has_checkpoint()

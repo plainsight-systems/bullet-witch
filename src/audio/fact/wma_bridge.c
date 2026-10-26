@@ -11,6 +11,15 @@
 
 #include "FACT_internal.h"
 
+// The original music adapter is separate from cue banks. Reuse FACT's existing
+// FAudio mixer/mastering voice; FAudio owns synchronization of source creation.
+uint32_t bw_fact_create_music_voice(FACTAudioEngine* engine,
+                                    const FAudioWaveFormatEx* format,
+                                    FAudioSourceVoice** voice) {
+  return FAudio_CreateSourceVoice(engine->audio, voice, format, 0,
+                                  FAUDIO_DEFAULT_FREQ_RATIO, NULL, NULL, NULL);
+}
+
 uint32_t bw_fact_set_cue_gain(FACTCue* cue, float gain) {
   if (cue == NULL || !isfinite(gain) || gain < 0.0f || gain > 1.0f) {
     return FAUDIO_E_INVALID_ARG;

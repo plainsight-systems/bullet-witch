@@ -1,9 +1,15 @@
-// Catalog memory migration: encoded bytes, decoded nested strings/vectors,
-// traversal scratch and indexes retain the injected allocator owner. Native
-// ingress moves its buffer; legacy Bytes conversion copies. Copies retain the
-// source domain. Failure unwinds owned storage without allocation fallback.
-// R.20 (#rr-owner) preserves ownership; SL.con.3 (#rsl-bounds) preserves
-// checked traversal. MEM.6
+// Selective mounts expose validated resource identities without admitting
+// unrelated aliases from its catalog. The catalog remains the immutable owner;
+// record indices are retained, not copies of resource payloads. Failure leaves
+// the mount set unchanged. Core I.1 (#ri-explicit) makes this capability
+// explicit; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps
+// validation at setup with O(selected names) allocator-backed index storage
+// and no payload copies. Catalog memory migration: encoded bytes, decoded
+// nested strings/vectors, traversal scratch and indexes retain the injected
+// allocator owner. Native ingress moves its buffer; legacy Bytes conversion
+// copies. Copies retain the source domain. Failure unwinds owned storage
+// without allocation fallback. R.20 (#rr-owner) preserves ownership; SL.con.3
+// (#rsl-bounds) preserves checked traversal. MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
 // allocation; MEM.8 (guidelines/memory/MEM.8-pmr-allocator-aware-containers.md)
 // requires explicit nested propagation and owner lifetime. Design and
@@ -63,6 +69,7 @@ struct MountedCatalog {
   int priority;
   std::filesystem::path path;
   ResourceCatalog catalog;
+  memory::Vector<std::size_t> exposed_resources;
 };
 struct Resolution {
   std::size_t catalog_index, resource_index;
@@ -74,6 +81,10 @@ class CatalogSet {
       : catalogs_(memory::Allocator<MountedCatalog>(std::move(domain))) {}
   auto domain() const { return catalogs_.get_allocator().domain(); }
   void mount(int priority, std::filesystem::path path, ResourceCatalog catalog);
+  // Validate/expose exactly these nonempty names; sibling aliases stay hidden.
+  void mount_resources(int priority, std::filesystem::path path,
+                       ResourceCatalog catalog,
+                       std::span<const std::string_view> names);
   // Resolve across mounts by priority; equal winning priorities are an error.
   Resolution resolve(std::string_view name) const;
   const auto& catalogs() const { return catalogs_; }

@@ -1,5 +1,12 @@
 # Remaining work
 
+- The complete source-defined frontend is accepted after the October 26 native
+  walkthrough, including frontend Options and reachable Power Up. Preserve the
+  explicit boundaries for Steam services and gameplay checkpoint/result
+  producers. Next discuss the agreed architecture/file-organization pass before
+  expanding full mission gameplay. See
+  [verification](../../research/engine/subsystems/frontend-verification.md).
+
 - Initial developer-tools design is recorded in
   [developer-tools.md](../architecture/developer-tools.md). Later stage 1 covers compile-time exclusion, independent timing
   overlay, separate inspector and temporary owned overrides; stage 2 adds
@@ -7,8 +14,8 @@
   No key bindings or detailed debug UI are approved, and none are implemented.
 
 - The native pause slice is accepted, including the final live-costume restart
-  handoff. The post-result Power Up implementation is committed as WIP, outside
-  that acceptance until reviewed. Finish remaining agreed pre-gameplay work, then
+  handoff. Power Up is now accepted through the frontend; mission-result
+  production and its post-result lifecycle remain WIP. Finish remaining agreed pre-gameplay work, then
   discuss the architecture/file-organization pass before full mission gameplay.
   Nonzero world checkpoint restore, real subtitle events and force-feedback
   producers remain with their owning gameplay slices.

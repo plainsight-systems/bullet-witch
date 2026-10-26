@@ -13,14 +13,18 @@
 namespace bw::game::pause_text {
 // Traverse the validated namespace tree instead of treating repeated numeric
 // keys in sys/mem/net as one flat table. The returned text borrows its lease.
-enum class TextNamespace : std::uint8_t { system, memory };
+enum class TextNamespace : std::uint8_t { system, memory, network };
 inline std::string_view localized_text(const formats::TextTable& table,
                                        TextNamespace name_space,
                                        std::string_view key) {
   constexpr unsigned kEnglish = 200;
+  const std::string_view group_name =
+      name_space == TextNamespace::system   ? std::string_view{"sys"}
+      : name_space == TextNamespace::memory ? std::string_view{"mem"}
+                                            : std::string_view{"net"};
   for (std::size_t index = 0; index < table.records(0); ++index) {
     const auto group = table.node(0, index);
-    if (group.text != (name_space == TextNamespace::system ? "sys" : "mem")) {
+    if (group.text != group_name) {
       continue;
     }
     for (std::size_t row = 0; row < group.children.count; ++row) {
@@ -56,7 +60,16 @@ inline void prepare_text(std::string_view source, std::span<char> output) {
   for (std::size_t i = 0; i < source.size(); ++i) {
     auto codepoint = static_cast<unsigned char>(source[i]);
     unsigned value = codepoint;
-    if (value >= kAsciiLimit) {
+    // Original English storage text uses U+2019. The existing bitmap font
+    // represents this punctuation with its apostrophe glyph.
+    constexpr unsigned kPunctuationLead = 0xe2, kPunctuationSecond = 0x80,
+                       kRightApostrophe = 0x99;
+    if (value == kPunctuationLead && source.size() - i >= 3 &&
+        static_cast<unsigned char>(source[i + 1]) == kPunctuationSecond &&
+        static_cast<unsigned char>(source[i + 2]) == kRightApostrophe) {
+      value = '\'';
+      i += 2;
+    } else if (value >= kAsciiLimit) {
       if (value != kFullWidthLead || source.size() - i < 3) {
         throw std::runtime_error("Unsupported pause text encoding");
       }

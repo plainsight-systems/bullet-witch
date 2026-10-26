@@ -27,18 +27,19 @@
 namespace bw::game {
 namespace {
 constexpr resources::ResourceTag kTag = 22;
-constexpr std::array<std::string_view, 5> kGroups{
-    "sprite.option", "sprite.font", "sprite.system", "sprite.brightness",
-    "sprite.text.sys"};
+constexpr std::array<std::string_view, 6> kGroups{
+    "sprite.option",     "sprite.font",     "sprite.system",
+    "sprite.brightness", "sprite.text.sys", "sprite.optiontit"};
 constexpr unsigned kWhite = 10000, kFont = 10001, kCalibration = 10002,
                    kIconBase = 11000;
-constexpr std::size_t kImageCount = 28, kMenuTextCount = 86,
+constexpr std::size_t kImageCount = 32, kMenuTextCount = 86,
                       kTextCapacity = 256, kDialogTextCount = 6;
 constexpr float kHalf = .5F, kFontSize = 32, kTrackDuration = 1.3F,
                 kFadeDuration = .25F, kInactiveAlpha = .8F;
 constexpr render::Color kText{230.F / 255, 228.F / 255, 213.F / 255, 1};
-constexpr std::array<unsigned, 8> kLabelRows{73, 76, 77, 78, 79, 75, 82, 45};
-constexpr std::array<unsigned, 8> kDescriptions{0, 3, 4, 5, 6, 2, 9, 10};
+constexpr std::array<unsigned, 10> kLabelRows{73, 76, 77, 78, 79,
+                                              75, 82, 45, 80, 81};
+constexpr std::array<unsigned, 10> kDescriptions{0, 3, 4, 5, 6, 2, 9, 10, 7, 8};
 constexpr std::array<unsigned, 6> kIcons{120, 121, 94, 54, 95, 39};
 struct Position {
   float x{}, y{};
@@ -48,6 +49,7 @@ struct Track {
   Position from, to;
   float begin{}, end{};
   bool eased{};
+  bool tangent{};
 };
 // Mission variant of the source's descriptor tracks. Frontend-only rows/art
 // are intentionally absent; Costume adds one row without changing source rows.
@@ -61,10 +63,32 @@ constexpr std::array<Track, 9> kTracks{
      {224, {-730, 0}, {0, 0}, 0, 1, true},
      {211, {-730, 363}, {72, 363}, .2F, 1.2F, true},
      {225, {1296, 146}, {514, 146}, .2F, 1.2F, true}}};
+constexpr auto kFrontendTracks = [] {
+  auto tracks = kTracks;
+  constexpr unsigned kDescriptionTrack = 7, kPanelTrack = 8,
+                     kFrontendPanel = 216;
+  constexpr float kFrontendEnd = 1.4F;
+  for (const auto index : {kDescriptionTrack, kPanelTrack}) {
+    tracks.at(index).begin = 0;
+    tracks.at(index).end = kFrontendEnd;
+    tracks.at(index).tangent = true;
+  }
+  tracks.at(kPanelTrack).id = kFrontendPanel;
+  return tracks;
+}();
+const auto& tracks_for(OptionsContext context) {
+  return context == OptionsContext::frontend ? kFrontendTracks : kTracks;
+}
 Position track_position(const Track& track, float elapsed) {
   const auto t =
       std::clamp((elapsed - track.begin) / (track.end - track.begin), 0.F, 1.F);
-  const auto blend = track.eased ? math::quintic_ease(t) : t;
+  // Source mode1 uses the shared tangent response, with default unit shape
+  // when the descriptor's shape field is zero (572120).
+  const auto blend =
+      track.tangent ? math::eased_tangent_interpolate(
+                          math::EasedTangentEndpoints<float>{0, 1, 1, 1}, t)
+      : track.eased ? math::quintic_ease(t)
+                    : t;
   return {math::linear_interpolate(track.from.x, track.to.x, blend),
           math::linear_interpolate(track.from.y, track.to.y, blend)};
 }
@@ -140,6 +164,7 @@ struct PauseOptionsSurface::State {
     render::TextureHandle texture;
     float width{}, height{};
   };
+  OptionsContext context;
   resources::ResourceService& resources;
   render::SpriteOutput& output;
   memory::Allocator<std::byte> allocator;
@@ -155,8 +180,10 @@ struct PauseOptionsSurface::State {
   std::size_t count{};
   bool begun{}, prepared{};
   State(resources::ResourceService& service, render::SpriteOutput& renderer,
-        resources::ArchiveBytes icons, resources::ArchiveBytes text)
-      : resources(service),
+        resources::ArchiveBytes icons, resources::ArchiveBytes text,
+        OptionsContext variant)
+      : context(variant),
+        resources(service),
         output(renderer),
         allocator(storage_for(service)),
         icon_bytes(std::move(icons)),
@@ -178,10 +205,16 @@ struct PauseOptionsSurface::State {
     prepared = false;
     count = 0;
   }
+  std::size_t group_count() const {
+    return context == OptionsContext::frontend ? kGroups.size()
+                                               : kGroups.size() - 1;
+  }
   void begin() {
     end();
     begun = true;
-    for (const auto group : kGroups) resources.request(group, kTag);
+    for (std::size_t group = 0; group < group_count(); ++group) {
+      resources.request(kGroups.at(group), kTag);
+    }
   }
   const Image& image(unsigned id) const {
     for (const auto& entry : std::span(images).first(image_count)) {
@@ -255,7 +288,7 @@ struct PauseOptionsSurface::State {
       throw std::runtime_error(report.diagnostic);
     }
     if (report.state != resources::LoadState::ready) return false;
-    for (std::size_t group = 0; group < kGroups.size(); ++group) {
+    for (std::size_t group = 0; group < group_count(); ++group) {
       leases.at(group) = resources.acquire(kGroups.at(group));
       if (!leases.at(group)) {
         throw std::runtime_error("Options resource publication missing");
@@ -325,7 +358,7 @@ struct PauseOptionsSurface::State {
     }
     images.at(image_count++) = {kWhite,
                                 output.upload_texture(1, 1, kWhitePixel), 1, 1};
-    for (const auto& track : kTracks) (void)image(track.id);
+    for (const auto& track : tracks_for(context)) (void)image(track.id);
     constexpr std::array<unsigned, 9> kRequired{
         kFont,       kCalibration, kArrowLeft,
         kArrowRight, kBracketLeft, kBracketRight,
@@ -457,20 +490,25 @@ struct PauseOptionsSurface::State {
         !valid_menu_prompt(view.prompts.back)) {
       throw std::invalid_argument("Invalid Options prompt");
     }
-    const auto selected = static_cast<std::size_t>(view.selected);
+    const auto rows = options_rows(context);
+    const auto selected_option = static_cast<std::size_t>(view.selected);
+    const auto selected = static_cast<std::size_t>(
+        std::ranges::find(rows, view.selected) - rows.begin());
     if (!prepared || !std::isfinite(view.elapsed) || view.elapsed < 0 ||
         !std::isfinite(view.description_alpha) || view.description_alpha < 0 ||
         view.description_alpha > 1 || !std::isfinite(view.arrow_offset) ||
         !std::isfinite(view.marker_brightness) || view.marker_brightness < 0 ||
-        selected >= kLabelRows.size() || view.settings.music > kVolumeMaximum ||
+        selected >= rows.size() || view.context != context ||
+        view.settings.music > kVolumeMaximum ||
         view.settings.effects > kVolumeMaximum ||
-        view.page > PauseOptionsPage::complete) {
+        view.page > PauseOptionsPage::external_child) {
       throw std::invalid_argument("Invalid native Options presentation");
     }
     count = 0;
     if (view.page == PauseOptionsPage::complete ||
         view.page == PauseOptionsPage::costume ||
-        view.page == PauseOptionsPage::controls) {
+        view.page == PauseOptionsPage::controls ||
+        view.page == PauseOptionsPage::external_child) {
       output.clear_sprites();
       return;
     }
@@ -502,16 +540,18 @@ struct PauseOptionsSurface::State {
       output.set_sprites(std::span(commands).first(count));
       return;
     }
-    const auto time = view.exiting
-                          ? std::max(0.F, kTrackDuration - view.elapsed)
-                          : (view.opening ? view.elapsed : kTrackDuration);
-    for (const auto& track : kTracks) {
+    const auto& tracks = tracks_for(context);
+    const auto duration =
+        context == OptionsContext::frontend ? 1.4F : kTrackDuration;
+    const auto time = view.exiting ? std::max(0.F, duration - view.elapsed)
+                                   : (view.opening ? view.elapsed : duration);
+    for (const auto& track : tracks) {
       sprite(track.id, track_position(track, time));
     }
-    const auto panel = track_position(kTracks.back(), time);
+    const auto panel = track_position(tracks.back(), time);
     const auto dx = panel.x - kPanelX, dy = panel.y - kPanelY;
     constexpr float kDim = kUnselectedTintByte / kColorMaximum;
-    for (std::size_t row = 0; row < kLabelRows.size(); ++row) {
+    for (std::size_t row = 0; row < rows.size(); ++row) {
       const auto color =
           row == selected ? kText
                           : render::Color{kText.red * kDim, kText.green * kDim,
@@ -519,7 +559,8 @@ struct PauseOptionsSurface::State {
       const auto y =
           row == 0 ? kFirstLabelY
                    : kFollowingLabelY + kRowPitch * static_cast<float>(row);
-      text(labels.at(kLabelRows.at(row)).data(), {kLabelX + dx, y + dy}, color);
+      text(labels.at(kLabelRows.at(static_cast<std::size_t>(rows[row]))).data(),
+           {kLabelX + dx, y + dy}, color);
     }
     sprite(kSelectionMarker,
            {kMarkerX + dx,
@@ -578,13 +619,13 @@ struct PauseOptionsSurface::State {
       }
     }
     constexpr std::size_t kDescriptionTrack = 7, kFooterTrack = 5;
-    const auto comment = track_position(kTracks.at(kDescriptionTrack), time);
+    const auto comment = track_position(tracks.at(kDescriptionTrack), time);
     auto description_color = kText;
     description_color.alpha = view.description_alpha;
-    text(labels.at(kDescriptions.at(selected)).data(),
+    text(labels.at(kDescriptions.at(selected_option)).data(),
          {comment.x + kDescriptionInset, comment.y + kDescriptionInset},
          description_color);
-    const auto footer = track_position(kTracks.at(kFooterTrack), time);
+    const auto footer = track_position(tracks.at(kFooterTrack), time);
     prompt(view.prompts.confirm,
            {footer.x + kFooterIconX, footer.y + kFooterIconY});
     constexpr std::size_t kConfirmText = 2, kBackText = 3;
@@ -612,10 +653,11 @@ struct PauseOptionsSurface::State {
 PauseOptionsSurface::PauseOptionsSurface(resources::ResourceService& resources,
                                          render::SpriteOutput& output,
                                          resources::ArchiveBytes input_icons,
-                                         resources::ArchiveBytes menu_text)
+                                         resources::ArchiveBytes menu_text,
+                                         OptionsContext context)
     : state_(std::allocate_shared<State>(storage_for(resources), resources,
                                          output, std::move(input_icons),
-                                         std::move(menu_text))) {}
+                                         std::move(menu_text), context)) {}
 PauseOptionsSurface::~PauseOptionsSurface() = default;
 void PauseOptionsSurface::begin() {
   try {

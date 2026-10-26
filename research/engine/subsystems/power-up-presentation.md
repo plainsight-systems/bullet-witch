@@ -1,8 +1,10 @@
 # Native power-up presentation
 
-Status: work in progress. Included with the accepted pause commit at the user’s
-request; Power Up itself has not been accepted. Native post-result gameplay and
-confirmation edge cases require review before this is considered complete.
+Status: the reachable frontend Power Up route is accepted with the complete
+frontend walkthrough on October 26, 2026. The earlier pause commit included this
+work as WIP at the user’s request. Mission-result production and the post-result
+world lifecycle remain future gameplay work; frontend acceptance does not close
+those boundaries.
 
 The post-result power-up task has dedicated art, localization, transition tracks,
 level markers, skill-point digits and a shared native confirmation dialog. It is
@@ -23,9 +25,11 @@ flowchart LR
   Sprites --> Metal[Native Metal sprites]
 ```
 
-The original root only enters this task after campaign results and saves after
-it exits. The reconstructed presentation does not create an in-mission or debug
-purchase route. Root mission completion/save admission remains a separate owner.
+The original root enters this task after campaign results and saves after it
+exits. Frontend Options also enters the same task, using its frontend parameter;
+that parent tracks purchases and saves Record on Options exit. There is no
+in-mission or debug purchase route. Root mission completion/save admission
+remains a separate owner.
 
 ## Recovered presentation
 
@@ -141,3 +145,20 @@ raw decompiler output or captured images are added to Git.
 
 The independent review and full repository gate remain integration checks; the
 surface's isolated strict compilation and pinned fatal clang-tidy passed.
+
+## Native menu feedback
+
+`49f640` and `4d74f0` publish the original panel, cursor, confirm and Back events.
+Power Up's original panel delay resides in zero-initialized storage with no
+writer, so it is immediate. Common dialogs emit opening/closing cues, with
+confirm only for their choice form. A successful debit emits logical event22,
+common-bank cue17; merely entering a quote or rejecting a changed quote does
+not play the purchase cue. `PowerUpFlow` publishes bounded requests, drained at
+activation and after each update by the existing frontend audio owner. It owns
+no backend pump or second runtime. The pure request batch lives with the shared
+game/profile values; native bank/cue resolution remains in MenuAudio.
+
+Focused profile contracts pass for these event transitions and existing
+purchase/revalidation behavior. Menu audio mapping tests include cue17 and
+presentation-domain routing. Both C++ corpora I.1/MEM.9 were read for the audio
+contract and implementation; events are copied and fixed-capacity.

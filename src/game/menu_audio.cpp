@@ -12,7 +12,8 @@ namespace bw::game {
 namespace {
 // Compatibility boundary: source event table 0x8367b0, common bank 0.
 constexpr std::uint16_t kPauseCue = 12, kConfirmCue = 362, kCursorCue = 363,
-                        kErrorCue = 5, kSaveCue = 11;
+                        kErrorCue = 5, kSaveCue = 11, kTitleStartCue = 8,
+                        kMissionStartCue = 10, kUpgradePurchaseCue = 17;
 std::uint16_t cue(MenuSound sound) {
   switch (sound) {
     case MenuSound::pause:
@@ -33,6 +34,12 @@ std::uint16_t cue(MenuSound sound) {
       return 4;
     case MenuSound::save:
       return kSaveCue;
+    case MenuSound::title_start:
+      return kTitleStartCue;
+    case MenuSound::mission_start:
+      return kMissionStartCue;
+    case MenuSound::upgrade_purchase:
+      return kUpgradePurchaseCue;
   }
   throw std::invalid_argument("Invalid menu sound");
 }
@@ -43,13 +50,6 @@ void validate(const MenuSoundRequest& request) {
   }
 }
 }  // namespace
-void MenuSoundRequests::add(MenuSound sound, float delay_seconds) {
-  validate({sound, delay_seconds});
-  if (size >= requests.size()) {
-    throw std::length_error("Menu sound batch capacity exceeded");
-  }
-  requests.at(size++) = {sound, delay_seconds};
-}
 void MenuAudio::play(MenuSound sound) {
   (void)output_.play({0, cue(sound), {}, audio::PauseDomain::presentation});
 }

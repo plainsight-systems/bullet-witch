@@ -1,6 +1,6 @@
 # Shared compressed-wave preparation. The same pinned LGPL FFmpeg build serves
 # movies and game audio; game decoding has its own finite sample contract.
-add_library(bw_audio_decode src/audio/ffmpeg/wave.cpp)
+add_library(bw_audio_decode src/audio/ffmpeg/wave.cpp src/audio/ffmpeg/music.cpp)
 target_link_libraries(bw_audio_decode PUBLIC bw_resources PRIVATE
   bw_ffmpeg_avcodec bw_ffmpeg_avutil bw_ffmpeg_swresample)
 bw_strict(bw_audio_decode)

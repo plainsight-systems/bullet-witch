@@ -7,6 +7,7 @@
 // lifetime.
 #include "game/pause_menu.hpp"
 
+#include <array>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -306,6 +307,132 @@ void options_save_failure_and_retry() {
               reloaded.music_volume() == volume,
           "persisted source settings survive reloading");
 }
+void frontend_options_child_lifetime() {
+  using bw::game::OptionsChild;
+  using bw::game::OptionsContext;
+  using bw::game::PauseOption;
+  bw::game::Profile profile;
+  SettingsStorage storage;
+  bw::game::DeviceOptions device(storage);
+  bw::game::PauseOptionsFlow options(
+      {profile.settings_control(), profile.settings_save_control(storage),
+       device.control(), device.save_control()},
+      OptionsContext::frontend);
+  require(bw::game::options_rows(OptionsContext::frontend).size() == 10 &&
+              bw::game::options_rows(OptionsContext::mission).size() == 8,
+          "Frontend source rows do not alter accepted mission rows");
+  options.start(0);
+  options.update({}, 2);
+  for (unsigned i = 0; i < 6; ++i) options.update({0, kDown}, 0);
+  const std::array children{OptionsChild::leaderboards, OptionsChild::power_up,
+                            OptionsChild::costume};
+  const std::array selections{PauseOption::leaderboards, PauseOption::power_up,
+                              PauseOption::costume};
+  for (std::size_t i = 0; i < children.size(); ++i) {
+    require(options.presentation().selected == selections.at(i),
+            "Frontend children retain original row order");
+    options.update({kConfirm, 0}, 0);
+    require(!options.requested_child(), "Child admission waits for conceal");
+    options.update({}, .3F);
+    require(options.requested_child() == children.at(i), "Typed child request");
+    options.update({kCancel, kDown}, 1);
+    require(options.requested_child() == children.at(i),
+            "Options cannot navigate or exit beneath external child");
+    options.complete_child();
+    options.update({kConfirm, kDown}, .1F);
+    require(!options.requested_child() &&
+                options.presentation().selected == selections.at(i),
+            "Reveal gates input after child completion");
+    options.update({}, .2F);
+    options.update({0, kDown}, 0);
+  }
+  require(options.presentation().selected == PauseOption::exit,
+          "Last frontend row is original Exit");
+  options.update({kConfirm, 0}, 0);
+  options.update({}, 2);
+  require(options.completed(), "Unchanged frontend Options exits cleanly");
+  bool rejected = false;
+  try {
+    options.complete_child();
+  } catch (const std::logic_error&) {
+    rejected = true;
+  }
+  require(rejected, "Duplicate child completion cannot mutate finished flow");
+}
+
+void frontend_power_up_record_save() {
+  using bw::game::OptionsContext;
+  using bw::game::PauseOptionsPage;
+  SettingsStorage storage;
+  bw::game::Profile profile;
+  (void)profile.award_result({0, 0});
+  profile.settings_control().set_autosave(true);
+  bw::game::DeviceOptions device(storage);
+  bw::game::PauseOptionsFlow options(
+      {profile.settings_control(), profile.settings_save_control(storage),
+       device.control(), device.save_control(),
+       profile.record_save_control(storage)},
+      OptionsContext::frontend);
+  options.start(0);
+  options.update({}, 2);
+  for (unsigned i = 0; i < 7; ++i) options.update({0, kDown}, 0);
+  options.update({kConfirm, 0}, 0);
+  options.update({}, .3F);
+  require(profile.purchase({bw::game::UpgradeCategory::stat, 0}) ==
+              bw::game::PurchaseResult::purchased,
+          "Power Up uses real authoritative purchase");
+  options.complete_child(true);
+  options.update({}, .3F);
+  options.update({0, kDown}, 0);
+  options.update({0, kDown}, 0);
+  storage.failed_file = "BulletWitchRecord";
+  options.update({kConfirm, 0}, 0);
+  require(options.presentation().page == PauseOptionsPage::save_prompt &&
+              !storage.files.contains("BulletWitchRecord"),
+          "Record failure retains source retry after System/device success");
+  storage.failed_file.clear();
+  options.update({}, .4F);
+  options.update({kConfirm, 0}, 0);
+  options.update({}, .3F);
+  require(options.presentation().page == PauseOptionsPage::saved &&
+              storage.files.contains("BulletWitchRecord"),
+          "Retry persists purchased Record before success acknowledgment");
+  const auto saved = profile.progression();
+  bw::game::Profile loaded;
+  require(loaded.load(storage).status == bw::platform::SaveStatus::ok &&
+              loaded.progression() == saved,
+          "Saved frontend purchase survives real profile reload");
+  options.update({}, .4F);
+  options.update({kConfirm, 0}, 0);
+  options.update({}, .3F);
+  options.update({}, 2);
+  options.start(0);
+  options.update({}, 2);
+  for (unsigned i = 0; i < 7; ++i) options.update({0, kDown}, 0);
+  options.update({kConfirm, 0}, 0);
+  options.update({}, .3F);
+  require(profile.purchase({bw::game::UpgradeCategory::weapon, 1}) ==
+              bw::game::PurchaseResult::purchased,
+          "Second child commits actual purchase");
+  const auto unsaved = profile.progression();
+  options.complete_child(true);
+  options.update({}, .3F);
+  options.update({kCancel, 0}, 0);
+  require(options.presentation().page == PauseOptionsPage::discard,
+          "Back sees child Record changes even without System edits");
+  options.update({}, .4F);
+  options.update({0, kLeft}, 0);
+  options.update({kConfirm, 0}, 0);
+  options.update({}, .3F);
+  options.update({}, 2);
+  require(options.completed() && profile.progression() == unsaved &&
+              profile.dirty(),
+          "Source discard retains live purchases without claiming persistence");
+  require(loaded.load(storage).status == bw::platform::SaveStatus::ok &&
+              loaded.progression() == saved,
+          "Discard does not publish unaccepted Record writes");
+}
+
 }  // namespace
 void pause_menu_contracts() {
   pause_admission_and_resume();
@@ -316,4 +443,6 @@ void pause_menu_contracts() {
   options_save_failure_and_retry();
   options_start_and_reset_policy();
   settings_snapshot_ownership();
+  frontend_options_child_lifetime();
+  frontend_power_up_record_save();
 }

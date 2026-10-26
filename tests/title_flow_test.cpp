@@ -135,7 +135,14 @@ void accepted() {
   flow.update({0, 0}, true);
   require(media.fades == 1, "Title ignores advertise-only skip mask");
   flow.update({0, 0x1010}, true);
+  require(flow.take_sounds().size == 0,
+          "Title cue waits for the original accept initialization");
   flow.update({0, 0}, true);
+  const auto sounds = flow.take_sounds();
+  require(sounds.size == 1 &&
+              sounds.requests[0].sound == bw::game::MenuSound::title_start &&
+              flow.take_sounds().size == 0,
+          "Title acceptance emits its distinct cue exactly once");
   require(near(flow.presentation().sprite_opacity[0], 1) &&
               near(flow.presentation().sprite_opacity[1], 0.5F),
           "Acceptance holds highlight and restarts prompt pulse");

@@ -21,6 +21,10 @@ void bw_fact_release_engine(FACTAudioEngine* engine);
 // Supply the same injected allocator to the mixer as the cue engine.
 uint32_t bw_fact_initialize(FACTAudioEngine* engine,
                             const FACTRuntimeParameters* parameters);
+// Create a prepared PCM voice on the same FAudio device owned by FACT.
+uint32_t bw_fact_create_music_voice(FACTAudioEngine* engine,
+                                    const FAudioWaveFormatEx* format,
+                                    FAudioSourceVoice** voice);
 // Original role gain multiplies authored wave/RPC/category volume. Holds FACT's
 // API lock while publishing and refreshing existing active/upcoming waves.
 // The pinned patch carries this scalar into every subsequently prepared wave.

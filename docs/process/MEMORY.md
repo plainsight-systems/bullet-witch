@@ -1,5 +1,16 @@
 # Current engineering decisions
 
+- Frontend scope is the entire original reachable menu system. Lua orchestrates
+  native tasks; source task implementations define artwork, localization,
+  eligibility, transitions, input and audio. Generic child lists and invented
+  labels are removed, with shared frontend Options and its actual child
+  owners integrated. Expanded native build/CTest, all 233 fatal tidy command
+  coverage, formatting/policy and purchased-content traversal pass. The user
+  accepted the complete native frontend walkthrough on October 26, including
+  reachable Power Up. Steam services and mission-result/world persistence
+  remain explicit future boundaries.
+  See `research/engine/subsystems/frontend-verification.md`.
+
 - The user accepted the native gameplay pause menu after checking Help, Options,
   Stage Start, Return, Retire and live costume retention across reentry. The
   original menu, localized Help and settings use their owning input/audio/profile
@@ -10,8 +21,8 @@
   `research/engine/subsystems/native-pause-menu.md`.
   Real nonzero world checkpoint restore, subtitle event producers and gameplay
   force-feedback remain explicit gameplay boundaries. The separate post-result
-  Power Up implementation is included as WIP at the user’s request; it remains
-  unaccepted and requires its own gameplay review.
+  Power Up implementation was included as WIP at the user’s request. Its
+  frontend route is now accepted; post-result gameplay production remains WIP.
 
 - Gameplay pause is separate from retained developer diagnostics. Normal builds
   disable developer views. The initial optional timing overlay, separate

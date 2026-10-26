@@ -8,7 +8,7 @@ interleaved CPU samples; target output owns cue/mixer/device lifetimes.
 
 Requests also identify their world/presentation pause domain and original
 effects/music/voice mix group. World pause leaves presentation cues running;
-mix group is independent of the authored asset category. `MissionAudio` services
+mix group is independent of the authored asset category. `GameAudio` services
 the shared output once per presentation frame, including paused frames.
 `MenuAudio` borrows cue playback and schedules recovered menu events from
 supplied presentation time, without another runtime or an independent clock.
@@ -46,11 +46,18 @@ size is not an implicit global memory allowance: the loading owner supplies the
 budget. Alicia's prepared talk table resolves 26 weighted variants across ten actions.
 Fourteen distinct GAME_VOICE bank50 waves add 2,009,088 float samples (7.664 MiB).
 The combined reference is 49,114,112 samples; the mission supplies a 50,000,000
-sample ceiling and three-bank capacity. The original 52 MiB streaming bank
+sample ceiling and three-bank capacity for mission-only consumers. The session
+that retains menu music instead supplies 60,000,000 samples, covering the
+56,381,440-sample combined closure. The original 52 MiB streaming bank
 remains resident compressed data; only its selected wave closure owns PCM.
 
-`MissionAudio` loads catalog publications and an explicit external sound
-folder, then seals the target-injected output. `CharacterAudio` resolves
+`GameAudio` owns the session output. It initially publishes the common menu
+cue subset, prepares the original two-segment menu music at main entry, and
+expands common/voice banks once during mission loading. Scene retirement stops
+world-domain cues and clears world pause while retaining prepared publications.
+The frontend cue/fade policy borrows the same device and does not pump it.
+See [frontend audio](../research/engine/subsystems/frontend-audio.md) for source
+ownership, authored overlaps and measured preparation costs. `CharacterAudio` resolves
 weighted voice priority/history; independent body/upper channels retain SE
 lifetimes. The stable actor environment supplies evaluated emitters, source
 collision-surface context and a borrowed session RNG. `SourceRandom` preserves

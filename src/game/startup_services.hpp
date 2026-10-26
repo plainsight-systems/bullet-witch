@@ -80,7 +80,8 @@ class StartupSession final : public StartupServices {
   explicit StartupSession(LogoMedia& media,
                           TitleSurface* title_surface = nullptr,
                           FrontEnd* frontend = nullptr,
-                          std::shared_ptr<memory::Domain> runtime_memory = {});
+                          std::shared_ptr<memory::Domain> runtime_memory = {},
+                          FrontEndAudio* audio = nullptr);
   ~StartupSession() override;
   StartupSession(const StartupSession&) = delete;
   StartupSession& operator=(const StartupSession&) = delete;
@@ -90,7 +91,9 @@ class StartupSession final : public StartupServices {
   // borrowed lifetime and exclusive-tag contract. No root exists before this.
   void start_root(resources::ResourceService& resources,
                   resources::ResourceTag tag);
-  script::RunResult advance(LogoUpdate input, std::uint32_t repeated = 0);
+  script::RunResult advance(LogoUpdate input, std::uint32_t repeated = 0,
+                            const input::PhysicalState& physical = {},
+                            float vertical_axis = 0);
   ScreenProgress progress(Screen screen) const;
   bool window_close_enabled() const { return window_close_enabled_; }
   double global(int slot) const override;
@@ -136,10 +139,13 @@ class StartupSession final : public StartupServices {
   TitleFlow title_;
   TitleSurface* title_surface_{};
   FrontEnd* frontend_{};
+  FrontEndAudio* audio_{};
   ScreenTask logo_task_, check_task_, advertise_task_, title_task_, load_task_,
       menu_task_, power_up_task_;
   LogoUpdate input_;
   std::uint32_t repeated_{};
+  input::PhysicalState physical_;
+  float vertical_axis_{};
   unsigned campaign_stage_{1}, replay_stage_{1};
   bool replay_mode_{}, concept_mode_{};
   std::optional<GameplayRequest> gameplay_request_;

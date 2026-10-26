@@ -586,7 +586,7 @@ The source parent/model interval boundary is documented in
 `include/bw/audio/output.hpp` defines game cue output independently of movie
 media audio. `audio/fact` owns the pinned original-bank scheduler and native
 output; prepared wave decoding uses the existing shared FFmpeg dependency.
-`game/mission_audio` owns bank preparation, `character_audio` owns source
+`game/game_audio` owns session bank preparation, `character_audio` owns source
 SE/VO policy, and `source_random` supplies a session-owned random stream.
 `PlayerActor` supplies emitter/contact observations; framework injects the
 target factory and preserves teardown order. See [game audio](../game-audio.md).
@@ -668,3 +668,23 @@ owns alpha/additive blend state; game UI supplies ordered values. Pause-only men
 residency excludes frontend title/stage art so HUD, ring and costume assets share
 the existing texture budget. These names describe reconstructed responsibilities,
 not recovered original C++ class names.
+
+### Frontend native task composition
+
+`FrontEnd` composes native menu children under the original Lua/root lifecycle.
+It borrows typed output and save capabilities; platform code wires these owners
+and forwards copied input. All policies consume the existing presentation delta.
+
+| Owner | Responsibility |
+| --- | --- |
+| `menu_flow.*`, `startup_menu_surface.*` | Main, difficulty, stage/concept and costume policy snapshots; original authored sprite/text presentation |
+| `profile_load_flow.*`, `menu_dialog.*` | Original desktop load/create/overwrite/autosave task and shared dialog transitions |
+| `frontend_options.*`, `frontend_options_surface.*` | Borrowed output boundary and mutually exclusive Options/controller resource residency |
+| `pause_options.*`, `controller_options.*` | Shared source settings transactions, frontend-only child requests and real physical-input receiver |
+| `ranking_flow.*`, `ranking_surface.*` | Original ranking shell/provider availability handling, with explicit unavailable Steam backend |
+| `power_up_flow.*`, `power_up_surface.*` | Reachable native upgrade policy and presentation; post-result world producer remains WIP |
+| `frontend_audio.*`, `game_audio.*` | One session audio runtime, source menu requests/music and later mission-bank admission |
+
+The independent review checks connected child return and persistence ownership,
+not just isolated flow fixtures. Detailed evidence is in the frontend subsystem
+reports. These names reconstruct responsibilities, not original C++ class names.

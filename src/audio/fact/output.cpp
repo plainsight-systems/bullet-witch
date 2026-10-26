@@ -1,4 +1,10 @@
 // Pinned FACT cue ownership with immutable shared WMAv2 sample preparation.
+// Loading publishes immutable lookup generations with release/acquire ordering;
+// old generations survive until native shutdown. Native bank admission uses
+// FACT's API lock; append-only decoded waves never move existing sample owners.
+// CP.2 (#rconc-races), I.11 and MEM.9 were read for design/implementation:
+// no callback locks, allocations or reclamation; loading work remains explicit.
+// Direct prepared music shares FACT's FAudio device and its injected allocator.
 // E.6 (#re-raii) scopes native teardown and unpublished bank failures; MEM.2
 // bounds cue handles and MEM.9 keeps sample callbacks allocation-free. Vendor
 // runtime allocations remain domain-accounted, not claimed allocation-free.
@@ -39,12 +45,18 @@ struct SampleEntry {
   std::size_t encoded_bytes{};
   const PreparedWave* wave{};
 };
+struct SampleTable {
+  explicit SampleTable(const std::shared_ptr<memory::Domain>& owner)
+      : entries(memory::Allocator<SampleEntry>(owner)) {}
+  memory::Vector<SampleEntry> entries;
+};
 struct Bridge {
   explicit Bridge(const std::shared_ptr<memory::Domain>& owner)
-      : domain(owner), samples(memory::Allocator<SampleEntry>(owner)) {}
+      : domain(owner),
+        generations(memory::Allocator<std::shared_ptr<SampleTable>>(owner)) {}
   std::shared_ptr<memory::Domain> domain;
-  memory::Vector<SampleEntry> samples;
-  std::atomic<bool> sealed{};
+  memory::Vector<std::shared_ptr<SampleTable>> generations;
+  std::atomic<const SampleTable*> published{};
   std::atomic<std::size_t> failures{};
 };
 std::atomic<Bridge*>& bridge_slot() {
@@ -135,9 +147,12 @@ struct Bank {
         encoded(memory::Allocator<std::uint8_t>(domain)),
         decoded(memory::Allocator<std::optional<PreparedWave>>(domain)),
         admitted(memory::Allocator<std::uint8_t>(domain)) {}
-  ~Bank() {
+  ~Bank() { retire_native(); }
+  void retire_native() noexcept {
     if (sound_bank) bw_fact_destroy_sound_bank(sound_bank);
     if (wave_bank) bw_fact_destroy_wave_bank(wave_bank);
+    sound_bank = nullptr;
+    wave_bank = nullptr;
   }
   Bank(const Bank&) = delete;
   Bank& operator=(const Bank&) = delete;
@@ -151,6 +166,80 @@ struct Bank {
   FACTSoundBank* sound_bank{};
   FACTWaveBank* wave_bank{};
 };
+// Original cue/track/variation closure, prepared transactionally during load.
+std::size_t prepare_cues(Bank& bank,
+                         std::span<const std::uint16_t> admitted_cues,
+                         std::size_t sample_budget,
+                         const std::shared_ptr<memory::Domain>& domain) {
+  if (!bank.metadata) {
+    throw std::logic_error("Audio bank metadata is unprepared");
+  }
+  const auto& metadata = *bank.metadata;
+  // Walk every admitted cue's sound/track/variation closure at setup. Bounds
+  // are validated by the shared definition; no runtime cue-name lookup occurs.
+  const auto definition =
+      formats::AudioBankDefinition::parse({bank.sound, bank.encoded}, domain);
+  auto admitted = bank.admitted;
+  if (admitted.empty()) admitted.resize(definition.cues().size(), 0);
+  if (admitted_cues.empty()) std::ranges::fill(admitted, 1);
+  for (const auto cue : admitted_cues) {
+    if (cue >= admitted.size()) {
+      throw std::invalid_argument("Admitted audio cue exceeds bank");
+    }
+    admitted.at(cue) = 1;
+  }
+  memory::Vector<std::uint8_t> needed(definition.waves().size(), 0,
+                                      memory::Allocator<std::uint8_t>(domain));
+  for (std::size_t cue = 0; cue < definition.cues().size(); ++cue) {
+    if (!admitted.at(cue)) continue;
+    const auto& sound = definition.sounds().at(definition.cues().at(cue).sound);
+    for (std::uint64_t track = sound.tracks.offset;
+         track < sound.tracks.offset + sound.tracks.size; ++track) {
+      const auto events = definition.tracks().at(track).events;
+      for (std::uint64_t event = events.offset;
+           event < events.offset + events.size; ++event) {
+        const auto choices = definition.events().at(event).choices;
+        for (std::uint64_t choice = choices.offset;
+             choice < choices.offset + choices.size; ++choice) {
+          const auto& value = definition.wave_choices().at(choice);
+          if (value.bank != 0) {
+            throw std::invalid_argument("External cue wave bank is unprepared");
+          }
+          needed.at(value.wave) = 1;
+        }
+      }
+    }
+  }
+  memory::Vector<std::optional<PreparedWave>> additions(
+      metadata.waves().size(),
+      memory::Allocator<std::optional<PreparedWave>>(domain));
+  std::size_t prepared_samples = 0;
+  for (std::size_t index = 0; index < needed.size(); ++index) {
+    if (!needed.at(index) || bank.decoded.at(index)) continue;
+    const auto& wave = metadata.waves().at(index);
+    // Pinned FACT streams WMA as one whole-wave cache and only supports
+    // absent or complete-wave loops. Reject valid-but-unsupported subregions
+    // before its native assertion, without rewriting authored loop metadata.
+    if (metadata.streaming() &&
+        (wave.loop_start != 0 ||
+         (wave.loop_length != 0 && wave.loop_length != wave.duration))) {
+      throw std::invalid_argument(
+          "Streaming WMA partial loops are unsupported");
+    }
+    auto decoded =
+        PreparedWave::decode(wave, sample_budget - prepared_samples, domain);
+    prepared_samples += decoded.samples().size();
+    additions.at(index).emplace(std::move(decoded));
+  }
+  // Publish only after every newly admitted wave decoded successfully.
+  for (std::size_t index = 0; index < additions.size(); ++index) {
+    if (additions.at(index)) {
+      bank.decoded.at(index) = std::move(additions.at(index));
+    }
+  }
+  bank.admitted = std::move(admitted);
+  return prepared_samples;
+}
 struct CueSlot {
   FACTCue* cue{};
   std::uint32_t generation{};
@@ -198,10 +287,15 @@ struct Output::State {
         FACTCue_Destroy(slot.cue);
       }
     }
-    banks.clear();
+    for (auto* voice : music_voices) {
+      if (voice) FAudioVoice_DestroyVoice(voice);
+    }
+    for (auto& bank : banks) bank->retire_native();
     if (engine) {
       bw_fact_release_engine(engine);
     }
+    // Callbacks are joined before encoded bytes, samples and lookup versions.
+    banks.clear();
     if (owns_bridge) bridge_slot().store(nullptr, std::memory_order_release);
   }
   void initialize(std::span<const std::uint8_t> bytes) {
@@ -264,6 +358,76 @@ struct Output::State {
             "Calculate cue spatial audio");
     checked(FACT3DApply(&dsp, slot.cue), "Apply cue spatial audio");
   }
+  // Original two-source transport: start the next segment at its authored
+  // sample threshold while allowing the previous source's tail to finish.
+  void start_music_segment(unsigned index, bool intro) {
+    if (!music) throw std::logic_error("Music is not prepared");
+    auto*& voice = music_voices.at(index);
+    if (voice) {
+      FAudioVoice_DestroyVoice(voice);
+      voice = nullptr;
+    }
+    const auto& source = *music;
+    constexpr std::uint32_t kBitsPerByte = 8;
+    FAudioWaveFormatEx format{};
+    format.wFormatTag = FAUDIO_FORMAT_IEEE_FLOAT;
+    format.nChannels = static_cast<std::uint16_t>(source.channels);
+    format.nSamplesPerSec = source.sample_rate;
+    format.nBlockAlign =
+        static_cast<std::uint16_t>(source.channels * sizeof(float));
+    format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+    format.wBitsPerSample = sizeof(float) * kBitsPerByte;
+    checked(bw_fact_create_music_voice(engine, &format, &voice),
+            "Create prepared music voice");
+    try {
+      const auto all = std::span<const float>(source.samples);
+      const auto pcm =
+          source.loop_frame_count == 0
+              ? all
+              : (intro ? all.first(
+                             static_cast<std::size_t>(source.loop_begin_frame) *
+                             source.channels)
+                       : all.subspan(
+                             static_cast<std::size_t>(source.loop_begin_frame) *
+                                 source.channels,
+                             static_cast<std::size_t>(source.loop_frame_count) *
+                                 source.channels));
+      FAudioBuffer buffer{};
+      buffer.Flags = FAUDIO_END_OF_STREAM;
+      buffer.AudioBytes = static_cast<std::uint32_t>(pcm.size_bytes());
+      // FAudio's byte-typed C ABI reads the float object representation.
+      // The immutable PCM owner survives both native voices and their joins.
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      buffer.pAudioData = reinterpret_cast<const std::uint8_t*>(pcm.data());
+      checked(FAudioSourceVoice_SubmitSourceBuffer(voice, &buffer, nullptr),
+              "Submit prepared music segment");
+      checked(FAudioVoice_SetVolume(voice, gains.music * music_envelope,
+                                    FAUDIO_COMMIT_NOW),
+              "Apply prepared music gain");
+      checked(FAudioSourceVoice_Start(voice, 0, FAUDIO_COMMIT_NOW),
+              "Start prepared music segment");
+    } catch (...) {
+      FAudioVoice_DestroyVoice(voice);
+      voice = nullptr;
+      throw;
+    }
+  }
+  void advance_music() {
+    if (!music_playing || !music || music->loop_frame_count == 0) return;
+    auto* current = music_voices.at(music_current);
+    if (!current) {
+      throw std::logic_error("Playing music lost its native source");
+    }
+    FAudioVoiceState observed{};
+    FAudioSourceVoice_GetState(current, &observed, 0);
+    const auto threshold =
+        music_intro ? music->first_switch_frame : music->loop_period_frames;
+    if (observed.SamplesPlayed < threshold) return;
+    const unsigned next = music_current ^ 1U;
+    start_music_segment(next, false);
+    music_current = next;
+    music_intro = false;
+  }
   Bridge registry;
   Limits limits;
   memory::Vector<std::uint8_t> settings;
@@ -275,7 +439,12 @@ struct Output::State {
   MixGains gains;
   std::size_t decoded_samples{};
   std::uint32_t output_channels{};
-  bool owns_bridge{}, paused{};
+  std::optional<MusicSamples> music;
+  std::array<FAudioSourceVoice*, 2> music_voices{};
+  unsigned music_current{};
+  bool music_intro{}, music_playing{};
+  float music_envelope{1};
+  bool owns_bridge{}, paused{}, preparation_pending{true};
 };
 
 Output::Output(std::span<const std::uint8_t> settings, Limits limits,
@@ -290,9 +459,8 @@ void Output::register_bank(std::uint16_t slot,
                            std::span<const std::uint8_t> wrapped_sound,
                            std::span<const std::uint8_t> wave_bank,
                            std::span<const std::uint16_t> admitted_cues) {
-  if (state_->registry.sealed.load(std::memory_order_acquire) ||
-      state_->banks.size() == state_->limits.banks) {
-    throw std::logic_error("Audio bank registration closed or exhausted");
+  if (state_->banks.size() == state_->limits.banks) {
+    throw std::logic_error("Audio bank registration exhausted");
   }
   for (const auto& bank : state_->banks) {
     if (bank->slot == slot) {
@@ -307,62 +475,12 @@ void Output::register_bank(std::uint16_t slot,
   candidate->encoded.assign(wave_bank.begin(), wave_bank.end());
   candidate->metadata = formats::WaveBankDefinition::parse(
       candidate->encoded, state_->registry.domain);
-  // Walk every admitted cue's sound/track/variation closure at setup. Bounds
-  // are validated by the shared definition; no runtime cue-name lookup occurs.
-  const auto definition = formats::AudioBankDefinition::parse(
-      {candidate->sound, candidate->encoded}, state_->registry.domain);
-  candidate->admitted.resize(definition.cues().size(), admitted_cues.empty());
-  for (const auto cue : admitted_cues) {
-    if (cue >= candidate->admitted.size()) {
-      throw std::invalid_argument("Admitted audio cue exceeds bank");
-    }
-    candidate->admitted.at(cue) = 1;
-  }
-  memory::Vector<std::uint8_t> needed(
-      definition.waves().size(), 0,
-      memory::Allocator<std::uint8_t>(state_->registry.domain));
-  for (std::size_t cue = 0; cue < definition.cues().size(); ++cue) {
-    if (!candidate->admitted.at(cue)) continue;
-    const auto& sound = definition.sounds().at(definition.cues().at(cue).sound);
-    for (std::uint64_t track = sound.tracks.offset;
-         track < sound.tracks.offset + sound.tracks.size; ++track) {
-      const auto events = definition.tracks().at(track).events;
-      for (std::uint64_t event = events.offset;
-           event < events.offset + events.size; ++event) {
-        const auto choices = definition.events().at(event).choices;
-        for (std::uint64_t choice = choices.offset;
-             choice < choices.offset + choices.size; ++choice) {
-          const auto& value = definition.wave_choices().at(choice);
-          if (value.bank != 0) {
-            throw std::invalid_argument("External cue wave bank is unprepared");
-          }
-          needed.at(value.wave) = 1;
-        }
-      }
-    }
-  }
   candidate->decoded.resize(candidate->metadata->waves().size());
-  std::size_t prepared_samples = 0;
-  for (std::size_t index = 0; index < needed.size(); ++index) {
-    if (!needed.at(index)) continue;
-    const auto& wave = candidate->metadata->waves().at(index);
-    // Pinned FACT streams WMA as one whole-wave cache and only supports
-    // absent or complete-wave loops. Reject valid-but-unsupported subregions
-    // before its native assertion, without rewriting authored loop metadata.
-    if (candidate->metadata->streaming() &&
-        (wave.loop_start != 0 ||
-         (wave.loop_length != 0 && wave.loop_length != wave.duration))) {
-      throw std::invalid_argument(
-          "Streaming WMA partial loops are unsupported");
-    }
-    auto decoded =
-        PreparedWave::decode(wave,
-                             state_->limits.decoded_samples -
-                                 state_->decoded_samples - prepared_samples,
-                             state_->registry.domain);
-    prepared_samples += decoded.samples().size();
-    candidate->decoded.at(index).emplace(std::move(decoded));
-  }
+  const auto prepared_samples =
+      prepare_cues(*candidate, admitted_cues,
+                   state_->limits.decoded_samples - state_->decoded_samples -
+                       (state_->music ? state_->music->samples.size() : 0),
+                   state_->registry.domain);
   const auto payload = sound_payload(candidate->sound);
   if (payload.size() > std::numeric_limits<std::uint32_t>::max() ||
       candidate->encoded.size() > std::numeric_limits<std::uint32_t>::max()) {
@@ -392,34 +510,128 @@ void Output::register_bank(std::uint16_t slot,
   }
   state_->banks.push_back(std::move(candidate));
   state_->decoded_samples += prepared_samples;
+  state_->preparation_pending = true;
 }
 
+void Output::extend_bank(std::uint16_t slot,
+                         std::span<const std::uint16_t> admitted_cues) {
+  for (auto& bank : state_->banks) {
+    if (bank->slot != slot) continue;
+    const auto added =
+        prepare_cues(*bank, admitted_cues,
+                     state_->limits.decoded_samples - state_->decoded_samples -
+                         (state_->music ? state_->music->samples.size() : 0),
+                     state_->registry.domain);
+    state_->decoded_samples += added;
+    state_->preparation_pending |= added != 0;
+    return;
+  }
+  throw std::invalid_argument("Audio bank extension requires a retained bank");
+}
 void Output::seal() {
+  if (!state_->preparation_pending) return;
   auto& registry = state_->registry;
-  if (registry.sealed.load(std::memory_order_acquire)) return;
+  auto table = std::allocate_shared<SampleTable>(
+      memory::Allocator<SampleTable>(registry.domain), registry.domain);
   std::size_t count = 0;
   for (const auto& bank : state_->banks) count += bank->decoded.size();
-  registry.samples.reserve(count);
+  table->entries.reserve(count);
   for (const auto& bank : state_->banks) {
-    const auto& metadata = bank->metadata;
-    if (!metadata.has_value()) throw std::logic_error("Unprepared audio bank");
-    const auto& definition = metadata.value();
+    if (!bank->metadata) {
+      throw std::logic_error("Audio bank metadata is unprepared");
+    }
+    const auto& definition = bank->metadata.value();
     for (std::size_t index = 0; index < bank->decoded.size(); ++index) {
       const auto& decoded = bank->decoded.at(index);
       if (!decoded) continue;
       const auto& wave = definition.waves().at(index);
-      registry.samples.push_back(
+      table->entries.push_back(
           {wave.encoded.data(), wave.encoded.size(), &decoded.value()});
     }
   }
-  std::ranges::sort(registry.samples, [](const auto& left, const auto& right) {
+  std::ranges::sort(table->entries, [](const auto& left, const auto& right) {
     return std::less<const std::uint8_t*>{}(left.encoded, right.encoded);
   });
-  registry.sealed.store(true, std::memory_order_release);
+  registry.generations.push_back(std::move(table));
+  registry.published.store(registry.generations.back().get(),
+                           std::memory_order_release);
+  state_->preparation_pending = false;
+}
+
+// Validate the complete immutable track before replacing its retained owner.
+void Output::prepare_music(MusicSamples samples) {
+  const auto frames =
+      samples.channels == 0 ? 0 : samples.samples.size() / samples.channels;
+  if (samples.channels == 0 || samples.channels > kMaximumOutputChannels ||
+      samples.sample_rate < FAUDIO_MIN_SAMPLE_RATE ||
+      samples.sample_rate > FAUDIO_MAX_SAMPLE_RATE || samples.samples.empty() ||
+      samples.samples.size() % samples.channels != 0 ||
+      samples.samples.size() >
+          std::numeric_limits<std::uint32_t>::max() / sizeof(float) ||
+      samples.samples.size() >
+          state_->limits.decoded_samples - state_->decoded_samples ||
+      samples.loop_begin_frame > frames ||
+      samples.loop_frame_count > frames - samples.loop_begin_frame ||
+      (samples.loop_frame_count == 0 &&
+       (samples.loop_begin_frame != 0 || samples.first_switch_frame != 0 ||
+        samples.loop_period_frames != 0)) ||
+      (samples.loop_frame_count != 0 &&
+       (samples.loop_begin_frame == 0 || samples.first_switch_frame == 0 ||
+        samples.first_switch_frame > samples.loop_begin_frame ||
+        samples.loop_period_frames == 0 ||
+        samples.loop_period_frames > samples.loop_frame_count ||
+        samples.loop_begin_frame - samples.first_switch_frame >
+            samples.loop_period_frames ||
+        samples.loop_frame_count - samples.loop_period_frames >
+            samples.loop_period_frames)) ||
+      !std::ranges::all_of(samples.samples,
+                           [](float value) { return std::isfinite(value); })) {
+    throw std::invalid_argument("Invalid prepared music samples or loop");
+  }
+  stop_music();
+  state_->music.emplace(std::move(samples));
+}
+void Output::start_music() {
+  if (!state_->music) throw std::logic_error("Music is not prepared");
+  stop_music();
+  state_->start_music_segment(0, true);
+  state_->music_current = 0;
+  state_->music_intro = true;
+  state_->music_playing = true;
+}
+void Output::stop_music() noexcept {
+  state_->music_playing = false;
+  for (auto*& voice : state_->music_voices) {
+    if (!voice) continue;
+    FAudioVoice_DestroyVoice(voice);
+    voice = nullptr;
+  }
+}
+void Output::set_music_envelope(float gain) {
+  if (!std::isfinite(gain) || gain < 0 || gain > 1) {
+    throw std::invalid_argument("Invalid music envelope");
+  }
+  for (auto* voice : state_->music_voices) {
+    if (voice) {
+      checked(FAudioVoice_SetVolume(voice, state_->gains.music * gain,
+                                    FAUDIO_COMMIT_NOW),
+              "Set music envelope");
+    }
+  }
+  state_->music_envelope = gain;
+}
+bool Output::music_active() const {
+  for (auto* voice : state_->music_voices) {
+    if (!voice) continue;
+    FAudioVoiceState observed{};
+    FAudioSourceVoice_GetState(voice, &observed, FAUDIO_VOICE_NOSAMPLESPLAYED);
+    if (observed.BuffersQueued != 0) return true;
+  }
+  return false;
 }
 
 std::optional<CueHandle> Output::play(const CueRequest& request) {
-  if (!state_->registry.sealed.load(std::memory_order_acquire)) {
+  if (state_->preparation_pending) {
     throw std::logic_error("Audio banks must be sealed before playback");
   }
   if (request.position) position_valid(*request.position);
@@ -509,6 +721,7 @@ void Output::set_mix_gains(const MixGains& gains) {
   // Native publication is under FACT's lock, including paused/upcoming waves.
   // Authored RPC/category gain remains owned by FACT and is not overwritten.
   state_->gains = gains;
+  set_music_envelope(state_->music_envelope);
   for (auto& slot : state_->slots) {
     if (slot.cue) {
       checked(bw_fact_set_cue_gain(slot.cue, mix_gain(gains, slot.mix_bus)),
@@ -524,7 +737,18 @@ void Output::pause(bool paused) {
   }
   state_->paused = paused;
 }
+void Output::retire_world() {
+  for (auto& slot : state_->slots) {
+    if (!slot.cue || slot.pause_domain != PauseDomain::world) continue;
+    checked(FACTCue_Stop(slot.cue, FACT_FLAG_STOP_IMMEDIATE),
+            "Retire world cue");
+    checked(FACTCue_Destroy(slot.cue), "Destroy retired world cue");
+    slot.cue = nullptr;
+  }
+  state_->paused = false;
+}
 void Output::update() {
+  state_->advance_music();
   if (state_->registry.failures.load(std::memory_order_acquire)) {
     throw std::runtime_error("Native audio requested unprepared sample data");
   }
@@ -553,13 +777,13 @@ extern "C" int bw_fact_copy_samples(const std::uint8_t* encoded,
   using bw::audio::fact::bridge_slot;
   auto* owner = bridge_slot().load(std::memory_order_acquire);
   if (!owner) return 0;
-  if (owner->sealed.load(std::memory_order_acquire)) {
+  if (const auto* table = owner->published.load(std::memory_order_acquire)) {
     const auto found = std::lower_bound(
-        owner->samples.begin(), owner->samples.end(), encoded,
+        table->entries.begin(), table->entries.end(), encoded,
         [](const auto& entry, const auto* pointer) {
           return std::less<const std::uint8_t*>{}(entry.encoded, pointer);
         });
-    if (found != owner->samples.end() && found->encoded == encoded &&
+    if (found != table->entries.end() && found->encoded == encoded &&
         found->encoded_bytes == encoded_bytes &&
         found->wave->channels() == channels &&
         found->wave->sample_rate() == rate &&

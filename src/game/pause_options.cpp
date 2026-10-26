@@ -17,13 +17,36 @@ namespace {
 constexpr std::uint32_t kConfirm = 0x1000, kStart = 0x10, kCancel = 0x2020,
                         kUp = 0x01000000, kDown = 0x02000000,
                         kHorizontal = 0x0c000000;
-constexpr unsigned kCostumes = 6, kOptions = 8, kFullVolume = 256;
+constexpr unsigned kCostumes = 6, kFullVolume = 256;
+constexpr std::array kMissionRows{
+    PauseOption::subtitles, PauseOption::music,      PauseOption::effects,
+    PauseOption::controls,  PauseOption::brightness, PauseOption::autosave,
+    PauseOption::costume,   PauseOption::exit};
+constexpr std::array kFrontendRows{
+    PauseOption::subtitles,    PauseOption::music,      PauseOption::effects,
+    PauseOption::controls,     PauseOption::brightness, PauseOption::autosave,
+    PauseOption::leaderboards, PauseOption::power_up,   PauseOption::costume,
+    PauseOption::exit};
 constexpr float kOptionsSeconds = 1.8F, kBrightnessSeconds = .25F;
 constexpr std::uint32_t kLeft = 0x04000000, kReset = 0x8000;
 constexpr unsigned kVolumeStep = 16;
 }  // namespace
-PauseOptionsFlow::PauseOptionsFlow(PauseOptionsServices services)
-    : services_(services), controllers_(services.settings, services.device) {
+std::span<const PauseOption> options_rows(OptionsContext context) {
+  switch (context) {
+    case OptionsContext::mission:
+      return kMissionRows;
+    case OptionsContext::frontend:
+      return kFrontendRows;
+  }
+  throw std::invalid_argument("Invalid Options context");
+}
+PauseOptionsFlow::PauseOptionsFlow(PauseOptionsServices services,
+                                   OptionsContext context)
+    : context_(context),
+      services_(services),
+      controllers_(services.settings, services.device) {
+  (void)options_rows(context_);
+  view_.context = context_;
   observe_settings();
 }
 void PauseOptionsFlow::observe_settings() {
@@ -33,8 +56,9 @@ void PauseOptionsFlow::observe_settings() {
   view_.settings.effects = services_.settings.effects_volume();
 }
 bool PauseOptionsFlow::changed() const {
-  return baseline_ && (services_.settings.changed_since(*baseline_) ||
-                       services_.device.snapshot() != device_baseline_);
+  return record_pending_ ||
+         (baseline_ && (services_.settings.changed_since(*baseline_) ||
+                        services_.device.snapshot() != device_baseline_));
 }
 void PauseOptionsFlow::begin_exit() {
   view_.page = PauseOptionsPage::options;
@@ -58,8 +82,17 @@ void PauseOptionsFlow::dialog(PauseOptionsPage page, bool yes) {
 void PauseOptionsFlow::save() {
   const auto system = services_.save_settings.save();
   const auto device = services_.save_device.save();
-  if (system == platform::SaveStatus::ok &&
-      device == platform::SaveStatus::ok) {
+  const bool settings_saved =
+      system == platform::SaveStatus::ok && device == platform::SaveStatus::ok;
+  auto record = platform::SaveStatus::ok;
+  if (settings_saved && record_pending_) {
+    if (!services_.record_save) {
+      throw std::logic_error("Record persistence capability missing");
+    }
+    record = services_.record_save->save();
+  }
+  if (settings_saved && record == platform::SaveStatus::ok) {
+    record_pending_ = false;
     dialog(PauseOptionsPage::saved, false);
     sounds_.add(MenuSound::save);
   } else {
@@ -92,6 +125,8 @@ void PauseOptionsFlow::update_dialog(MenuInput input, float seconds) {
       services_.settings.restore(*baseline_);
       services_.device.apply(device_baseline_);
       observe_settings();
+      // Native Back restores only System; confirmed purchases stay in memory.
+      record_pending_ = false;
       begin_exit();
     }
   } else if (state.yes) {
@@ -162,6 +197,9 @@ void PauseOptionsFlow::start(unsigned current_costume) {
   view_.exiting = false;
   view_.notice = {};
   costume_request_.reset();
+  child_request_.reset();
+  pending_child_.reset();
+  record_pending_ = false;
   description_ = {};
   pulse_phase_ = 0;
 }
@@ -188,15 +226,21 @@ void PauseOptionsFlow::update(MenuInput input, float seconds,
     child_transition_seconds_ += seconds;
     const auto fraction =
         std::clamp(child_transition_seconds_ / kChildFadeSeconds, 0.F, 1.F);
-    view_.opacity = child_transition_ == ChildTransition::entering_controls
-                        ? 1 - fraction
-                        : fraction;
+    const bool entering =
+        child_transition_ == ChildTransition::entering_controls ||
+        child_transition_ == ChildTransition::entering_external;
+    view_.opacity = entering ? 1 - fraction : fraction;
     if (fraction >= 1) {
       if (child_transition_ == ChildTransition::entering_controls) {
         controllers_.start();
         sounds_ = controllers_.take_sounds();
         view_.page = PauseOptionsPage::controls;
         view_.opacity = 0;
+      }
+      if (child_transition_ == ChildTransition::entering_external) {
+        child_request_ = pending_child_;
+        pending_child_.reset();
+        view_.page = PauseOptionsPage::external_child;
       }
       child_transition_ = ChildTransition::none;
       child_transition_seconds_ = 0;
@@ -238,7 +282,7 @@ void PauseOptionsFlow::update(MenuInput input, float seconds,
   pulse_phase_ = std::fmod(pulse_phase_ + seconds, 1.F);
 }
 void PauseOptionsFlow::update_policy(MenuInput input, float seconds) {
-  if (completed() || costume_request_) {
+  if (completed() || costume_request_ || child_request_) {
     return;
   }
   if (view_.page == PauseOptionsPage::discard ||
@@ -306,12 +350,17 @@ void PauseOptionsFlow::update_policy(MenuInput input, float seconds) {
   }
   if ((input.repeated & kUp) != 0) {
     sounds_.add(MenuSound::cursor);
-    view_.selected = static_cast<PauseOption>(
-        (static_cast<unsigned>(view_.selected) + kOptions - 1) % kOptions);
+    const auto rows = options_rows(context_);
+    const auto current = std::ranges::find(rows, view_.selected) - rows.begin();
+    view_.selected =
+        rows[(static_cast<std::size_t>(current) + rows.size() - 1) %
+             rows.size()];
   } else if ((input.repeated & kDown) != 0) {
     sounds_.add(MenuSound::cursor);
-    view_.selected = static_cast<PauseOption>(
-        (static_cast<unsigned>(view_.selected) + 1) % kOptions);
+    const auto rows = options_rows(context_);
+    const auto current = std::ranges::find(rows, view_.selected) - rows.begin();
+    view_.selected =
+        rows[(static_cast<std::size_t>(current) + 1) % rows.size()];
   } else if ((input.repeated & kHorizontal) != 0) {
     change_setting((input.repeated & kLeft) != 0 ? -1 : 1, false);
   } else if ((input.pressed & kReset) != 0) {
@@ -338,6 +387,18 @@ void PauseOptionsFlow::update_policy(MenuInput input, float seconds) {
       view_.page = PauseOptionsPage::brightness;
       view_.elapsed = 0;
       view_.opening = true;
+    } else if (context_ == OptionsContext::frontend &&
+               (view_.selected == PauseOption::costume ||
+                view_.selected == PauseOption::leaderboards ||
+                view_.selected == PauseOption::power_up)) {
+      sounds_.add(MenuSound::confirm);
+      pending_child_ = view_.selected == PauseOption::costume
+                           ? OptionsChild::costume
+                       : view_.selected == PauseOption::leaderboards
+                           ? OptionsChild::leaderboards
+                           : OptionsChild::power_up;
+      child_transition_ = ChildTransition::entering_external;
+      child_transition_seconds_ = 0;
     } else if (view_.selected == PauseOption::costume) {
       sounds_.add(MenuSound::confirm);
       publish_costumes();
@@ -351,6 +412,23 @@ void PauseOptionsFlow::update_policy(MenuInput input, float seconds) {
       begin_exit();
     }
   }
+}
+void PauseOptionsFlow::complete_child(bool record_changed) {
+  if (context_ != OptionsContext::frontend || !child_request_ ||
+      view_.page != PauseOptionsPage::external_child) {
+    throw std::logic_error("No active frontend Options child");
+  }
+  if (record_changed &&
+      (*child_request_ != OptionsChild::power_up || !services_.record_save)) {
+    throw std::logic_error("Power Up changes require Record save capability");
+  }
+  record_pending_ = record_pending_ || record_changed;
+  child_request_.reset();
+  view_.page = PauseOptionsPage::options;
+  view_.opacity = 0;
+  child_transition_ = ChildTransition::returning_external;
+  child_transition_seconds_ = 0;
+  observe_settings();
 }
 void PauseOptionsFlow::complete_costume(bool success) {
   if (!costume_request_) {

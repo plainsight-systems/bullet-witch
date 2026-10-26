@@ -10,7 +10,7 @@
 // research/engine/subsystems/native-pause-menu.md.
 #pragma once
 #include "menu_audio.hpp"
-#include "menu_flow.hpp"
+#include "menu_input.hpp"
 namespace bw::game {
 enum class MenuDialogMode : std::uint8_t { yes_no, acknowledgment };
 struct MenuDialogPresentation {
@@ -21,6 +21,9 @@ class MenuDialog {
  public:
   void start(bool default_yes, MenuDialogMode mode = MenuDialogMode::yes_no);
   void update(MenuInput input, float seconds);
+  // Original storage progress tasks disable input and close their dialog
+  // explicitly after the operation/minimum display interval. Idempotent.
+  void close();
   const MenuDialogPresentation& presentation() const { return view_; }
   MenuSoundRequests take_sounds();
 

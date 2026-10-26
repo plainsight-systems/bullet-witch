@@ -206,9 +206,19 @@ void MissionInteraction::present() {
       pause_output_.show(view);
       break;
     }
-    case MissionPauseView::costume:
-      pause_output_.show(options_.costume_presentation());
+    case MissionPauseView::costume: {
+      // The approved mission costume switch has no frontend entry track. Its
+      // owner publishes the settled original card layout and live appearance.
+      auto view = options_.costume_presentation();
+      constexpr float kCostumeRowPitch = 172;
+      view.prompts = prompts_;
+      view.child.motion = ChildMenuMotion::active;
+      view.child.scroll = -kCostumeRowPitch * static_cast<float>(view.selected);
+      view.child.current_costume = loading_.current_player_costume();
+      view.child.highlight.at(view.selected) = 1;
+      pause_output_.show(view);
       break;
+    }
     case MissionPauseView::developer:
       pause_output_.show(developer_.presentation());
       break;

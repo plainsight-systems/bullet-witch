@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 namespace bw::game {
 namespace {
@@ -33,7 +34,12 @@ PowerUpFlow::PowerUpFlow(UpgradePurchaseControl purchases)
     : purchases_(purchases) {
   start();
 }
+MenuSoundRequests PowerUpFlow::take_sounds() {
+  return std::exchange(sounds_, {});
+}
 void PowerUpFlow::start() {
+  sounds_ = {};
+  sounds_.add(MenuSound::panel);
   conceal_requested_ = false;
   page_ = PowerUpPage::categories;
   category_ = UpgradeCategory::stat;
@@ -116,6 +122,7 @@ void PowerUpFlow::show_upgrades() {
   transition(Phase::child_reveal);
 }
 void PowerUpFlow::navigate(int direction) {
+  sounds_.add(MenuSound::cursor);
   const auto count = row_count();
   if (direction < 0) {
     focused_ = focused_ == 0 ? count - 1 : focused_ - 1;
@@ -131,6 +138,12 @@ void PowerUpFlow::navigate(int direction) {
   }
 }
 void PowerUpFlow::accept() {
+  if (page_ != PowerUpPage::confirmation || notice_ == PowerUpNotice::none) {
+    sounds_.add(MenuSound::confirm);
+  }
+  if (page_ == PowerUpPage::confirmation) {
+    sounds_.add(MenuSound::dialog_close);
+  }
   if (page_ == PowerUpPage::categories) {
     outer_prompt_target_ = 0.F;
     if (focused_ == kContinue) {
@@ -153,6 +166,7 @@ void PowerUpFlow::accept() {
   transition(Phase::dialog_accept);
 }
 void PowerUpFlow::open_dialog() {
+  sounds_.add(MenuSound::dialog_open);
   const auto progression = purchases_.progression();
   const auto cost = upgrade_cost(progression, selected_upgrade());
   notice_ = !cost                        ? PowerUpNotice::maximum_level
@@ -174,6 +188,7 @@ void PowerUpFlow::finish_dialog() {
   const auto result = purchases_.purchase(selected_upgrade());
   purchase_confirmed_ = false;
   if (result == PurchaseResult::purchased) {
+    sounds_.add(MenuSound::upgrade_purchase);
     show_upgrades();
     return;
   }
@@ -183,10 +198,12 @@ void PowerUpFlow::finish_dialog() {
   focused_ = 0;
   dialog_progress_ = 0.F;
   dialog_gate_open_ = false;
+  sounds_.add(MenuSound::dialog_open);
   transition(Phase::dialog_open);
 }
 
 void PowerUpFlow::cancel() {
+  sounds_.add(MenuSound::back);
   if (page_ == PowerUpPage::confirmation) {
     if (notice_ == PowerUpNotice::none) focused_ = 1;
   } else if (page_ == PowerUpPage::upgrades) {
@@ -260,6 +277,7 @@ void PowerUpFlow::update(MenuInput input, float elapsed_seconds) {
   if (!std::isfinite(elapsed_seconds) || elapsed_seconds < 0.F) {
     throw std::invalid_argument("Invalid power-up presentation time");
   }
+  sounds_ = {};
   if (conceal_requested_) {
     advance_visuals(elapsed_seconds);
     return;

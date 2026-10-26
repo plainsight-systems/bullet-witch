@@ -1,15 +1,16 @@
-// Original in-mission Options transaction. Profile and DeviceOptions retain
-// authority; narrow controls apply live edits, entry snapshots support Back's
-// discard confirmation, and explicit save capabilities persist on Exit. The
-// flow owns UI state and source timing only. Controller input and costume
-// replacement are child transactions. Ordinary updates use fixed storage;
-// storage I/O is confined to the explicit save phase. Core E.4
+// Original shared frontend/in-mission Options transaction. Profile and
+// DeviceOptions retain authority; narrow controls apply live edits, entry
+// snapshots support Back's discard confirmation, and explicit save capabilities
+// persist on Exit. The flow owns UI state and source timing only. Controller
+// input and costume replacement are child transactions. Ordinary updates use
+// fixed storage; storage I/O is confined to the explicit save phase. Core E.4
 // (#re-design-invariants) and performance MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md), read in design and implementation,
 // require validation before publication and bounded state. Source contract:
 // research/engine/subsystems/native-pause-menu.md.
 #pragma once
 #include <optional>
+#include <span>
 
 #include "bw/math/scalar.hpp"
 #include "controller_options.hpp"
@@ -19,6 +20,10 @@
 #include "menu_prompt.hpp"
 
 namespace bw::game {
+// Source mission flag removes frontend-only children; the approved mission
+// costume addition remains separate. Context is immutable for each flow.
+enum class OptionsContext : std::uint8_t { mission, frontend };
+enum class OptionsChild : std::uint8_t { leaderboards, power_up, costume };
 enum class PauseOptionsPage : std::uint8_t {
   options,
   brightness,
@@ -28,7 +33,8 @@ enum class PauseOptionsPage : std::uint8_t {
   discard,
   save_prompt,
   saved,
-  complete
+  complete,
+  external_child
 };
 enum class PauseOption : std::uint8_t {
   subtitles,
@@ -38,13 +44,19 @@ enum class PauseOption : std::uint8_t {
   brightness,
   autosave,
   costume,
-  exit
+  exit,
+  leaderboards,
+  power_up
 };
+// Source row order is context-specific. Numeric compatibility lives here,
+// not in surface callers or the frontend coordinator.
+std::span<const PauseOption> options_rows(OptionsContext context);
 struct PauseOptionsServices {
   SettingsControl settings;
   SettingsSaveControl save_settings;
   DeviceOptionsControl device;
   DeviceOptionsSaveControl save_device;
+  std::optional<RecordSaveControl> record_save{};
 };
 struct PauseOptionsSettings {
   bool subtitles{}, autosave{};
@@ -52,6 +64,7 @@ struct PauseOptionsSettings {
 };
 struct PauseOptionsPresentation {
   MenuPrompts prompts{menu_prompts(true)};
+  OptionsContext context{OptionsContext::mission};
   PauseOptionsPage page{PauseOptionsPage::complete};
   PauseOption selected{PauseOption::subtitles};
   PauseOptionsSettings settings;
@@ -64,7 +77,12 @@ struct PauseOptionsPresentation {
 };
 class PauseOptionsFlow {
  public:
-  explicit PauseOptionsFlow(PauseOptionsServices services);
+  explicit PauseOptionsFlow(PauseOptionsServices services,
+                            OptionsContext context = OptionsContext::mission);
+  // External frontend tasks acquire their own authority/resources only after
+  // conceal. The request remains stable until that owner reports completion.
+  std::optional<OptionsChild> requested_child() const { return child_request_; }
+  void complete_child(bool record_changed = false);
   void start(unsigned current_costume);
   void update(MenuInput input, float presentation_seconds,
               const input::PhysicalState& physical = {});
@@ -90,10 +108,15 @@ class PauseOptionsFlow {
   enum class ChildTransition : std::uint8_t {
     none,
     entering_controls,
-    returning_controls
+    returning_controls,
+    entering_external,
+    returning_external
   };
   ChildTransition child_transition_{};
   float child_transition_seconds_{};
+  bool record_pending_{};
+  OptionsContext context_;
+  std::optional<OptionsChild> child_request_, pending_child_;
   PauseOptionsServices services_;
   ControllerOptionsFlow controllers_;
   std::optional<SettingsCheckpoint> baseline_;

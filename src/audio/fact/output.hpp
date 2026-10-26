@@ -12,7 +12,7 @@
 #include "bw/audio/output.hpp"
 
 namespace bw::audio::fact {
-class Output final : public CueOutput {
+class Output final : public CueOutput, public MusicOutput {
  public:
   Output(std::span<const std::uint8_t> global_settings, Limits limits,
          const std::shared_ptr<memory::Domain>& domain);
@@ -26,7 +26,15 @@ class Output final : public CueOutput {
                      std::span<const std::uint8_t> wrapped_sound,
                      std::span<const std::uint8_t> wave_bank,
                      std::span<const std::uint16_t> admitted_cues) override;
+  void extend_bank(std::uint16_t slot,
+                   std::span<const std::uint16_t> admitted_cues) override;
   void seal() override;
+  MusicOutput& music() override { return *this; }
+  void prepare_music(MusicSamples samples) override;
+  void start_music() override;
+  void stop_music() noexcept override;
+  void set_music_envelope(float gain) override;
+  bool music_active() const override;
   std::optional<CueHandle> play(const CueRequest& request) override;
   bool set_position(CueHandle handle,
                     const math::Vector3<float>& position) override;
@@ -34,6 +42,7 @@ class Output final : public CueOutput {
   bool stop(CueHandle handle) override;
   void set_mix_gains(const MixGains& gains) override;
   void pause(bool paused) override;
+  void retire_world() override;
   void update() override;
   bool active(CueHandle handle) const override;
 

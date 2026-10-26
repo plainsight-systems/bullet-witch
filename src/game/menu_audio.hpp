@@ -28,7 +28,10 @@ enum class MenuSound : std::uint8_t {
   error,
   dialog_open,
   dialog_close,
-  save
+  save,
+  title_start,
+  mission_start,
+  upgrade_purchase
 };
 struct MenuSoundRequest {
   MenuSound sound{};

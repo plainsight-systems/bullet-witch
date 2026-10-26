@@ -1,3 +1,8 @@
+// Startup content operations: I.1 (#ri-explicit), read in both phases, names
+// strict load and explicit replacement separately. MEM.9 bounds their temporary
+// save buffers outside steady-state work. The original all-zero empty-save
+// encoding is not a playable checkpoint; frontend-profile-load.md documents
+// the one-time legacy two-file reconstruction migration.
 // Power-up consumers receive UpgradePurchaseControl, permitting only owned
 // progression observations and checked purchases. They cannot replace/load/save
 // the profile, alter options, award results or mutate original byte buffers.
@@ -121,6 +126,20 @@ class SettingsSaveControl {
   SettingsControl settings_;
   platform::SaveStorage* storage_;
 };
+// Options may persist only the retained Record after an explicit upgrade-save
+// decision. It cannot change progression, System settings or checkpoint data.
+// The stable Profile and storage owner outlive this borrowed capability.
+class RecordSaveControl {
+ public:
+  platform::SaveStatus save() const;
+
+ private:
+  friend class Profile;
+  RecordSaveControl(Profile& profile, platform::SaveStorage& storage)
+      : profile_(&profile), storage_(&storage) {}
+  Profile* profile_;
+  platform::SaveStorage* storage_;
+};
 class UpgradePurchaseControl {
  public:
   Progression progression() const;
@@ -135,6 +154,10 @@ struct ProfileResult {
   platform::SaveStatus status{platform::SaveStatus::ok};
   std::string_view file;
 };
+struct MissionBestRecord {
+  std::uint32_t score{};
+  unsigned rank{};
+};
 class Profile {
  public:
   Profile();
@@ -148,15 +171,30 @@ class Profile {
   SettingsSaveControl settings_save_control(platform::SaveStorage& storage) {
     return {settings_control(), storage};
   }
+  RecordSaveControl record_save_control(platform::SaveStorage& storage) {
+    return {*this, storage};
+  }
   UpgradePurchaseControl upgrade_purchases() {
     return UpgradePurchaseControl(*this);
   }
   // Replace the active profile only after all available files validate.
   ProfileResult load(platform::SaveStorage& storage);
+  // Original startup requires all three files. Missing System requests content
+  // creation; missing Record is a load failure. Valid legacy two-file port
+  // saves receive only the original empty checkpoint sentinel (no reset).
+  ProfileResult load_startup(platform::SaveStorage& storage);
+  // Explicit fresh-content operation after original startup policy admits it.
+  // Writes System, the original all-zero no-checkpoint sentinel, then Record.
+  // Publishes defaults only after all writes succeed; partial disk writes are
+  // reported, never presented as an atomic multi-file transaction.
+  ProfileResult create_defaults(platform::SaveStorage& storage);
   // Persist dirty System/Record files independently; checkpoints remain
   // read-only.
   ProfileResult save(platform::SaveStorage& storage);
   Progression progression() const;
+  // Copied persisted selector observations, not mutable result authority.
+  // Campaign IDs are 1..6; concept IDs retain the original 0..63 identity.
+  MissionBestRecord mission_best(bool is_concept, unsigned mission_id) const;
   PurchaseResult purchase(UpgradeSelection selection);
   // Call once from the result task's publication phase; this is not a result
   // ledger. Returns points actually credited after the original wallet cap.
@@ -188,7 +226,9 @@ class Profile {
   bool dirty() const noexcept;
 
  private:
+  ProfileResult load_files(platform::SaveStorage& storage, bool require_all);
   friend class HelpControl;
+  friend class RecordSaveControl;
   friend class SettingsControl;
   static constexpr std::size_t kSystemBytes = profile_system_bytes;
   static constexpr std::size_t kRecordBytes = 992;

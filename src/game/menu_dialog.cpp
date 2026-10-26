@@ -41,8 +41,7 @@ void MenuDialog::update(MenuInput input, float seconds) {
     if (mode_ == MenuDialogMode::yes_no) {
       sounds_.add(MenuSound::confirm);
     }
-    sounds_.add(MenuSound::dialog_close);
-    view_.closing = true;
+    close();
   } else if (mode_ == MenuDialogMode::yes_no &&
              (input.pressed & kCancel) != 0) {
     sounds_.add(MenuSound::back);
@@ -52,6 +51,11 @@ void MenuDialog::update(MenuInput input, float seconds) {
     sounds_.add(MenuSound::cursor);
     view_.yes = !view_.yes;
   }
+}
+void MenuDialog::close() {
+  if (view_.closing || view_.complete) return;
+  sounds_.add(MenuSound::dialog_close);
+  view_.closing = true;
 }
 MenuSoundRequests MenuDialog::take_sounds() {
   const auto result = sounds_;

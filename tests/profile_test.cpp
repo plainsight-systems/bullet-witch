@@ -64,11 +64,23 @@ void defaults_and_round_trip() {
               storage.files.size() == 2,
           "checkpoint never synthesized");
   storage.files.at("BulletWitchRecord")[900] = std::byte{0xab};
+  // Persisted selector fields are independent from current mission progress.
+  auto& record = storage.files.at("BulletWitchRecord");
+  record[0x90] = std::byte{0x34};
+  record[0x91] = std::byte{0x12};
+  record[0x94] = std::byte{3};
+  record[0x1a4] = std::byte{0x78};
+  record[0x1a8] = std::byte{5};
   bw::game::Profile loaded;
   require(loaded.load(storage).status == bw::platform::SaveStatus::ok &&
               loaded.costume() == 4 && loaded.current_difficulty() == 2 &&
               loaded.difficulty() == 1,
           "live difficulty distinct from settings preference");
+  require(loaded.mission_best(false, 1).score == 0x1234 &&
+              loaded.mission_best(false, 1).rank == 3 &&
+              loaded.mission_best(true, 16).score == 0x78 &&
+              loaded.mission_best(true, 16).rank == 5,
+          "Stage and concept selectors read original persisted best fields");
   loaded.set_costume(2);
   require(loaded.save(storage).status == bw::platform::SaveStatus::ok &&
               storage.files.at("BulletWitchRecord")[900] == std::byte{0xab},
@@ -154,6 +166,7 @@ void failures_preserve_state() {
               !profile.dirty(),
           "write retry completes");
   storage.files["BulletWitchSaveData"] = std::vector<std::byte>(307200);
+  storage.files["BulletWitchSaveData"].front() = std::byte{2};
   require(profile.load(storage).status == bw::platform::SaveStatus::invalid &&
               !profile.has_checkpoint(),
           "invalid checkpoint header rejected");

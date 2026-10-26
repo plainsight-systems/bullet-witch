@@ -1,3 +1,6 @@
+// Localized-text repair: design I.1 and implementation E.4, with MEM.9
+// retrieved in both phases. Policy publishes content IDs; the surface owns
+// prepared purchased text/art. No English fallback or frame-time decoding.
 // Memory migration: native owners propagate the ResourceService CPU domain to
 // final pixel/glyph storage and retained presentation state/strings. Owning
 // allocators retain the domain through copies and partial-construction cleanup;
@@ -30,7 +33,9 @@ namespace bw::game {
 class StartupMenuSurface final : public MenuSurface {
  public:
   StartupMenuSurface(resources::ResourceService& resources,
-                     render::SpriteOutput& renderer);
+                     render::SpriteOutput& renderer,
+                     resources::ArchiveBytes menu_text,
+                     resources::ArchiveBytes input_icons);
   ~StartupMenuSurface() override;
   StartupMenuSurface(const StartupMenuSurface&) = delete;
   StartupMenuSurface& operator=(const StartupMenuSurface&) = delete;

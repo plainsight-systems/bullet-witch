@@ -1,6 +1,7 @@
 // Native post-result power-up navigation and confirmed purchase policy.
-// Original root Lua activates this task after campaign result and saves after
-// it exits; it is not an in-mission pause feature. Borrow only
+// Original root Lua activates this task after campaign result; frontend Options
+// also owns a source-backed entry. Each parent owns the later persistence.
+// It is not an in-mission pause feature. Borrow only
 // UpgradePurchaseControl for this task's lifetime. The Profile outlives this
 // nonmovable owner. Presentation is a copied observation. Main thread only.
 // No I/O, actors, mutable clock borrows or resource grants. Frontend elapsed
@@ -16,10 +17,13 @@
 // (#ri-typed), Con.2 (#rconst-fct) narrow authority and typed observations;
 // implementation E.4 (#re-design-invariants) revalidates at commit. Both phases
 // MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retain bounded
-// storage. See player-gameplay.md and player-progression-rules.md.
+// storage. Menu sound events are fixed values drained by the shared frontend
+// audio owner; I.1/MEM.9 were read for this addition in both phases.
+// See player-gameplay.md and player-progression-rules.md.
 #pragma once
 
 #include "bw/math/scalar.hpp"
+#include "menu_audio.hpp"
 #include "menu_flow.hpp"
 #include "power_up_presentation.hpp"
 #include "profile.hpp"
@@ -34,6 +38,7 @@ class PowerUpFlow {
   PowerUpFlow(PowerUpFlow&&) = delete;
   PowerUpFlow& operator=(PowerUpFlow&&) = delete;
   void start();
+  MenuSoundRequests take_sounds();
   void update(MenuInput input, float elapsed_seconds);
   bool accepts_input() const noexcept;
   PowerUpPresentation presentation() const;
@@ -78,6 +83,7 @@ class PowerUpFlow {
   void show_upgrades();
   UpgradeSelection selected_upgrade() const;
   UpgradePurchaseControl purchases_;
+  MenuSoundRequests sounds_;
   PowerUpPage page_{PowerUpPage::categories};
   UpgradeCategory category_{UpgradeCategory::stat};
   std::size_t focused_{};

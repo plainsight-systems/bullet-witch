@@ -11,6 +11,9 @@
 // keeps media/readiness explicit; cpp-performance COPY.5
 // (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) ensures
 // one owner stops each acquired operation, including partial failed opens.
+// Acceptance cue timing follows source state 500. Both implementation corpora
+// reread: E.6 leaves device lifetime with the session; MEM.9 bounds event
+// storage.
 #include "title_flows.hpp"
 
 #include <algorithm>
@@ -45,6 +48,7 @@ void TitleFlow::start() {
     throw std::logic_error("Title already active");
   }
   stop();
+  sounds_ = {};
   progress_ = {FlowStatus::pending, false, 0};
   diagnostic_.clear();
   transition(Phase::initialize);
@@ -98,6 +102,7 @@ TitlePresentation TitleFlow::presentation() const {
 }
 void TitleFlow::update(LogoUpdate input, bool resources_ready) {
   validate_delta(input.delta);
+  sounds_ = {};
   if (progress_.status != FlowStatus::pending) {
     return;
   }
@@ -145,6 +150,7 @@ void TitleFlow::update(LogoUpdate input, bool resources_ready) {
         }
         break;
       case Phase::accept:
+        sounds_.add(MenuSound::title_start);
         prompt_ = {0, accepted_pulse_period, 0, false, false};
         prompt_highlight_ = {0, normal_pulse_period, 0, false, true};
         transition(Phase::accepting);
@@ -210,5 +216,10 @@ void TitleFlow::update(LogoUpdate input, bool resources_ready) {
     progress_.status = FlowStatus::failed;
     diagnostic_ = error.what();
   }
+}
+MenuSoundRequests TitleFlow::take_sounds() {
+  const auto result = sounds_;
+  sounds_ = {};
+  return result;
 }
 }  // namespace bw::game

@@ -9,7 +9,9 @@
 // reverse-order retirement. Confirmed retirement destroys those borrowers and
 // resource owners before notifying the root script; no victory is fabricated.
 // Build configuration alone enables developer views. Existing loading callbacks
-// pump presentation without admitting world ticks. Core I.1 (#ri-explicit), C.9
+// pump presentation and the existing audio owner without admitting world ticks.
+// CP.2 (#rconc-races) keeps loading service calls on the same owner thread.
+// Core I.1 (#ri-explicit), C.9
 // (#rc-private), implementation E.4
 // (#re-design-invariants), and both-phase performance MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md) retain explicit phases and fixed
@@ -18,6 +20,7 @@
 #include "startup_application.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -28,6 +31,8 @@
 #include "bw/timing/frame_clock.hpp"
 #include "bw/world/world_clock.hpp"
 #include "game/controller_input.hpp"
+#include "game/frontend_audio.hpp"
+#include "game/frontend_options_surface.hpp"
 #include "game/gameplay_hud_surface.hpp"
 #include "game/initial_placement_shim.hpp"
 #include "game/mission_control.hpp"
@@ -36,6 +41,7 @@
 #include "game/mission_pause_surface.hpp"
 #include "game/player_resources.hpp"
 #include "game/power_up_surface.hpp"
+#include "game/ranking_surface.hpp"
 #include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
 #include "game/startup_loading_surface.hpp"
@@ -74,6 +80,26 @@ int run_startup(const StartupOptions& configuration,
                      bw::content::open_catalog(files, path, memory.resources));
     }
   }
+  // Original concept-menu text lives in each installed concept catalog.
+  // Expose only that text identity; scene aliases remain mission-owned.
+  constexpr std::array<unsigned, 3> kConceptBases{0, 16, 32};
+  constexpr unsigned kConceptsPerGroup = 6;
+  constexpr int kConceptTextPriority = 40;
+  for (const auto base : kConceptBases) {
+    for (unsigned offset = 0; offset < kConceptsPerGroup; ++offset) {
+      const auto id = base + offset;
+      const auto digits = (id < 10 ? "0" : "") + std::to_string(id);
+      const auto name = "cm" + digits + "_00";
+      const auto path =
+          configuration.game / "data/concept" / name / (name + ".rat");
+      const auto text_name = "sprite.text.cmtxt" + digits;
+      const auto image_name = "sprite.cm" + digits;
+      catalogs.mount_resources(
+          kConceptTextPriority, path,
+          bw::content::open_catalog(files, path, memory.resources),
+          std::array<std::string_view, 2>{text_name, image_name});
+    }
+  }
   bw::resources::ResourceService resources(std::move(catalogs), files,
                                            memory.resources);
   // Declaration order keeps services alive through reverse-order session
@@ -97,6 +123,16 @@ int run_startup(const StartupOptions& configuration,
     return static_cast<unsigned>((seed >> random_shift) & random_mask) %
            loading_count;
   });
+  // One native game mixer survives screen and mission tasks. Only menu cues
+  // prepare here; voice/common expansion remains at mission loading.
+  constexpr audio::Limits kGameAudioLimits{
+      .banks = 3, .cues = 128, .decoded_samples = 60'000'000};
+  game::GameAudio game_audio(files, resources.catalogs(), memory.media,
+                             audio_factory, kGameAudioLimits);
+  game::FrontEndAudio frontend_audio(*game_audio.output(), [&] {
+    game_audio.prepare_frontend_music(files, configuration.game / "data/sound",
+                                      memory.media);
+  });
   bw::game::Profile profile;
   game::DeviceOptions device_options(saves);
   const auto device_status = device_options.load();
@@ -104,14 +140,31 @@ int run_startup(const StartupOptions& configuration,
       device_status != platform::SaveStatus::missing) {
     throw std::runtime_error("Native device options could not be loaded");
   }
-  bw::game::StartupMenuSurface menu_surface(resources, host);
+  bw::game::StartupMenuSurface menu_surface(
+      resources, host,
+      files.read(configuration.game / "data/menu/9952", memory.resources),
+      files.read(configuration.game / "data/menu/9900", memory.resources));
   game::PowerUpSurface power_up_surface(
       resources, host,
       files.read(configuration.game / "data/menu/9900", memory.resources));
-  bw::game::FrontEnd frontend(profile, saves, playback, menu_surface, {},
-                              &power_up_surface);
+  game::FrontendOptionsSurface frontend_options_surface(
+      resources, host,
+      files.read(configuration.game / "data/menu/9900", memory.resources),
+      files.read(configuration.game / "data/menu/9952", memory.resources));
+  game::RankingSurface ranking_surface(
+      resources, host,
+      files.read(configuration.game / "data/menu/9900", memory.resources));
+  bw::game::FrontEnd frontend(
+      profile, saves, playback, menu_surface, {}, &power_up_surface,
+      &frontend_audio,
+      game::FrontendOptionsServices{
+          {profile.settings_control(), profile.settings_save_control(saves),
+           device_options.control(), device_options.save_control(),
+           profile.record_save_control(saves)},
+          frontend_options_surface},
+      &ranking_surface);
   bw::game::StartupSession session(playback, &title_surface, &frontend,
-                                   memory.runtime);
+                                   memory.runtime, &frontend_audio);
   session.start_root(resources, 1);
   game::StartupLoadingSurface loading_surface(resources, host);
   // Loading callbacks retain this presentation state. Declare it before all
@@ -136,7 +189,6 @@ int run_startup(const StartupOptions& configuration,
   std::optional<world::WorldClock> world_clock;
   std::optional<game::MissionDriver> mission;
   game::SourceRandom random;
-  std::optional<game::MissionAudio> mission_audio;
   std::optional<game::PlayerResources> player_resources;
   game::GameplayHudSurface hud_surface(resources, host);
   game::MissionPauseSurface pause_surface(
@@ -160,7 +212,15 @@ int run_startup(const StartupOptions& configuration,
     if (!first && now - loading_presented < target_period) return;
     // Loading presents through the same frame clock but admits no world tick.
     // Input repeat and renderer adaptation consume this presentation snapshot.
-    host.set_frame_timing(frame_clock.sample(now));
+    const auto loading_timing = frame_clock.sample(now);
+    host.set_frame_timing(loading_timing);
+    // Departure fades and native segment handoff continue through loading.
+    // This consumes the existing presentation sample, never a world tick.
+    frontend_audio.advance(loading_timing.presentation_seconds);
+    game_audio.apply_mix(
+        {static_cast<std::uint16_t>(profile.music_volume()),
+         static_cast<std::uint16_t>(profile.effects_volume())});
+    game_audio.update();
     loading_close_requested |= host.pump(true).close_requested;
     const auto loading_opacity = loading_surface.show(
         mission_loading->loading_scene().item,
@@ -276,14 +336,11 @@ int run_startup(const StartupOptions& configuration,
     // Game owns the admitted action/resource/presentation ordering; media
     // transport remains a separate service between input and world phases.
     if (mission_gameplay) mission_gameplay->advance();
-    // Device cue scheduling is a mission audio service, independent of world
-    // admission. Presentation cues continue while gameplay voices are paused.
-    if (mission_audio) {
-      mission_audio->apply_mix(
-          {static_cast<std::uint16_t>(profile.music_volume()),
-           static_cast<std::uint16_t>(profile.effects_volume())});
-      mission_audio->update();
-    }
+    // Service the one device even outside missions and during world pause.
+    game_audio.apply_mix(
+        {static_cast<std::uint16_t>(profile.music_volume()),
+         static_cast<std::uint16_t>(profile.effects_volume())});
+    game_audio.update();
     playback.set_music_volume(profile.music_volume());
     if (mission_frame.transition != game::MissionTransition::none) {
       if (!mission_loading) {
@@ -302,7 +359,7 @@ int run_startup(const StartupOptions& configuration,
       stage_inspection.reset();
       hud_surface.end();
       player_resources.reset();
-      mission_audio.reset();
+      game_audio.retire_mission();
       mission.reset();
       world_clock.reset();
       mission_control.reset();
@@ -324,7 +381,8 @@ int run_startup(const StartupOptions& configuration,
         {presentation_delta, actions, input.controller_connected},
         configuration.verify || stage_inspection || mission_frame.ui_consumed
             ? 0U
-            : input.repeated_actions);
+            : input.repeated_actions,
+        input.physical, input.menu_vertical_axis);
     if (mission_gameplay) {
       mission_gameplay->present();
       // Inspection presents independently while the original mission load and
@@ -435,14 +493,11 @@ int run_startup(const StartupOptions& configuration,
         mission_loading->prepare_player(
             session.gameplay_request()->selection.costume,
             mission_player->selected_weapon());
-        // Original common/voice banks prepare once under loading progress;
-        // the target chooses the native cue backend through its factory.
-        constexpr audio::Limits kMissionAudioLimits{
-            .banks = 3, .cues = 128, .decoded_samples = 50'000'000};
-        mission_audio.emplace(files, mission_resources->catalogs(),
-                              configuration.game / "data/sound", memory.media,
-                              audio_factory, kMissionAudioLimits,
-                              loading_pulse);
+        // Expand the retained mixer only at mission loading. Existing menu
+        // callbacks keep their immutable lookup until this publication seals.
+        game_audio.prepare_mission(files, mission_resources->catalogs(),
+                                   configuration.game / "data/sound",
+                                   memory.media, loading_pulse);
         const auto customization = formats::CustomizationDefinition::parse(
             stage->customization_bytes(), memory.resources);
         player_resources.emplace(
@@ -471,12 +526,12 @@ int run_startup(const StartupOptions& configuration,
             loading_pulse,
             game::StageCharacterLightSource{mission_loading->character_light(),
                                             mission_loading->enemy_light()});
-        stage_inspection->bind_audio(mission_audio->prepared(),
-                                     *mission_audio->output(), random);
+        stage_inspection->bind_audio(game_audio.prepared(),
+                                     *game_audio.output(), random);
         mission_gameplay.emplace(
             *world_clock, *mission_control, *mission_player, *player_resources,
             *mission_loading, *stage_inspection, hud_surface, pause_surface,
-            random, *mission_audio->output(), profile.help_control(),
+            random, *game_audio.output(), profile.help_control(),
             game::PauseOptionsServices{profile.settings_control(),
                                        profile.settings_save_control(saves),
                                        device_options.control(),

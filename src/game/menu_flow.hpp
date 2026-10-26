@@ -1,11 +1,17 @@
-// G2: recovered front-end selection policy and presentation values.
+// Localized-text repair: design I.1 and implementation E.4, with MEM.9
+// retrieved in both phases. Policy publishes content IDs; the surface owns
+// prepared purchased text/art. No English fallback or frame-time decoding.
+// Main-shell feedback is a copied observation; MenuFlow alone owns
+// supplied-time transitions and fixed selector response state. Core I.1 and
+// performance MEM.9 were read in design: explicit time/event outputs, no frame
+// allocation. G2: recovered front-end selection policy and presentation values.
 // Change axis: original game menu choices; rendering, storage and Lua routing
 // remain with their owners. The flow exclusively borrows Profile until its
 // destruction; all methods run on the session thread. Presentation owns a
-// bounded row array whose string views reference static literals. Selection
-// completion publishes a value, never a mission instance or borrowed save.
-// Algorithm: establish page rows from profile availability, apply one pressed
-// action/repeated direction, then publish the selected action after
+// bounded row array whose authored content is identified by compatibility IDs.
+// Selection completion publishes a value, never a mission instance or borrowed
+// save. Algorithm: establish page rows from profile availability, apply one
+// pressed action/repeated direction, then publish the selected action after
 // confirmation. Concept missions are selectable without game completion by
 // project policy; campaign-stage and higher-difficulty gates remain injected.
 // Navigation wraps and skips disabled entries as original
@@ -25,10 +31,17 @@
 #include <optional>
 #include <string_view>
 
+#include "bw/math/scalar.hpp"
+#include "menu_audio.hpp"
+#include "menu_dialog.hpp"
+#include "menu_input.hpp"
+#include "menu_prompt.hpp"
+
 namespace bw::game {
 class Profile;
 inline constexpr std::size_t menu_difficulty_count = 5;
 inline constexpr std::size_t menu_row_capacity = 64;
+inline constexpr std::size_t main_menu_row_count = 6;
 struct MenuUnlocks {
   // Campaign progression gates are separate from installed-content
   // availability. Concept-menu access does not consume a progression gate.
@@ -58,6 +71,57 @@ struct MenuRow {
   std::string_view value;
   bool enabled{true};
   unsigned compatibility_id{};
+  unsigned best_rank{};
+  std::uint32_t best_score{};
+};
+enum class MainMenuMotion : std::uint8_t { idle, entering, leaving, returning };
+struct MainMenuFeedback {
+  MainMenuMotion motion{MainMenuMotion::idle};
+  float elapsed{};
+  float description_alpha{1};
+  // Native confirmation echo advances linearly from zero to one.
+  float confirmation_elapsed{1};
+  std::array<float, main_menu_row_count> row_y{}, row_scale{1, 1, 1, 1, 1, 1};
+};
+// Original difficulty row anchors are shared by policy cursor targets and art.
+inline constexpr std::array<std::array<float, 2>, menu_difficulty_count>
+    difficulty_row_positions{
+        {{656, 226}, {592, 294}, {538, 362}, {472, 424}, {624, 486}}};
+enum class ChildMenuMotion : std::uint8_t { entering, active, leaving };
+// Native child-task state is observed by the surface; it owns neither clocks
+// nor Profile access. scroll is the original damped absolute row displacement.
+struct ChildMenuFeedback {
+  ChildMenuMotion motion{ChildMenuMotion::entering};
+  float elapsed{}, scroll{}, pulse{}, description_alpha{}, input_delay{};
+  std::array<float, menu_row_capacity> highlight{};
+  unsigned current_costume{};
+  std::array<float, 2> selector_position{};
+  float selector_opacity{}, selector_scale{}, selector_echo{};
+};
+enum class FrontendDialog : std::uint8_t {
+  none,
+  no_checkpoint,
+  continue_game,
+  change_costume,
+  costume_changed,
+  save_costume,
+  costume_saved,
+  save_failed,
+  costume_saved_manual,
+  profile_loading,
+  profile_creating,
+  profile_load_failed,
+  profile_overwrite,
+  profile_created,
+  profile_enable_autosave
+};
+struct StageMenuFeedback {
+  bool visible{}, is_concept{};
+  std::array<unsigned, menu_row_capacity> identities{};
+  std::size_t count{}, selected{};
+  unsigned best_rank{};
+  std::uint32_t best_score{};
+  ChildMenuFeedback motion;
 };
 struct MenuPresentation {
   MenuPage page{MenuPage::main};
@@ -66,6 +130,16 @@ struct MenuPresentation {
   std::size_t count{};
   std::size_t selected{};
   std::string_view message;
+  MainMenuFeedback main;
+  ChildMenuFeedback child;
+  StageMenuFeedback stage;
+  FrontendDialog dialog{FrontendDialog::none};
+  MenuDialogPresentation dialog_view;
+  bool dialog_interactive{true};
+  // CharacterLoad is a separate black native task, not Continue artwork.
+  bool storage_background{};
+  MenuPrompts prompts{menu_prompts(false)};
+  float opacity{1};
 };
 struct MenuSelection {
   MenuAction action{MenuAction::new_game};
@@ -74,30 +148,54 @@ struct MenuSelection {
   unsigned costume{};
   unsigned original_status{};
 };
-struct MenuInput {
-  std::uint32_t pressed{};
-  std::uint32_t repeated{};
-  // Fixed UI receiver axis: physical stick plus wheel contribution, independent
-  // of remapped gameplay movement. Copying it grants no device/state authority.
-  float vertical_axis{};
-};
 class MenuFlow {
  public:
   explicit MenuFlow(Profile& profile, MenuUnlocks unlocks = {});
   void start();
-  void update(MenuInput input);
+  // Presentation time is supplied by the session; input waits through authored
+  // entry and child-transition tracks. No system or world clock is read.
+  void update(MenuInput input, float presentation_seconds = 0);
+  MenuSoundRequests take_sounds() {
+    const auto result = sounds_;
+    sounds_ = {};
+    return result;
+  }
   // Presentation is borrowed until the next mutation; it carries no render
   // assets.
   const MenuPresentation& presentation() const { return presentation_; }
   const std::optional<MenuSelection>& selection() const { return selection_; }
+  // The session applies this original child conceal before task completion.
+  float departure_fade_seconds() const { return departure_fade_seconds_; }
+  std::optional<float> take_music_fade() {
+    const auto result = music_fade_;
+    music_fade_.reset();
+    return result;
+  }
+  // Options is owned by the shared native Options flow. This child rendezvous
+  // does not restart the main selector or acquire storage authority.
+  void begin_costume_child();
+  void complete_options() { populate(MenuPage::main); }
+  bool costume_child_complete() const { return costume_complete_; }
+  void acknowledge_costume_child();
+  bool take_settings_save_request();
+  void settings_save_completed(bool success);
+  void set_prompts(MenuPrompts prompts) { presentation_.prompts = prompts; }
   bool settings_changed() const { return settings_changed_; }
   void acknowledge_settings() { settings_changed_ = false; }
 
  private:
   void populate(MenuPage page);
+  void enter_child(MenuPage page);
+  void update_child(MenuInput input, float seconds);
+  void start_dialog(FrontendDialog dialog, bool yes = true);
+  void update_dialog(MenuInput input, float seconds);
+  void begin_child_exit(bool accepted);
+  void update_child_animation(float seconds);
+  void update_difficulty_selector(float seconds);
+  void animate(float seconds);
+  void begin_main_motion(MainMenuMotion motion);
   void navigate(int direction);
   void accept();
-  void adjust(int direction);
   void add(std::string_view label, std::string_view value = {},
            bool enabled = true);
   void cancel();
@@ -113,5 +211,32 @@ class MenuFlow {
   unsigned costume_{};
   bool settings_changed_{};
   MenuPage previous_{MenuPage::main};
+  MainMenuFeedback feedback_;
+  MenuSoundRequests sounds_;
+  std::array<math::DampedResponseState<float>, main_menu_row_count> scale_{};
+  math::DampedResponseState<float> description_;
+  float pulse_seconds_{};
+  std::size_t main_selection_{};
+  bool pending_accept_{};
+  bool options_return_{};
+  float child_fade_{};
+  bool child_reveal_{};
+  float departure_fade_seconds_{};
+  std::optional<float> music_fade_;
+  ChildMenuFeedback child_;
+  std::array<math::DampedResponseState<float>, 2> selector_position_{};
+  std::array<float, 2> selector_target_{};
+  math::DampedResponseState<float> selector_opacity_, selector_scale_;
+  float selector_confirmation_seconds_{1};
+  math::DampedResponseState<float> scroll_, child_description_;
+  std::array<math::DampedResponseState<float>, menu_row_capacity>
+      child_highlight_{};
+  MenuDialog dialog_;
+  bool costume_complete_{}, costume_changed_{};
+  bool save_requested_{}, save_pending_{}, child_exit_accept_{};
+  std::size_t stage_selection_{};
+  float child_transition_{};
+  bool difficulty_pending_{};
+  StageMenuFeedback stage_backdrop_;
 };
 }  // namespace bw::game

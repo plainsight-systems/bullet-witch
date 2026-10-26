@@ -1,24 +1,27 @@
-// Resource memory cases exercise injected allocator propagation, owned copies,
-// archive lease survival and exhaustion rollback. In-process backing is an
-// explicit test provider; no filesystem/device acceptance is claimed. Retrieved
-// R.20/F.27 retain owners, E.17 permits cleanup through unwinding, MEM.6
-// injects the provider, MEM.8 checks nested allocation identities (see source
-// contracts). Inline PNG cases apply retrieved SL.con.3 (#rsl-bounds) to
-// framing bounds and MEM.9 fixed fixture storage; no device or proprietary data
-// is required. Extended contracts: A1 DPK bounds; A3 publication/release using
-// an in-memory file capability. No processes/files. Ordered checks cover
-// phases, cycle termination, error/retry and lease lifetime, with fixture-sized
-// allocations. Optimization: retain one archive lease across release rather
-// than copying. Design: R.20 (#rr-owner) and COPY.4 (guidelines/copy-move/
-// COPY.4-rule-of-five-rule-of-zero.md) define shared lifetime. Implementation:
-// SL.con.3 (#rsl-bounds) checks fixture writes; COPY.4 preserves value
-// ownership. In-process resource contract verification (V1 in the draft file
-// mapping). See docs/resources.md and tests/README.md. Synthetic bytes are
-// owned locally; no file, subprocess, game installation or rendering context is
-// required. Contract: successful inputs produce specified metadata/payloads;
-// malformed and unsupported inputs produce the required error category. Failed
-// checks throw and cause a nonzero process exit. Printed count is assertions,
-// not tests.
+// Selective mount checks exercise public visibility and failure atomicity.
+// Both-phase Core I.1 (#ri-explicit) and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) keep the added fixture
+// bounded/in-process. Resource memory cases exercise injected allocator
+// propagation, owned copies, archive lease survival and exhaustion rollback.
+// In-process backing is an explicit test provider; no filesystem/device
+// acceptance is claimed. Retrieved R.20/F.27 retain owners, E.17 permits
+// cleanup through unwinding, MEM.6 injects the provider, MEM.8 checks nested
+// allocation identities (see source contracts). Inline PNG cases apply
+// retrieved SL.con.3 (#rsl-bounds) to framing bounds and MEM.9 fixed fixture
+// storage; no device or proprietary data is required. Extended contracts: A1
+// DPK bounds; A3 publication/release using an in-memory file capability. No
+// processes/files. Ordered checks cover phases, cycle termination, error/retry
+// and lease lifetime, with fixture-sized allocations. Optimization: retain one
+// archive lease across release rather than copying. Design: R.20 (#rr-owner)
+// and COPY.4 (guidelines/copy-move/ COPY.4-rule-of-five-rule-of-zero.md) define
+// shared lifetime. Implementation: SL.con.3 (#rsl-bounds) checks fixture
+// writes; COPY.4 preserves value ownership. In-process resource contract
+// verification (V1 in the draft file mapping). See docs/resources.md and
+// tests/README.md. Synthetic bytes are owned locally; no file, subprocess, game
+// installation or rendering context is required. Contract: successful inputs
+// produce specified metadata/payloads; malformed and unsupported inputs produce
+// the required error category. Failed checks throw and cause a nonzero process
+// exit. Printed count is assertions, not tests.
 //
 // Algorithm: (1) construct small independent on-disk fixtures; (2) decode and
 // check public results, ownership/moves and resolution; (3) mutate bounded
@@ -338,6 +341,25 @@ void catalog_tests(Checks& checks) {
   checks.check(
       ResourceCatalog::parse(slash).files()[0].relative_path == "s/b/data.cpr",
       "Windows separators");
+  CatalogSet restricted;
+  restricted.mount_resources(10, "text.rat", c,
+                             std::array<std::string_view, 1>{"SCRIPT.PEER"});
+  checks.check(restricted.resolve("script.peer").resource_index == 1,
+               "Selective mount preserves normalized identity");
+  checks.rejects([&] { restricted.resolve("script.root"); },
+                 ErrorCode::not_found);
+  checks.rejects(
+      [&] {
+        restricted.mount_resources(1, "missing.rat", c,
+                                   std::array<std::string_view, 1>{"absent"});
+      },
+      ErrorCode::not_found);
+  checks.check(restricted.catalogs().size() == 1,
+               "Missing selective identity does not publish a mount");
+  restricted.mount(30, "shared.rat", c);
+  checks.check(restricted.resolve("script.root").catalog_index == 1 &&
+                   restricted.resolve("script.peer").catalog_index == 0,
+               "Restricted aliases do not shadow the shared namespace");
   CatalogSet set;
   set.mount(55, "high.rat", c);
   set.mount(30, "low.rat", c);

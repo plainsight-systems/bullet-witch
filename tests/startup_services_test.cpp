@@ -84,17 +84,25 @@ class Surface final : public bw::game::TitleSurface {
 class Saves final : public bw::platform::SaveStorage {
  public:
   bw::platform::SaveRead read(std::string_view name, std::size_t) override {
-    if (name == "BulletWitchSaveData" && !checkpoint.empty()) {
-      return {bw::platform::SaveStatus::ok, checkpoint};
-    }
-    return {bw::platform::SaveStatus::missing, {}};
+    const auto& bytes = file(name);
+    return bytes.empty()
+               ? bw::platform::SaveRead{bw::platform::SaveStatus::missing, {}}
+               : bw::platform::SaveRead{bw::platform::SaveStatus::ok, bytes};
   }
-  bw::platform::SaveStatus write(std::string_view,
-                                 std::span<const std::byte>) override {
+  bw::platform::SaveStatus write(std::string_view name,
+                                 std::span<const std::byte> bytes) override {
+    auto& destination = file(name);
+    destination.assign(bytes.begin(), bytes.end());
     ++writes;
     return bw::platform::SaveStatus::ok;
   }
-  std::vector<std::byte> checkpoint;
+  std::vector<std::byte>& file(std::string_view name) {
+    if (name == "BulletWitchSystem") return system;
+    if (name == "BulletWitchRecord") return record;
+    if (name == "BulletWitchSaveData") return checkpoint;
+    throw std::invalid_argument("Unexpected startup profile file");
+  }
+  std::vector<std::byte> system, record, checkpoint;
   unsigned writes{};
 };
 class MenuSurface final : public bw::game::MenuSurface {
@@ -117,6 +125,56 @@ class PowerUpOutput final : public bw::game::PowerUpOutput {
   bw::game::PowerUpPresentation current;
   bool active{};
 };
+template <class Ready>
+void advance_to(bw::game::StartupSession& session, Ready ready,
+                const char* reason) {
+  constexpr unsigned kMaximumFrames = 600;
+  for (unsigned frame = 0; frame < kMaximumFrames && !ready(); ++frame) {
+    (void)session.advance({1.F / 60.F, 0});
+  }
+  require(ready(), reason);
+}
+void load_profile(bw::game::StartupSession& session, MenuSurface& surface,
+                  bool creates_content) {
+  using bw::game::FrontendDialog;
+  session.execute(Screen::character_load);
+  if (creates_content) {
+    advance_to(
+        session,
+        [&] {
+          return surface.current.dialog == FrontendDialog::profile_created;
+        },
+        "Fresh profile waits through creation before its acknowledgment");
+    require(surface.current.storage_background &&
+                surface.current.dialog_interactive,
+            "Creation acknowledgment is the original interactive storage page");
+    constexpr float kDialogAdmission = .4F;
+    (void)session.advance({kDialogAdmission, 0});
+    (void)session.advance({0, 0x1000});
+    advance_to(
+        session,
+        [&] {
+          return surface.current.dialog ==
+                 FrontendDialog::profile_enable_autosave;
+        },
+        "Creation acknowledgment precedes the original autosave question");
+    (void)session.advance({kDialogAdmission, 0});
+    (void)session.advance({0, 0x1000});
+  } else {
+    advance_to(
+        session,
+        [&] {
+          return surface.current.dialog == FrontendDialog::profile_loading;
+        },
+        "Existing profile follows its original timed load page");
+    require(!surface.current.dialog_interactive,
+            "Loading status does not fabricate a confirmation prompt");
+  }
+  advance_to(
+      session, [&] { return !session.pending(Screen::character_load); },
+      "Profile load retires after original timing and dialog decisions");
+  (void)session.advance({});
+}
 void frontend_handoff() {
   Media media;
   Saves saves;
@@ -126,20 +184,38 @@ void frontend_handoff() {
   bw::game::StartupSession session(media, nullptr, &frontend);
   rejects([&] { session.start_mission("st01_00"); },
           "Mission cannot precede confirmed selection");
-  session.execute(Screen::character_load);
-  for (unsigned i = 0; i < 12; ++i) (void)session.advance({});
-  require(!session.pending(Screen::character_load),
-          "Profile load passes original lifecycle wait");
-  (void)session.advance({});
+  load_profile(session, surface, true);
+  require(profile.autosave_enabled() && !profile.has_checkpoint(),
+          "Fresh startup applies the selected autosave choice without a "
+          "checkpoint");
   session.execute(Screen::title_menu);
   for (unsigned i = 0; i < 5; ++i) (void)session.advance({});
   require(surface.current.page == bw::game::MenuPage::main && surface.active,
           "Profile completion leads to real menu policy");
+  advance_to(
+      session,
+      [&] {
+        return surface.current.main.motion == bw::game::MainMenuMotion::idle;
+      },
+      "Main menu finishes authored entry before input");
   (void)session.advance({0, 0x1010});
+  advance_to(
+      session,
+      [&] { return surface.current.page == bw::game::MenuPage::difficulty; },
+      "New game publishes difficulty after main exit");
   require(surface.current.page == bw::game::MenuPage::difficulty,
           "New game opens difficulty");
+  advance_to(
+      session,
+      [&] {
+        return surface.current.child.motion ==
+               bw::game::ChildMenuMotion::active;
+      },
+      "Difficulty finishes its authored entry before confirmation");
   (void)session.advance({0, 0x1010});
-  for (unsigned i = 0; i < 7; ++i) (void)session.advance({});
+  advance_to(
+      session, [&] { return !session.pending(Screen::title_menu); },
+      "Confirmed mission leaves the menu after its authored exit");
   require(!session.pending(Screen::title_menu) &&
               session.status(Screen::title_menu) == 1 && !surface.active,
           "Menu completes and retires presentation before mission handoff");
@@ -219,6 +295,10 @@ void frontend_handoff() {
 void checkpoint_reentry_boundary() {
   Media media;
   Saves saves;
+  bw::game::Profile saved_profile;
+  require(saved_profile.create_defaults(saves).status ==
+              bw::platform::SaveStatus::ok,
+          "Checkpoint fixture includes original System and Record files");
   saves.checkpoint.resize(307200);
   const auto word = [&](std::size_t offset, unsigned value) {
     for (unsigned index = 0; index < 4; ++index) {
@@ -237,13 +317,32 @@ void checkpoint_reentry_boundary() {
   bw::game::Profile profile;
   bw::game::FrontEnd frontend(profile, saves, media, surface, {});
   bw::game::StartupSession session(media, nullptr, &frontend);
-  session.execute(Screen::character_load);
-  for (unsigned i = 0; i < 13; ++i) (void)session.advance({});
+  load_profile(session, surface, false);
   session.execute(Screen::title_menu);
   for (unsigned i = 0; i < 5; ++i) (void)session.advance({});
+  advance_to(
+      session,
+      [&] {
+        return surface.current.main.motion == bw::game::MainMenuMotion::idle;
+      },
+      "Continue menu finishes authored entry");
   (void)session.advance({}, 0x02000000);
   (void)session.advance({0, 0x1010});
-  for (unsigned i = 0; i < 7; ++i) (void)session.advance({});
+  advance_to(
+      session,
+      [&] {
+        return surface.current.dialog ==
+               bw::game::FrontendDialog::continue_game;
+      },
+      "Continue opens the original load confirmation");
+  constexpr unsigned kDialogFrames = 24;
+  for (unsigned frame = 0; frame < kDialogFrames; ++frame) {
+    (void)session.advance({1.F / 60.F, 0});
+  }
+  (void)session.advance({0, 0x1010});
+  advance_to(
+      session, [&] { return !session.pending(Screen::title_menu); },
+      "Continue completes its source departure");
   session.start_mission("st01_00");
   using bw::game::MissionTransition;
   rejects(
@@ -274,10 +373,7 @@ void power_up_task_lifecycle() {
   bw::game::Profile profile;
   bw::game::FrontEnd frontend(profile, saves, media, surface, {}, &output);
   bw::game::StartupSession session(media, nullptr, &frontend);
-  session.execute(Screen::character_load);
-  for (unsigned i = 0; i < 12; ++i) (void)session.advance({});
-  require(!session.pending(Screen::character_load), "Power-up fixture load");
-  (void)session.advance({});
+  load_profile(session, surface, true);
   (void)profile.award_result({0, 0});
   session.execute(Screen::power_up);
   require(session.pending(Screen::power_up), "Power-up Exec queues activation");

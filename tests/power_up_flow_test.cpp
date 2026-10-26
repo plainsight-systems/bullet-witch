@@ -148,10 +148,60 @@ void original_exit_and_story_exclusion() {
   require(profile.progression() == before,
           "completed task cannot process stale confirmation input");
 }
+void source_audio_feedback() {
+  using bw::game::MenuSound;
+  Profile profile;
+  (void)profile.award_result({0, 0});
+  PowerUpFlow flow(profile.upgrade_purchases());
+  const auto opening = flow.take_sounds();
+  require(opening.size == 1 && opening.requests[0].sound == MenuSound::panel &&
+              opening.requests[0].delay_seconds == 0,
+          "Power Up emits original immediate panel cue");
+  require(flow.take_sounds().size == 0, "Opening cue drains once");
+  settle(flow);
+  flow.update({0, kDown}, 0);
+  require(flow.take_sounds().requests[0].sound == MenuSound::cursor,
+          "Category move emits source cursor");
+  flow.update({0, 0x01000000}, 0);
+  flow.update({kConfirm, 0}, 0);
+  require(flow.take_sounds().requests[0].sound == MenuSound::confirm,
+          "Child admission confirms once");
+  settle(flow);
+  flow.update({kConfirm, 0}, 0);
+  unsigned opened = 0, closed = 0, purchased = 0;
+  const auto drain = [&] {
+    const auto sounds = flow.take_sounds();
+    for (std::size_t i = 0; i < sounds.size; ++i) {
+      const auto sound = sounds.requests.at(i).sound;
+      opened += sound == MenuSound::dialog_open;
+      closed += sound == MenuSound::dialog_close;
+      purchased += sound == MenuSound::upgrade_purchase;
+    }
+  };
+  for (unsigned i = 0; i < 120 && !flow.accepts_input(); ++i) {
+    flow.update({}, 1.F / 60.F);
+    drain();
+  }
+  require(opened == 1 && purchased == 0,
+          "Quote opens dialog without purchase cue");
+  flow.update({kConfirm, 0}, 0);
+  drain();
+  for (unsigned i = 0; i < 120 && !flow.accepts_input(); ++i) {
+    flow.update({}, 1.F / 60.F);
+    drain();
+  }
+  require(closed == 1 && purchased == 1,
+          "Retired successful purchase emits one dedicated cue");
+  flow.update({kCancel, 0}, 0);
+  require(flow.take_sounds().requests[0].sound == MenuSound::back,
+          "Child Back uses original back cue");
+}
+
 }  // namespace
 void power_up_flow_contracts() {
   confirmation_and_cancel();
   rejection_and_revalidation();
   original_exit_and_story_exclusion();
   source_transition_admission();
+  source_audio_feedback();
 }

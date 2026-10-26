@@ -57,20 +57,38 @@ Evidence remains ignored under `research/evidence/startup/` and
 `research/evidence/engine/`. Existing maps: [screens](ui-and-screen-tasks.md),
 [saves](saves-and-progression.md), [input](input.md).
 
-## Desktop storage adaptation
+## Desktop storage ownership
 
 The writable directory belongs to this reconstruction, not the Steam install.
-Missing files establish recovered defaults. Invalid or unreadable files do not
-silently become a successful load: the user can retry or explicitly continue
-without saving. That choice disables subsequent profile writes for the active
-front end. Partial load failure retains the prior profile. Unknown checkpoint
-object schemas remain opaque; this slice does not write gameplay checkpoints.
+CharacterLoad now uses the original desktop load/create/overwrite/autosave
+sequence, common dialog animation, cues and purchased localized text. Invalid
+files do not silently become successful loads. No retries storage lookup;
+Yes explicitly authorizes replacement. All-zero original SaveData means no
+checkpoint. Earlier reconstruction saves containing valid System/Record receive
+only that absent-checkpoint sentinel without resetting progression. See
+[profile load](frontend-profile-load.md) for source trace, persistence order and
+failure behavior. The earlier authored retry/continue-without-saving adaptation
+has been removed.
 
-The compact desktop error dialog is a deliberate adaptation, not a claim of
-reconstructing every console storage-device dialog and animation. Its strings
-must remain distinct from evidence about original localized message IDs.
+## Current entire-menu reconstruction
 
-## Acceptance
+The original Lua still chooses native tasks. `FrontEnd` composes their policy
+owners; it does not interpret Lua as a sprite description. Stage/Concept,
+difficulty and costume selectors use original art, tracks, localized labels,
+selection/scroll and confirmation lifetimes. Shared frontend Options supplies
+its original ten rows and real controller, calibration, costume, Power Up and
+Ranking child owners. Options holds System edits across children; Costume saves
+only Record, while Options Exit decides its own persistence. Returning Power Up
+releases its global conceal before the parent's sprite reveal.
+
+See [feedback](frontend-feedback.md), [Options](frontend-options.md),
+[Ranking](frontend-leaderboards.md), and [audio](frontend-audio.md). Original
+Steam online rankings have no native service, so the real unavailable-provider
+dialog returns without inventing scores. Expanded verification is recorded in
+[the final menu report](frontend-verification.md); earlier verification below
+belongs to the older snapshot.
+
+## Earlier snapshot acceptance
 
 The profile, menu and campaign-request composition is implemented. Strict build,
 five CTest commands, fatal clang-tidy across 48 translation units, and repository
@@ -115,12 +133,14 @@ CRC/RGBA comparison covers all 93 menu textures.
 - The app provides fresh achievement state. The policy can accept recovered
   difficulty/stage unlocks, but Steam achievement import and a local gameplay
   progression producer are not implemented.
-- Options currently edit stored music/effects levels and costume. Audio gain,
-  menu BGM/cues, other option screens, complete localization and original child
-  animation/layout parity remain work.
+- Options edits source settings through the accepted pause/settings owners.
+  Live audio gain is implemented; main-menu music/cues and main-shell feedback
+  are accepted in the October 26 frontend walkthrough. Child labels and descriptions read
+  purchased localization, and the original child animation/layout policies are
+  implemented in this expanded snapshot. See
+  [frontend audio](frontend-audio.md) and [frontend feedback](frontend-feedback.md).
 - Continue validates and retains an opaque checkpoint. Original-game save
   round-trip compatibility and nested checkpoint object reconstruction are not
   established; the reconstruction does not write gameplay snapshots.
-- The compact retry/continue-without-saving dialog is a desktop adaptation.
 - The gameplay request is an ownership boundary for the future mission loader.
   World loading, rendering and simulation are not part of this slice.

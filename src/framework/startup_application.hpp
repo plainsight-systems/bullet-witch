@@ -72,7 +72,7 @@
 #include "bw/platform/startup_host.hpp"
 #include "bw/render/view.hpp"
 #include "bw/video/player.hpp"
-#include "game/mission_audio.hpp"
+#include "game/game_audio.hpp"
 #include "game/mission_player_state.hpp"
 
 namespace bw::framework {

@@ -19,6 +19,8 @@
 // retains borrowed presentations and small action values.
 #include "game/menu_flow.hpp"
 
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -32,9 +34,21 @@ void require(bool value, const char* message) {
     throw std::runtime_error(message);
   }
 }
-void down(bw::game::MenuFlow& flow) { flow.update({0, 0x02000000}); }
-void accept(bw::game::MenuFlow& flow) { flow.update({0x1010, 0}); }
-void cancel(bw::game::MenuFlow& flow) { flow.update({0x2020, 0}); }
+void settle(bw::game::MenuFlow& flow) {
+  for (unsigned i = 0; i < 240; ++i) flow.update({}, 1.F / 60);
+}
+void down(bw::game::MenuFlow& flow) {
+  flow.update({0, 0x02000000});
+  flow.update({}, .1F);
+}
+void accept(bw::game::MenuFlow& flow) {
+  flow.update({0x1010, 0});
+  settle(flow);
+}
+void cancel(bw::game::MenuFlow& flow) {
+  flow.update({0x2020, 0});
+  settle(flow);
+}
 void pause_review_transactions() {
   // An empty immutable catalog exercises unavailable clip pages without
   // preparing unrelated animation fixtures. Actual names/pages use the corpus.
@@ -129,10 +143,104 @@ void pause_review_transactions() {
       pause.update(true, {}) && !pause.paused() && !pause.requested_review(),
       "Pause toggle cancels a pending request and consumes frame");
 }
+void main_menu_feedback() {
+  using bw::game::MainMenuMotion;
+  using bw::game::MenuFlow;
+  using bw::game::MenuPage;
+  using bw::game::MenuSound;
+  using bw::game::Profile;
+  Profile profile;
+  MenuFlow flow(profile);
+  flow.start();
+  auto cues = flow.take_sounds();
+  require(cues.size == 1 && cues.requests[0].sound == MenuSound::panel &&
+              cues.requests[0].delay_seconds == .3F,
+          "Original main entry schedules its panel cue once");
+  flow.update({0x1010, 0}, 1.F);
+  require(flow.presentation().page == MenuPage::main &&
+              flow.presentation().main.motion == MainMenuMotion::entering &&
+              !flow.selection() && flow.take_sounds().size == 0,
+          "Entry tracks gate input instead of hiding a pending selection");
+  settle(flow);
+  flow.update({0, 0x02000000});
+  cues = flow.take_sounds();
+  require(cues.size == 1 && cues.requests[0].sound == MenuSound::cursor &&
+              flow.presentation().main.description_alpha == .5F,
+          "Selection event resets original description response and cue");
+  flow.update({0, 0x02000000});
+  require(flow.presentation().selected == 3, "Disabled stage row is skipped");
+  flow.update({0x1010, 0});
+  require(flow.presentation().page == MenuPage::main &&
+              flow.presentation().main.motion == MainMenuMotion::leaving &&
+              flow.presentation().main.row_scale[3] == 1.1F &&
+              flow.presentation().main.confirmation_elapsed == 0,
+          "Confirmation retains main shell while selected scale settles");
+  flow.update({}, .1F);
+  require(
+      std::abs(flow.presentation().main.confirmation_elapsed - .1F) < .0001F,
+      "Confirmation echo consumes supplied presentation time linearly");
+  flow.update({}, .75F);
+  flow.update({}, .125F);
+  flow.update({});
+  require(flow.presentation().page == MenuPage::main &&
+              flow.presentation().opacity > 0 &&
+              flow.presentation().opacity < 1,
+          "Options waits through source conceal before changing child");
+  settle(flow);
+  require(flow.presentation().page == MenuPage::options,
+          "Options receives control after its source transition");
+  flow.complete_options();
+  settle(flow);
+  require(
+      flow.presentation().page == MenuPage::main &&
+          flow.presentation().selected == 3 &&
+          flow.presentation().main.motion == MainMenuMotion::idle,
+      "Returning child restores original main selector instead of row zero");
+  const auto elapsed = flow.presentation().main.elapsed;
+  bool rejected = false;
+  try {
+    flow.update({}, std::numeric_limits<float>::quiet_NaN());
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && flow.presentation().main.elapsed == elapsed,
+          "Invalid supplied time cannot mutate menu state");
+}
+void difficulty_selector_feedback() {
+  bw::game::Profile profile;
+  bw::game::MenuFlow flow(profile);
+  flow.start();
+  settle(flow);
+  accept(flow);
+  require(flow.presentation().page == bw::game::MenuPage::difficulty,
+          "Difficulty selector has its own native child owner");
+  const auto old_position = flow.presentation().child.selector_position;
+  flow.update({0, 0x02000000});
+  require(flow.presentation().child.selector_position == old_position,
+          "Changing difficulty changes its target, not the drawn position");
+  constexpr float kFrame = 1.F / 60.F;
+  flow.update({}, kFrame);
+  require(flow.presentation().child.selector_position != old_position &&
+              flow.presentation().child.selector_opacity > 0,
+          "Original selector follows supplied presentation time");
+  flow.update({0x1010, 0});
+  require(flow.selection() &&
+              flow.presentation().page == bw::game::MenuPage::difficulty,
+          "Accepted child retains its presentation through session conceal");
+  const auto selection = flow.selection();
+  if (!selection) throw std::runtime_error("Missing accepted difficulty");
+  const auto selected = selection->difficulty;
+  flow.update({0, 0x02000000}, kFrame);
+  const auto concealed_selection = flow.selection();
+  require(concealed_selection && concealed_selection->difficulty == selected &&
+              flow.presentation().child.selector_echo > 0,
+          "Concealing child advances confirmation art while input is closed");
+}
 void navigation_and_new_game() {
   bw::game::Profile profile;
   bw::game::MenuFlow flow(profile);
   flow.start();
+  settle(flow);
   require(flow.presentation().count == 6, "All original main rows exist");
   down(flow);
   require(flow.presentation().selected == 1,
@@ -161,6 +269,7 @@ void navigation_and_new_game() {
 
   // Concept selection leaves campaign progression and difficulty gates intact.
   flow.start();
+  settle(flow);
   require(!flow.presentation().rows.at(2).enabled,
           "Concept access does not unlock campaign stage select");
   down(flow);
@@ -170,7 +279,7 @@ void navigation_and_new_game() {
   require(flow.presentation().page == bw::game::MenuPage::extra &&
               flow.presentation().count == 18 &&
               flow.presentation().rows.at(1).compatibility_id == 1 &&
-              flow.presentation().rows.at(1).label == "One Shot Kill" &&
+              flow.presentation().rows.at(1).label.empty() &&
               flow.presentation().rows.at(6).compatibility_id == 16,
           "Fresh profile exposes only the original supplied mission groups");
   down(flow);
@@ -191,12 +300,13 @@ void continue_and_back() {
   bw::game::Profile profile;
   bw::game::MenuFlow flow(profile);
   flow.start();
+  settle(flow);
   down(flow);
   accept(flow);
   require(flow.presentation().page == bw::game::MenuPage::confirm &&
               !flow.selection(),
           "Absent checkpoint cannot produce a continue handoff");
-  cancel(flow);
+  accept(flow);
   cancel(flow);
   require(flow.selection() && flow.selection()->original_status == 7,
           "Back from main returns to original title route");
@@ -228,26 +338,43 @@ void persisted_availability() {
   unlocks.stage_select = true;
   bw::game::MenuFlow flow(profile, unlocks);
   flow.start();
+  settle(flow);
   down(flow);
   down(flow);
   down(flow);
   accept(flow);
-  down(flow);
-  down(flow);
-  accept(flow);
+  flow.begin_costume_child();
+  settle(flow);
   require(flow.presentation().count == 6 &&
               flow.presentation().rows.at(5).compatibility_id == 5,
           "Steam refresh enables all five costumes without achievement gates");
-  for (unsigned index = 0; index < 5; ++index) {
-    down(flow);
-  }
+  for (unsigned index = 0; index < 5; ++index) down(flow);
   accept(flow);
-  require(profile.costume() == 5,
-          "Costume selection persists actual compatibility ID");
+  require(
+      profile.costume() == 0 && flow.presentation().dialog ==
+                                    bw::game::FrontendDialog::change_costume,
+      "Choosing a costume opens the original confirmation before mutation");
+  accept(flow);
+  require(
+      profile.costume() == 5 && flow.presentation().dialog ==
+                                    bw::game::FrontendDialog::costume_changed,
+      "Confirmed costume applies live and shows original Finished "
+      "acknowledgment");
+  accept(flow);
+  require(flow.presentation().page == bw::game::MenuPage::costume,
+          "Acknowledgment returns to original costume selector");
   cancel(flow);
-  down(flow);
-  down(flow);
-  down(flow);
+  accept(flow);
+  require(flow.take_settings_save_request(),
+          "Dirty costume exit asks the storage owner to save");
+  flow.settings_save_completed(true);
+  settle(flow);
+  accept(flow);
+  require(flow.costume_child_complete(),
+          "Saved acknowledgment precedes authored costume departure");
+  flow.acknowledge_costume_child();
+  flow.complete_options();
+  settle(flow);
   down(flow);
   accept(flow);
   require(flow.presentation().count == 18 &&
@@ -266,6 +393,7 @@ void options_and_stage() {
   unlocks.stage_select = true;
   bw::game::MenuFlow flow(profile, unlocks);
   flow.start();
+  settle(flow);
   down(flow);
   down(flow);
   down(flow);
@@ -273,23 +401,19 @@ void options_and_stage() {
   require(flow.presentation().page == bw::game::MenuPage::options,
           "Options is a child screen");
   flow.update({0x04000000, 0});
-  require(profile.music_volume() == 240 && flow.settings_changed(),
-          "Volume changes by recovered16-unitstep");
-  flow.acknowledge_settings();
-  require(!flow.settings_changed(),
-          "Persistence acknowledgement clears notification");
-  down(flow);
-  down(flow);
-  accept(flow);
+  require(profile.music_volume() == 256 && flow.presentation().count == 0,
+          "Frontend rendezvous does not duplicate the shared Options policy");
+  flow.begin_costume_child();
+  settle(flow);
   require(flow.presentation().page == bw::game::MenuPage::costume,
-          "Costumes are reached through options");
-  accept(flow);
-  require(flow.presentation().page == bw::game::MenuPage::options &&
-              profile.costume() == 0,
-          "Confirming original costume updates profile andreturns options");
+          "Shared Options explicitly enters the costume child");
   cancel(flow);
-  down(flow);
-  down(flow);
+  require(flow.costume_child_complete(),
+          "Unchanged costume leaves after original conceal");
+  flow.acknowledge_costume_child();
+  flow.complete_options();
+  settle(flow);
+  flow.update({0, 0x01000000});
   accept(flow);
   require(flow.presentation().count == 6,
           "All six campaign stages are selectable");
@@ -345,6 +469,8 @@ void test_menu_flow() {
   require(clean_pause.update(false, {0x1010, 0}) && !clean_pause.paused(),
           "Capture Resume must return control to ordinary gameplay");
   pause_review_transactions();
+  main_menu_feedback();
+  difficulty_selector_feedback();
   navigation_and_new_game();
   continue_and_back();
   options_and_stage();

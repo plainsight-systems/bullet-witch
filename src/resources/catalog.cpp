@@ -1,3 +1,9 @@
+// Selective mounts validate requested resources before publication and retain
+// their record indices. Resolve applies that visibility restriction before
+// priority selection, so unrelated aliases never enter the namespace. Both
+// design and implementation consult Core I.1 (#ri-explicit) and MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md): explicit capability,
+// setup-only validation, O(selected names) index storage and no payload copy.
 // Catalog memory migration: encoded bytes, decoded nested strings/vectors,
 // traversal scratch and indexes retain the injected allocator owner. Native
 // ingress moves its buffer; legacy Bytes conversion copies. Copies retain the
@@ -28,6 +34,8 @@
 // moves; renaming adds no wrapper, allocation or payload copy.
 
 #include "bw/resources/catalog.hpp"
+
+#include <algorithm>
 namespace bw::resources {
 std::string normalize_name(std::string_view name) {
   std::string result(name);
@@ -62,7 +70,31 @@ void CatalogSet::mount(int priority, std::filesystem::path path,
     throw std::invalid_argument(
         "Catalog allocation domain does not match mount owner");
   }
-  catalogs_.push_back({priority, std::move(path), std::move(catalog)});
+  catalogs_.push_back({priority, std::move(path), std::move(catalog), {}});
+}
+void CatalogSet::mount_resources(int priority, std::filesystem::path path,
+                                 ResourceCatalog catalog,
+                                 std::span<const std::string_view> names) {
+  if (domain() && catalog.domain() != domain()) {
+    throw std::invalid_argument(
+        "Catalog allocation domain does not match mount owner");
+  }
+  if (names.empty()) {
+    throw std::invalid_argument("Selective catalog names must not be empty");
+  }
+  memory::Vector<std::size_t> exposed{
+      memory::Allocator<std::size_t>(catalogs_.get_allocator())};
+  exposed.reserve(names.size());
+  for (const auto name : names) {
+    const auto resource = catalog.find(name);
+    if (!resource) {
+      throw Error(ErrorCode::not_found,
+                  "Selective catalog resource not found: " + std::string(name));
+    }
+    exposed.push_back(*resource);
+  }
+  catalogs_.push_back(
+      {priority, std::move(path), std::move(catalog), std::move(exposed)});
 }
 Resolution CatalogSet::resolve(std::string_view name) const {
   // The smallest priority wins; ties at that winning priority remain ambiguous.
@@ -71,7 +103,10 @@ Resolution CatalogSet::resolve(std::string_view name) const {
   bool ambiguous = false;
   for (std::size_t i = 0; i < catalogs_.size(); ++i) {
     auto resource = catalogs_[i].catalog.find(name);
-    if (!resource) {
+    if (!resource ||
+        (!catalogs_[i].exposed_resources.empty() &&
+         std::ranges::find(catalogs_[i].exposed_resources, *resource) ==
+             catalogs_[i].exposed_resources.end())) {
       continue;
     }
     if (!best || catalogs_[i].priority < priority) {

@@ -58,16 +58,21 @@
 #include <stdexcept>
 #include <vector>
 
+#include "bw/audio/music_decode.hpp"
 #include "bw/audio/wave.hpp"
 #include "bw/formats/texture_mips.hpp"
 #include "bw/formats/world_texture.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
+#include "game/frontend_audio.hpp"
+#include "game/frontend_options_surface.hpp"
+#include "game/game_audio.hpp"
 #include "game/gameplay_hud_surface.hpp"
-#include "game/mission_audio.hpp"
 #include "game/mission_control.hpp"
 #include "game/mission_gameplay.hpp"
 #include "game/mission_loading.hpp"
 #include "game/mission_pause_surface.hpp"
+#include "game/power_up_surface.hpp"
+#include "game/ranking_surface.hpp"
 #include "game/root_driver.hpp"
 #include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
@@ -116,10 +121,13 @@ class Media final : public bw::game::LogoMedia {
   }
   bool movie_complete() const override { return true; }
   void stop_movie() noexcept override { ++stops; }
-  void begin_fade(bw::game::FadeDirection, float) override {}
+  void begin_fade(bw::game::FadeDirection direction, float) override {
+    concealed = direction == bw::game::FadeDirection::conceal;
+  }
   bool fade_pending() const override { return false; }
   std::vector<std::string> opened;
   unsigned stops{};
+  bool concealed{};
 };
 class SpriteOutput final : public bw::render::SpriteOutput {
  public:
@@ -472,8 +480,10 @@ class WorldOutput final : public bw::render::WorldOutput {
 };
 struct ObservedMenu final : public bw::game::MenuSurface {
  public:
-  ObservedMenu(bw::resources::ResourceService& resources, SpriteOutput& output)
-      : surface_(resources, output) {}
+  ObservedMenu(bw::resources::ResourceService& resources, SpriteOutput& output,
+               bw::resources::ArchiveBytes text,
+               bw::resources::ArchiveBytes icons)
+      : surface_(resources, output, std::move(text), std::move(icons)) {}
   void begin() override {
     shown = false;
     surface_.begin();
@@ -493,8 +503,106 @@ struct ObservedMenu final : public bw::game::MenuSurface {
 
   bw::game::StartupMenuSurface surface_;
 };
-class CorpusAudioOutput final : public bw::audio::CueOutput {
+// Observe the same concrete Options presentation owner used by the host.
+// This remains controlled renderer integration, not native visual acceptance.
+struct ObservedOptions final : public bw::game::FrontendOptionsOutput {
  public:
+  ObservedOptions(bw::resources::ResourceService& resources,
+                  SpriteOutput& output, bw::resources::ArchiveBytes icons,
+                  bw::resources::ArchiveBytes text)
+      : surface_(resources, output, std::move(icons), std::move(text)) {}
+  void activate(bw::game::FrontendOptionsView view) override {
+    if (active != view) shown = false;
+    active = view;
+    surface_.activate(view);
+  }
+  bool ready() override { return surface_.ready(); }
+  void show(const bw::game::PauseOptionsPresentation& view) override {
+    surface_.show(view);
+    current = view;
+    shown = true;
+  }
+  void show(const bw::game::ControllerOptionsPresentation& view) override {
+    surface_.show(view);
+    controls_shown = true;
+  }
+  void end() noexcept override {
+    surface_.end();
+    active = bw::game::FrontendOptionsView::none;
+    shown = false;
+    controls_shown = false;
+  }
+  bw::game::FrontendOptionsView active{bw::game::FrontendOptionsView::none};
+  bw::game::PauseOptionsPresentation current;
+  bool shown{}, controls_shown{};
+
+ public:
+  bw::game::FrontendOptionsSurface surface_;
+};
+struct ObservedRanking final : public bw::game::RankingOutput {
+ public:
+  ObservedRanking(bw::resources::ResourceService& resources,
+                  SpriteOutput& output, bw::resources::ArchiveBytes icons)
+      : surface_(resources, output, std::move(icons)) {}
+  void begin() override {
+    shown = false;
+    surface_.begin();
+  }
+  bool ready() override { return surface_.ready(); }
+  void show(const bw::game::RankingPresentation& view) override {
+    surface_.show(view);
+    shown = true;
+  }
+  void end() noexcept override {
+    surface_.end();
+    shown = false;
+  }
+  bool shown{};
+
+ public:
+  bw::game::RankingSurface surface_;
+};
+struct ObservedPowerUp final : public bw::game::PowerUpOutput {
+ public:
+  ObservedPowerUp(bw::resources::ResourceService& resources,
+                  SpriteOutput& output, bw::resources::ArchiveBytes icons)
+      : surface_(resources, output, std::move(icons)) {}
+  void begin() override {
+    shown = false;
+    surface_.begin();
+  }
+  bool ready() override { return surface_.ready(); }
+  void show(const bw::game::PowerUpPresentation& view) override {
+    surface_.show(view);
+    shown = true;
+  }
+  void end() noexcept override {
+    surface_.end();
+    shown = false;
+  }
+  bool shown{};
+
+ public:
+  bw::game::PowerUpSurface surface_;
+};
+class CorpusAudioOutput final : public bw::audio::CueOutput,
+                                public bw::audio::MusicOutput {
+ public:
+  bw::audio::MusicOutput& music() override { return *this; }
+  void prepare_music(bw::audio::MusicSamples) override { ++music_preparations; }
+  void start_music() override {
+    ++music_starts;
+    music_playing = true;
+  }
+  void stop_music() noexcept override {
+    ++music_stops;
+    music_playing = false;
+  }
+  void set_music_envelope(float value) override { music_envelope = value; }
+  bool music_active() const override { return music_playing; }
+  std::size_t music_preparations{}, music_starts{}, music_stops{};
+  float music_envelope{1};
+  bool music_playing{};
   struct Slot {
     bw::audio::CueRequest request;
     std::uint32_t generation{};
@@ -504,17 +612,35 @@ class CorpusAudioOutput final : public bw::audio::CueOutput {
   std::array<std::size_t, 51> bank_plays{};
   std::size_t registrations{}, plays{}, stops{}, positions{}, updates{},
       listener_updates{}, pause_calls{};
-  bool sealed{}, paused{};
+  bool sealed{}, paused{}, reject_streamed{};
   bool trace_cues{};
   std::array<std::array<std::uint16_t, 2>, 512> cue_trace{};
   std::size_t cue_trace_size{};
-  void register_bank(std::uint16_t, std::span<const std::uint8_t> sound,
+  void register_bank(std::uint16_t slot, std::span<const std::uint8_t> sound,
                      std::span<const std::uint8_t> waves,
-                     std::span<const std::uint16_t>) override {
+                     std::span<const std::uint16_t> admitted) override {
     if (sound.empty() || waves.empty() || sealed) {
       throw std::runtime_error("Invalid corpus bank");
     }
+    if (registrations == 0) {
+      constexpr std::array<std::uint16_t, 12> kExpectedMenuCues{
+          0, 1, 2, 4, 5, 8, 10, 11, 12, 17, 362, 363};
+      if (slot != 0 || !std::ranges::equal(admitted, kExpectedMenuCues)) {
+        throw std::runtime_error("Initial menu bank omits a source cue");
+      }
+    }
+    constexpr std::uint16_t kStreamedBank = 50;
+    if (reject_streamed && slot == kStreamedBank) {
+      throw std::runtime_error("Injected partial bank admission failure");
+    }
     ++registrations;
+  }
+  void extend_bank(std::uint16_t slot,
+                   std::span<const std::uint16_t>) override {
+    if (slot != 0 || !sealed) {
+      throw std::runtime_error("Invalid bank extension");
+    }
+    sealed = false;
   }
   void seal() override { sealed = true; }
   std::optional<bw::audio::CueHandle> play(
@@ -1860,9 +1986,45 @@ class CorpusAudioEnvironment final
     return random.next(upper);
   }
 };
+void failed_audio_admission(bw::resources::ResourceService& resources,
+                            const bw::platform::Files& files,
+                            const std::filesystem::path& sound_directory) {
+  CorpusAudioFactory factory;
+  bw::game::GameAudio audio(files, resources.catalogs(),
+                            resources.memory_domain(), factory,
+                            {3, 8, 50'000'000});
+  factory.output->reject_streamed = true;
+  bool failed = false;
+  try {
+    audio.prepare_mission(files, resources.catalogs(), sound_directory,
+                          resources.memory_domain());
+  } catch (const std::runtime_error&) {
+    failed = true;
+  }
+  if (!failed || factory.output->registrations != 2 || factory.output->sealed) {
+    throw std::runtime_error("Partial admission failure fixture did not fail");
+  }
+  bool unavailable = false;
+  try {
+    static_cast<void>(audio.prepared());
+  } catch (const std::logic_error&) {
+    unavailable = true;
+  }
+  bool retry_rejected = false;
+  try {
+    audio.prepare_mission(files, resources.catalogs(), sound_directory,
+                          resources.memory_domain());
+  } catch (const std::logic_error&) {
+    retry_rejected = true;
+  }
+  if (!unavailable || !retry_rejected || factory.output->registrations != 2) {
+    throw std::runtime_error("Failed audio preparation published readiness");
+  }
+}
 void character_audio_presentation(
     bw::resources::ResourceService& resources, const bw::platform::Files& files,
     const std::filesystem::path& sound_directory) {
+  failed_audio_admission(resources, files, sound_directory);
   using bw::animation::MotionEventPhase;
   using bw::game::CharacterAudioResult;
   const auto require_audio = [](bool valid) {
@@ -1870,12 +2032,49 @@ void character_audio_presentation(
       throw std::runtime_error("Original character audio policy mismatch");
     }
   };
+  {
+    const auto encoded =
+        files.read(sound_directory / "bgm_16.xwv", resources.memory_domain());
+    const auto music = bw::audio::decode_segmented_music(
+        encoded, 8'000'000, resources.memory_domain());
+    require_audio(music.sample_rate == 44100 && music.channels == 2 &&
+                  music.samples.size() == 7'267'328 &&
+                  music.loop_begin_frame == 456704 &&
+                  music.loop_frame_count == 3'176'960 &&
+                  music.first_switch_frame == 454960 &&
+                  music.loop_period_frames == 3'175'121);
+    for (const auto budget : {std::size_t{0}, music.samples.size() - 1}) {
+      bool rejected = false;
+      try {
+        static_cast<void>(bw::audio::decode_segmented_music(
+            encoded, budget, resources.memory_domain()));
+      } catch (const std::invalid_argument&) {
+        rejected = true;
+      }
+      require_audio(rejected);
+    }
+    bool truncated_rejected = false;
+    try {
+      static_cast<void>(bw::audio::decode_segmented_music(
+          std::span<const std::uint8_t>(encoded).first(encoded.size() - 1),
+          8'000'000, resources.memory_domain()));
+    } catch (const std::invalid_argument&) {
+      truncated_rejected = true;
+    }
+    require_audio(truncated_rejected);
+  }
   CorpusAudioFactory factory;
   unsigned progress = 0;
-  bw::game::MissionAudio mission(files, resources.catalogs(), sound_directory,
-                                 resources.memory_domain(), factory,
-                                 {3, 8, 50'000'000}, [&] { ++progress; });
-  require_audio(progress == 3 && factory.output->registrations == 3 &&
+  bw::game::GameAudio mission(files, resources.catalogs(),
+                              resources.memory_domain(), factory,
+                              {3, 8, 50'000'000}, [&] { ++progress; });
+  require_audio(progress == 2 && factory.output->registrations == 1 &&
+                factory.output->sealed);
+  mission.prepare_mission(files, resources.catalogs(), sound_directory,
+                          resources.memory_domain(), [&] { ++progress; });
+  mission.prepare_mission(files, resources.catalogs(), sound_directory,
+                          resources.memory_domain(), [&] { ++progress; });
+  require_audio(progress == 4 && factory.output->registrations == 3 &&
                 factory.output->sealed);
   std::size_t voices = 0, variations = 0;
   for (std::uint32_t action = 0; action < bw::game::kVoiceActions; ++action) {
@@ -2522,6 +2721,190 @@ void root_retirement_after_teardown(bw::game::StartupSession& session,
         "handoff");
   }
 }
+void verify_frontend_audio_handoff(bw::game::StartupSession& session,
+                                   CorpusAudioOutput& cue_output,
+                                   unsigned music_preparations) {
+  bool title_cue = false;
+  for (std::size_t i = 0; i < cue_output.cue_trace_size; ++i) {
+    if (cue_output.cue_trace.at(i) == std::array<std::uint16_t, 2>{0, 8}) {
+      title_cue = true;
+    }
+  }
+  if (!title_cue || music_preparations != 1 || cue_output.music_starts != 1) {
+    throw std::runtime_error("Session frontend audio publication mismatch");
+  }
+  const auto fade_completion = session.advance({3.1F, 0});
+  cue_output.update();
+  if (fade_completion.state == bw::script::RunState::failed ||
+      cue_output.music_playing || cue_output.music_stops != 1) {
+    throw std::runtime_error("Mission handoff did not retire menu music");
+  }
+}
+void seed_frontend_profile(bw::game::Profile& profile,
+                           bw::platform::SaveStorage& storage) {
+  // Seed a complete original desktop profile before progression mutations.
+  if (profile.create_defaults(storage).status != bw::platform::SaveStatus::ok) {
+    throw std::runtime_error("Corpus profile creation failed");
+  }
+  (void)profile.award_result({0, 0, bw::game::MissionRewardMode::campaign});
+  if (profile.purchase({bw::game::UpgradeCategory::weapon, 1}) !=
+          bw::game::PurchaseResult::purchased ||
+      profile.save(storage).status != bw::platform::SaveStatus::ok) {
+    throw std::runtime_error("Corpus progression seed failed");
+  }
+}
+void service_frontend_audio(CorpusAudioOutput& output) {
+  output.update();
+  if (output.music_starts > 1) {
+    throw std::runtime_error("Frontend child restarted shared menu music");
+  }
+}
+bw::script::RunResult drive_frontend_route(
+    bw::game::StartupSession& session, bw::game::Profile& profile,
+    bw::platform::SaveStorage& storage, Media& media, ObservedMenu& menu,
+    ObservedOptions& options, ObservedRanking& ranking,
+    ObservedPowerUp& upgrades, CorpusAudioOutput& cue_output,
+    bool concept_route) {
+  bw::script::RunResult result{bw::script::RunState::idle, {}};
+  // Navigate the real menu policy to costume selection and an owned mission
+  // request.
+  const auto persisted_system =
+      storage.read("BulletWitchSystem", bw::game::profile_system_bytes);
+  const auto baseline_music = profile.music_volume();
+  bool edited_music = false, checked_record_save = false;
+  bool saw_ranking = false, saw_upgrades = false, saw_controls = false,
+       saw_calibration = false;
+  for (unsigned frame = 0; frame < 3000; ++frame) {
+    std::uint32_t pressed = 0x1010;
+    std::uint32_t repeated = 0;
+    if (menu.shown) {
+      pressed = 0;
+      const auto& view = menu.current;
+      const bool chosen = profile.costume() == 5;
+      if (view.storage_background) {
+        pressed = view.dialog_interactive ? 0x1000U : 0U;
+      } else if (view.page == bw::game::MenuPage::main) {
+        const std::size_t desired = chosen ? (concept_route ? 4 : 0) : 3;
+        if (view.selected == desired) {
+          pressed = 0x1000;
+        } else {
+          repeated = 0x02000000;
+        }
+      } else if (view.page == bw::game::MenuPage::costume) {
+        if (view.dialog != bw::game::FrontendDialog::none ||
+            (!chosen && view.rows.at(view.selected).compatibility_id == 5)) {
+          pressed = 0x1000;
+        } else if (chosen) {
+          pressed = 0x2020;
+        } else {
+          repeated = 0x02000000;
+        }
+      } else if (view.page == bw::game::MenuPage::extra) {
+        if (view.rows.at(view.selected).compatibility_id == 1) {
+          pressed = 0x1000;
+        } else {
+          repeated = 0x02000000;
+        }
+      } else if (view.page == bw::game::MenuPage::difficulty) {
+        pressed = 0x1000;
+      }
+    }
+    if (options.shown) {
+      if (saw_upgrades && media.concealed) {
+        throw std::runtime_error(
+            "Power Up left the parent Options globally concealed");
+      }
+      auto desired = bw::game::PauseOption::costume;
+      if (!edited_music) {
+        desired = bw::game::PauseOption::music;
+      } else if (!saw_ranking) {
+        desired = bw::game::PauseOption::leaderboards;
+      } else if (!saw_upgrades) {
+        desired = bw::game::PauseOption::power_up;
+      } else if (!saw_controls) {
+        desired = bw::game::PauseOption::controls;
+      } else if (!saw_calibration) {
+        desired = bw::game::PauseOption::brightness;
+      } else if (profile.costume() == 5) {
+        desired = bw::game::PauseOption::exit;
+      }
+      pressed = options.current.selected == desired ? 0x1000U : 0U;
+      repeated = options.current.selected == desired ? 0U : 0x02000000U;
+      if (!edited_music &&
+          options.current.selected == bw::game::PauseOption::music) {
+        pressed = 0;
+        repeated = 0x04000000;
+        edited_music = profile.music_volume() != baseline_music;
+      }
+      if (profile.costume() == 5 &&
+          options.current.page == bw::game::PauseOptionsPage::options) {
+        if (!checked_record_save) {
+          const auto disk_system =
+              storage.read("BulletWitchSystem", bw::game::profile_system_bytes);
+          bw::game::Profile saved;
+          if (disk_system.status != bw::platform::SaveStatus::ok ||
+              disk_system.bytes != persisted_system.bytes ||
+              saved.load(storage).status != bw::platform::SaveStatus::ok ||
+              saved.costume() != 5 ||
+              profile.music_volume() == baseline_music) {
+            throw std::runtime_error(
+                "Costume save escaped its Record-only capability");
+          }
+          checked_record_save = true;
+        }
+        pressed = 0x2020;
+        repeated = 0;
+      } else if (options.current.page == bw::game::PauseOptionsPage::discard) {
+        pressed = options.current.dialog_yes ? 0x1000U : 0U;
+        repeated = options.current.dialog_yes ? 0U : 0x04000000U;
+      }
+      if (options.current.page == bw::game::PauseOptionsPage::brightness) {
+        saw_calibration = true;
+        pressed = 0x2020;
+        repeated = 0;
+      }
+    }
+    if (options.controls_shown &&
+        options.active == bw::game::FrontendOptionsView::controls) {
+      saw_controls = true;
+      pressed = 0x2020;
+      repeated = 0;
+    }
+    if (ranking.shown) {
+      saw_ranking = true;
+      pressed = 0x1000;
+      repeated = 0;
+    }
+    if (upgrades.shown) {
+      saw_upgrades = true;
+      pressed = 0x2020;
+      repeated = 0;
+    }
+    result = session.advance({0.1F, pressed}, repeated);
+    service_frontend_audio(cue_output);
+    if (result.state == bw::script::RunState::failed ||
+        session.gameplay_request()) {
+      break;
+    }
+  }
+  if (!checked_record_save || profile.music_volume() != baseline_music ||
+      storage.read("BulletWitchSystem", bw::game::profile_system_bytes).bytes !=
+          persisted_system.bytes) {
+    throw std::runtime_error(
+        "Options discard did not preserve its System boundary: record=" +
+        std::to_string(checked_record_save) +
+        " music=" + std::to_string(profile.music_volume()) +
+        " expected=" + std::to_string(baseline_music) +
+        " costume=" + std::to_string(profile.costume()) +
+        " page=" + std::to_string(static_cast<unsigned>(options.current.page)) +
+        " diagnostic=" + result.diagnostic);
+  }
+  if (!saw_ranking || !saw_upgrades || !saw_controls || !saw_calibration) {
+    throw std::runtime_error(
+        "Frontend Options did not exercise its real child owners");
+  }
+  return result;
+}
 void reconstructed_session(bw::resources::ResourceService& resources,
                            const bw::platform::Files& files, bool concept_route,
                            const std::filesystem::path& game,
@@ -2540,67 +2923,44 @@ void reconstructed_session(bw::resources::ResourceService& resources,
   }
   auto storage = bw::platform::make_save_storage(directory);
   bw::game::Profile profile;
-  // Existing native storage route now carries actual progression mutations.
-  (void)profile.award_result({0, 0, bw::game::MissionRewardMode::campaign});
-  if (profile.purchase({bw::game::UpgradeCategory::weapon, 1}) !=
-          bw::game::PurchaseResult::purchased ||
-      profile.save(*storage).status != bw::platform::SaveStatus::ok) {
-    throw std::runtime_error("Corpus progression seed failed");
-  }
+  seed_frontend_profile(profile, *storage);
   const auto expected_progression = profile.progression();
-  ObservedMenu menu(resources, output);
-  bw::game::FrontEnd frontend(profile, *storage, media, menu, {});
+  ObservedMenu menu(
+      resources, output,
+      files.read(game / "data/menu/9952", resources.memory_domain()),
+      files.read(game / "data/menu/9900", resources.memory_domain()));
+  CorpusAudioOutput cue_output;
+  cue_output.seal();
+  cue_output.trace_cues = true;
+  unsigned music_preparations = 0;
+  bw::game::FrontEndAudio frontend_audio(cue_output,
+                                         [&] { ++music_preparations; });
+  bw::game::DeviceOptions device(*storage);
+  ObservedOptions options(
+      resources, output,
+      files.read(game / "data/menu/9900", resources.memory_domain()),
+      files.read(game / "data/menu/9952", resources.memory_domain()));
+  ObservedPowerUp upgrades(
+      resources, output,
+      files.read(game / "data/menu/9900", resources.memory_domain()));
+  ObservedRanking ranking(
+      resources, output,
+      files.read(game / "data/menu/9900", resources.memory_domain()));
+  bw::game::FrontEnd frontend(
+      profile, *storage, media, menu, {}, &upgrades, &frontend_audio,
+      bw::game::FrontendOptionsServices{
+          {profile.settings_control(), profile.settings_save_control(*storage),
+           device.control(), device.save_control(),
+           profile.record_save_control(*storage)},
+          options},
+      &ranking);
   {
-    bw::game::StartupSession session(media, &surface, &frontend,
-                                     resources.memory_domain());
+    bw::game::StartupSession session(
+        media, &surface, &frontend, resources.memory_domain(), &frontend_audio);
     session.start_root(resources, 2);
-    bw::script::RunResult result{bw::script::RunState::idle, {}};
-    // Navigate the real menu policy to costume selection and an owned mission
-    // request.
-    for (unsigned frame = 0; frame < 2000; ++frame) {
-      std::uint32_t pressed = 0x1010;
-      std::uint32_t repeated = 0;
-      if (menu.shown) {
-        pressed = 0;
-        const auto& view = menu.current;
-        const bool chosen = profile.costume() == 5;
-        if (view.page == bw::game::MenuPage::main) {
-          const std::size_t desired = chosen ? (concept_route ? 4 : 0) : 3;
-          if (view.selected == desired) {
-            pressed = 0x1010;
-          } else {
-            repeated = 0x02000000;
-          }
-        } else if (view.page == bw::game::MenuPage::options) {
-          if (chosen) {
-            pressed = 0x2020;
-          } else if (view.selected == 2) {
-            pressed = 0x1010;
-          } else {
-            repeated = 0x02000000;
-          }
-        } else if (view.page == bw::game::MenuPage::costume) {
-          if (view.rows.at(view.selected).compatibility_id == 5) {
-            pressed = 0x1010;
-          } else {
-            repeated = 0x02000000;
-          }
-        } else if (view.page == bw::game::MenuPage::extra) {
-          if (view.rows.at(view.selected).compatibility_id == 1) {
-            pressed = 0x1010;
-          } else {
-            repeated = 0x02000000;
-          }
-        } else if (view.page == bw::game::MenuPage::difficulty) {
-          pressed = 0x1010;
-        }
-      }
-      result = session.advance({0.1F, pressed}, repeated);
-      if (result.state == bw::script::RunState::failed ||
-          session.gameplay_request()) {
-        break;
-      }
-    }
+    const auto result =
+        drive_frontend_route(session, profile, *storage, media, menu, options,
+                             ranking, upgrades, cue_output, concept_route);
     const std::vector<std::string> expected{
         "data/movie/marvelousLogo.ssu", "data/movie/xeedLogo.ssu",
         "data/movie/advertise.ssu", "data/movie/witchLOGO.ssu"};
@@ -2622,6 +2982,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           "Original root reconstructed startup route mismatch: " +
           result.diagnostic);
     }
+    verify_frontend_audio_handoff(session, cue_output, music_preparations);
     if (concept_route) {
       const auto& gameplay = session.gameplay_request();
       if (!gameplay) {
@@ -3199,10 +3560,12 @@ void reconstructed_session(bw::resources::ResourceService& resources,
               "Actor scene requires retained stage inputs");
         }
         CorpusAudioFactory scene_audio_factory;
-        bw::game::MissionAudio scene_audio(
-            files, resources.catalogs(), game / "data/sound",
-            resources.memory_domain(), scene_audio_factory,
-            {3, 128, 50'000'000});
+        bw::game::GameAudio scene_audio(
+            files, resources.catalogs(), resources.memory_domain(),
+            scene_audio_factory, {3, 128, 50'000'000});
+        scene_audio.prepare_mission(files, resources.catalogs(),
+                                    game / "data/sound",
+                                    resources.memory_domain());
         bw::game::SourceRandom scene_random;
         placed_light_publication(world, loading, resources.memory_domain());
         CorpusWorldTime time;
@@ -3821,7 +4184,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
     if (reloaded.load(*storage).status != bw::platform::SaveStatus::ok ||
         reloaded.costume() != 5 ||
         reloaded.progression() != expected_progression ||
-        std::filesystem::exists(directory / "BulletWitchSaveData")) {
+        reloaded.has_checkpoint()) {
       throw std::runtime_error(
           "Native profile round trip lost costume or invented checkpoint");
     }
@@ -3870,6 +4233,25 @@ int main(int argc, char** argv) {
                            ? bw::content::open_catalog(files, costume_path,
                                                        resource_memory)
                            : bw::content::open_catalog(files, costume_path));
+      }
+      // Frontend titles are supplied by each installed concept text catalog.
+      // Keep their fallback priority below the selected mission catalog.
+      constexpr std::array<unsigned, 17> kOtherConcepts{
+          0, 2, 3, 4, 5, 16, 17, 18, 19, 20, 21, 32, 33, 34, 35, 36, 37};
+      constexpr int kConceptTextPriority = 100;
+      for (const auto id : kOtherConcepts) {
+        const auto number = (id < 10 ? "0" : "") + std::to_string(id);
+        const auto name = "cm" + number + "_00";
+        const auto text_path = game / "data/concept" / name / (name + ".rat");
+        const std::string text_alias = "sprite.text.cmtxt" + number;
+        const std::string image_alias = "sprite.cm" + number;
+        const std::array<std::string_view, 2> aliases{text_alias, image_alias};
+        catalogs.mount_resources(
+            kConceptTextPriority + static_cast<int>(id), text_path,
+            resource_memory
+                ? bw::content::open_catalog(files, text_path, resource_memory)
+                : bw::content::open_catalog(files, text_path),
+            aliases);
       }
       const auto concept_path = game / "data/concept/cm01_00/cm01_00.rat";
       catalogs.mount(
