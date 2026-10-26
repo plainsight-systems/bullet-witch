@@ -1,29 +1,33 @@
-// Actor publication borrows WorldPresentation only; it cannot upload, bind or
-// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
-// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
-// enforce the existing owner split without changing frame work or lifetimes.
-// Complete CPU pose/events before the next parent tick; GPU publication only
-// submits retained output. Implementation E.4/MEM.9 preserve phase invariants
-// and fixed storage, following the header and actor-model-clock-order.md.
-// Raised facing samples its raw authored reference; movement retains its
-// separate corrected basis. Both-phase I.1/MEM.9 keep consumer meaning explicit
-// and reuse prepared animation data without new per-frame storage.
-// Secondary motion consumes the clean pose once per completed model update,
-// before attachments/palettes. The header records ordering and both-phase
-// I.11/MEM.9 ownership/allocation contracts; costume-secondary-motion.md
-// records recovered solver policy and the inspected Unreal reset/update
-// boundary. Assemble original selected costume, prepared clips and bone-driven
-// weapon. Contract/algorithm and both-phase I.11/CDSA.32/CACHE.4 plus
-// implementation SL.con.3 are in player_actor.hpp. Model/clip ownership remains
-// with mission construction; runtime evaluates reusable data and never
-// fabricates collision. E.4/MEM.9 retain prepared event timelines and
-// independent source controller clocks without hot-path parsing. Reference
-// bases are prepared once for verified traversal clips; live model height comes
-// from the validated body radius. I.1 keeps these game semantics out of generic
-// sampling.
-// Weapon root suppression follows the model constructor's source policy;
-// I.1/MEM.9 (both phases) make the attachment space explicit without extra
-// storage or clip-specific corrections. See weapon-discharge-attachment.md.
+// Ownership extraction: design I.1/C.9 and implementation E.6 (#re-raii)
+// retain stable actor/controller borrows. Both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps existing
+// prepared buffers; update-only publication cannot replace draws, lights or
+// scene view. Actor publication borrows ActorPublisher only; it cannot upload,
+// bind or retire mission resources. Both-phase C.121 (#rh-abstract), I.11
+// (#ri-raw), COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) enforce
+// the existing owner split without changing frame work or lifetimes. Complete
+// CPU pose/events before the next parent tick; GPU publication only submits
+// retained output. Implementation E.4/MEM.9 preserve phase invariants and fixed
+// storage, following the header and actor-model-clock-order.md. Raised facing
+// samples its raw authored reference; movement retains its separate corrected
+// basis. Both-phase I.1/MEM.9 keep consumer meaning explicit and reuse prepared
+// animation data without new per-frame storage. Secondary motion consumes the
+// clean pose once per completed model update, before attachments/palettes. The
+// header records ordering and both-phase I.11/MEM.9 ownership/allocation
+// contracts; costume-secondary-motion.md records recovered solver policy and
+// the inspected Unreal reset/update boundary. Assemble original selected
+// costume, prepared clips and bone-driven weapon. Contract/algorithm and
+// both-phase I.11/CDSA.32/CACHE.4 plus implementation SL.con.3 are in
+// player_actor.hpp. Model/clip ownership remains with mission construction;
+// runtime evaluates reusable data and never fabricates collision. E.4/MEM.9
+// retain prepared event timelines and independent source controller clocks
+// without hot-path parsing. Reference bases are prepared once for verified
+// traversal clips; live model height comes from the validated body radius. I.1
+// keeps these game semantics out of generic sampling. Weapon root suppression
+// follows the model constructor's source policy; I.1/MEM.9 (both phases) make
+// the attachment space explicit without extra storage or clip-specific
+// corrections. See weapon-discharge-attachment.md.
 #include "player_actor.hpp"
 
 #include <algorithm>
@@ -634,12 +638,12 @@ bool PlayerActor::draw_visible(bool weapon, std::size_t draw) const {
   constexpr std::uint32_t kWordBits = 32;
   return group >= kWordBits || (playback_->weapon_groups & (1U << group)) != 0;
 }
-void PlayerActor::publish_visibility(render::WorldPresentation& output) {
+void PlayerActor::publish_visibility(render::ActorPublisher& output) {
   if (published_weapon_groups_ == playback_->weapon_groups) return;
   for (auto& update : visibility_updates_) {
     update.visible = draw_visible(true, update.draw);
   }
-  output.update_world_visibility(visibility_updates_);
+  output.update_visibility(visibility_updates_);
   published_weapon_groups_ = playback_->weapon_groups;
 }
 void PlayerActor::prepare_palettes(bool weapon) {
@@ -1051,7 +1055,7 @@ bool PlayerActor::motion_cancellable() const {
 }
 void PlayerActor::publish_pose(const ScriptedPlayerPose& placement,
                                float body_radius,
-                               render::WorldPresentation& output) {
+                               render::ActorPublisher& output) {
   const auto radians = placement.yaw_degrees * std::numbers::pi_v<float> / 180;
   formats::SkeletonTransform rotation;
   rotation.rotation = {0, std::sin(radians / 2), 0, std::cos(radians / 2)};
@@ -1062,7 +1066,7 @@ void PlayerActor::publish_pose(const ScriptedPlayerPose& placement,
 void PlayerActor::publish_pose(const ScriptedPlayerPose& placement,
                                const animation::Matrix& orientation,
                                float body_radius,
-                               render::WorldPresentation& output) {
+                               render::ActorPublisher& output) {
   complete_model_step(placement, orientation, body_radius);
   publish_completed_pose(output);
 }
@@ -1107,13 +1111,13 @@ void PlayerActor::finish_model_step() {
   playback_->additive.finish_frame();
   weapon_playback_->finish_frame();
 }
-void PlayerActor::publish_completed_pose(render::WorldPresentation& output) {
-  output.update_shape_positions(shapes_->updates);
-  output.update_world_poses(updates_);
+void PlayerActor::publish_completed_pose(render::ActorPublisher& output) {
+  output.update_shapes(shapes_->updates);
+  output.update_poses(updates_);
   publish_visibility(output);
 }
 void PlayerActor::advance(double delta_seconds,
-                          render::WorldPresentation& output) {
+                          render::ActorPublisher& output) {
   (void)advance_motion(delta_seconds);
   finish_model_step();
   publish_completed_pose(output);

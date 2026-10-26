@@ -1,18 +1,26 @@
 # Remaining work
 
-- Finalized design: review [reorganization plan](../architecture/reorganization-plan.md)
-  and [boundary diagrams](../architecture/proposed-boundaries.md). Execute only
-  when asked to proceed: (1) mission/render-scene ownership, (2) lighting/output
-  composition, (3) mechanical game grouping, (4) build boundaries/documentation.
+- Finalized design accepted and committed as `79d7a72`: see
+  [reorganization plan](../architecture/reorganization-plan.md) and
+  [boundary diagrams](../architecture/proposed-boundaries.md). Execution is
+  authorized; slice 1 mission/render-scene ownership is accepted after the
+  October 26 native walkthrough, with final gate and purchased-content checks
+  passing. Remaining: (2) lighting/output composition, (3) mechanical game
+  grouping, (4) build boundaries/documentation.
   Peer engine families and grouped game folders are settled design. No production
-  moves or new gameplay/physics/AI/pack/debug capabilities are implemented by this
-  documentation task. Slice acceptance authorizes commit; push needs instruction.
+  broad directory moves or new gameplay/physics/AI/pack/debug capabilities belong
+  to slice 1. Slice acceptance authorizes commit; push needs instruction.
+
+- Investigate the costume-selection screen's pink block over the currently
+  displayed/selected menu item, reported during the October 26 walkthrough.
+  Cause and source behavior are unverified. This is a separate UI backlog item,
+  outside the accepted reorganization slice 1; no fix is included in that slice.
 
 - The complete source-defined frontend is accepted after the October 26 native
   walkthrough, including frontend Options and reachable Power Up. Preserve the
   explicit boundaries for Steam services and gameplay checkpoint/result
-  producers. Next discuss the agreed architecture/file-organization pass before
-  expanding full mission gameplay. See
+  producers. The architecture/file-organization pass is now underway before expanding
+  full mission gameplay. See
   [verification](../../research/engine/subsystems/frontend-verification.md).
 
 - Initial developer-tools design is recorded in
@@ -23,8 +31,7 @@
 
 - The native pause slice is accepted, including the final live-costume restart
   handoff. Power Up is now accepted through the frontend; mission-result
-  production and its post-result lifecycle remain WIP. Finish remaining agreed pre-gameplay work, then
-  discuss the architecture/file-organization pass before full mission gameplay.
+  production and its post-result lifecycle remain WIP. Complete the authorized architecture/file-organization pass before full mission gameplay.
   Nonzero world checkpoint restore, real subtitle events and force-feedback
   producers remain with their owning gameplay slices.
 

@@ -8,8 +8,12 @@
   stays identifiable; world/movie/UI feed a final compositor. Resource residency
   differs from game-owned activation. Original admission and future pack selection
   remain policy above resolution. No whole-world copy, generic ECS, new clocks,
-  async renderer or gameplay expansion follows from this plan. Execution is next
-  when requested; current work is documentation only, not production approval.
+  async renderer or gameplay expansion follows from this plan. The user accepted
+  and committed the design (`79d7a72`), then authorized execution. Slice 1 mission
+  simulation/retained presentation ownership is accepted after the October 26
+  native walkthrough; the final gate and purchased-content checks pass. The user
+  reported a separate costume-menu pink block, tracked in QUEUE outside this
+  accepted scope. Slice 1 acceptance authorizes its implementation commit.
 
 - Frontend scope is the entire original reachable menu system. Lua orchestrates
   native tasks; source task implementations define artwork, localization,
@@ -43,8 +47,7 @@
 
 - The HUD/live-resource/ring and firing/support-hand repair were accepted and
   committed separately. Pause acceptance does not close live casting, genuine
-  mission startup/results or world persistence. Finish remaining agreed
-  pre-gameplay work before the architecture/file-organization pass.
+  mission startup/results or world persistence. The architecture/file-organization pass is now authorized as described above.
 
 - Offline asset-upgrade experiments are authorized in parallel with the faithful
   port, starting with Alicia's original outfit. The first repeatable extraction
@@ -56,13 +59,10 @@
   approve replacement assets. See
   `research/reports/2026-10-25-asset-upgrade-pipeline.md`.
 
-- Before genuine mission/full-gameplay implementation, finish the current live
-  resources/HUD/controls/pause/power-up slice and remaining agreed pre-gameplay
-  work, then hold a final architecture/file-organization slice. The user will
-  discuss that layout when reached: the flat game directory, engine/game scene
-  ownership, and lighting across layers. Follow responsibility and dependency
-  boundaries; no assumption that engine scene moves into game, no final layout
-  or current-slice reorganization is authorized by this sequencing decision.
+- Before genuine mission/full-gameplay implementation, complete the accepted
+  architecture reorganization plan above. Its ordered slices address the flat
+  game directory, engine/game scene ownership and lighting across layers. Keep
+  scope to the agreed responsibility and dependency boundaries.
   Subsequent gameplay slices are accepted as complete connected behaviors,
   including source-driven sound, relevant effects/particles, animation, entity
   outcomes and HUD response with correct timing, pause and cleanup. Reuse audio

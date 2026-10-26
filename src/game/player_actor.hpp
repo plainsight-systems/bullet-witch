@@ -1,27 +1,32 @@
-// Actor publication borrows WorldPresentation only; it cannot upload, bind or
-// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
-// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
-// enforce the existing owner split without changing frame work or lifetimes.
-// Weapon publication composes activation-local and model-render half-turns
-// before the completed body attachment. I.1 names both source spaces; MEM.9
-// keeps their fixed matrix composition outside allocation paths.
-// Attached weapon models suppress the authored root after local animation
-// blending, before hierarchy composition. That root is an export-space frame,
-// not another offset from the completed hand. Both-phase I.1/MEM.9 retain the
-// explicit source root policy and reuse the prepared pose without allocation.
-// Facing reads the raw authored reference independently from displacement
-// correction. Both-phase I.1 (#ri-explicit) and MEM.9 expose distinct consumers
-// using immutable prepared samples without allocation or pose publication.
-// Aim chain indices are prepared per appearance; stable playback owns the
-// quarter-second weight and retained component-space direction. Explicit unit
-// targets are validated before mutation, and only consumed motion time advances
-// the blend. Pose publication and paused costume preparation never tick it.
-// Both-phase I.1/E.4 and MEM.9 keep spaces, failure and fixed storage explicit.
-// Source action plans resolve native bindings once per request and keep
-// unavailable publications explicit. Independent body/upper events run after
-// model shape/pose evaluation. Facial banks and retained CPU shape positions
-// live at stable appearance addresses; paused costume adoption copies logical
-// bank state and rebinds the stable event sink only after renderer publication.
+// Ownership extraction: design I.1/C.9 and implementation E.6 (#re-raii)
+// retain stable actor/controller borrows. Both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps existing
+// prepared buffers; update-only publication cannot replace draws, lights or
+// scene view. Actor publication borrows ActorPublisher only; it cannot upload,
+// bind or retire mission resources. Both-phase C.121 (#rh-abstract), I.11
+// (#ri-raw), COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) enforce
+// the existing owner split without changing frame work or lifetimes. Weapon
+// publication composes activation-local and model-render half-turns before the
+// completed body attachment. I.1 names both source spaces; MEM.9 keeps their
+// fixed matrix composition outside allocation paths. Attached weapon models
+// suppress the authored root after local animation blending, before hierarchy
+// composition. That root is an export-space frame, not another offset from the
+// completed hand. Both-phase I.1/MEM.9 retain the explicit source root policy
+// and reuse the prepared pose without allocation. Facing reads the raw authored
+// reference independently from displacement correction. Both-phase I.1
+// (#ri-explicit) and MEM.9 expose distinct consumers using immutable prepared
+// samples without allocation or pose publication. Aim chain indices are
+// prepared per appearance; stable playback owns the quarter-second weight and
+// retained component-space direction. Explicit unit targets are validated
+// before mutation, and only consumed motion time advances the blend. Pose
+// publication and paused costume preparation never tick it. Both-phase I.1/E.4
+// and MEM.9 keep spaces, failure and fixed storage explicit. Source action
+// plans resolve native bindings once per request and keep unavailable
+// publications explicit. Independent body/upper events run after model
+// shape/pose evaluation. Facial banks and retained CPU shape positions live at
+// stable appearance addresses; paused costume adoption copies logical bank
+// state and rebinds the stable event sink only after renderer publication.
 // Registered visibility listeners mutate weapon group bits through retained
 // draw visibility. Both-phase I.1/E.4 and MEM.9 keep identity/phase/lifetime
 // contracts explicit and all per-frame storage prepared. See
@@ -86,6 +91,7 @@
 #include "bw/animation/pose.hpp"
 #include "bw/audio/output.hpp"
 #include "bw/content/character_support.hpp"
+#include "bw/render/render_scene.hpp"
 #include "camera/initial_camera.hpp"
 #include "character_animations.hpp"
 #include "character_motion_player.hpp"
@@ -251,10 +257,10 @@ class PlayerActor {
   // The live source actor places its model at negative effective body radius;
   // the constructor offset is superseded before publishing a physical pose.
   void publish_pose(const ScriptedPlayerPose& placement, float body_radius,
-                    render::WorldPresentation& output);
+                    render::ActorPublisher& output);
   void publish_pose(const ScriptedPlayerPose& placement,
                     const animation::Matrix& orientation, float body_radius,
-                    render::WorldPresentation& output);
+                    render::ActorPublisher& output);
   // Complete one child-model update before another parent step: corrected
   // transform, pose/secondary/attachments, events, then ring retirement. Does
   // not advance clocks again or submit GPU buffers. E.4 makes the phase
@@ -264,7 +270,7 @@ class PlayerActor {
                            float body_radius);
   // Publish the latest completed snapshot once after simulation subdivisions.
   // No pose evaluation, event dispatch or clock advancement occurs here.
-  void publish_completed_pose(render::WorldPresentation& output);
+  void publish_completed_pose(render::ActorPublisher& output);
   bool motion_finished() const;
   // Authored cancellation entry stays latched until the current receiver
   // resets. Game states decide which exits permit cancellation; a marker does
@@ -273,7 +279,7 @@ class PlayerActor {
   // storage.
   bool motion_cancellable() const;
   PlayerMotion motion() const { return current_; }
-  void advance(double delta_seconds, render::WorldPresentation& output);
+  void advance(double delta_seconds, render::ActorPublisher& output);
   const PlayerActorSource& source() const { return source_; }
   const CharacterAnimations& body_animations() const { return *body_catalog_; }
   const CharacterAnimations& weapon_animations() const {
@@ -318,7 +324,7 @@ class PlayerActor {
   void fill_draw_palettes();
   void finish_model_step();
   CharacterMotionPlayer& motion_bank(CharacterMotionBank bank) const;
-  void publish_visibility(render::WorldPresentation& output);
+  void publish_visibility(render::ActorPublisher& output);
   struct Playback;
   struct ShapeState;
   struct AudioState;

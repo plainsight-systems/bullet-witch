@@ -1,88 +1,20 @@
-// Engine timing integration: borrow the mission control and world-clock owners
-// through teardown as const observations; it cannot mutate either owner.
-// Core Con.2 (#rconst-fct) enforces that restriction in both phases. This
-// consumer accepts engine-issued frames, rejects foreign or replayed frames,
-// and samples material time from the admitted world total. It owns neither a
-// master clock nor a pause flag. Audio pause is a cached device observation of
-// mission control. Input/UI routing precedes publication; local actor
-// subdivisions retain their existing complete parent/model order. Design Core
-// C.9/I.1; implementation E.4 (#re-design-invariants); both-phase MEM.9
-// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps frame state
-// fixed and allocation-free. See docs/architecture/world-timing.md. Own
-// retained scene presentation and bounded Alicia traversal over mission assets.
-// Borrow definitions/device identities until destruction; the mission outlives
-// this owner. Build authored static and placed-prop collision, prepare
-// character queries, decode body/camera settings and construct actor/controller
-// once. Each frame routes explicit input through custom movement/contact, live
-// camera and pose publication, then updates existing view/material constants.
-// Pause withholds simulation, animation and camera time. A diagnostic camera
-// override keeps the independent presentation path; neither path completes Lua
-// mission start. Clear submitted draws before retiring borrowed asset owners.
-// Setup owns domain-backed collision/pose/curve buffers. Steady state performs
-// prepared spatial queries, O(bones + palette references) pose work and unique
-// curve samples; no geometry upload, sampler rebuild or draw-list replacement.
-// Both MCP phases: I.1 (#ri-explicit) separates input and publication
-// contracts; E.4 (#re-design-invariants) validates before publishing values;
-// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) reserves runtime
-// storage; GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains device
-// resources. Existing material preparation also uses P.9 (#rp-waste) to sample
-// unique curves once. See actors-and-animation.md,
-// player-collision-boundary.md, player-camera-follow.md and
-// stage-scene-presentation.md.
+// Implement the owner contract in the matching header. Design I.1/C.9 keeps
+// authoritative state private; implementation E.6 (#re-raii) preserves cleanup
+// on failed preparation. Both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps retained buffers
+// fixed during admitted frames. Existing source algorithms and ordering remain.
+// Transitional composition facade for existing mission callers. Simulation,
+// retained scene presentation and explicit diagnostics have distinct owners;
+// this class owns no actor, contact, lighting, clock or preview state itself.
+// Construct simulation before its const presentation borrow and diagnostics;
+// destroy in reverse order so draws retire before the actor/assets they borrow.
+// Frame order: admission/parent-model simulation, environment observation,
+// camera far-distance update, then view/light/material publication.
 #pragma once
-#include <functional>
-#include <optional>
-
-#include "animation_review.hpp"
-#include "bw/content/stage.hpp"
-#include "bw/formats/background_placement.hpp"
-#include "bw/render/material_animation.hpp"
-#include "bw/render/shadow.hpp"
-#include "bw/render/view.hpp"
-#include "bw/render/world.hpp"
-#include "bw/scene/lighting/scene_lighting.hpp"
-#include "bw/scene/visibility/shadow_casters.hpp"
-#include "camera/player_camera.hpp"
-#include "game/mission_control.hpp"
-#include "player_actor.hpp"
-#include "player_controller.hpp"
-#include "player_resources.hpp"
-#include "player_targeting.hpp"
-#include "resident_model.hpp"
-#include "stage_environment.hpp"
+#include "mission_simulation.hpp"
+#include "player_animation_review.hpp"
+#include "stage_presentation.hpp"
 namespace bw::game {
-class MissionLoading;
-// Definitions and model handles have identical order. Their mission owner must
-// outlive the view; the renderer validates each handle at submission.
-struct StageViewSource {
-  std::reference_wrapper<const content::StageDefinition> definition;
-  std::span<const render::WorldModelHandle> models;
-  std::span<const render::WorldTextureHandle> textures{};
-};
-// Optional placed-prop snapshot; all borrowed inputs are consumed during view
-// construction. This does not execute mission start or advance physics.
-struct StageBackgroundSource {
-  const formats::BackgroundPlacementDefinition* placements{};
-  std::span<const ResidentModelView> models;
-};
-// Original mission light publications, borrowed only during construction.
-// Alicia requires character data; enemy is retained as an explicit separate
-// source capability for future actor admission, not sampled for Alicia.
-struct StageCharacterLightSource {
-  const content::UserDefinition* character{};
-  const content::UserDefinition* enemy{};
-};
-struct PlayerPresentationInput {
-  float fire_trigger{};
-  bool reload_pressed{}, attack_pressed{}, aim_mode_pressed{};
-};
-struct StageTraversalInput {
-  PlayerMovementInput movement;
-  PlayerCameraLook look;
-
-  PlayerActionObservations action{};
-  PlayerPresentationInput presentation{};
-};
 class StageInspection {
  public:
   // Playerless inspection requires an explicit placement; no mission default
@@ -104,28 +36,29 @@ class StageInspection {
   // or allocation occurs. Foreign/repeated frames reject before scene work;
   // control-only frames synchronize pause without advancing scene consumers.
   void advance(const world::WorldFrame& frame, StageTraversalInput input = {});
-  const PlayerTargeting& targeting_state() const { return targeting_; }
+  const PlayerTargeting& targeting_state() const {
+    return simulation_.targeting_state();
+  }
   const PlayerMovementState* player_state() const {
-    return controller_ ? &controller_->state() : nullptr;
+    return simulation_.player_state();
   }
   // Accepted game messages reach the existing player lifetime. This is not
   // hardware/combat admission; callers fulfill reported scope/handoff needs.
   // Empty for a presentation-only scene without a physical player controller.
-  AliciaActionOwner* player_actions() {
-    return controller_ ? &controller_->action_owner() : nullptr;
-  }
+  AliciaActionOwner* player_actions() { return simulation_.player_actions(); }
   AliciaActionUpdate begin_player_scripted_jump(
       const AcceptedScriptedJump& request);
   const AliciaActionUpdate* player_action_status() const {
-    return controller_ ? &controller_->action_status() : nullptr;
+    return simulation_.player_action_status();
   }
   const InitialPlayerCamera* camera_state() const {
-    return camera_ ? &camera_->view() : nullptr;
+    return simulation_.camera_state();
   }
   // Borrow completed unskinned world transforms until the next advance or
   // scene destruction. Empty without a player. No copies, allocations or pose
   // evaluation; same owner-thread contract as player_state. I.1/MEM.9.
   std::span<const animation::Matrix> player_world_pose() const {
+    const auto* player_ = simulation_.actor();
     return player_ ? player_->body_bones()
                    : std::span<const animation::Matrix>{};
   }
@@ -133,9 +66,10 @@ class StageInspection {
   // appearance replacement. Diagnostic observation never advances playback.
   const animation::ClipPlaybackState* player_animation_state(
       CharacterMotionBank bank) const {
+    const auto* player_ = simulation_.actor();
     return player_ ? player_->animation_state(bank) : nullptr;
   }
-  bool paused() const { return control_.simulation_paused(); }
+  bool paused() const { return simulation_.paused(); }
   // Publish pause to the audio device before any paused resource transaction.
   void synchronize_pause();
   // Mission-owned output/prepared policy and session RNG outlive this view.
@@ -160,6 +94,7 @@ class StageInspection {
   // submit its source upper switch animation. No inventory/ammo outcome.
   void switch_weapon(MissionLoading& loading, unsigned weapon_class);
   const animation::PreparedClipCatalog* review_catalog(bool weapon) const {
+    const auto* player_ = simulation_.actor();
     if (!player_) return nullptr;
     return weapon ? &player_->weapon_animations().motions()
                   : &player_->body_animations().motions();
@@ -167,104 +102,36 @@ class StageInspection {
   // Same lifetime and indices as review_catalog(); no copied classification.
   std::span<const MotionPoseSemantics> review_pose_semantics(
       bool weapon) const {
+    const auto* player_ = simulation_.actor();
     if (!player_) return {};
     return weapon ? player_->weapon_animations().pose_semantics()
                   : player_->body_animations().pose_semantics();
   }
   AnimationReviewResult review(AnimationReviewRequest request);
-  std::string_view review_status() const { return review_message_.data(); }
+  std::string_view review_status() const { return review_.review_status(); }
   StageInspection(const StageInspection&) = delete;
   StageInspection& operator=(const StageInspection&) = delete;
   StageInspection(StageInspection&&) = delete;
   StageInspection& operator=(StageInspection&&) = delete;
-  std::size_t selected_draws() const { return selected_draws_; }
-  std::size_t omitted_draws() const { return omitted_draws_; }
-  std::size_t sky_draws() const { return sky_draws_; }
-  std::size_t background_draws() const { return background_draws_; }
-  std::size_t player_draws() const { return player_draws_; }
+  std::size_t selected_draws() const { return presentation_.selected_draws(); }
+  std::size_t omitted_draws() const { return presentation_.omitted_draws(); }
+  std::size_t sky_draws() const { return presentation_.sky_draws(); }
+  std::size_t background_draws() const {
+    return presentation_.background_draws();
+  }
+  std::size_t player_draws() const { return presentation_.player_draws(); }
 
  private:
-  const world::WorldClock& clock_;
-  const MissionControl& control_;
-  std::uint64_t last_frame_{};
-  render::WorldPresentation& output_;
-  std::shared_ptr<memory::Domain> memory_;
-  void append_player_draws(memory::Vector<render::WorldColorDraw>& draws,
-                           const PlayerActor& actor, bool weapon,
-                           const InitialPlayerCamera& camera);
-  scene::StaticCollision collision_;
-  // Scene owns fields and emitter selection; game maps authored field slots
-  // and supplies model observations. Controllers never own lighting state.
-  std::optional<scene::ReflectionField> reflection_field_;
-  std::array<render::WorldTextureHandle, scene::kReflectionSlotCount>
-      reflection_textures_{};
-  std::optional<scene::SceneLighting> lighting_;
-  scene::LightingFieldId character_field_, enemy_field_;
-  memory::Vector<render::WorldLightingUpdate> static_lighting_updates_;
-  memory::Vector<render::WorldVisibilityUpdate> static_shadow_updates_;
-  // Each placed model owns a strict-field cache and a contiguous draw-packet
-  // range. Instance IDs isolate copies of the same resident mesh. SceneLighting
-  // is declared first and therefore outlives these borrowed receiver owners.
-  // I.1/R.20/MEM.9: fixed observations, explicit lifetime, loading allocation.
-  struct PlacedLighting {
-    scene::RetainedLightingReceiver receiver;
-    math::Vector3<float> root_position{};
-    float radius{};
-    std::size_t first_update{}, update_count{};
-  };
-  memory::Vector<PlacedLighting> placed_lighting_;
-  memory::Vector<render::WorldLightingUpdate> placed_lighting_updates_;
-  render::WorldLightingUpdate model_lighting(
-      const ResidentModelView& resident, const animation::Matrix& transform);
-  void publish_player_lighting();
-  void publish_shadow_owners(const InitialPlayerCamera& camera);
-  PlayerTargeting targeting_;
-  std::optional<PlayerActor> player_;
-  std::optional<PlayerController> controller_;
-  std::optional<PlayerCamera> camera_;
-  std::optional<formats::StageEnvironment> environment_;
-  std::optional<scene::Environment> environment_channels_;
-  render::WorldViewUpdate::ScenePasses scene_passes_;
-  // The source setup gate retains the previous shadow map and its projection
-  // together. Camera movement while disabled must not reproject stale texels.
-  std::optional<render::ShadowProjection> shadow_projection_;
-  std::optional<InitialPlayerCamera> fixed_view_;
-  bool audio_paused_{};
-  audio::CueOutput* audio_output_{};
-  audio::Listener audio_listener_;
-  void publish_view();
-  void stop_review();
-  void reset_review_presentation(const PlayerMovementState& state);
-  void replace_weapon(MissionLoading& loading, unsigned weapon_class,
-                      bool animate_switch);
-  void set_review_status(std::string_view text, std::string_view detail = {});
-  void prepare_review_observations(PlayerActionObservations& observation);
-  void present_input(PlayerPresentationInput input,
-                     PlayerMovementInput movement);
-  std::optional<PlayerMovementState> review_entry_;
-  bool review_fixed_pose_{}, review_next_phase_{}, review_thunder_striking_{};
-  bool review_scripted_posture_{};
-  bool automatic_targeting_camera_{};
-  std::optional<SpellPresentationKind> review_spell_;
-  static constexpr std::size_t kReviewMessageCapacity = 160;
-  std::array<char, kReviewMessageCapacity> review_message_{};
-  std::array<WeaponPresentationSettings, 4> weapon_settings_{};
-  std::optional<PlayerActionResources> action_resources_;
-  unsigned weapon_class_{};
-  AcceptedDeathPresentation review_death_;
-  struct AnimatedMaterial {
-    std::array<std::optional<std::size_t>, 2> curves;
-  };
-  struct AnimatedCurve {
-    std::string_view name;
-    render::MaterialFloat2Curve curve;
-    std::array<float, 2> value;
-  };
-  memory::Vector<AnimatedCurve> animated_curves_;
-  memory::Vector<AnimatedMaterial> animated_materials_;
-  memory::Vector<render::WorldTextureOffsetUpdate> texture_updates_;
-
-  std::size_t selected_draws_{}, omitted_draws_{}, sky_draws_{},
-      background_draws_{}, player_draws_{};
+  StageInspection(const world::WorldClock&, const MissionControl&,
+                  render::WorldPresentation&, StageViewSource, StageViewSource,
+                  const std::shared_ptr<memory::Domain>&,
+                  const std::optional<render::ViewPose>&, StageBackgroundSource,
+                  const std::optional<PlayerActorSource>&,
+                  const content::LoadProgress&, StageCharacterLightSource,
+                  const std::optional<ScriptedPlayerPose>&,
+                  const formats::CustomizationDefinition&);
+  MissionSimulation simulation_;
+  StagePresentation presentation_;
+  PlayerAnimationReview review_;
 };
 }  // namespace bw::game

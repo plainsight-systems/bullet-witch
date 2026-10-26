@@ -1,8 +1,9 @@
 # Current systems and ownership review
 
 **October 26, 2026 · current implementation plus proposed repairs for review.**
-Baseline: accepted frontend commit `cac036f`. This document authorizes no source
-moves, new C++ interfaces, gameplay features or scheduling changes. Begin here
+Baseline: accepted frontend commit `cac036f`, with slice 1 ownership changes now
+implemented in the working tree and awaiting native acceptance. The accepted
+plan is `79d7a72`; this map does not expand its execution scope. Begin here
 before using the broader [target architecture](logical-overview.md). The
 [source inventory](../../research/engine/subsystems/runtime-subsystem-inventory.md)
 records implemented, partial and planned responsibilities with concrete owners.
@@ -30,10 +31,13 @@ flowchart TD
   Session --> Tasks[Lua Context and TaskLifecycleScheduler]
   Front --> State
   Mission --> Stage[StageInspection: current composition]
-  Stage --> Actor[PlayerActor, PlayerController and game camera]
-  Stage --> Scene[SceneLighting, Environment and spatial queries]
-  Stage --> Render[Portable WorldPresentation]
-  Actor --> Render
+  Stage --> Simulation[MissionSimulation: contact, actor, controller and camera]
+  Stage --> Presentation[StagePresentation: environment, lighting and materials]
+  Stage --> Review[PlayerAnimationReview: explicit diagnostics]
+  Simulation --> Actor[PlayerActor and PlayerController]
+  Presentation --> Render[RenderScene: membership and retirement]
+  Actor --> Publisher[ActorPublisher: pose, shape and visibility]
+  Publisher --> Render
   Render --> Native
   Mission --> Assets[ResourceService, content and formats]
   Front --> Assets
@@ -125,8 +129,9 @@ lighting; the backend owns GPU representations and shaders.
 
 ```mermaid
 flowchart LR
-  Definition[Mission definitions and resident assets] --> Assembly[StageInspection assembly]
-  Animation[PlayerActor evaluated pose and visibility] --> Updates[WorldPresentation updates]
+  Definition[Mission definitions and resident assets] --> Assembly[StagePresentation assembly]
+  Animation[PlayerActor evaluated pose and visibility] --> Publisher[Restricted ActorPublisher]
+  Publisher --> Updates[RenderScene publication]
   Assembly --> Lighting[SceneLighting view and receiver evaluation]
   Lighting --> Updates
   Assembly --> Updates
@@ -145,21 +150,23 @@ handles exposure/bloom/tone/filter resources. Shared `bw_render` calculates
 material, view, shadow and output semantics. Actual pass encoding and retained
 draw storage remain largely native. There is no generic frame graph to move.
 
-Actor animation state and rendering are already different types of work, but
-publication is not fully separated: `PlayerActor` borrows `WorldPresentation`
-and emits pose/visibility updates; `StageInspection` composes actor control,
-lighting, camera, collision and materials. The renderer does not own the actor's
-state. Direct publication through a narrow render API is legitimate; the gap is
-that registration/update/removal/retirement and the mixed StageInspection roles
-are not sufficiently explicit. A centralized full-world copy is not required.
+Actor animation state and rendering have separate owners. `MissionSimulation`
+owns actor/controller/camera/contact state; `StagePresentation` borrows const
+actor observations and copied camera values. Actors receive `ActorPublisher`
+for pose, shape and visibility only. `RenderScene` controls registration,
+replacement/removal and retirement while the native backend retains the sole
+draw registry. `PlayerAnimationReview` owns existing preview state. A centralized
+full-world copy is not required. See the
+[slice 1 record](../../research/engine/subsystems/mission-presentation-ownership.md)
+for validation and acceptance status.
 
-**Proposed ownership repair, not existing implementation:**
+**Remaining proposed integration, building on the implemented owner split:**
 
 ```mermaid
 flowchart TD
   Mission[Mission owner and admitted WorldFrame] --> Sim[Game actor, action and camera state]
   Mission --> Presentation[Retained render-scene owner]
-  Sim -->|Register, update, remove through narrow publisher| Presentation
+  Sim -->|Pose, shape and visibility through narrow publisher| Presentation
   Assets[Mission asset residency] -->|Borrowed stable definitions and handles| Presentation
   Presentation --> Light[Engine lighting evaluation]
   Light -->|Owned packets| Presentation
@@ -183,8 +190,9 @@ These are actual responsibilities, not new aggregate class declarations:
 | Process and application composition | Target backends, memory capabilities, resources, session audio and frame clock | Original installation stays read-only; adapters survive their consumers. |
 | Session | Root Lua/task state; Profile and device settings are separate stable authorities supplied by composition | Frontend uses narrow save/settings controls; renderer never mutates progression. |
 | Mission | Asset/model residency, mission control, world clock and current gameplay instances | Scene/actor/menu borrowers retire before mission assets and native handles. Reentry tears down and reconstructs supported mission state. |
-| Current stage presentation | Retained draws, lighting/environment owners, actor/controller/camera composition | Borrows mission definitions and clock observations; clears submitted work before asset retirement. This mixed responsibility is the primary repair. |
-| Actor | Motion/action playback, logical pose and attachments | Borrows resident resources; currently directly publishes completed values through WorldPresentation. The proposal retains narrow actor publishers while making render-scene membership and retirement authority explicit. |
+| Mission simulation | Static contact, actor/controller/camera, actions and appearance transactions | Borrows admitted clock/resource capabilities; survives presentation retirement. |
+| Stage presentation | RenderScene lifetime, lighting/environment and materials | Borrows const actor and resident assets; copied camera observations; retires submitted work before asset retirement. |
+| Actor | Motion/action playback, logical pose and attachments | Borrows resident resources; publishes completed values through restricted ActorPublisher. Scene membership and retirement stay with RenderScene. |
 | Native submission | GPU resources and current command buffer | Current serial completion precedes resource reuse; future asynchronous retirement needs its own explicit contract. |
 
 Settings save capabilities distinguish System from Record; Costume does not save

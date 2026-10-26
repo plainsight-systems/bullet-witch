@@ -62,6 +62,7 @@
 #include "bw/audio/wave.hpp"
 #include "bw/formats/texture_mips.hpp"
 #include "bw/formats/world_texture.hpp"
+#include "bw/render/render_scene.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "game/frontend_audio.hpp"
 #include "game/frontend_options_surface.hpp"
@@ -3388,10 +3389,12 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           }
           return draws;
         };
-        world.set_world_draws(weapon_draws(selected.resident_weapon()));
+        bw::render::RenderScene selected_scene(world);
+        selected_scene.register_draws(weapon_draws(selected.resident_weapon()));
         selected_actor.select_motion(bw::game::PlayerMotion::walk, 0);
         (void)selected_actor.advance_motion(.2);
-        selected_actor.publish_pose(kFixtureInitialPose, .4F, world);
+        selected_actor.publish_pose(kFixtureInitialPose, .4F,
+                                    selected_scene.actor_publisher());
         const auto original_weapon = selected.resident_weapon();
         const auto* original_support = &selected.weapon_support();
         const auto initial_models = world.live_models;
@@ -3454,8 +3457,8 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             throw std::runtime_error(
                 "Weapon candidate changed frozen body or retained old root");
           }
-          world.replace_world_model_draws(current.handle,
-                                          weapon_draws(candidate));
+          selected_scene.replace_model_draws(current.handle,
+                                             weapon_draws(candidate));
           selected_actor.adopt_appearance(std::move(candidate_actor));
           selected.commit_weapon_class();
           if (selected_actor
@@ -3465,7 +3468,8 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             throw std::runtime_error("Weapon publication lost neutral owner");
           }
           (void)selected_actor.advance_motion(1.0 / 60.0);
-          selected_actor.publish_pose(kFixtureInitialPose, .4F, world);
+          selected_actor.publish_pose(kFixtureInitialPose, .4F,
+                                      selected_scene.actor_publisher());
           if (selected.current_weapon_class() != weapon_class ||
               selected.resident_weapon().handle != candidate.handle ||
               &selected.resident_weapon().definition.get() !=
@@ -3487,7 +3491,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           throw std::runtime_error(
               "Weapon selection repeated acquisition or changed residency");
         }
-        world.clear_world_draws();
+        selected_scene.retire();
       }
       if (world.live_models != retained_models ||
           world.live_textures != retained_textures) {
@@ -3594,6 +3598,14 @@ void reconstructed_session(bw::resources::ResourceService& resources,
         // All four families share a forward raw root curve; the authored
         // endpoint reference bone must produce distinct actor-local travel.
         {
+          // This standalone animation witness has its own retained scene;
+          // immutable uploaded-resource metadata is borrowed by value, as in
+          // the timing witness. It cannot acquire the live mission's output.
+          WorldOutput directions_output;
+          directions_output.records = world.records;
+          directions_output.model_chunks = world.model_chunks;
+          bw::render::RenderScene directions_scene(directions_output);
+          directions_scene.register_draws(world.draw_commands);
           bw::game::PlayerActor directions(
               {loading.resident_player(), loading.resident_weapon(),
                loading.player_support(), loading.weapon_support(),
@@ -3830,7 +3842,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             throw std::runtime_error(
                 "Source frame entry was treated as seconds");
           }
-          directions.advance(0, world);
+          directions.advance(0, directions_scene.actor_publisher());
           constexpr std::array motions{
               bw::game::PlayerMotion::evade_forward_air,
               bw::game::PlayerMotion::evade_backward_air,
@@ -3840,7 +3852,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
                ++direction) {
             directions.select_motion(motions.at(direction), 0);
             const auto delta = directions.advance_motion(0.25);
-            directions.advance(0, world);
+            directions.advance(0, directions_scene.actor_publisher());
             // The same authored direction remains available to root motion,
             // but the pre-hierarchy modifier removes it from displayed facing.
             const auto bones = directions.body_bones();
@@ -3871,7 +3883,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
                  .parameter = body_catalog.parameter_for_clip(index),
                  .fresh = true});
             (void)directions.advance_motion(1.0 / 60.0);
-            directions.advance(0, world);
+            directions.advance(0, directions_scene.actor_publisher());
           }
         }
         model_timing_equivalence(world, loading, resources.memory_domain(),

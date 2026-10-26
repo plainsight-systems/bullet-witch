@@ -1,38 +1,42 @@
-// Actor publication borrows WorldPresentation only; it cannot upload, bind or
-// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
-// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
-// enforce the existing owner split without changing frame work or lifetimes.
-// Complete parent/model subdivisions follow the pinned Unreal balanced
-// remaining-time algorithm; no fractional tail is manufactured by subtraction.
-// Both design corpora: E.4 validates the timing invariant, MEM.9 keeps
-// scheduling and CPU model completion in fixed storage. GPU publication is once
-// per call. Shared raw-axis preprocessing returns source direction and
-// separately capped magnitude together (Core F.21, #rf-out-multi); never
-// recover the scalar from rounded normalized components. I.1/E.4 make this
-// producer/consumer invariant explicit, and MEM.9 keeps the result
-// allocation-free in both phases. Shared raw-axis preprocessing follows source
-// scaling and radial rejection. Both MCP phases F.8 (#rf-pure) and MEM.9 retain
-// a pure fixed-size value operation for locomotion and action admission, with
-// no allocation. Grounded action selection uses the recovered stance policy.
-// Consume one crouch press per admitted outer update before bounded movement
-// substeps; StateSquat exit restores standing height before evade entry. Model
-// clocks, upper layers and weapon clocks remain actor-owned. Both-phase I.1/E.4
-// and MEM.9 preserve explicit edge/state ownership with fixed update storage.
-// Own Alicia's source hardware locomotion and directional evasive leap above
-// prepared static contacts. Borrow actor/collision/targeting through this
-// owner's lifetime; synchronous entry callbacks update posture and targeting
-// before returning to action publication, without consuming time or publishing
-// poses; a single game thread supplies raw normalized axes, held evade and
-// camera yaw. Scale/deadzone input, select walking/dashing or directional
-// evade, consume authored root displacement exactly once, resolve the
-// lower-sphere-center body, then publish its corrected pose with the live
-// negative-radius model offset. Evasive start/middle consume full XYZ root
-// motion; only completed middle motion enters ballistic gravity. Landing uses
-// double playback and its authored cancellation marker. Scripted generic jump
-// is not the hardware evade action. Fixed state, prepared clips/geometry and
-// bounded time subdivision allocate nothing per frame. Invalid input/settings
-// throw. No mission Lua, combat, dynamic-body simulation or profile saving is
-// implied. Design I.1
+// Ownership extraction: design I.1/C.9 and implementation E.6 (#re-raii)
+// retain stable actor/controller borrows. Both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps existing
+// prepared buffers; update-only publication cannot replace draws, lights or
+// scene view. Actor publication borrows ActorPublisher only; it cannot upload,
+// bind or retire mission resources. Both-phase C.121 (#rh-abstract), I.11
+// (#ri-raw), COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) enforce
+// the existing owner split without changing frame work or lifetimes. Complete
+// parent/model subdivisions follow the pinned Unreal balanced remaining-time
+// algorithm; no fractional tail is manufactured by subtraction. Both design
+// corpora: E.4 validates the timing invariant, MEM.9 keeps scheduling and CPU
+// model completion in fixed storage. GPU publication is once per call. Shared
+// raw-axis preprocessing returns source direction and separately capped
+// magnitude together (Core F.21, #rf-out-multi); never recover the scalar from
+// rounded normalized components. I.1/E.4 make this producer/consumer invariant
+// explicit, and MEM.9 keeps the result allocation-free in both phases. Shared
+// raw-axis preprocessing follows source scaling and radial rejection. Both MCP
+// phases F.8 (#rf-pure) and MEM.9 retain a pure fixed-size value operation for
+// locomotion and action admission, with no allocation. Grounded action
+// selection uses the recovered stance policy. Consume one crouch press per
+// admitted outer update before bounded movement substeps; StateSquat exit
+// restores standing height before evade entry. Model clocks, upper layers and
+// weapon clocks remain actor-owned. Both-phase I.1/E.4 and MEM.9 preserve
+// explicit edge/state ownership with fixed update storage. Own Alicia's source
+// hardware locomotion and directional evasive leap above prepared static
+// contacts. Borrow actor/collision/targeting through this owner's lifetime;
+// synchronous entry callbacks update posture and targeting before returning to
+// action publication, without consuming time or publishing poses; a single game
+// thread supplies raw normalized axes, held evade and camera yaw.
+// Scale/deadzone input, select walking/dashing or directional evade, consume
+// authored root displacement exactly once, resolve the lower-sphere-center
+// body, then publish its corrected pose with the live negative-radius model
+// offset. Evasive start/middle consume full XYZ root motion; only completed
+// middle motion enters ballistic gravity. Landing uses double playback and its
+// authored cancellation marker. Scripted generic jump is not the hardware evade
+// action. Fixed state, prepared clips/geometry and bounded time subdivision
+// allocate nothing per frame. Invalid input/settings throw. No mission Lua,
+// combat, dynamic-body simulation or profile saving is implied. Design I.1
 // (#ri-explicit), implementation E.4 (#re-design-invariants) expose validated
 // action/state invariants. Both phases MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md) retains fixed steady-state storage.
@@ -41,6 +45,7 @@
 #include "aim_posture.hpp"
 #include "alicia_action_owner.hpp"
 #include "bw/formats/customization.hpp"
+#include "bw/render/render_scene.hpp"
 #include "bw/scene/spatial/character_collision.hpp"
 #include "player_actor.hpp"
 #include "scripted_jump_policy.hpp"
@@ -117,7 +122,7 @@ class PlayerController final : private ShooterEntrySink {
   // Returns consumed simulation time; an unresolved action obligation stops
   // before the affected step, allowing its caller to retry without lost time.
   double advance(PlayerMovementInput input, float camera_yaw_radians,
-                 double delta_seconds, render::WorldPresentation& output,
+                 double delta_seconds, render::ActorPublisher& output,
                  const PlayerActionObservations& observations = {});
   const PlayerMovementState& state() const { return state_; }
   // Source hardware Shooter handlers exist for ordinary stance and generic

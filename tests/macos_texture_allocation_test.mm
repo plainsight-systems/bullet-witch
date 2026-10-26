@@ -684,6 +684,55 @@ void unit_shading_direction_contract(bw::platform::macos::WorldRenderer& rendere
   renderer.release_world_texture(outside_disk);
   renderer.release_world_texture(mapped);
 }
+// Extend the existing component fixture through removal and re-publication.
+template <class ReadPixel>
+void retained_removal_contract(bw::platform::macos::WorldRenderer& renderer,
+                               const bw::memory::DeviceBudget& budget, ReadPixel& read_pixel,
+                               const bw::render::WorldColorDraw& replacement_draw,
+                               bw::render::WorldViewUpdate retained_view,
+                               const bw::render::WorldTextureOffsetUpdate& offset_update) {
+  const auto replacement_body = replacement_draw.model;
+  const bw::render::WorldTextureOffsetUpdate new_body_update{.model = replacement_body};
+  // Explicit scene removal retires submissions, not resident component assets.
+  // Preserve the latest view and unrelated UV destinations, then prove the
+  // removed component can be submitted again without another upload/bind.
+  const auto before_removal = budget.snapshot();
+  const auto resident_body = renderer.geometry_status(replacement_body);
+  retained_view.world.clip_rows[0][3] = 4;
+  renderer.update_world_view(retained_view);
+  renderer.replace_world_model_draws(replacement_body, {});
+  require(
+      renderer.has_color_draws() && read_pixel() == std::array<std::uint8_t, 4>{} &&
+          budget.snapshot().live_resources == before_removal.live_resources &&
+          renderer.geometry_status(replacement_body).vertex_bytes == resident_body.vertex_bytes &&
+          renderer.geometry_status(replacement_body).texture_bindings_ready,
+      "Explicit removal preserves unrelated view and resident model/texture resources");
+  bool rejected_removed_component = false;
+  try {
+    renderer.update_world_texture_offsets(std::span(&new_body_update, 1));
+  } catch (const std::invalid_argument&) {
+    rejected_removed_component = true;
+  }
+  renderer.update_world_texture_offsets(std::span(&offset_update, 1));
+  retained_view.world.clip_rows[0][3] = 0;
+  renderer.update_world_view(retained_view);
+  const auto remaining_pixel = read_pixel();
+  require(rejected_removed_component && remaining_pixel[0] == 0 && remaining_pixel[2] == 0 &&
+              remaining_pixel[1] >= 127 && remaining_pixel[1] <= 128,
+          "Removal rejects stale destinations and retains one unrelated live green submission");
+  bool rejected_repeated_removal = false;
+  try {
+    renderer.replace_world_model_draws(replacement_body, {});
+  } catch (const std::invalid_argument&) {
+    rejected_repeated_removal = true;
+  }
+  require(rejected_repeated_removal && read_pixel() == remaining_pixel,
+          "Removing an absent component rejects without changing surviving submissions");
+  renderer.set_world_draws(std::span(&replacement_draw, 1));
+  require(renderer.has_color_draws() && read_pixel()[0] != 0 &&
+              budget.snapshot().live_resources == before_removal.live_resources,
+          "Removed geometry and textures remain usable without reupload or rebinding");
+}
 void world_surface_contract(id<MTLDevice> device) {
   using bw::render::WorldColorDraw;
   using bw::render::WorldCull;
@@ -1455,6 +1504,8 @@ void world_surface_contract(id<MTLDevice> device) {
   renderer.release_world_texture(previous_private_texture);
   require(rejected_old_component && read_pixel() == replaced_pixel,
           "Old component geometry and private texture retirement preserve new and unrelated draws");
+  retained_removal_contract(renderer, *budget, read_pixel, replacement_draw, retained_view,
+                            offset_update);
   renderer.release_model(replacement_body);
   renderer.set_world_draws(duplicate_offsets);
   renderer.update_world_texture_offsets(std::span(&offset_update, 1));

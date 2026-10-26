@@ -386,9 +386,12 @@ class WorldPresentation : public virtual WorldObservation {
   // every submitted previous-model draw at its first position, preserving all
   // unrelated order, latest UV/palettes, view and output state. Nonempty inputs
   // must name one distinct resident model not already submitted. Validate and
-  // allocate before atomic publication; failure retains the old scene. No
-  // geometry/texture upload or release; required fallback textures must already
-  // be resident. O(scene + palettes + scene log scene), setup allocation only.
+  // allocate before atomic publication; failure retains the old scene.
+  // An empty replacement explicitly removes that submitted model, retaining
+  // unrelated draws/view and resident assets; an unknown previous model
+  // rejects. No geometry/texture upload or release; required fallback textures
+  // must already be resident. O(scene + palettes + scene log scene), setup
+  // allocation only.
   virtual void replace_world_model_draws(
       WorldModelHandle previous,
       std::span<const WorldColorDraw> replacement) = 0;
@@ -411,6 +414,11 @@ class WorldPresentation : public virtual WorldObservation {
   // clearing the draw list resets the override to its submitted constants.
   virtual void update_world_view(const WorldViewUpdate& update) = 0;
   virtual void clear_world_draws() noexcept = 0;
+
+ private:
+  // One scene lifetime authority, without duplicating native draw membership.
+  friend class RenderScene;
+  bool scene_claimed_{};
 };
 // Actual host/backend implements both capabilities; game borrowers use one.
 class WorldOutput : public WorldResources, public WorldPresentation {};

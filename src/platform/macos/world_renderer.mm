@@ -252,6 +252,23 @@ struct WorldRenderer::State {
                       color_order.end());
     index_color_order(submitted, color_order);
   }
+  // Membership changes must retain an admitted view's lighting override. With
+  // no override, derive coverage from the surviving receiver submissions.
+  std::size_t effective_shadow_guard(std::span<const SubmittedDraw> draws,
+                                     render::WorldModelHandle excluded = {}) const {
+    if (view && view->lighting) {
+      return render::shadow_guard_texels(view->lighting->shadow_radius);
+    }
+    std::size_t guard = 0;
+    for (const auto& draw : draws) {
+      if (draw.command.model == excluded) continue;
+      const auto& shadow = draw.command.parameters.shadow_parameters;
+      if (shadow[0] == 1.0F) {
+        guard = std::max(guard, render::shadow_guard_texels(shadow[2]));
+      }
+    }
+    return guard;
+  }
   struct Texture {
     render::WorldTextureHandle handle;
     TextureAllocation native;
@@ -835,14 +852,23 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
 void WorldRenderer::replace_world_model_draws(render::WorldModelHandle previous,
                                               std::span<const render::WorldColorDraw> replacement) {
   auto& state = *state_;
-  if (replacement.empty() || previous.value == 0) {
-    throw std::invalid_argument("World model replacement requires a submitted model and draws");
+  const auto is_previous = [&](const auto& draw) { return draw.command.model == previous; };
+  if (previous.value == 0 || !std::ranges::any_of(state.submitted, is_previous)) {
+    throw std::invalid_argument("World model replacement requires a submitted model");
+  }
+  if (replacement.empty()) {
+    // Explicit removal changes retained membership only. Existing residency,
+    // unrelated draws/view and their current constants remain untouched.
+    const auto shadow_guard = state.effective_shadow_guard(state.submitted, previous);
+    std::erase_if(state.submitted, is_previous);
+    state.refresh_destinations();
+    state.shadow_guard = shadow_guard;
+    state.shadows_prepared = false;
+    return;
   }
   const auto next = replacement.front().model;
-  const auto is_previous = [&](const auto& draw) { return draw.command.model == previous; };
   if (next.value == 0 || next == previous ||
       !std::ranges::all_of(replacement, [&](const auto& draw) { return draw.model == next; }) ||
-      !std::ranges::any_of(state.submitted, is_previous) ||
       std::ranges::any_of(state.submitted,
                           [&](const auto& draw) { return draw.command.model == next; })) {
     throw std::invalid_argument("World model replacement identities are not distinct and valid");
@@ -875,13 +901,7 @@ void WorldRenderer::replace_world_model_draws(render::WorldModelHandle previous,
   memory::Vector<std::size_t> color_order(pending.size(),
                                           memory::Allocator<std::size_t>(state.cpu_domain));
   State::index_color_order(pending, color_order);
-  std::size_t shadow_guard = 0;
-  for (const auto& draw : pending) {
-    const auto& shadow = draw.command.parameters.shadow_parameters;
-    if (shadow[0] == 1.0F) {
-      shadow_guard = std::max(shadow_guard, render::shadow_guard_texels(shadow[2]));
-    }
-  }
+  const auto shadow_guard = state.effective_shadow_guard(pending);
   // No operation after this point can fail; view and output remain untouched.
   state.submitted.swap(pending);
   state.texture_destinations.swap(destinations);

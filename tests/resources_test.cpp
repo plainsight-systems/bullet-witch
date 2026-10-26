@@ -67,6 +67,7 @@ void stage_definition_tests();
 void audio_bank_tests();
 void animation_definition_tests();
 void world_output_tests();
+void render_scene_contracts();
 void view_tests();
 void shadow_tests();
 void material_animation_tests();
@@ -894,6 +895,7 @@ int main() {
     motion_event_tests();
     shape_pose_tests();
     world_output_tests();
+    render_scene_contracts();
     view_tests();
     shadow_tests();
     material_animation_tests();

@@ -37,6 +37,14 @@ MCP corpora and read I.1 (`ri-explicit`), C.85 (`rc-swap-noexcept`) and GPU.1
 (`guidelines/gpu/GPU.1-keep-data-on-device.md`): explicit failure/lifetime contracts,
 nonthrowing publication, and retained GPU resources.
 
+The explicit scene-lifetime facade adds a distinct `remove_model_draws(model)`
+operation. Its backend representation is an empty replacement batch: validate a
+currently submitted model, preserve unrelated state and residency, then remove
+its submissions. This is separate from the nonempty replacement contract above.
+Both operations retain any current view-lighting shadow-radius override and
+otherwise recompute coverage from surviving draws. See
+[retained scene lifetime](render-scene-lifetime.md).
+
 ## Retirement and verification
 
 The first actual-content swap exposed an existing overly broad invalidation:

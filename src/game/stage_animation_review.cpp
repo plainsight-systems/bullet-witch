@@ -1,30 +1,20 @@
-// Pause checks observe the shared MissionControl authority; review cannot own
-// or reset world time. Core C.9 design, E.4 implementation and both-phase MEM.9
-// preserve existing bounded preparation and transactional publication.
-// Route explicit in-scene presentation previews through existing actor/action
-// owners. Preserve a physical entry snapshot for Stop; raw catalog inspection
-// fixes that position while camera, model clocks and event consumers continue.
-// Source spell policies receive only visibly synthetic user phase observations.
-// Missing resources/shape capability reject, never stand in for gameplay
-// effects. Single game thread; prepared catalogs and fixed state, no update
-// allocation. Selected model activation prepares a candidate from resident
-// assets. Both design and implementation Core I.1/E.4 and performance MEM.9
-// apply as recorded in animation_review.hpp and
-// interactive-animation-review.md. Prepared representation metadata rejects
-// incompatible banks before mutation (CDSA.32).
+// Implement the owner contract in the matching header. Design I.1/C.9 keeps
+// authoritative state private; implementation E.6 (#re-raii) preserves cleanup
+// on failed preparation. Both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps retained buffers
+// fixed during admitted frames. Existing source algorithms and ordering remain.
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <stdexcept>
 
 #include "bw/math/vector.hpp"
-#include "mission_loading.hpp"
-#include "stage_inspection.hpp"
-
+#include "formats/reader.hpp"
+#include "player_animation_review.hpp"
 namespace bw::game {
 namespace {
 constexpr std::string_view kPresentation =
     "Presentation controls - no combat outcomes | Menu: Animation Review";
-constexpr float kTriggerThreshold = .8F;
 constexpr float kSelectionMidpoint = .5F;
 constexpr std::size_t kLastExpression = 6, kFirstRaisedJump = 8,
                       kLastRaisedJump = 11, kDamageVariants = 12,
@@ -37,8 +27,43 @@ bool started(const AliciaActionUpdate& value) {
   return value.outcome == AliciaActionOutcome::started;
 }
 }  // namespace
-void StageInspection::set_review_status(std::string_view text,
-                                        std::string_view detail) {
+PlayerAnimationReview::PlayerAnimationReview(
+    PlayerActor* player, PlayerController* controller,
+    PlayerTargeting& targeting, const MissionControl& control,
+    render::ActorPublisher& publisher, const unsigned& weapon_class,
+    const formats::CustomizationDefinition& customization)
+    : player_(player),
+      controller_(controller),
+      targeting_(targeting),
+      control_(control),
+      output_(publisher),
+      weapon_class_(weapon_class) {
+  if (player_ != nullptr) {
+    constexpr std::array death_path{
+        std::string_view("witch"), std::string_view("actor"),
+        std::string_view("pw0"), std::string_view("body")};
+    const resources::detail::Reader body_reader{
+        customization.lookup(death_path)};
+    constexpr std::uint64_t kDeathWeights = 0x124,
+                            kPositiveDeathWeights = 0x13c;
+    const auto decode_weights = [&](auto& weights, std::uint64_t offset) {
+      for (std::size_t index = 0; index < weights.size(); ++index) {
+        weights.at(index) = std::bit_cast<float>(
+            body_reader.u32(offset + index * sizeof(float)));
+        if (!std::isfinite(weights.at(index)) || weights.at(index) < 0) {
+          throw std::invalid_argument(
+              "Invalid authored death selection weight");
+        }
+      }
+    };
+    decode_weights(review_death_.nonpositive_weights, kDeathWeights);
+    decode_weights(review_death_.positive_weights, kPositiveDeathWeights);
+    set_review_status(
+        "Presentation controls - no combat outcomes | Menu: Animation Review");
+  }
+}
+void PlayerAnimationReview::set_review_status(std::string_view text,
+                                              std::string_view detail) {
   review_message_.fill(0);
   const auto count = std::min(text.size(), review_message_.size() - 1);
   std::ranges::copy(text.substr(0, count), review_message_.begin());
@@ -47,110 +72,22 @@ void StageInspection::set_review_status(std::string_view text,
   std::ranges::copy(detail.substr(0, suffix),
                     std::span(review_message_).subspan(count).begin());
 }
-void StageInspection::change_weapon(MissionLoading& loading,
-                                    unsigned weapon_class) {
-  replace_weapon(loading, weapon_class, false);
-}
-void StageInspection::switch_weapon(MissionLoading& loading,
-                                    unsigned weapon_class) {
-  replace_weapon(loading, weapon_class, true);
-}
-void StageInspection::replace_weapon(MissionLoading& loading,
-                                     unsigned weapon_class,
-                                     bool animate_switch) {
-  if ((!animate_switch && !paused()) || !player_ || !controller_ || !camera_) {
-    throw std::logic_error(
-        "Weapon selection requires admitted traversal; menu replacement "
-        "requires pause");
-  }
-  auto& actor = player_.value();
-  auto& controller = controller_.value();
-  if (weapon_class >= weapon_settings_.size()) {
-    throw std::out_of_range("Unknown weapon presentation class");
-  }
-  if (loading.current_weapon_class() == weapon_class) return;
-  if (controller.state().phase != PlayerMovementPhase::grounded ||
-      !controller.state().contact.grounded) {
-    throw std::logic_error("Land before changing weapon class");
-  }
-  if (animate_switch && (review_fixed_pose_ || review_spell_ ||
-                         controller.action_owner().blocks_locomotion())) {
-    throw std::logic_error("Finish the active action before switching weapons");
-  }
-  const auto* body = actor.animation_state(CharacterMotionBank::body);
-  if (body == nullptr) {
-    throw std::logic_error("Weapon switch has no body motion");
-  }
-  const auto plan = accepted_weapon_change(
-      controller.state().stance, static_cast<std::uint32_t>(body->binding));
-  if (animate_switch &&
-      !actor.body_animations().motions().alias(plan.requests[0].slot).clip) {
-    throw std::logic_error("Authored switch motion is absent");
-  }
-  loading.prepare_weapon_class(weapon_class);
-  try {
-    auto source = actor.source();
-    source.weapon = loading.candidate_weapon();
-    source.weapon_support = loading.candidate_weapon_support();
-    PlayerActor candidate(source, actor, memory_,
-                          animate_switch ? PlayerAppearanceChange::live_weapon
-                                         : PlayerAppearanceChange::weapon,
-                          animate_switch && controller.state().weapon_raised);
-    memory::Vector<render::WorldColorDraw> draws{
-        memory::Allocator<render::WorldColorDraw>(memory_)};
-    draws.reserve(source.weapon.definition.get().draws().size());
-    append_player_draws(draws, candidate, true, camera_->view());
-    std::size_t old_draws = 0;
-    for (std::size_t index = 0;
-         index < actor.source().weapon.definition.get().draws().size();
-         ++index) {
-      if (actor.includes_draw(true, index)) ++old_draws;
-    }
-    output_.replace_world_model_draws(actor.source().weapon.handle, draws);
-    // Publication is the only fallible commit step. Stable physical ownership
-    // survives; incompatible action clocks retire before old weapon resources.
-    const auto physical = controller.state();
-    if (!animate_switch) controller.restore_review_state(physical);
-    actor.adopt_appearance(std::move(candidate));
-    loading.commit_weapon_class();
-    player_draws_ = player_draws_ - old_draws + draws.size();
-    weapon_class_ = weapon_class;
-    if (animate_switch) {
-      // 62ed80 changes selected weapon before dispatching the upper request.
-      // Body clocks and controller ownership survive that publication.
-      (void)actor.apply_action_plan(plan);
-      set_review_status(
-          "Weapon switch animation; no inventory change | Menu: Review");
-      return;
-    }
-    review_entry_.reset();
-    review_fixed_pose_ = review_next_phase_ = false;
-    review_scripted_posture_ = false;
-    review_thunder_striking_ = false;
-    targeting_.select_for_review(false);
-    review_spell_.reset();
-    set_review_status(kPresentation);
-  } catch (...) {
-    loading.discard_weapon_class();
-    throw;
-  }
-}
-void StageInspection::stop_review() {
+void PlayerAnimationReview::stop_review() {
   if (!review_entry_) {
     set_review_status("No active preview to stop; traversal continues");
     return;
   }
   reset_review_presentation(*review_entry_);
 }
-void StageInspection::reset_review_presentation(
+void PlayerAnimationReview::reset_review_presentation(
     const PlayerMovementState& state) {
   // Only preview entry/exit owns this neutralization. An inactive Stop must
   // never reset ordinary player targeting, motion, velocity or weapon cadence.
   if (!controller_ || !player_) {
     throw std::logic_error("Preview reset requires player traversal");
   }
-  auto& controller = controller_.value();
-  auto& player = player_.value();
+  auto& controller = *controller_;
+  auto& player = *player_;
   controller.restore_review_state(state);
   player.reset_animation_presentation();
   review_entry_.reset();
@@ -164,12 +101,13 @@ void StageInspection::reset_review_presentation(
                       controller.body_radius(), output_);
   set_review_status(kPresentation);
 }
-AnimationReviewResult StageInspection::review(AnimationReviewRequest request) {
+AnimationReviewResult PlayerAnimationReview::review(
+    AnimationReviewRequest request) {
   if (!paused() || !player_ || !controller_) {
     return {false, "Preview requires paused player traversal"};
   }
-  auto& actor = player_.value();
-  auto& controller = controller_.value();
+  auto& actor = *player_;
+  auto& controller = *controller_;
   if (request.kind > AnimationReviewKind::spell) {
     return {false, "Unknown presentation review request"};
   }
@@ -376,7 +314,7 @@ AnimationReviewResult StageInspection::review(AnimationReviewRequest request) {
   }
   return {true, review_status()};
 }
-void StageInspection::prepare_review_observations(
+void PlayerAnimationReview::prepare_review_observations(
     PlayerActionObservations& value) {
   if (review_scripted_posture_) value.aim.accepted_refresh = true;
   if (!review_spell_) return;
@@ -388,79 +326,65 @@ void StageInspection::prepare_review_observations(
   value.spell.cinematic_segment_finished = review_next_phase_;
   value.spell.meteor_world_finished = review_next_phase_;
 }
-void StageInspection::bind_action_resources(PlayerActionResources resources) {
-  if (action_resources_) {
-    throw std::logic_error("Player action resources are already bound");
-  }
-  action_resources_ = resources;
-}
-void StageInspection::present_input(PlayerPresentationInput input,
-                                    PlayerMovementInput movement) {
-  if (!player_ || !controller_ || !camera_) return;
-  auto& actor = player_.value();
-  auto& controller = controller_.value();
-  const auto& camera = camera_.value();
-  if (!std::isfinite(input.fire_trigger) || input.fire_trigger < 0 ||
-      input.fire_trigger > 1) {
-    throw std::invalid_argument("Invalid presentation trigger");
-  }
-  if (review_fixed_pose_ || review_spell_ ||
-      !controller.accepts_shooter_input()) {
-    return;
-  }
-  const auto* body = actor.animation_state(CharacterMotionBank::body);
-  if (body == nullptr) return;
-  const bool upper =
-      actor.animation_state(CharacterMotionBank::upper_body) != nullptr;
-  const auto slot = static_cast<std::uint32_t>(body->binding);
-  if (input.attack_pressed && controller.state().contact.grounded) {
-    const auto& pose = camera.view().pose;
-    const auto basis = math::orthonormal_basis(pose.forward, pose.up);
-    const auto& orientation = controller.state().orientation;
-    const auto direction =
-        process_player_movement(movement.direction).direction;
-    const auto variant = select_close_attack_variant(
-        {direction[0], 0, direction[1]}, basis,
-        {orientation[2][0], orientation[2][1], orientation[2][2]});
-    (void)controller.action_owner().begin_close_attack(variant);
-    set_review_status("Melee animation; world hit receiver not yet admitted");
-    return;
-  }
-  if (upper || !action_resources_) return;
-  auto& resources = *action_resources_;
-  const auto recharge = [&] {
-    const auto result = resources.try_reload();
-    if (result == ResourceActionResult::committed) {
-      (void)actor.apply_action_plan(
-          accepted_reload({.stance = controller.state().stance,
-                           .body_slot = slot,
-                           .weapon_class = weapon_class_}));
-      set_review_status("Weapon recharged from magic");
-    } else if (result == ResourceActionResult::insufficient_magic) {
-      set_review_status("Not enough magic to recharge");
-    } else if (result == ResourceActionResult::magazine_full &&
-               input.reload_pressed) {
-      set_review_status("Weapon is fully charged");
-    }
-  };
-  if (input.reload_pressed) {
-    recharge();
-  } else if (input.fire_trigger > kTriggerThreshold &&
-             controller.state().weapon_raised) {
-    const auto shot = resources.try_fire();
-    if (shot.status == ShotStatus::accepted) {
-      (void)actor.apply_action_plan(
-          accepted_shot({.stance = controller.state().stance,
-                         .body_slot = slot,
-                         .weapon_class = weapon_class_,
-                         .grounded = controller.state().contact.grounded}));
+void PlayerAnimationReview::observe_outcome() {
+  if (review_entry_) {
+    const auto outcome = controller_->action_status().outcome;
+    if (outcome == AliciaActionOutcome::dynamic_body_required) {
       set_review_status(
-          "Ammunition consumed; projectile receiver not yet admitted");
-    } else if (shot.status == ShotStatus::empty) {
-      // The source caller attempts recharge on empty, including a catch-up
-      // call that consumed its final rounds before returning that status.
-      recharge();
+          "PREVIEW held at dynamic-body handoff (not implemented) | Menu: "
+          "Stop");
+    } else if (review_spell_ &&
+               controller_->action_owner().kind() != AliciaActionKind::magic) {
+      review_spell_.reset();
+      set_review_status(
+          "PREVIEW completed; no world spell outcome | Menu: Stop");
     }
   }
+}
+void PlayerAnimationReview::clear_after_equipment() {
+  review_entry_.reset();
+  review_fixed_pose_ = review_next_phase_ = false;
+  review_scripted_posture_ = false;
+  review_thunder_striking_ = false;
+  targeting_.select_for_review(false);
+  review_spell_.reset();
+  set_review_status(kPresentation);
+}
+double PlayerAnimationReview::advance(PlayerMovementInput movement,
+                                      float camera_yaw, double delta_seconds,
+                                      PlayerActionObservations observations) {
+  if (!active() || player_ == nullptr || controller_ == nullptr) {
+    throw std::logic_error(
+        "Preview stepping requires an active physical owner");
+  }
+  auto& actor = *player_;
+  auto& controller = *controller_;
+  prepare_review_observations(observations);
+  double consumed = 0;
+  if (review_fixed_pose_) {
+    // Catalog inspection deliberately fixes physical placement; it still
+    // uses the same four banks, pose modifiers, events, audio and renderer.
+    (void)actor.advance_motion(delta_seconds);
+    actor.publish_pose(controller.state().pose, controller.state().orientation,
+                       controller.body_radius(), output_);
+    consumed = delta_seconds;
+  } else if (review_next_phase_) {
+    // An external phase acknowledgement is an edge, not a true value repeated
+    // across every physical substep in a long host frame.
+    const auto first = player_simulation_step(delta_seconds);
+    consumed =
+        controller.advance(movement, camera_yaw, first, output_, observations);
+    review_next_phase_ = false;
+    prepare_review_observations(observations);
+    if (consumed == first && delta_seconds > first) {
+      consumed += controller.advance(
+          movement, camera_yaw, delta_seconds - first, output_, observations);
+    }
+  } else {
+    consumed = controller.advance(movement, camera_yaw, delta_seconds, output_,
+                                  observations);
+  }
+  observe_outcome();
+  return consumed;
 }
 }  // namespace bw::game

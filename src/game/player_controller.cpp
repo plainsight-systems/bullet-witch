@@ -1,9 +1,14 @@
-// Actor publication borrows WorldPresentation only; it cannot upload, bind or
-// retire mission resources. Both-phase C.121 (#rh-abstract), I.11 (#ri-raw),
-// COPY.5 (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md)
-// enforce the existing owner split without changing frame work or lifetimes.
-// Complete balanced parent/model ticks; implementation E.4 preserves event
-// and root-interval invariants, MEM.9 adds no steady-state allocations. Both
+// Ownership extraction: design I.1/C.9 and implementation E.6 (#re-raii)
+// retain stable actor/controller borrows. Both-phase MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps existing
+// prepared buffers; update-only publication cannot replace draws, lights or
+// scene view. Actor publication borrows ActorPublisher only; it cannot upload,
+// bind or retire mission resources. Both-phase C.121 (#rh-abstract), I.11
+// (#ri-raw), COPY.5
+// (guidelines/copy-move/COPY.5-resource-owning-types-are-move-only.md) enforce
+// the existing owner split without changing frame work or lifetimes. Complete
+// balanced parent/model ticks; implementation E.4 preserves event and
+// root-interval invariants, MEM.9 adds no steady-state allocations. Both
 // corpora were read for design and implementation; see actor-model-clock-order.
 // Contact mode follows the active source state: grounded root motion keeps
 // floor support even with positive root Y; only airborne states apply ascent
@@ -436,7 +441,7 @@ bool PlayerController::step_scripted(MovementStep step,
 }
 double PlayerController::advance(PlayerMovementInput input,
                                  float camera_yaw_radians, double delta_seconds,
-                                 render::WorldPresentation& output,
+                                 render::ActorPublisher& output,
                                  const PlayerActionObservations& observations) {
   if (!std::isfinite(delta_seconds) || delta_seconds < 0 ||
       delta_seconds > kMaximumElapsed || !std::isfinite(camera_yaw_radians) ||
