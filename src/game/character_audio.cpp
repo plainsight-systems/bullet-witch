@@ -193,7 +193,8 @@ CharacterAudioResult CharacterAudio::voice(
     const auto& choice = definition->variants.at(selected);
     if (!choice.available) return CharacterAudioResult::unavailable;
     const auto next =
-        output_.play({choice.bank, choice.cue, environment.voice_position()});
+        output_.play({choice.bank, choice.cue, environment.voice_position(),
+                      audio::PauseDomain::world, audio::MixBus::voice});
     if (!next) return CharacterAudioResult::capacity;
     if (voice_) output_.stop(*voice_);
     voice_ = next;

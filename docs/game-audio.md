@@ -6,6 +6,17 @@ finite caller-provided bank, cue and decoded-sample capacities. Game action and
 voice policy resolve before this boundary. `PreparedWave` owns immutable
 interleaved CPU samples; target output owns cue/mixer/device lifetimes.
 
+Requests also identify their world/presentation pause domain and original
+effects/music/voice mix group. World pause leaves presentation cues running;
+mix group is independent of the authored asset category. `MissionAudio` services
+the shared output once per presentation frame, including paused frames.
+`MenuAudio` borrows cue playback and schedules recovered menu events from
+supplied presentation time, without another runtime or an independent clock.
+Settings observation applies stored 0–256 levels as linear gain; the effects
+setting controls effects and voice together. Movie output receives the BGM gain
+through its separate media service. See [native pause audio](../research/engine/subsystems/native-pause/menu-audio.md)
+for source evidence, scope and actual mixed-PCM verification.
+
 The macOS backend uses pinned FACT/FAudio for original XACT categories, cue
 variation, RPC parameters, scheduling and looping, with SDL's CoreAudio output.
 Loading copies original banks and decodes their WMAv2 packets once using the
@@ -68,7 +79,11 @@ that every game sound or dialogue path is complete.
 
 The build fetches pinned source into ignored build directories, with no system
 package fallback. FAudio's Win32 WMA implementation is excluded and replaced by
-our clearly marked `src/audio/fact/wma_bridge.c`; the cue/mixer source is retained. The same pinned adapter closes omitted
+our clearly marked `src/audio/fact/wma_bridge.c`. `cmake/PatchFact.cmake` makes
+an exact-fragment-checked adaptation to cue/wave volume: a request-owned scalar
+multiplies, rather than replaces, authored RPC/category/fade volume. Native
+publication uses FACT's API lock; its unimplemented output-routing APIs are
+not called. The same pinned adapter closes omitted
 track-RPC allocations and orders shutdown before final release to avoid the
 verified worker/API-lock deadlock; see the research for exact ownership evidence.
 Ship applicable notices and corresponding FFmpeg source/build material with any

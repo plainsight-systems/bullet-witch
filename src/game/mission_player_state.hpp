@@ -50,7 +50,7 @@ class MissionPlayerState {
   ProgressionOrigin origin() const noexcept { return origin_; }
   unsigned selected_weapon() const noexcept { return selected_weapon_; }
   bool weapon_available(unsigned weapon) const;
-  unsigned next_weapon() const;
+  unsigned next_weapon(int direction = 1) const;
   void select_weapon(unsigned weapon);
   bool spell_available(unsigned spell) const;
   // Independent original owners: updating the script mask must preserve the

@@ -68,8 +68,8 @@ From the repository root, the recording command is:
 
 Use the same purchased installation and profile as an ordinary run. Capture mode
 keeps native fullscreen, audio output and the existing 60 Hz host pacing target.
-It hides the in-scene developer status and the pause menu's Weapon Class and
-Animation Review entries. Build/runtime diagnostics go to the ignored
+Developer views are off in the normal build; capture does not choose feature
+availability. Build/runtime diagnostics go to the ignored
 `research/evidence/capture/latest.log`, replaced on each capture launch. Successful
 runs leave the terminal quiet; failures return a nonzero status and a short
 message pointing to that log.
@@ -205,9 +205,14 @@ implement weapon-specific aim modes; those belong to the game adapter. See
 [the source mapping](../research/engine/subsystems/alicia-action-policy.md#interactive-input-capture-and-admission-boundary).
 The game owner applies the
 recovered radial movement preprocessing and directional action policy.
-Pause presents Resume, Costume, Weapon Class and Animation Review; menu input
-continues while mission, animation,
-camera and material clocks stop. In-session Costume is an approved improvement
+Pause presents the original gameplay root and native Help/Options children;
+menu input continues while mission, animation, camera and material clocks stop.
+`./run --developer-views` explicitly configures `BW_DEVELOPER_VIEWS=ON` and
+retains separate diagnostic build configuration. Its interface and activation
+controls are pending user design; no F1 entry is admitted. Normal builds
+configure it OFF.
+See [the pause operation inventory](../research/engine/subsystems/native-pause-menu.md)
+for working and blocked routes. In-session Costume is an approved improvement
 over the original pause menu. Replacement preserves the current action and camera,
 and resets the new outfit simulation from the frozen pose. See
 [the appearance transaction](../research/engine/subsystems/pause-and-costume-switching.md).

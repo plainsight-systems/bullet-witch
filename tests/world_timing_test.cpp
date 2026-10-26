@@ -21,8 +21,8 @@
 #include "bw/input/action_repeat.hpp"
 #include "bw/timing/frame_clock.hpp"
 #include "bw/world/world_clock.hpp"
+#include "game/developer_review_flow.hpp"
 #include "game/mission_control.hpp"
-#include "game/pause_flow.hpp"
 #include "game/stage_inspection.hpp"
 
 namespace {
@@ -57,9 +57,9 @@ static_assert(!HasStagePauseMutation<bw::game::StageInspection>);
 static_assert(!HasScriptPauseMutation<bw::game::UserPauseControl> &&
               !HasInputMutation<bw::game::UserPauseControl> &&
               !HasInputRouting<bw::game::UserPauseControl>);
-static_assert(
-    !std::is_constructible_v<bw::game::PauseFlow, MissionControl&, unsigned>);
-static_assert(std::is_constructible_v<bw::game::PauseFlow,
+static_assert(!std::is_constructible_v<bw::game::DeveloperReviewFlow,
+                                       MissionControl&, unsigned>);
+static_assert(std::is_constructible_v<bw::game::DeveloperReviewFlow,
                                       bw::game::UserPauseControl, unsigned>);
 static_assert(
     !std::is_convertible_v<bw::game::UserPauseControl, MissionControl&>);

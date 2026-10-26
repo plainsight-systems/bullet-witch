@@ -10,28 +10,18 @@
 #include <cstdint>
 @class GCExtendedGamepad;
 namespace bw::platform::macos {
-inline constexpr std::uint32_t kReloadButton = 1U << 9;
-inline constexpr std::uint32_t kAttackButton = 1U << 10;
-inline constexpr std::uint32_t kWeaponButton = 1U << 11;
-inline constexpr std::uint32_t kTargetButton = 1U << 12;
-inline constexpr std::uint32_t kShoulderLeftButton = 1U << 13;
-inline constexpr std::uint32_t kShoulderRightButton = 1U << 14;
-inline constexpr std::uint32_t kFaceNorthButton = 1U << 15;
-// The existing baseline action bits share the same physical button edges.
-inline constexpr std::uint32_t kFaceEastButton = kWeaponButton;
-inline constexpr std::uint32_t kFaceSouthButton = kAttackButton;
-inline constexpr std::uint32_t kFaceWestButton = kReloadButton;
-std::uint32_t gamepad_action_holds(GCExtendedGamepad* pad) noexcept;
-class GameplayButtonEdges {
+std::uint16_t gamepad_physical_buttons(GCExtendedGamepad* pad) noexcept;
+class GamepadButtonEdges {
  public:
-  std::uint32_t sample(std::uint32_t held,
-                       std::uint32_t explicit_edges = 0) noexcept {
-    const auto pressed = explicit_edges | (held & ~previous_);
+  std::uint16_t sample(std::uint16_t held,
+                       std::uint16_t explicit_edges = 0) noexcept {
+    const auto pressed =
+        static_cast<std::uint16_t>(explicit_edges | (held & ~previous_));
     previous_ = held;
     return pressed;
   }
 
  private:
-  std::uint32_t previous_{};
+  std::uint16_t previous_{};
 };
 }  // namespace bw::platform::macos

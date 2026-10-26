@@ -30,8 +30,10 @@ def main():
     parser.add_argument('--build-only', action='store_true',
                         help='build the host without opening a window')
     parser.add_argument('--capture', action='store_true',
-                        help='hide developer UI; write diagnostics to '
+                        help='write diagnostics to '
                              'research/evidence/capture/latest.log')
+    parser.add_argument('--developer-views', action='store_true',
+                        help='select the diagnostic build configuration; interface pending design')
     options, host_options = parser.parse_known_args()
     if sys.platform != 'darwin':
         parser.error('The native launcher currently supports macOS only.')
@@ -47,7 +49,7 @@ def main():
         with log_path.open('w', encoding='utf-8') as log:
             try:
                 validate(game, options.build_only)
-                build(log)
+                build(log, developer_views=options.developer_views)
                 if not options.build_only:
                     subprocess.run(command, stdout=log,
                                    stderr=subprocess.STDOUT, check=True)
@@ -66,7 +68,7 @@ def main():
         validate(game, options.build_only)
     except RuntimeError as error:
         parser.error(str(error))
-    build()
+    build(developer_views=options.developer_views)
     if not options.build_only:
         os.execv(executable, command)
     return 0
@@ -80,8 +82,11 @@ def validate(game, build_only):
         raise RuntimeError('CMake is required. See scripts/README.md for build setup.')
 
 
-def build(output=None):
-    subprocess.run(['cmake', '--preset', 'host-debug'], cwd=ROOT, check=True,
+def build(output=None, *, developer_views=False):
+    # Explicit OFF prevents a cached developer build from changing normal runs.
+    mode = 'ON' if developer_views else 'OFF'
+    subprocess.run(['cmake', '--preset', 'host-debug',
+                    f'-DBW_DEVELOPER_VIEWS={mode}'], cwd=ROOT, check=True,
                    stdout=output, stderr=subprocess.STDOUT if output else None)
     subprocess.run(['cmake', '--build', '--preset', 'host-debug',
                     '--target', 'bw-startup', '--parallel', '4'], cwd=ROOT,

@@ -103,4 +103,15 @@ MissionAudio::MissionAudio(const platform::Files& files,
   if (progress) progress();
   output_->seal();
 }
+// Device service continues during world pause; actor admission does not own it.
+void MissionAudio::update() { output_->update(); }
+void MissionAudio::apply_mix(AudioMixLevels levels) {
+  constexpr auto kFullVolume = AudioMixLevels::kFullVolume;
+  if (levels.music > kFullVolume || levels.effects > kFullVolume) {
+    throw std::invalid_argument("Invalid game audio mix level");
+  }
+  const float music = static_cast<float>(levels.music) / kFullVolume;
+  const float effects = static_cast<float>(levels.effects) / kFullVolume;
+  output_->set_mix_gains({music, effects, effects});
+}
 }  // namespace bw::game

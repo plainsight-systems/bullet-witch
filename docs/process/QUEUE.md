@@ -1,15 +1,17 @@
 # Remaining work
 
-- The HUD/live-resource/ring and firing/support-hand work is accepted with
-  its necessary existing-pause integration. The user confirmed the hand repair
-  works and accepted the HUD, but explicitly did not accept the pause menu.
-  Finish the original pause task next, with the user's missing-behavior feedback
-  and a source-backed operation inventory. Keep post-result power-up work
-  outside the accepted commit unless separately accepted. The architecture/file
-  organization pass still follows this pre-gameplay work; full mission/casting
-  and persistence dependencies remain open.
-  Replace the current debug menu as the ordinary gameplay pause surface; retain
-  debug views only through explicit build parameters, off by default.
+- Initial developer-tools design is recorded in
+  [developer-tools.md](../architecture/developer-tools.md). Later stage 1 covers compile-time exclusion, independent timing
+  overlay, separate inspector and temporary owned overrides; stage 2 adds
+  headless automation/input/capture through the same command/snapshot boundary.
+  No key bindings or detailed debug UI are approved, and none are implemented.
+
+- The native pause slice is accepted, including the final live-costume restart
+  handoff. The post-result Power Up implementation is committed as WIP, outside
+  that acceptance until reviewed. Finish remaining agreed pre-gameplay work, then
+  discuss the architecture/file-organization pass before full mission gameplay.
+  Nonzero world checkpoint restore, real subtitle events and force-feedback
+  producers remain with their owning gameplay slices.
 
 - Separate offline asset-upgrade track: review Alicia's first body/face texture
   candidates from `research/reports/2026-10-25-asset-upgrade-pipeline.md`.
@@ -43,9 +45,10 @@
   transitions. This is an explicit improvement over the inactive PC solver;
   some moving class-2 frames retain a documented no-stretch reach limit.
   Final frozen-source gates and original-content verification pass; the user
-  confirmed the repair works and accepted the HUD scope, not the pause menu. See
+  confirmed the repair works and accepted the HUD scope; the subsequent native
+  pause walkthrough is also accepted. See
   `research/engine/subsystems/weapon-discharge-attachment.md`. Casting and the
-  broader pause/power-up scope remain unaccepted. Verification: `research/engine/subsystems/gameplay-hud-verification.md`.
+  separate Power Up scope remain unaccepted. Verification: `research/engine/subsystems/gameplay-hud-verification.md`.
 
 - Lighting redesign and its native surface-sampling repair were accepted by
   the user on October 25, 2026; commit is authorized. The final full gate and

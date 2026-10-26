@@ -19,7 +19,7 @@ Bullet Witch game policy owns the recovered pause and input decisions.
 | Capped presentation delta | Render publication | Engine frame timing snapshot, shared by UI and world producer |
 | Scaled world delta and admitted simulation time | Base game producer and hierarchy context | Engine world clock and immutable frame observation |
 | User/script/pad pause and request admission | Base game fields and shared script pause stack | One game mission control owner |
-| Pause navigation | Native pause task | PauseFlow borrows mission control; menu state does not duplicate world pause |
+| Pause navigation | Native pause task | PauseMenuFlow borrows only UserPauseControl; menu state does not duplicate world pause |
 | Hardware versus neutral commands | Base game input admission before actor traversal | Game input routing consumes the current sampled frame once |
 | Actor/model clocks and retained motion interval | Parent hierarchy, model children | Existing actor/model update consumes the supplied world interval |
 | Material elapsed | World-driven model/material updates | Stage samples admitted world time; no Stage-local master clock |

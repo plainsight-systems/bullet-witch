@@ -37,6 +37,10 @@ class MediaAudio final : public video::AudioOutput {
   // Borrow the decoder through stop; prepare primes without starting playback.
   void prepare(video::Decoder& source, std::size_t prime_frames) override;
   void start() override;
+  // Retain on the control owner; atomically publish to the sole native worker.
+  // CP.2 (#rconc-races) keeps AudioQueue mutations on that worker; no callback
+  // allocation or unsynchronized native handle access is introduced.
+  void set_gain(float gain) override;
   // Observe the native playback clock through coherent atomic publication.
   video::AudioSnapshot snapshot() const override;
   // Join callbacks before the borrowed decoder may be destroyed.
@@ -46,5 +50,6 @@ class MediaAudio final : public video::AudioOutput {
   struct State;
   memory::Allocator<std::byte> allocator_;
   std::shared_ptr<State> state_;
+  float gain_{1};
 };
 }  // namespace bw::platform

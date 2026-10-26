@@ -6,6 +6,8 @@
 // library/device allocations are separately accounted; the C bridge uses the
 // same owner for every FACT/FAudio object. Design E.6 (#re-raii), MEM.2/MEM.9
 // as cited by the shared audio contracts.
+// Retained slots carry the explicit pause domain; world pause never affects
+// presentation cues. Session service owns pumping, not cue submission.
 #pragma once
 #include "bw/audio/output.hpp"
 
@@ -30,6 +32,7 @@ class Output final : public CueOutput {
                     const math::Vector3<float>& position) override;
   void set_listener(const Listener& listener) override;
   bool stop(CueHandle handle) override;
+  void set_mix_gains(const MixGains& gains) override;
   void pause(bool paused) override;
   void update() override;
   bool active(CueHandle handle) const override;

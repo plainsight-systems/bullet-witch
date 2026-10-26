@@ -21,6 +21,10 @@ void bw_fact_release_engine(FACTAudioEngine* engine);
 // Supply the same injected allocator to the mixer as the cue engine.
 uint32_t bw_fact_initialize(FACTAudioEngine* engine,
                             const FACTRuntimeParameters* parameters);
+// Original role gain multiplies authored wave/RPC/category volume. Holds FACT's
+// API lock while publishing and refreshing existing active/upcoming waves.
+// The pinned patch carries this scalar into every subsequently prepared wave.
+uint32_t bw_fact_set_cue_gain(FACTCue* cue, float gain);
 int bw_fact_copy_samples(const uint8_t* encoded, size_t encoded_bytes,
                          uint32_t channels, uint32_t rate, size_t first_frame,
                          float* destination, size_t frames);

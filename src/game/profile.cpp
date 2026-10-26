@@ -3,6 +3,15 @@
 // Design C.9/I.30; implementation E.4 (#re-design-invariants) preserves state;
 // both-phase MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // confines costs to fixed fields and avoids frame-time profile copies.
+// Restricted upgrade capability forwards checked transactions to the original
+// Record owner; it exposes no profile load, save, options or raw-byte mutation.
+// Both-phase C.9/C.21 and COPY.5 retain fixed borrowed owner identity.
+// Native Options transactions snapshot the fixed System buffer, apply checked
+// live edits and restore only to the same stable owner. System-only save clears
+// its dirty flag after successful publication; Record/world state is outside
+// this capability. Core E.4 and performance MEM.9 were read again for this
+// implementation: fixed candidates, no frame allocation, failure preserves
+// pending edits and unknown fields.
 // Profile format implementation. Validate all bounded file inputs before
 // publishing a candidate; retain unknown bytes and change only mapped fields.
 // Original defaults: 0x4bb800/0x4bb900, persistence 0x4c2eb0/0x4c3050.
@@ -18,6 +27,8 @@
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
+
+#include "game/controller_settings.hpp"
 
 namespace bw::game {
 namespace {
@@ -170,7 +181,15 @@ ProfileResult Profile::load(platform::SaveStorage& storage) {
   } else if (checkpoint.status != platform::SaveStatus::missing) {
     return {checkpoint.status, kCheckpoint};
   }
-  *this = std::move(candidate);
+  // Publish validated file contents without replacing the stable Profile
+  // identity retained by menu/save capabilities. These owned transfers cannot
+  // fail; a rejected load reaches none of them.
+  system_ = candidate.system_;
+  record_ = candidate.record_;
+  checkpoint_ = std::move(candidate.checkpoint_);
+  ++system_generation_;
+  system_dirty_ = candidate.system_dirty_;
+  record_dirty_ = candidate.record_dirty_;
   return {};
 }
 ProfileResult Profile::save(platform::SaveStorage& storage) {
@@ -182,6 +201,7 @@ ProfileResult Profile::save(platform::SaveStorage& storage) {
       return {status, kSystem};
     }
     system_dirty_ = false;
+    ++system_generation_;
   }
   if (record_dirty_) {
     const auto status = storage.write(kRecord, record_);
@@ -192,20 +212,148 @@ ProfileResult Profile::save(platform::SaveStorage& storage) {
   }
   return {};
 }
+SettingsCheckpoint SettingsControl::checkpoint() const {
+  return {profile_, profile_->system_, profile_->system_dirty_,
+          profile_->system_generation_};
+}
+bool SettingsControl::changed_since(
+    const SettingsCheckpoint& checkpoint) const {
+  if (checkpoint.owner_ != profile_) {
+    throw std::invalid_argument(
+        "Settings checkpoint belongs to another profile");
+  }
+  return profile_->system_ != checkpoint.bytes_;
+}
+void SettingsControl::restore(const SettingsCheckpoint& checkpoint) const {
+  (void)changed_since(checkpoint);
+  profile_->system_ = checkpoint.bytes_;
+  profile_->system_dirty_ = checkpoint.dirty_ || profile_->system_generation_ !=
+                                                     checkpoint.generation_;
+}
+bool SettingsControl::subtitles_enabled() const {
+  return profile_->subtitles_enabled();
+}
+bool SettingsControl::autosave_enabled() const {
+  return profile_->autosave_enabled();
+}
+unsigned SettingsControl::music_volume() const {
+  return profile_->music_volume();
+}
+unsigned SettingsControl::effects_volume() const {
+  return profile_->effects_volume();
+}
+void SettingsControl::set_subtitles(bool enabled) const {
+  constexpr std::size_t kFlags = 2;
+  constexpr unsigned kMask = 1;
+  const auto previous = read16(profile_->system_, kFlags);
+  const auto updated = enabled ? previous | kMask : previous & ~kMask;
+  if (previous == updated) {
+    return;
+  }
+  write16(profile_->system_, kFlags, updated);
+  profile_->system_dirty_ = true;
+}
+void SettingsControl::set_autosave(bool enabled) const {
+  constexpr std::size_t kFlags = 2;
+  constexpr unsigned kMask = 4;
+  const auto previous = read16(profile_->system_, kFlags);
+  const auto updated = enabled ? previous | kMask : previous & ~kMask;
+  if (previous == updated) {
+    return;
+  }
+  write16(profile_->system_, kFlags, updated);
+  profile_->system_dirty_ = true;
+}
+void SettingsControl::set_music_volume(unsigned value) const {
+  profile_->set_music_volume(value);
+}
+void SettingsControl::set_effects_volume(unsigned value) const {
+  profile_->set_effects_volume(value);
+}
+ControllerSettings SettingsControl::controller_settings() const {
+  return decode_controller_settings(profile_->system_);
+}
+void SettingsControl::set_controller_settings(
+    const ControllerSettings& settings) const {
+  auto candidate = profile_->system_;
+  encode_controller_settings(candidate, settings);
+  if (candidate == profile_->system_) {
+    return;
+  }
+  profile_->system_ = candidate;
+  profile_->system_dirty_ = true;
+}
+platform::SaveStatus SettingsSaveControl::save() const {
+  return settings_.save(*storage_);
+}
+platform::SaveStatus SettingsControl::save(
+    platform::SaveStorage& storage) const {
+  if (!profile_->system_dirty_) {
+    return platform::SaveStatus::ok;
+  }
+  const auto status = storage.write(kSystem, profile_->system_);
+  if (status == platform::SaveStatus::ok) {
+    profile_->system_dirty_ = false;
+    ++profile_->system_generation_;
+  }
+  return status;
+}
+Progression UpgradePurchaseControl::progression() const {
+  return profile_->progression();
+}
+// The original learned/read words are distinct. Viewing never unlocks a topic
+// or changes mission progression; unused bits and all other bytes survive.
+HelpProgress HelpControl::progress() const {
+  constexpr std::size_t kLearnedOffset = 0x1c, kReadOffset = 0x24;
+  constexpr unsigned kWordBits = 32;
+  HelpProgress result;
+  for (unsigned topic = 0; topic < help_topic_count; ++topic) {
+    const auto offset = (topic / kWordBits) * sizeof(std::uint32_t);
+    const auto mask = 1U << (topic % kWordBits);
+    result.available.at(topic) =
+        topic == 0 ||
+        (read32(profile_->record_, kLearnedOffset + offset) & mask) != 0;
+    result.read.at(topic) =
+        (read32(profile_->record_, kReadOffset + offset) & mask) != 0;
+  }
+  return result;
+}
+void HelpControl::mark_read(unsigned topic) const {
+  if (topic >= help_topic_count || !progress().available.at(topic)) {
+    throw std::invalid_argument("Help topic is unavailable");
+  }
+  constexpr std::size_t kReadOffset = 0x24;
+  constexpr unsigned kWordBits = 32;
+  const auto offset = kReadOffset + (topic / kWordBits) * sizeof(std::uint32_t);
+  const auto previous = read32(profile_->record_, offset);
+  const auto updated = previous | (1U << (topic % kWordBits));
+  if (updated != previous) {
+    write32(profile_->record_, offset, updated);
+    profile_->record_dirty_ = true;
+  }
+}
+PurchaseResult UpgradePurchaseControl::purchase(
+    UpgradeSelection selection) const {
+  return profile_->purchase(selection);
+}
 Progression Profile::progression() const {
   return decode_record_progression(record_);
 }
 PurchaseResult Profile::purchase(UpgradeSelection selection) {
   auto candidate = progression();
   const auto result = purchase_upgrade(candidate, selection);
-  if (result != PurchaseResult::purchased) return result;
+  if (result != PurchaseResult::purchased) {
+    return result;
+  }
   // First spell acquisition opens its original tutorial/book bit. Complete
   // validation precedes the only writes; there are no fallible operations
   // after.
   const bool acquired_spell = selection.category == UpgradeCategory::spell &&
                               candidate.levels.spells.at(selection.index) == 1;
   encode_record_progression(record_, candidate);
-  if (acquired_spell) mark_spell_acquired(record_, selection.index);
+  if (acquired_spell) {
+    mark_spell_acquired(record_, selection.index);
+  }
   record_dirty_ = true;
   return result;
 }
@@ -268,6 +416,18 @@ void Profile::set_difficulty(unsigned value) {
   }
   write16(system_, 0, value);
   system_dirty_ = true;
+}
+bool Profile::subtitles_enabled() const {
+  constexpr std::size_t kFlagsOffset = 2;
+  constexpr unsigned kSubtitleMask = 1;
+  return (read16(system_, kFlagsOffset) & kSubtitleMask) != 0;
+}
+bool Profile::autosave_enabled() const {
+  // Native getter shifts the same System flag word by two; bit one is not
+  // autosave. Keep this observation separate from the storage service owner.
+  constexpr std::size_t kFlagsOffset = 2;
+  constexpr unsigned kAutosaveMask = 4;
+  return (read16(system_, kFlagsOffset) & kAutosaveMask) != 0;
 }
 unsigned Profile::music_volume() const { return read32(system_, 4); }
 unsigned Profile::effects_volume() const {

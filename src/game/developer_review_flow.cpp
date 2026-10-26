@@ -1,3 +1,5 @@
+// Developer-only inspection navigation. Admission belongs to the explicit build
+// feature in MissionInteraction; this file is not the normal pause task.
 // Pause navigation receives only UserPauseControl and changes its user-pause
 // transition. No mirrored world-pause state or timing is stored here. C.9/I.1
 // design, E.4 (#re-design-invariants) implementation and both-phase MEM.9 keep
@@ -19,7 +21,7 @@
 // Menu consumption never advances game clocks. Both MCP phases: I.1
 // (#ri-explicit) separates input from admission; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) bounds all storage.
-#include "pause_flow.hpp"
+#include "developer_review_flow.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -73,8 +75,9 @@ bool catalog_family(AnimationReviewKind kind) {
          kind == AnimationReviewKind::weapon_clip;
 }
 }  // namespace
-PauseFlow::PauseFlow(UserPauseControl control, unsigned costume,
-                     bool developer_review)
+DeveloperReviewFlow::DeveloperReviewFlow(UserPauseControl control,
+                                         unsigned costume,
+                                         bool developer_review)
     : developer_review_(developer_review),
       control_(control),
       costume_(costume) {
@@ -83,13 +86,21 @@ PauseFlow::PauseFlow(UserPauseControl control, unsigned costume,
   }
   populate(Page::root);
 }
-void PauseFlow::set_available_weapons(
+void DeveloperReviewFlow::observe_costume(unsigned costume) {
+  if (costume >= kCostumes || request_) {
+    throw std::invalid_argument(
+        "Invalid costume observation during transaction");
+  }
+  costume_ = costume;
+  if (page_ == Page::costumes) populate(page_);
+}
+void DeveloperReviewFlow::set_available_weapons(
     const std::array<std::uint8_t, 4>& levels) {
   std::ranges::transform(levels, available_weapons_.begin(),
                          [](std::uint8_t level) { return level != 0; });
   populate(page_);
 }
-void PauseFlow::bind_review_catalogs(
+void DeveloperReviewFlow::bind_review_catalogs(
     const animation::PreparedClipCatalog& body,
     const animation::PreparedClipCatalog& weapon, unsigned current_weapon,
     std::span<const MotionPoseSemantics> body_semantics,
@@ -109,16 +120,17 @@ void PauseFlow::bind_review_catalogs(
   // before navigation or presentation can inspect the retired catalog.
   populate(Page::root);
 }
-void PauseFlow::append(std::string_view label, unsigned id, bool enabled) {
+void DeveloperReviewFlow::append(std::string_view label, unsigned id,
+                                 bool enabled) {
   presentation_.rows.at(presentation_.count++) = {label, {}, enabled, id};
 }
-void PauseFlow::message(std::string_view text) {
+void DeveloperReviewFlow::message(std::string_view text) {
   const auto size = std::min(text.size(), message_.size() - 1);
   std::copy_n(text.begin(), size, message_.begin());
   message_.at(size) = '\0';
   presentation_.message = {message_.data(), size};
 }
-void PauseFlow::populate(Page page) {
+void DeveloperReviewFlow::populate(Page page) {
   page_ = page;
   presentation_ = {};
   presentation_.page =
@@ -214,7 +226,7 @@ void PauseFlow::populate(Page page) {
     }
   }
 }
-void PauseFlow::select() {
+void DeveloperReviewFlow::select() {
   const auto& row = presentation_.rows.at(presentation_.selected);
   if (!row.enabled) return;
   const auto id = row.compatibility_id;
@@ -267,7 +279,7 @@ void PauseFlow::select() {
     review_request_ = AnimationReviewRequest{family_, id};
   }
 }
-bool PauseFlow::update(bool pause_pressed, MenuInput input) {
+bool DeveloperReviewFlow::update(bool pause_pressed, MenuInput input) {
   const bool was_paused = paused();
   if (pause_pressed) {
     if (!control_.set_user_paused(!paused())) return paused();
@@ -296,7 +308,7 @@ bool PauseFlow::update(bool pause_pressed, MenuInput input) {
   }
   return was_paused;
 }
-void PauseFlow::complete_costume(bool success) {
+void DeveloperReviewFlow::complete_costume(bool success) {
   if (!request_) throw std::logic_error("No pending costume selection");
   if (success) costume_ = *request_;
   request_.reset();
@@ -305,14 +317,14 @@ void PauseFlow::complete_costume(bool success) {
     message("Costume could not be loaded. Current costume retained.");
   }
 }
-void PauseFlow::complete_weapon(bool success) {
+void DeveloperReviewFlow::complete_weapon(bool success) {
   if (!weapon_request_) throw std::logic_error("No pending weapon selection");
   if (success) weapon_class_ = *weapon_request_;
   weapon_request_.reset();
   populate(Page::root);
   if (!success) message("Weapon could not be loaded. Current weapon retained.");
 }
-void PauseFlow::complete_review(AnimationReviewResult result) {
+void DeveloperReviewFlow::complete_review(AnimationReviewResult result) {
   if (!review_request_) throw std::logic_error("No pending animation preview");
   review_request_.reset();
   if (result.accepted) {

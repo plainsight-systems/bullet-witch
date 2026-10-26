@@ -59,16 +59,25 @@ MissionPlayerState::MissionPlayerState(const MissionPlayerEntry& entry) {
                            [](std::uint8_t level) { return level != 0; })) {
     levels_.weapons.front() = 1;
   }
-  if (!weapon_available(selected_weapon_)) selected_weapon_ = next_weapon();
+  if (!weapon_available(selected_weapon_)) {
+    selected_weapon_ = next_weapon();
+  }
 }
 bool MissionPlayerState::weapon_available(unsigned weapon) const {
   return levels_.weapons.at(weapon) != 0;
 }
-unsigned MissionPlayerState::next_weapon() const {
+unsigned MissionPlayerState::next_weapon(int direction) const {
+  if (direction != 1 && direction != -1) {
+    throw std::invalid_argument("Invalid weapon cycle direction");
+  }
   for (unsigned step = 1; step <= player_weapon_count; ++step) {
-    const auto candidate =
-        static_cast<unsigned>((selected_weapon_ + step) % player_weapon_count);
-    if (weapon_available(candidate)) return candidate;
+    const auto candidate = static_cast<unsigned>(
+        (selected_weapon_ +
+         (direction > 0 ? step : player_weapon_count - step)) %
+        player_weapon_count);
+    if (weapon_available(candidate)) {
+      return candidate;
+    }
   }
   throw std::logic_error("Mission player has no available weapon");
 }

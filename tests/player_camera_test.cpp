@@ -28,9 +28,10 @@ void look_and_follow(const bw::formats::PlayerCameraSettings& settings,
               close(camera.view().pose.eye[2], initial.pose.eye[2] + 20),
           "Translation follows without adopting actor-facing yaw");
   camera.advance({{10, 2, 20}, 180}, {1, .5F}, .3);
-  require(close(camera.yaw_radians(), 30 * radians) &&
-              close(camera.pitch_radians(), 15 * radians),
-          "Authored ordinary look rate consumes seconds and normalized axes");
+  require(close(camera.yaw_radians(), 51 * radians) &&
+              close(camera.pitch_radians(), 25.5F * radians),
+          "Source default sensitivity multiplies normalized stick by 1.7 "
+          "before authored rate");
   PlayerCamera split(settings, {{10, 2, 20}, 0}, collision);
   for (int frame = 0; frame < 30; ++frame) {
     split.advance({{10, 2, 20}, 0}, {1, .5F}, .01);
@@ -38,6 +39,20 @@ void look_and_follow(const bw::formats::PlayerCameraSettings& settings,
   require(close(camera.yaw_radians(), split.yaw_radians()) &&
               close(camera.pitch_radians(), split.pitch_radians()),
           "Look integration is independent of render update count");
+  // Source settings alter the input before the authored camera rates.
+  PlayerCamera slow(settings, {{0, 0, 0}, 0}, collision);
+  slow.advance({{0, 0, 0}, 0}, {1, 0, 1}, .1);
+  require(close(slow.yaw_radians(), 5.2F * radians),
+          "minimum sensitivity uses source .52 gain");
+  PlayerCamera fast(settings, {{0, 0, 0}, 0}, collision);
+  fast.advance({{0, 0, 0}, 0}, {1, 0, 100}, .1);
+  require(close(fast.yaw_radians(), 25 * radians),
+          "maximum sensitivity uses source 2.5 gain");
+  PlayerCamera mouse(settings, {{0, 0, 0}, 0}, collision);
+  mouse.advance({{0, 0, 0}, 0}, {0, 0, 60, 60, {41, 19}}, .1);
+  require(
+      close(mouse.yaw_radians(), 10 * radians) && mouse.pitch_radians() == 0,
+      "source mouse divisor and minor orthogonal rejection precede rates");
   camera.advance({{10, 2, 20}, 0}, {0, 1}, 1);
   require(close(camera.pitch_radians(), 70 * radians),
           "Look stops at the authored upper pitch limit");
@@ -82,9 +97,10 @@ void context_transitions(const bw::formats::PlayerCameraSettings& settings,
   require(close(camera.view().perspective.vertical_fov_radians, 20 * radians),
           "Repeated context selection does not restart the transition");
   camera.advance({{0, 0, 0}, 0}, {1, .5F}, .1);
-  require(close(camera.yaw_radians(), 4.5F * radians) &&
-              close(camera.pitch_radians(), 2.25F * radians),
-          "Target context consumes distinct authored look rates");
+  require(
+      close(camera.yaw_radians(), 7.65F * radians) &&
+          close(camera.pitch_radians(), 3.825F * radians),
+      "Source default sensitivity precedes distinct target-context look rates");
   camera.set_context(PlayerCameraContext::ordinary, true);
   const auto before = camera.view();
   camera.advance({{0, 0, 0}, 0}, {}, 0);

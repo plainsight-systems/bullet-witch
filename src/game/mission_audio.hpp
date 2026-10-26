@@ -16,10 +16,17 @@
 // (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
 // prepares consumer lookup once. Both design corpora consulted. Reference and
 // codec/budget evidence: docs/game-audio.md, animation-audio-presentation.md.
+// The session also calls update() once per presentation frame, including world
+// pause, so menu cues can finish independently of actor simulation. I.1 makes
+// the service owner explicit; MEM.9 retains prepared banks across UI updates.
 #pragma once
 #include "bw/content/stage.hpp"
 #include "game/character_audio.hpp"
 namespace bw::game {
+struct AudioMixLevels {
+  static constexpr std::uint16_t kFullVolume = 256;
+  std::uint16_t music{kFullVolume}, effects{kFullVolume};
+};
 class GameAudioFactory {
  public:
   GameAudioFactory() = default;
@@ -41,6 +48,11 @@ class MissionAudio {
                GameAudioFactory& factory, audio::Limits limits,
                const content::LoadProgress& progress = {});
   const std::shared_ptr<audio::CueOutput>& output() const { return output_; }
+  // Session control-thread service; independent of world tick admission.
+  void update();
+  // Observe game settings; this capability cannot mutate the stored profile.
+  // Original effects volume controls effects and voice together, scale 1/256.
+  void apply_mix(AudioMixLevels levels);
   const PreparedCharacterAudio& prepared() const {
     if (!prepared_) {
       throw std::logic_error("Mission audio policy is unprepared");

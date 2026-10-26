@@ -141,6 +141,9 @@ void PlayerCamera::teleport(const ScriptedPlayerPose& player) {
 const InitialPlayerCamera& PlayerCamera::advance(
     const ScriptedPlayerPose& player, PlayerCameraLook look,
     double delta_seconds) {
+  constexpr unsigned kMaximumInputSensitivity = 100;
+  constexpr float kSourceSensitivityBias = 25, kSourceSensitivityScale = .02F,
+                  kMouseDivisorBase = 101;
   validate_pose(player);
   const double recovery = delta_seconds * settings_.transition_speed;
   const double horizontal = delta_seconds * preset_.look_radians_per_second[0];
@@ -149,19 +152,36 @@ const InitialPlayerCamera& PlayerCamera::advance(
   if (!std::isfinite(delta_seconds) || delta_seconds < 0 ||
       !std::isfinite(look.right) || !std::isfinite(look.up) ||
       std::abs(look.right) > 1 || std::abs(look.up) > 1 ||
-      !std::isfinite(recovery) || !std::isfinite(horizontal) ||
-      !std::isfinite(vertical_rotation) ||
+      !math::all_finite(look.mouse_delta) || look.turn_speed < 1 ||
+      look.turn_speed > kMaximumInputSensitivity || look.mouse_bias < 1 ||
+      look.mouse_bias > kMaximumInputSensitivity || !std::isfinite(recovery) ||
+      !std::isfinite(horizontal) || !std::isfinite(vertical_rotation) ||
       recovery > std::numeric_limits<float>::max()) {
     throw std::invalid_argument("Invalid player camera advancement");
   }
+  // Preserve the source distinction: bounded stick axes receive the gamepad
+  // gain; unbounded relative mouse observations replace only a nonzero axis.
+  const auto gain =
+      (static_cast<float>(look.turn_speed) + kSourceSensitivityBias) *
+      kSourceSensitivityScale;
+  auto right = look.right * gain, up = look.up * gain;
+  const auto divisor = kMouseDivisorBase - static_cast<float>(look.mouse_bias);
+  // Original mouse bias rejects a small orthogonal wobble only when the
+  // dominant axis crosses 31 counts; diagonal movement otherwise survives.
+  constexpr float kDominantMouse = 31, kMinorMouse = 20;
+  auto mouse = look.mouse_delta;
+  const auto x = std::abs(mouse[0]), y = std::abs(mouse[1]);
+  if (x >= kDominantMouse && y < kMinorMouse) mouse[1] = 0;
+  if (y >= kDominantMouse && x < kMinorMouse) mouse[0] = 0;
+  if (mouse[0] != 0) right = mouse[0] / divisor;
+  if (mouse[1] != 0) up = mouse[1] / divisor;
   auto candidate = *this;
   // Look is retained independently of the actor's locomotion-facing yaw.
-  if (std::abs(look.right) >= kLookThreshold ||
-      std::abs(look.up) >= kLookThreshold) {
+  if (std::abs(right) >= kLookThreshold || std::abs(up) >= kLookThreshold) {
     candidate.yaw_ = static_cast<float>(std::remainder(
-        static_cast<double>(yaw_) + horizontal * look.right, kFullTurn));
+        static_cast<double>(yaw_) + horizontal * right, kFullTurn));
     candidate.pitch_ = static_cast<float>(
-        std::clamp(static_cast<double>(pitch_) + vertical_rotation * look.up,
+        std::clamp(static_cast<double>(pitch_) + vertical_rotation * up,
                    -static_cast<double>(settings_.pitch_limit_radians),
                    static_cast<double>(settings_.pitch_limit_radians)));
   }

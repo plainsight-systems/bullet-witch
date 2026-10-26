@@ -1,8 +1,9 @@
 # Reviewing Alicia in the running game
 
 The running build connects traversal, aiming and weapon/attack presentation to
-live controls. The pause menu supplies explicit previews for reactions, spells,
-individual body/upper/additive/weapon clips, and expressions. Live fire and reload
+live controls. Retained diagnostic code supports previews for reactions, spells,
+individual body/upper/additive/weapon clips and expressions, but its new
+user-facing interface is not implemented. Live fire and reload
 use authoritative ammunition and magic; explicit menu previews remain isolated
 presentation review. Neither route creates hits, projectiles, spell effects or
 combat outcomes. The
@@ -14,12 +15,13 @@ separates native probe evidence from interactive review.
 From the repository root:
 
 ```sh
-./run --max-seconds 3600
+./run
 ```
 
-This builds the current Mac host and launches fullscreen for up to one hour.
-Plain `./run` uses a five-minute limit. Add `--windowed` if preferred. Do not use
-`--inspect-camera` for these checks: it selects a fixed inspection camera.
+`./run` is untimed and fullscreen. `--developer-views` selects the retained
+diagnostic build configuration, but currently admits no new debug interface.
+The [initial tools design](architecture/developer-tools.md) is separate from
+normal pause; no debug activation key or layout has been selected.
 
 Confirm through the title screen, then select **Concept Mission → One Shot Kill
 → Normal**. Wait for the loading screen to finish. Use A/Return to confirm and
@@ -32,64 +34,52 @@ and the game window must have focus.
 | --- | --- | --- |
 | Move relative to camera | Left stick | W/A/S/D |
 | Walk / run | Partial / full left-stick deflection | Movement keys give full input; no separate walk modifier |
-| Look | Right stick | I up, K down, J left, L right |
+| Look | Right stick | Mouse movement |
 | Evasive leap | LT | Space |
-| Toggle crouch / stand while grounded | Left-stick click | C |
-| Fire (held) | RT | F |
+| Toggle crouch / stand while grounded | Left-stick click | Left Shift |
+| Fire (held) | RT | Left mouse |
 | Reload | X | R |
-| Melee presentation | A | E |
-| Switch weapon (grounded) | B | Q |
-| Toggle ordinary / targeted camera mode | Right-stick click | T |
-| Open/page magic ring | Tap LB/RB | Tap `[` / `]` |
-| Ring right/bottom/left choice | B/A/X | Q/E/R |
-| Ring cancel | Y or right-stick click | Y or T |
+| Melee presentation | A | Right mouse |
+| Switch weapon (grounded) | B | Mouse wheel down / up (forward / backward) |
+| Toggle ordinary / targeted camera mode | Right-stick click | E |
+| Open/page magic ring | Tap LB/RB | Middle mouse opens; wheel changes page |
+| Ring right/bottom/left choice | B/A/X | C/X/Z |
+| Ring cancel | Y or right-stick click | Middle mouse or E |
 | Open pause / resume | Menu | Escape |
-| Menu navigation | D-pad or left stick | Arrow keys |
-| Menu confirm | A | Return or Space |
-| Menu back | B | Escape in front-end menus; see pause exception below |
+| Menu navigation | D-pad or left stick | Arrow keys / mouse wheel |
+| Menu confirm | A | Return, Space or left mouse |
+| Menu back | B | Escape, left Shift or right mouse |
 | Toggle fullscreen | — | Control–Command–F |
-| Mouse look / mouse attack | Not applicable | Not bound |
 
 LT/Space is the directional evasive leap, not a generic jump button. Release it
 between attempts: it is a held action and can request another evade after
 returning to a grounded state. RT is fire intent; LT is not aim. The desktop
-letters are host review aliases. Xbox View and mouse look/attack remain unbound.
+bindings match the original PC defaults. Xbox View remains unbound.
 Release the shoulder after opening the magic ring, then tap again to page;
 holding one shoulder while pressing the other closes it. Face buttons select
 directly, after the opening/page transition settles; the sticks and D-pad do
-not navigate the ring. The user has confirmed these controls work. RS/T cycles the two original unenchanted targeting modes. First click selects
+not navigate the ring. The user has confirmed these controls work. RS/E cycles the two original unenchanted targeting modes. First click selects
 the targeting camera; second click leaves targeting immediately and returns to
 the ordinary camera through the source quarter-second transition. Weapon posture
 can remain raised afterward; that separate post-fire/upper-animation lifetime is
 not the targeting mode. Enchanted extra modes and target/hit resolution are not
 implemented. While
 raised, horizontal look also drives the authored idle-turn animations. The host
-uses normal look and the recovered initial sensitivity; saved sensitivity and
-inversion options are not yet wired.
+applies the saved turn speed, mouse bias and camera inversion from Options → Controller Configuration.
 
-The pause root contains **Resume**, **Costume**, **Weapon Class**, and
-**Animation Review**. Costume and Weapon Class publish a candidate transaction
-and return to the pause root; failure keeps the old resources and displays an
-explanation. B returns from a submenu; from the root it resumes. **Menu or Escape
-resumes immediately from every pause page**. Space can confirm without causing
-an evade on resume; release LT/Space before making a new evade request.
+The normal pause root contains **Help**, **Options**, **Return**, **Stage Start**,
+**Retire**, and **Exit**. Exit resumes. Return/Stage Start/Retire ask for
+confirmation, initially No. Options owns settings, controller configuration,
+brightness calibration and the approved Costume addition. Back leaves a child;
+settings edits can ask whether to discard. Start in Options follows its save/exit
+policy. Do not expect one button to dismiss every nested confirmation.
 
-Animation Review contains named action families plus Body, Upper, Additive and
-Weapon clip pages drawn from the actual prepared catalogs. Clip pages contain
-twelve entries and Previous/Next navigation. Incompatible pose representations
-remain visible but disabled: body/upper use proven ordinary poses, Additive
-uses proven deltas. Unresolved consumers are disabled in every bank. Accepted selections resume in the
-same scene; rejected selections stay paused. The lower-corner status identifies
-the active preview. **Stop preview** restores its entry placement and locomotion;
-RS/T can also release a menu-created targeting selection. Check that the camera
-returns to its ordinary field of view after the second click even if Alicia's
-weapon remains raised. **Next phase (synthetic)** supplies an explicitly synthetic external observation
-for spell phases that would otherwise require gameplay. These are review
-controls, not completed mission logic.
+Developer clip catalogs, reaction previews and synthetic spell-phase controls
+remain retained implementation capabilities, with no current user-facing entry.
+They are not rows in the original pause menu. The new inspector design must
+choose their eventual controls separately.
 
-The Weapon Class page lists **Gunrod (default)**, **Shotgun**, **Cannon**, and
-**Gatling**, in that order. The paused selector resets action presentation to
-neutral. Normal B/Q instead cycles through them with the original upper-body
+Normal B or the mouse wheel cycles through them with the original upper-body
 switch animation, preserving body clocks, aiming, stance and physical state.
 While idle, the body follows that switch animation; while moving, locomotion
 continues underneath it. The selected weapon changes at the start of the action,
@@ -109,13 +99,13 @@ HUD maximum of 100.
    should remain supported, stop or slide at solid geometry, and return to idle
    after release. This checks the custom static contact path; movable/destructible
    props and full mission behavior are not implemented.
-2. **Camera and directional evade.** Orbit with the right stick or J/L. From a
+2. **Camera and directional evade.** Orbit with the right stick or mouse. From a
    fixed view, move forward, backward, left and right; briefly press LT/Space
    during each direction and release it. Repeat after rotating the camera.
    Check takeoff, flight, landing, return to movement and the attached weapon.
    Running toward the camera into evade remains a specific visual-parity issue:
    record an unexpected facing reversal rather than treating it as accepted.
-3. **Crouch.** Stop on the ground, click the left stick or press C, then move.
+3. **Crouch.** Stop on the ground, click the left stick or press left Shift, then move.
    Press again to stand. Expect the crouched pose and movement; crouching is not
    admitted during an airborne/exclusive action. An evade from crouch returns to
    the standing evade path.
@@ -123,12 +113,13 @@ HUD maximum of 100.
    while paused: the player and camera should stay frozen. Resume, release
    LT/Space, then make a fresh input. The resume input should not also launch an
    evade. Active game cues pause with the scene.
-5. **Costumes.** Pause → Costume, choose another of the six entries, confirm,
+5. **Costumes.** Pause → Options → Costume, choose another of the six entries, confirm,
    then resume. Repeat walking, crouching, turning and evading. Position, camera
    and the paused action should survive the swap. Check attachments, outfit
    motion and obvious mesh failures. Some dress/body surface intersections
    remain known; the source secondary-bone solver is not a guarantee of cloth
-   surface clearance. Restart, power-up and mission-exit options are not wired.
+   surface clearance. Stage Start and checkpoint-zero Return perform full scene reentry; Retire
+   returns to title. Post-result power-up is a separate, unaccepted slice.
 6. **Idle and face.** With Original selected, stop and orbit to the front. The
    stand motion's authored facial events can close and reopen the eyes; they may
    be difficult to see at the gameplay camera distance. The native close-up
@@ -140,20 +131,18 @@ HUD maximum of 100.
    and an evade voice, their timing, distortion and pause/resume behavior.
    Voice arbitration can suppress or vary a request; a new voice on every
    press is not required. This is the first subjective listening check; native
-   scheduling success alone did not establish audible balance. Menu BGM and
-   confirmation sounds are still separate work.
+   scheduling success alone did not establish audible balance. Check native menu navigation/confirmation sounds while the world remains
+   paused, and live BGM/SFX gain changes through Options.
 
-8. **Weapon presentation.** Hold RT/F, release, then press X/R and A/E
+8. **Weapon presentation.** Hold RT/left mouse, release, then press X/R and A/right mouse
    separately. Observe raising, the admitted discharge/reload animation and the
    close strike. Move toward the current facing direction and try the directed
-   strike. B/Q cycles weapons while grounded; each change should retain position,
+   strike. B/mouse wheel cycles weapons while grounded; each change should retain position,
    camera, costume and aiming state, and play the switch animation. Check it
    standing, crouched, moving, and with the weapon raised. While stationary,
    hold RT and turn right then left, then look up and down: the gun should follow
    pitch, Alicia should retain floor support, and no unsolicited jump should
-   replace the aiming pose. Check the status line
-   for unavailable animation
-   bindings rather than expecting a substituted clip. The live HUD reports real
+   replace the aiming pose. Do not expect a developer status overlay in the normal build. The live HUD reports real
    ammunition consumption; no hit result follows from these animations. The
    current walkthrough found shotgun weapon displacement and stationary
    support-hand jerking that was absent during movement. The duplicated Shotgun
@@ -161,27 +150,26 @@ HUD maximum of 100.
    recorded in [the firing report](../research/engine/subsystems/weapon-discharge-attachment.md).
    The user confirmed the subsequent authored-target support-arm repair works.
    That authorized improvement is documented separately from original parity;
-   the unfinished pause menu is not accepted with the HUD work.
+   native pause requires its separate walkthrough and acceptance.
 
-   For the reported interruption, click RS/T to target, release, then click again
+   For the reported interruption, click RS/E to target, release, then click again
    to leave targeting. The camera should return to ordinary view independently
-   of the retained gun posture. When the gun begins lowering, press A/E: the
+   of the retained gun posture. When the gun begins lowering, press A/right mouse: the
    lowering upper-body action should retire as melee starts, without continuing
-   over the strike. RS/T during that melee is not admitted by the original
-   Shooter state. Repeat with all four weapons. Costume 5 remains visibly bright
-   in current captures; that appearance has not been accepted or claimed fixed.
-9. **Catalog and reaction review.** Pause → Animation Review. Select a named
-   reaction or an actual Body/Upper/Additive/Weapon clip. Review the pose in the
-   scene, then use Stop preview before another sequence. Try every page, including
-   the final short page. Facial preview capability depends on the costume;
-   unsupported expressions remain paused with an explanation.
-10. **Spell phases.** Select a named spell preview. Reopen Animation Review and
-    choose Next phase for an external observation. Thunder uses one request to
-    accept a target, followed by five cinematic acknowledgements. Meteor uses
-    two cinematic acknowledgements and one world-completion acknowledgement.
-    Tornado uses one camera handoff, then waits for its animation to finish. That action is deliberately synthetic; it does not prove a target,
-    effect, cinematic owner or mission outcome. Stop preview restores the entry
-    placement. Death previews likewise do not supply the dynamic-body handoff.
+   over the strike. RS/E during that melee is not admitted by the original
+   Shooter state. Repeat with all four weapons. Lighting has its separately accepted baseline and documented residual
+   visual limitations; this pause review does not reopen them.
+9. **Pause settings and reentry.** Open Help, read a topic and return. In Options,
+   change volume and verify it live; Back and confirm discard should restore the
+   entry values. Change a binding or camera sensitivity, save via Exit and its
+   acknowledgment, resume and verify the actual consumer. Test Stage Start and
+   Return separately, then pause again after each fresh entry. Retire should
+   return through the original root to title. Nonzero saved-world restoration is
+   not admitted until its real world checkpoint owner exists.
+
+Catalog/reaction/expression and synthetic spell-phase review will return through
+the separately designed developer interface; no current activation sequence is
+advertised for those retained capabilities.
 
 ## Remaining gameplay boundaries
 

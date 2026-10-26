@@ -49,6 +49,8 @@ class LogoMedia {
 struct LogoUpdate {
   float delta{};
   std::uint32_t pressed_actions{};
+  // Front-end prompts observe the platform input family; no input authority.
+  bool controller_connected{};
 };
 class CompanyLogoFlow {
  public:

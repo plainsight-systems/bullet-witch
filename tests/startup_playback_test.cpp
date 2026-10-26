@@ -59,6 +59,8 @@ class Source final : public bw::video::Decoder {
 };
 class Audio final : public bw::video::AudioOutput {
  public:
+  void set_gain(float value) override { gain = value; }
+  float gain{1};
   void prepare(bw::video::Decoder&, std::size_t) override { prepared = true; }
   void start() override { started = true; }
   bw::video::AudioSnapshot snapshot() const override { return value; }

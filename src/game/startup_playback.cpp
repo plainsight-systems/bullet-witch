@@ -22,8 +22,16 @@ StartupPlayback::StartupPlayback(
     video::Output& output, std::filesystem::path game_directory,
     OpenDecoder open_decoder,
     const std::shared_ptr<memory::Domain>& media_memory)
-    : player_(output, std::move(open_decoder), {}, media_memory),
+    : audio_(output.audio()),
+      player_(output, std::move(open_decoder), {}, media_memory),
       game_directory_(std::move(game_directory)) {}
+void StartupPlayback::set_music_volume(unsigned level) {
+  constexpr unsigned kFullVolume = 256;
+  if (level > kFullVolume) {
+    throw std::invalid_argument("Invalid movie music level");
+  }
+  audio_.set_gain(static_cast<float>(level) / kFullVolume);
+}
 bool StartupPlayback::open_movie(std::string_view path) {
   std::string normalized(path);
   std::ranges::replace(normalized, '\\', '/');

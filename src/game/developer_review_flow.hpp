@@ -1,3 +1,7 @@
+// Explicit developer inspection flow, separate from the native gameplay pause.
+// Only MissionInteraction's build-enabled developer route admits this owner.
+// It retains the existing diagnostic weapon/clip tools and approved costume
+// transaction; normal Menu/Escape uses PauseMenuFlow and native children.
 // Pause ownership: retain a UserPauseControl handle through this menu's
 // lifetime. It permits only user-pause observation/request, not script or input
 // control. Core I.4/Con.2 and COPY.5 were read in both phases: the tiny handle
@@ -47,15 +51,15 @@
 #include "game/mission_control.hpp"
 #include "menu_flow.hpp"
 namespace bw::game {
-class PauseFlow {
+class DeveloperReviewFlow {
  public:
-  explicit PauseFlow(UserPauseControl control, unsigned costume,
-                     bool developer_review = true);
-  PauseFlow(const PauseFlow&) = delete;
-  PauseFlow& operator=(const PauseFlow&) = delete;
-  PauseFlow(PauseFlow&&) = delete;
-  PauseFlow& operator=(PauseFlow&&) = delete;
-  ~PauseFlow() = default;
+  explicit DeveloperReviewFlow(UserPauseControl control, unsigned costume,
+                               bool developer_review = true);
+  DeveloperReviewFlow(const DeveloperReviewFlow&) = delete;
+  DeveloperReviewFlow& operator=(const DeveloperReviewFlow&) = delete;
+  DeveloperReviewFlow(DeveloperReviewFlow&&) = delete;
+  DeveloperReviewFlow& operator=(DeveloperReviewFlow&&) = delete;
+  ~DeveloperReviewFlow() = default;
   // Missing classification keeps that catalog unavailable; no representation
   // is inferred from its labels or from its actor/weapon role.
   void bind_review_catalogs(
@@ -65,6 +69,9 @@ class PauseFlow {
       std::span<const MotionPoseSemantics> weapon_semantics = {});
   // Mission authority supplies acquired levels; preview selection cannot
   // bypass the same equipment availability used by gameplay cycling.
+  // Refresh the published session costume after an external transaction; this
+  // copies observation only and cannot request a resource change.
+  void observe_costume(unsigned costume);
   void set_available_weapons(const std::array<std::uint8_t, 4>& levels);
   bool update(bool pause_pressed, MenuInput input);
   bool paused() const { return control_.user_paused(); }

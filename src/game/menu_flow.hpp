@@ -77,6 +77,9 @@ struct MenuSelection {
 struct MenuInput {
   std::uint32_t pressed{};
   std::uint32_t repeated{};
+  // Fixed UI receiver axis: physical stick plus wheel contribution, independent
+  // of remapped gameplay movement. Copying it grants no device/state authority.
+  float vertical_axis{};
 };
 class MenuFlow {
  public:

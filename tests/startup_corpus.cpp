@@ -62,10 +62,12 @@
 #include "bw/formats/texture_mips.hpp"
 #include "bw/formats/world_texture.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
+#include "game/gameplay_hud_surface.hpp"
 #include "game/mission_audio.hpp"
 #include "game/mission_control.hpp"
 #include "game/mission_gameplay.hpp"
 #include "game/mission_loading.hpp"
+#include "game/mission_pause_surface.hpp"
 #include "game/root_driver.hpp"
 #include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
@@ -157,6 +159,15 @@ class SpriteOutput final : public bw::render::SpriteOutput {
   }
   void release_texture(bw::render::TextureHandle) noexcept override { --live; }
   void set_sprites(std::span<const bw::render::Sprite> commands) override {
+    // Match the native output's positive-area contract, including transition
+    // endpoints. A mock that accepts collapsed quads hides real host exits.
+    for (const auto& command : commands) {
+      if (!(command.destination.width > 0) ||
+          !(command.destination.height > 0)) {
+        throw std::runtime_error(
+            "Corpus sprite has nonpositive destination area");
+      }
+    }
     latest.assign(commands.begin(), commands.end());
     if (!commands.empty()) {
       presented = true;
@@ -547,7 +558,20 @@ class CorpusAudioOutput final : public bw::audio::CueOutput {
     paused = value;
     ++pause_calls;
   }
-  void update() override { ++updates; }
+  void set_mix_gains(const bw::audio::MixGains& value) override {
+    gains = value;
+  }
+  bw::audio::MixGains gains;
+  void update() override {
+    ++updates;
+    // Controlled output retires presentation-only one-shots at its service
+    // boundary; gameplay cue lifetime remains explicit in actor fixtures.
+    for (auto& slot : slots) {
+      if (slot.request.pause_domain == bw::audio::PauseDomain::presentation) {
+        slot.active = false;
+      }
+    }
+  }
 };
 // A known slot or a familiar filename cannot grant semantics to another
 // actor or an unrelated publication. Reuse one actual decoded track here;
@@ -644,32 +668,116 @@ struct CorpusWorldTime {
   }
 };
 
-// Exercise the production mission coordinator in this existing original-content
-// scenario. Outputs observe publication only; this is not native rendering.
-void mission_gameplay_composition(CorpusWorldTime& time,
-                                  bw::game::StageInspection& stage,
-                                  bw::game::MissionLoading& loading,
-                                  bw::game::SourceRandom& random) {
-  struct Outputs final : bw::game::GameplayHudOutput, bw::game::MenuSurface {
-    unsigned hud_shows{}, menu_shows{}, clears{};
-    void show(const bw::game::GameplayHud& hud, std::string_view) override {
-      if (hud.commands().empty()) {
-        throw std::runtime_error("Coordinator omitted cockpit publication");
-      }
-      ++hud_shows;
+// Exercise the production mission coordinator and its original pause resources
+// within this existing original-content scenario. Controlled output validates
+// resource/command lifetime; no native visual parity is claimed.
+struct CorpusPausePresentation {
+  CorpusPausePresentation(bw::resources::ResourceService& service,
+                          SpriteOutput& output,
+                          bw::game::StartupMenuSurface& menu,
+                          const bw::platform::Files& reader,
+                          const std::filesystem::path& location,
+                          bw::game::Profile& save, CorpusAudioOutput& sound,
+                          bw::platform::SaveStorage& storage)
+      : resources(service),
+        sprites(output),
+        auxiliary(menu),
+        files(reader),
+        game(location),
+        profile(save),
+        audio(sound),
+        storage(storage) {}
+  ~CorpusPausePresentation() = default;
+  CorpusPausePresentation(const CorpusPausePresentation&) = delete;
+  CorpusPausePresentation& operator=(const CorpusPausePresentation&) = delete;
+  CorpusPausePresentation(CorpusPausePresentation&&) = delete;
+  CorpusPausePresentation& operator=(CorpusPausePresentation&&) = delete;
+  bw::resources::ResourceService& resources;
+  SpriteOutput& sprites;
+  bw::game::StartupMenuSurface& auxiliary;
+  const bw::platform::Files& files;
+  const std::filesystem::path& game;
+  bw::game::Profile& profile;
+  CorpusAudioOutput& audio;
+  bw::platform::SaveStorage& storage;
+};
+enum class CorpusPauseRoute : std::uint8_t { children_and_resume, retirement };
+void mission_gameplay_composition(
+    CorpusWorldTime& time, bw::game::StageInspection& stage,
+    bw::game::MissionLoading& loading, bw::game::SourceRandom& random,
+    const CorpusPausePresentation& context,
+    CorpusPauseRoute route = CorpusPauseRoute::children_and_resume) {
+  const auto retained_textures = context.sprites.live;
+  auto icons = context.files.read(context.game / "data/menu/9900",
+                                  context.resources.memory_domain());
+  auto text = context.files.read(context.game / "data/menu/9952",
+                                 context.resources.memory_domain());
+  bw::game::GameplayHudSurface hud(context.resources, context.sprites);
+  hud.prepare();
+  bw::game::MissionPauseSurface surface(context.resources, context.sprites,
+                                        context.auxiliary, std::move(icons),
+                                        std::move(text));
+  struct ObservedPause final : bw::game::MissionPauseOutput {
+    explicit ObservedPause(bw::game::MissionPauseSurface& owner)
+        : owner(owner) {}
+    bw::game::MissionPauseSurface& owner;
+    bw::game::MissionPauseView active{bw::game::MissionPauseView::none};
+    bw::game::PauseMenuPresentation root;
+    bw::game::PauseHelpPresentation help;
+    bw::game::PauseOptionsPresentation options;
+    bw::game::MenuPresentation costume;
+    bool activate(bw::game::MissionPauseView view) override {
+      const auto changed = owner.activate(view);
+      active = view;
+      return changed;
     }
-    void hide() noexcept override { ++clears; }
-    void begin() override {}
-    bool ready() override { return true; }
-    void show(const bw::game::MenuPresentation&) override { ++menu_shows; }
-    void end() noexcept override {}
-  } output;
+    const std::array<unsigned, bw::game::help_topic_count>& help_line_counts()
+        const override {
+      return owner.help_line_counts();
+    }
+    void show(const bw::game::PauseMenuPresentation& view) override {
+      owner.show(view);
+      root = view;
+    }
+    void show(const bw::game::PauseHelpPresentation& view) override {
+      owner.show(view);
+      help = view;
+    }
+    void show(const bw::game::PauseOptionsPresentation& view) override {
+      owner.show(view);
+      options = view;
+    }
+    void show(const bw::game::ControllerOptionsPresentation& view) override {
+      owner.show(view);
+    }
+    void show(const bw::game::MenuPresentation& view) override {
+      owner.show(view);
+      costume = view;
+    }
+  } output(surface);
   if (!time.player || !time.resources) {
     throw std::logic_error("Coordinator fixture resources absent");
   }
-  bw::game::MissionGameplay gameplay(
-      time.clock, time.control, *time.player, *time.resources, loading, stage,
-      output, output, random, true, bw::game::CockpitActivation::inspection);
+  bw::game::DeviceOptions device(context.storage);
+  const bw::game::PauseOptionsServices settings{
+      context.profile.settings_control(),
+      context.profile.settings_save_control(context.storage), device.control(),
+      device.save_control()};
+  // The first coordinator admission binds the actor's resource capability once.
+  // Later retirement tests the same interaction owner after the intervening
+  // actor acceptance paths, without manufacturing a second resource binding.
+  std::optional<bw::game::MissionGameplay> gameplay;
+  std::optional<bw::game::MissionInteraction> retirement_interaction;
+  if (route == CorpusPauseRoute::retirement) {
+    retirement_interaction.emplace(time.control, *time.player, loading, stage,
+                                   output, context.audio,
+                                   context.profile.help_control(), settings);
+  } else {
+    gameplay.emplace(time.clock, time.control, *time.player, *time.resources,
+                     loading, stage, hud, output, random, context.audio,
+                     context.profile.help_control(), settings,
+                     bw::game::CockpitActivation::inspection);
+  }
   const auto rejects = [](auto operation) {
     bool rejected = false;
     try {
@@ -681,29 +789,211 @@ void mission_gameplay_composition(CorpusWorldTime& time,
       throw std::runtime_error("Coordinator accepted invalid phase order");
     }
   };
-  rejects([&] { gameplay.advance(); });
-  (void)gameplay.begin(0, {});
-  rejects([&] { (void)gameplay.begin(0, {}); });
-  rejects([&] { gameplay.present(false); });
-  gameplay.advance();
-  rejects([&] { gameplay.advance(); });
-  gameplay.present(false);
-  const auto before_pause = time.resources->snapshot();
-  const auto paused = gameplay.begin(0, {.pause_pressed = true});
-  gameplay.advance();
-  gameplay.present(false);
-  const auto resumed = gameplay.begin(0, {.pause_pressed = true});
-  gameplay.advance();
-  gameplay.present(false);
-  if (!paused.ui_consumed || !resumed.ui_consumed || output.hud_shows != 2 ||
-      output.menu_shows != 1 || output.clears != 0 ||
-      time.control.user_paused() || time.clock.simulation_seconds() != 0 ||
-      time.resources->snapshot().magic != before_pause.magic) {
-    throw std::runtime_error(
-        "Coordinator pause/resume publication or phase authority mismatch");
+  if (gameplay) {
+    rejects([&] { gameplay->advance(); });
+    (void)gameplay->begin(0, {});
+    rejects([&] { (void)gameplay->begin(0, {}); });
+    rejects([&] { gameplay->present(); });
+    gameplay->advance();
+    rejects([&] { gameplay->advance(); });
+    gameplay->present();
   }
-  std::cerr << "Gameplay coordinator: phase guards, pause retention and resume "
-               "output passed\n";
+  const auto before = time.resources->snapshot();
+  const auto world_seconds = time.clock.simulation_seconds();
+  const auto pose = stage.player_state()->pose.position;
+  constexpr float kFrame = 1.F / 60;
+  constexpr std::uint32_t kConfirm = 0x1010, kCancel = 0x2020,
+                          kDown = 0x02000000, kHorizontal = 0x04000000;
+  bool retirement = false;
+  const auto tick = [&](bw::game::MissionInput input) {
+    bool ui_consumed = false;
+    if (gameplay) {
+      const auto disposition = gameplay->begin(kFrame, input);
+      retirement |=
+          disposition.transition == bw::game::MissionTransition::retire;
+      ui_consumed = disposition.ui_consumed;
+      gameplay->advance();
+      gameplay->present();
+    } else {
+      const auto disposition = retirement_interaction->admit(kFrame, input);
+      retirement |= retirement_interaction->transition_requested() ==
+                    bw::game::MissionTransition::retire;
+      ui_consumed = disposition.ui_consumed;
+      retirement_interaction->present();
+    }
+    // The host pumps the shared audio service independently of paused actors.
+    context.audio.update();
+    if (!ui_consumed || time.clock.simulation_seconds() != world_seconds ||
+        stage.player_state()->pose.position != pose ||
+        time.resources->snapshot().magic != before.magic) {
+      throw std::runtime_error(
+          "Native pause advanced authoritative world state");
+    }
+    if (context.sprites.live > bw::render::kMaximumTextures ||
+        context.sprites.latest.size() > bw::render::kMaximumSprites) {
+      throw std::runtime_error("Native pause and HUD exceed renderer capacity");
+    }
+  };
+  const auto wait = [&](auto complete) {
+    constexpr unsigned kMaximumFrames = 240;
+    for (unsigned frame = 0; frame < kMaximumFrames && !complete(); ++frame) {
+      tick({});
+    }
+    if (!complete()) {
+      throw std::runtime_error("Native pause transition did not complete");
+    }
+  };
+  const auto command = [&](bw::game::MenuInput input) {
+    tick({.menu = input});
+  };
+  const auto root_ready = [&] {
+    return output.active == bw::game::MissionPauseView::root &&
+           output.root.phase == bw::game::PauseMenuPhase::interactive;
+  };
+  tick({.pause_pressed = true});
+  wait(root_ready);
+  if (route == CorpusPauseRoute::retirement) {
+    while (output.root.selected != bw::game::PauseMenuAction::retire) {
+      command({0, kDown});
+    }
+    command({kConfirm, 0});
+    wait([&] { return output.root.dialog_progress >= 1; });
+    // Native dialog also requires a short input delay; use supplied UI time.
+    constexpr unsigned kDialogSettleFrames = 30;
+    for (unsigned frame = 0; frame < kDialogSettleFrames; ++frame) tick({});
+    command({0, kHorizontal});
+    command({kConfirm, 0});
+    wait([&] { return retirement; });
+    if (!time.control.user_paused()) {
+      throw std::runtime_error("Retirement resumed live world before teardown");
+    }
+  } else {
+    command({kConfirm, 0});
+    wait([&] {
+      return output.active == bw::game::MissionPauseView::help &&
+             output.help.phase == bw::game::PauseHelpPhase::topics;
+    });
+    // This corpus enters the explicitly authored completed concept context.
+    // Exercise its real coordinator and purchased Help surface together, not
+    // an independently manufactured all-topic presentation.
+    constexpr unsigned kUnclaimedTopic = 18;
+    if (time.player->origin() !=
+            bw::game::ProgressionOrigin::development_completed ||
+        output.help.count != bw::game::help_topic_count - 1 ||
+        output.help.topics[0] != 0 ||
+        std::ranges::find(
+            std::span(output.help.topics).first(output.help.count),
+            kUnclaimedTopic) !=
+            std::span(output.help.topics).first(output.help.count).end()) {
+      throw std::runtime_error(
+          "Native Help lost source-granted completed concept eligibility");
+    }
+    // Original topic zero contains logical movement and camera markers.
+    // Swap only the copied binding observation while keeping the real surface
+    // resident: W/S/A/D needs three more glyph quads than the pad movement
+    // icon.
+    const auto textures_before_icons = context.sprites.live;
+    tick({.help_icons = bw::game::help_input_icons(
+              bw::game::controller_default_settings(), true)});
+    const auto pad_glyphs = context.sprites.latest.size();
+    tick({.help_icons = bw::game::help_input_icons(
+              bw::game::controller_default_settings(), false)});
+    if (context.sprites.live != textures_before_icons ||
+        context.sprites.latest.size() != pad_glyphs + 3) {
+      throw std::runtime_error(
+          "Help logical icons ignored copied keyboard/pad bindings");
+    }
+    command({kConfirm, 0});
+    if (!context.profile.help_control().progress().read[0]) {
+      throw std::runtime_error("Native Help did not mark selected topic read");
+    }
+    // The original Help receiver is fixed UI input. Remapped gameplay keys
+    // cannot move its paragraph; a physical wheel impulse can.
+    tick({.player = {.movement = {0, -1}}});
+    if (output.help.scroll_pixels != 0) {
+      throw std::runtime_error("Gameplay movement scrolled native Help");
+    }
+    tick({.menu = {.vertical_axis = -2}});
+    constexpr unsigned kScrollFrames = 30;
+    for (unsigned frame = 0; frame < kScrollFrames; ++frame) {
+      tick({});
+    }
+    if (output.help.maximum_scroll > 0 && output.help.scroll_pixels <= 0) {
+      throw std::runtime_error("Native Help paragraph did not scroll");
+    }
+    command({kCancel, 0});
+    const auto saved_help = context.profile.help_control().progress();
+    command({0, kDown});
+    if (output.help.phase != bw::game::PauseHelpPhase::topics ||
+        output.help.selected != 1 || output.help.topics[1] != 1) {
+      throw std::runtime_error("Native Help cannot select the next topic");
+    }
+    command({kConfirm, 0});
+    if (output.help.phase != bw::game::PauseHelpPhase::reading ||
+        !output.help.read[1] ||
+        context.profile.help_control().progress().available !=
+            saved_help.available ||
+        context.profile.help_control().progress().read != saved_help.read) {
+      throw std::runtime_error(
+          "Native inherited Help reading changed permanent progression");
+    }
+    command({kCancel, 0});
+    command({0, kDown});
+    if (output.help.phase != bw::game::PauseHelpPhase::topics ||
+        output.help.selected != 2) {
+      throw std::runtime_error(
+          "Native Help Back did not restore topic navigation");
+    }
+    command({kCancel, 0});
+    wait(root_ready);
+    command({0, kDown});
+    command({kConfirm, 0});
+    wait([&] {
+      return output.active == bw::game::MissionPauseView::options &&
+             !output.options.opening;
+    });
+    while (output.options.selected != bw::game::PauseOption::brightness) {
+      command({0, kDown});
+    }
+    command({kConfirm, 0});
+    wait([&] { return !output.options.opening; });
+    if (output.options.page != bw::game::PauseOptionsPage::brightness) {
+      throw std::runtime_error("Native brightness calibration child missing");
+    }
+    command({kCancel, 0});
+    wait([&] {
+      return output.options.page == bw::game::PauseOptionsPage::options;
+    });
+    while (output.options.selected != bw::game::PauseOption::costume) {
+      command({0, kDown});
+    }
+    command({kConfirm, 0});
+    if (output.active != bw::game::MissionPauseView::costume ||
+        output.costume.page != bw::game::MenuPage::costume) {
+      throw std::runtime_error("Native Options costume child missing");
+    }
+    command({kCancel, 0});
+    command({kCancel, 0});
+    command({kCancel, 0});
+    wait(root_ready);
+    command({kCancel, 0});
+    command({kConfirm, 0});
+    wait([&] { return !time.control.user_paused(); });
+    if (output.active != bw::game::MissionPauseView::none || retirement) {
+      throw std::runtime_error(
+          "Native Resume did not retire pause publication");
+    }
+  }
+  surface.end();
+  hud.end();
+  if (context.sprites.live != retained_textures) {
+    throw std::runtime_error("Native pause child transitions leaked textures");
+  }
+  std::cerr << "Gameplay coordinator: native pause "
+            << (route == CorpusPauseRoute::retirement
+                    ? "retirement request"
+                    : "Help/Options/costume/Resume")
+            << ", world freeze and resource lifetime passed\n";
 }
 
 void model_cancellation_substeps(CorpusWorldTime& time,
@@ -2209,6 +2499,29 @@ void initial_weapon_admission(bw::resources::ResourceService& resources,
         "Four weapon catalogs lost original clip coverage");
   }
 }
+// Called only after the real pause requests Retire and every scene, audio,
+// sprite and mission-resource owner above has completed ordinary teardown.
+void root_retirement_after_teardown(bw::game::StartupSession& session,
+                                    Media& media) {
+  const auto prior_movies = media.opened.size();
+  session.complete_mission_retirement();
+  constexpr unsigned kReturnFrames = 300;
+  for (unsigned frame = 0;
+       frame < kReturnFrames && media.opened.size() == prior_movies; ++frame) {
+    const auto result = session.advance({.1F, 0});
+    if (result.state == bw::script::RunState::failed) {
+      throw std::runtime_error("Original root retirement failed: " +
+                               result.diagnostic);
+    }
+  }
+  if (media.opened.size() != prior_movies + 1 ||
+      media.opened.back() != "data/movie/witchLOGO.ssu" ||
+      session.mission_status() != 2) {
+    throw std::runtime_error(
+        "Original root retirement omitted stop/unload/status/title "
+        "handoff");
+  }
+}
 void reconstructed_session(bw::resources::ResourceService& resources,
                            const bw::platform::Files& files, bool concept_route,
                            const std::filesystem::path& game,
@@ -2907,11 +3220,14 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             bw::formats::CustomizationDefinition::parse(
                 stage->customization_bytes(), resources.memory_domain()));
         time.bind_resources(resource_settings);
-        mission_gameplay_composition(time, inspection, loading, scene_random);
-        require_initial_local_light_clear(world,
-                                          loading.resident_player().handle);
         inspection.bind_audio(scene_audio.prepared(), *scene_audio.output(),
                               scene_random);
+        mission_gameplay_composition(
+            time, inspection, loading, scene_random,
+            {resources, output, menu.surface_, files, game, profile,
+             *scene_audio_factory.output, *storage});
+        require_initial_local_light_clear(world,
+                                          loading.resident_player().handle);
         // All four families share a forward raw root curve; the authored
         // endpoint reference bone must produce distinct actor-local travel.
         {
@@ -3483,6 +3799,11 @@ void reconstructed_session(bw::resources::ResourceService& resources,
           throw std::runtime_error(
               "Player pose publication changed mission residency");
         }
+        mission_gameplay_composition(
+            time, inspection, loading, scene_random,
+            {resources, output, menu.surface_, files, game, profile,
+             *scene_audio_factory.output, *storage},
+            CorpusPauseRoute::retirement);
       }
       if (world.submitted != 0) {
         throw std::runtime_error("Player scene retained draws after teardown");
@@ -3495,6 +3816,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             "Mission cancellation retained script or definition ownership");
       }
     }
+    if (concept_route) root_retirement_after_teardown(session, media);
     bw::game::Profile reloaded;
     if (reloaded.load(*storage).status != bw::platform::SaveStatus::ok ||
         reloaded.costume() != 5 ||

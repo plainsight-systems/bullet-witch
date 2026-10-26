@@ -38,6 +38,9 @@ class AudioOutput {
   // Borrow the decoder for independently serviced audio until stop returns.
   virtual void prepare(Decoder& source, std::size_t prime_frames) = 0;
   virtual void start() = 0;
+  // Finite linear [0,1] output gain. Retained across prepare/stop; controls
+  // audio amplitude only, never its device clock or media progression.
+  virtual void set_gain(float gain) = 0;
   // Report played media time coherently, excluding maintenance silence.
   virtual AudioSnapshot snapshot() const = 0;
   // Retire every callback before the caller releases the borrowed decoder.

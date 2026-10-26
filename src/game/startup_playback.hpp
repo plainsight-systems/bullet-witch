@@ -42,6 +42,9 @@ class StartupPlayback final : public LogoMedia {
   StartupPlayback& operator=(const StartupPlayback&) = delete;
   StartupPlayback(StartupPlayback&&) = delete;
   StartupPlayback& operator=(StartupPlayback&&) = delete;
+  // Source movie audio follows the persisted BGM level, including title/logo
+  // movies. The output owns application to its audio service; no clock changes.
+  void set_music_volume(unsigned level);
   bool open_movie(std::string_view path) override;
   bool movie_complete() const override { return player_.complete(); }
   void stop_movie() noexcept override { player_.stop(); }
@@ -57,6 +60,7 @@ class StartupPlayback final : public LogoMedia {
   std::size_t completed_movies() const { return player_.completed_movies(); }
 
  private:
+  video::AudioOutput& audio_;
   video::Player player_;
   std::filesystem::path game_directory_;
   float overlay_alpha_{1}, fade_remaining_{}, fade_rate_{};

@@ -73,6 +73,15 @@ void StartupServices::start_mission(std::string_view) {
 bool StartupServices::mission_pending() {
   throw std::runtime_error("Mission receiver is not configured");
 }
+double StartupServices::mission_status() const {
+  throw std::runtime_error("Mission receiver is not configured");
+}
+void StartupServices::stop_mission_music() {
+  throw std::runtime_error("Mission music receiver is not configured");
+}
+void StartupServices::unload_concept_mission() {
+  throw std::runtime_error("Concept mission receiver is not configured");
+}
 RootDriver::RootDriver(resources::ResourceService& resources,
                        StartupServices& services, resources::ResourceTag tag)
     : resources_(resources), services_(services), tag_(tag) {
@@ -107,6 +116,20 @@ void RootDriver::bindings() {
     count(args, 0);
     return Reply{{}, [this] { return services_.get().mission_pending(); }};
   });
+  context_.bind("_GetMissionStatus", [this](auto args) {
+    count(args, 0);
+    return Reply{{services_.get().mission_status()}, {}};
+  });
+  context_.bind("_StopBgm", [this](auto args) {
+    count(args, 0);
+    services_.get().stop_mission_music();
+    return Reply{};
+  });
+  context_.bind("_UnloadConceptMission", [this](auto args) {
+    count(args, 0);
+    services_.get().unload_concept_mission();
+    return Reply{};
+  });
   context_.bind("_GetGlobalValue", [this](auto args) {
     count(args, 1);
     return Reply{{services_.get().global(slot(args[0]))}, {}};
@@ -129,7 +152,8 @@ void RootDriver::bindings() {
                              Named{"Advertise", Screen::advertise},
                              Named{"Title", Screen::title},
                              Named{"CharacterLoad", Screen::character_load},
-                             Named{"TitleMenu", Screen::title_menu}};
+                             Named{"TitleMenu", Screen::title_menu},
+                             Named{"PowerUp", Screen::power_up}};
   for (const auto& name : names) {
     context_.bind(std::string("_Exec") + name.suffix,
                   [this, screen = name.screen](auto args) {

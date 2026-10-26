@@ -1,16 +1,28 @@
 # Current engineering decisions
 
-- The user accepted the HUD/live-resource work and confirmed the support-hand
-  repair works. This authorizes committing that accepted scope. The pause menu
-  is explicitly not accepted: complete its original native presentation and
-  supported operations next, before the agreed architecture/file-organization
-  pass. Existing pause admission, resource preservation and HUD retirement are
-  dependencies of the accepted HUD; this does not accept the current limited
-  Resume/Costume/developer-review menu as the finished pause task. Post-result
-  power-up work has no explicit acceptance and remains separate. Live casting,
-  mission startup/results and world persistence boundaries remain open.
-  Normal pause must become the original gameplay menu; debug views belong behind
-  explicit build parameters with a clean production default, not capture mode.
+- The user accepted the native gameplay pause menu after checking Help, Options,
+  Stage Start, Return, Retire and live costume retention across reentry. The
+  original menu, localized Help and settings use their owning input/audio/profile
+  services. Restart carries the committed mission appearance without changing
+  permanent selection, progression or save data. Full repository checks and
+  independent source/ownership review pass; native walkthrough acceptance is
+  distinct from controlled corpus checks. See
+  `research/engine/subsystems/native-pause-menu.md`.
+  Real nonzero world checkpoint restore, subtitle event producers and gameplay
+  force-feedback remain explicit gameplay boundaries. The separate post-result
+  Power Up implementation is included as WIP at the user’s request; it remains
+  unaccepted and requires its own gameplay review.
+
+- Gameplay pause is separate from retained developer diagnostics. Normal builds
+  disable developer views. The initial optional timing overlay, separate
+  inspector and automation boundary are design only in
+  `docs/architecture/developer-tools.md`; activation controls and detailed UI
+  remain undecided. No speculative debug interface is included.
+
+- The HUD/live-resource/ring and firing/support-hand repair were accepted and
+  committed separately. Pause acceptance does not close live casting, genuine
+  mission startup/results or world persistence. Finish remaining agreed
+  pre-gameplay work before the architecture/file-organization pass.
 
 - Offline asset-upgrade experiments are authorized in parallel with the faithful
   port, starting with Alicia's original outfit. The first repeatable extraction

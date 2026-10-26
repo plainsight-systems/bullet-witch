@@ -2,11 +2,43 @@
 // The mixer retains loop/cursor ownership; prepared PCM makes repeated
 // lookahead and loop reads idempotent. No codec or allocation enters its native
 // callback. E.6/MEM.9 are applied through the shared audio header contracts.
+// Role-gain publication uses the native API lock (CP.2, #rconc-races) shared
+// with its mixer. Exact pinned-source adaptation is in PatchFact.cmake.
 #include "audio/fact/wma_bridge.h"
 
 #include <limits.h>
+#include <math.h>
 
 #include "FACT_internal.h"
+
+uint32_t bw_fact_set_cue_gain(FACTCue* cue, float gain) {
+  if (cue == NULL || !isfinite(gain) || gain < 0.0f || gain > 1.0f) {
+    return FAUDIO_E_INVALID_ARG;
+  }
+  // CP.2: the same native lock protects mixer reads and control writes. Keep
+  // authored wave volume intact so mute/unmute never divides by the old gain.
+  FAudioMutex mutex = cue->parentBank->parentEngine->apiLock;
+  FAudio_PlatformLockMutex(mutex);
+  cue->bwMixGain = gain;
+  if (cue->simpleWave != NULL) {
+    FACTWave_SetVolume(cue->simpleWave, cue->simpleWave->volume);
+  }
+  if (cue->playingSound != NULL) {
+    for (uint8_t i = 0; i < cue->playingSound->sound->trackCount; ++i) {
+      FACTTrackInstance* track = &cue->playingSound->tracks[i];
+      if (track->activeWave.wave != NULL) {
+        FACTWave_SetVolume(track->activeWave.wave,
+                           track->activeWave.wave->volume);
+      }
+      if (track->upcomingWave.wave != NULL) {
+        FACTWave_SetVolume(track->upcomingWave.wave,
+                           track->upcomingWave.wave->volume);
+      }
+    }
+  }
+  FAudio_PlatformUnlockMutex(mutex);
+  return FAUDIO_OK;
+}
 
 uint32_t FAudio_WMADEC_init(FAudioSourceVoice* voice, uint32_t type) {
   if (type != FAUDIO_FORMAT_WMAUDIO2) return FAUDIO_E_INVALID_CALL;

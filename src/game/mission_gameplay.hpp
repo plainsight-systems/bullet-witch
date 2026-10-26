@@ -13,20 +13,23 @@
 #pragma once
 #include "menu_surface.hpp"
 #include "mission_interaction.hpp"
+#include "mission_transition.hpp"
 #include "player_cockpit.hpp"
 #include "player_input_routing.hpp"
 
 namespace bw::game {
 struct MissionFrameDisposition {
   bool ui_consumed{}, resource_transaction{};
+  MissionTransition transition{MissionTransition::none};
 };
 class MissionGameplay {
  public:
   MissionGameplay(world::WorldClock& clock, MissionControl& control,
                   MissionPlayerState& player, PlayerResources& resources,
                   MissionLoading& loading, StageInspection& stage,
-                  GameplayHudOutput& hud, MenuSurface& menu,
-                  SourceRandom& random, bool developer_review,
+                  GameplayHudOutput& hud, MissionPauseOutput& pause_output,
+                  SourceRandom& random, audio::CueOutput& audio,
+                  HelpControl help, PauseOptionsServices settings,
                   CockpitActivation activation);
   MissionGameplay(const MissionGameplay&) = delete;
   MissionGameplay& operator=(const MissionGameplay&) = delete;
@@ -36,7 +39,10 @@ class MissionGameplay {
   MissionFrameDisposition begin(float presentation_seconds,
                                 const MissionInput& input);
   void advance();
-  void present(bool developer_overlay);
+  void present();
+  float presentation_opacity() const {
+    return interaction_.presentation_opacity();
+  }
 
  private:
   world::WorldClock& clock_;
@@ -44,7 +50,6 @@ class MissionGameplay {
   const MissionPlayerState& player_;
   PlayerResources& resources_;
   StageInspection& stage_;
-  MenuSurface& menu_;
   MissionInteraction interaction_;
   PlayerInputRouting input_;
   PlayerCockpit cockpit_;

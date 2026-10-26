@@ -22,7 +22,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "game/pause_flow.hpp"
+#include "game/developer_review_flow.hpp"
 #include "game/profile.hpp"
 #include "media_memory_fixture.hpp"
 
@@ -46,13 +46,13 @@ void pause_review_transactions() {
       bw::formats::SkeletonDefinition::parse(skeleton_bytes, domain);
   const bw::animation::PreparedClipCatalog catalog({}, skeleton, 0, {}, domain);
   bw::game::MissionControl hidden_control;
-  bw::game::PauseFlow hidden_review(hidden_control.user_pause_control(), 0,
-                                    false);
+  bw::game::DeveloperReviewFlow hidden_review(
+      hidden_control.user_pause_control(), 0, false);
   hidden_review.bind_review_catalogs(catalog, catalog, 0);
   require(hidden_review.presentation().count == 2,
           "Catalog binding must not expose hidden developer tools");
   bw::game::MissionControl control;
-  bw::game::PauseFlow pause(control.user_pause_control(), 0);
+  bw::game::DeveloperReviewFlow pause(control.user_pause_control(), 0);
   pause.bind_review_catalogs(catalog, catalog, 0);
   pause.update(true, {});
   const auto choose = [&](std::string_view label) {
@@ -66,6 +66,21 @@ void pause_review_transactions() {
     }
     throw std::runtime_error("Missing pause row");
   };
+  // A normal Options transaction publishes costume two outside this view.
+  // Developer admission must observe that costume, and can select the old one.
+  pause.update(true, {});
+  pause.observe_costume(2);
+  pause.update(true, {});
+  choose("Costume");
+  require(
+      pause.presentation().selected == 2,
+      "Developer costume selection observes the current normal-menu result");
+  pause.update(false, {0, 0x01000000});
+  pause.update(false, {0, 0x01000000});
+  pause.update(false, {0x1010, 0});
+  require(pause.requested_costume() == 0,
+          "Previous costume remains a real request after normal-menu change");
+  pause.complete_costume(true);
   choose("Weapon class (preview)");
   pause.update(false, {0, 0x02000000});
   pause.update(false, {0x1010, 0});
@@ -291,7 +306,7 @@ void options_and_stage() {
 }  // namespace
 void test_menu_flow() {
   bw::game::MissionControl control;
-  bw::game::PauseFlow pause(control.user_pause_control(), 5);
+  bw::game::DeveloperReviewFlow pause(control.user_pause_control(), 5);
   require(!pause.update(false, {}), "Gameplay frame stays unconsumed");
   require(pause.update(true, {0x1010, 0}) && pause.paused(),
           "Pause edge consumes confirm without immediately resuming");
@@ -309,7 +324,8 @@ void test_menu_flow() {
           "Resume consumes the whole input frame");
   require(!pause.update(false, {}), "Next frame can advance gameplay");
   bw::game::MissionControl clean_control;
-  bw::game::PauseFlow clean_pause(clean_control.user_pause_control(), 5, false);
+  bw::game::DeveloperReviewFlow clean_pause(clean_control.user_pause_control(),
+                                            5, false);
   require(clean_pause.update(true, {}) && clean_pause.paused() &&
               clean_pause.presentation().count == 2 &&
               clean_pause.presentation().rows[0].label == "Resume" &&

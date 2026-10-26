@@ -40,7 +40,8 @@ enum class Screen : std::uint8_t {
   advertise,
   title,
   character_load,
-  title_menu
+  title_menu,
+  power_up
 };
 class StartupServices {
  public:
@@ -58,6 +59,11 @@ class StartupServices {
   virtual double latest_stage() const = 0;
   virtual void start_mission(std::string_view mission);
   virtual bool mission_pending();
+  // Retirement consumers observe teardown completed by the mission owner.
+  // They never manufacture mission success or destroy a borrowed world.
+  virtual double mission_status() const;
+  virtual void stop_mission_music();
+  virtual void unload_concept_mission();
 };
 class RootDriver {
  public:

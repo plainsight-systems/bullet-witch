@@ -527,7 +527,15 @@ front-end action masks. This entry does not complete the original mission start.
 | `include/bw/world/world_clock.hpp`, `src/world/world_clock.cpp` | Single scaled interval publication, immutable frame identity and admitted world time |
 | `include/bw/input/action_repeat.hpp`, `src/input/action_repeat.cpp` | Shared original held/pressed repeat bank using explicit presentation time; devices supply masks |
 | `src/game/mission_control.hpp/.cpp` | Stable original user/script/pad pause authority, shared saved-state stack, hardware/neutral admission and restricted UserPauseControl handle |
-| `src/game/pause_flow.*`, `mission_driver.*`, `stage_inspection.*` | Menu receives only user-pause commands; driver and scene borrow const control/time observations |
+| `src/game/pause_menu.*`, `developer_review_flow.*`, `mission_driver.*`, `stage_inspection.*` | Native pause and separate developer navigation receive only user-pause commands; driver and scene borrow const control/time observations |
+| `src/game/pause_help.*`, `pause_options.*` | Native child navigation; narrow Help read capability and authoritative settings transaction/save capabilities |
+| `src/game/controller_settings.*`, `device_options.*`, `controller_options.*` | Original System mapping compatibility, separate PC device settings persistence, and native controller child policy |
+| `src/game/controller_input.*`, `include/bw/input/physical_state.hpp` | Game mapping of neutral physical samples through copied settings; platform never reads Profile |
+| `src/game/menu_dialog.*`, `menu_audio.*` | Shared original confirmation state/layout and source cue scheduling on presentation time |
+| `src/game/mission_transition.hpp` | Typed full mission teardown/reentry request; root wait remains active for restart |
+
+| `src/game/mission_pause_presentation.hpp`, `mission_pause_surface.*`, `pause_*_surface.*` | Restricted pause output and mutually exclusive native view resources; original artwork and font/glyph publication |
+| `src/game/developer_views.hpp`, `run`, `CMakeLists.txt` | Explicit build-time diagnostic separation, default off; user-facing interface/admission pending design; capture only controls logging |
 | `src/framework/startup_application.cpp` | Retains owners in lifetime order, samples native time/input, waits and dispatches current consumers |
 
 Time publication belongs to `bw_timing`, the shared repeat bank to `bw_input`,

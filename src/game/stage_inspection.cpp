@@ -1289,14 +1289,12 @@ void StageInspection::advance(const world::WorldFrame& frame,
           ordinary_shooter && fire_targeting, automatic_targeting_camera_);
     }
     present_input(input.presentation, input.movement);
-    // The current host exposes normal horizontal look. Use the source initial
-    // sensitivity field for its raised turn animation, not camera angular
-    // speed. Persisted inversion/sensitivity options remain an explicit input
-    // owner.
-    constexpr std::uint8_t kInitialLookSensitivity = 60;
+    // Source input settings belong to the input owner. Both camera look and
+    // raised turn consume the same copied sensitivity/inversion observation.
     if (input.look.right != 0) {
-      input.action.aim.signed_turn_input =
-          raised_turn_input(input.look.right, kInitialLookSensitivity, false);
+      input.action.aim.signed_turn_input = raised_turn_input(
+          input.look.right, static_cast<std::uint8_t>(input.look.turn_speed),
+          false);
     }
     input.action.aim.weapon_class = weapon_class_;
     input.action.aim.weapon_movement_scale =
@@ -1349,10 +1347,8 @@ void StageInspection::advance(const world::WorldFrame& frame,
                        controller.state().stance == AliciaStance::crouched);
     camera.advance(controller.state().pose, input.look,
                    review_entry_ ? delta_seconds : consumed);
-    if (audio_output_ != nullptr) audio_output_->update();
   } else if (player_) {
     player_->advance(delta_seconds, output_);
-    if (audio_output_ != nullptr) audio_output_->update();
   }
   if (environment_channels_ && environment_ && lighting_ &&
       (camera_ || fixed_view_)) {

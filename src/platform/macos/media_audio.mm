@@ -107,12 +107,14 @@ struct Published {
 };
 static_assert(std::atomic<double>::is_always_lock_free);
 static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
+static_assert(std::atomic<float>::is_always_lock_free);
 }  // namespace
 struct MediaAudio::State {
   video::Decoder& source;
   const std::size_t prime_frames;
   Published published;
   std::atomic<bool> stop_requested{}, start_requested{}, initialized{};
+  std::atomic<float> requested_gain;
   std::thread worker;
   // Everything below is confined to worker/runloop callbacks.
   AudioQueueRef queue{};
@@ -123,7 +125,9 @@ struct MediaAudio::State {
   video::AudioSnapshot current;
   double next_media{}, last_device_time{};
   bool started{}, ending{}, drain_requested{}, have_device_time{};
-  State(video::Decoder& decoder, std::size_t prime) : source(decoder), prime_frames(prime) {
+  float applied_gain{1};
+  State(video::Decoder& decoder, std::size_t prime, float gain)
+      : source(decoder), prime_frames(prime), requested_gain(gain) {
     worker = std::thread([this] { run(); });
     initialized.wait(false);
   }
@@ -333,6 +337,10 @@ struct MediaAudio::State {
         !status(AudioQueueCreateTimeline(queue, &timeline))) {
       return false;
     }
+    applied_gain = requested_gain.load(std::memory_order_relaxed);
+    if (!status(AudioQueueSetParameter(queue, kAudioQueueParam_Volume, applied_gain))) {
+      return false;
+    }
     for (auto& buffer : buffers) {
       if (!status(
               AudioQueueAllocateBuffer(queue, kBlockFrames * kChannels * sizeof(float), &buffer))) {
@@ -351,6 +359,13 @@ struct MediaAudio::State {
     initialized.notify_one();
     if (prepared) {
       while (!stop_requested.load() && current.failure_code == 0 && !current.drained) {
+        // Only this native service touches AudioQueue. Scalar publication does
+        // not synchronize other state and needs no stronger ordering (CP.2).
+        const float gain = requested_gain.load(std::memory_order_relaxed);
+        if (gain != applied_gain) {
+          if (!status(AudioQueueSetParameter(queue, kAudioQueueParam_Volume, gain))) break;
+          applied_gain = gain;
+        }
         if (start_requested.load() && !started) {
           started = status(AudioQueueStart(queue, nullptr));
         }
@@ -393,7 +408,7 @@ void MediaAudio::prepare(video::Decoder& source, std::size_t prime_frames) {
     throw std::invalid_argument("Audio preparation requires a source and prime target");
   }
   // Publish only a prepared owner; failure joins and releases the temporary state.
-  auto prepared = std::allocate_shared<State>(allocator_, source, prime_frames);
+  auto prepared = std::allocate_shared<State>(allocator_, source, prime_frames, gain_);
   if (prepared->published.load().failure_code != 0) {
     throw std::runtime_error("Native audio preparation failed: " +
                              std::to_string(prepared->published.load().failure_code));
@@ -404,6 +419,13 @@ void MediaAudio::start() {
   if (state_) {
     state_->start_requested.store(true);
   }
+}
+void MediaAudio::set_gain(float gain) {
+  if (!std::isfinite(gain) || gain < 0 || gain > 1) {
+    throw std::invalid_argument("Invalid media audio gain");
+  }
+  gain_ = gain;
+  if (state_) state_->requested_gain.store(gain, std::memory_order_relaxed);
 }
 video::AudioSnapshot MediaAudio::snapshot() const {
   return state_ ? state_->published.load() : video::AudioSnapshot{};

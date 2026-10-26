@@ -25,23 +25,55 @@ render::TextureChannel channel(formats::FontChannel value) {
   throw std::invalid_argument("Invalid original font channel");
 }
 }  // namespace
+char16_t next_sprite_character(std::string_view text, std::size_t& cursor) {
+  if (cursor >= text.size()) {
+    throw std::invalid_argument("Missing sprite text character");
+  }
+  auto next_cursor = cursor;
+  const auto first = static_cast<unsigned char>(text[next_cursor++]);
+  constexpr unsigned kAscii = 128, kThreeStart = 0xe0, kFourStart = 0xf0,
+                     kTwoStart = 0xc2, kThreeMask = 15, kTwoMask = 31,
+                     kContinuationMask = 0xc0, kPayload = 63, kShift = 6,
+                     kThreeMinimum = 0x800, kSurrogateFirst = 0xd800,
+                     kSurrogateLast = 0xdfff;
+  if (first < kAscii) {
+    cursor = next_cursor;
+    return first;
+  }
+  const unsigned count = first >= kThreeStart && first < kFourStart  ? 2U
+                         : first >= kTwoStart && first < kThreeStart ? 1U
+                                                                     : 0U;
+  if (count == 0 || text.size() - next_cursor < count) {
+    throw std::invalid_argument("Invalid original font UTF-8");
+  }
+  unsigned value = first & (count == 2 ? kThreeMask : kTwoMask);
+  for (unsigned i = 0; i < count; ++i) {
+    const auto byte = static_cast<unsigned char>(text[next_cursor++]);
+    if ((byte & kContinuationMask) != kAscii) {
+      throw std::invalid_argument("Invalid font UTF-8 continuation");
+    }
+    value = (value << kShift) | (byte & kPayload);
+  }
+  if (value < (count == 2 ? kThreeMinimum : kAscii) ||
+      (value >= kSurrogateFirst && value <= kSurrogateLast)) {
+    throw std::invalid_argument("Invalid font Unicode scalar");
+  }
+  cursor = next_cursor;
+  return static_cast<char16_t>(value);
+}
 std::size_t append_sprite_text(const formats::BitmapFont& font,
                                render::TextureHandle atlas,
                                std::string_view text,
                                SpriteTextPosition position, render::Color color,
                                std::span<render::Sprite> output) {
-  constexpr unsigned kAsciiLimit = 128;
   if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
       !std::isfinite(position.size) || position.size <= 0 || atlas.value == 0) {
     throw std::invalid_argument("Invalid sprite text placement");
   }
   std::size_t required = 0;
-  for (const char character : text) {
-    const auto codepoint = static_cast<unsigned char>(character);
+  for (std::size_t cursor = 0; cursor < text.size();) {
+    const auto codepoint = next_sprite_character(text, cursor);
     if (codepoint == '\n') continue;
-    if (codepoint >= kAsciiLimit) {
-      throw std::invalid_argument("Sprite text requires ASCII");
-    }
     const auto glyph = font.glyph(codepoint);
     if (!glyph) throw std::runtime_error("Missing original font glyph");
     if (!glyph->blank) ++required;
@@ -55,8 +87,8 @@ std::size_t append_sprite_text(const formats::BitmapFont& font,
   auto cursor = position.x;
   auto baseline = position.y + static_cast<float>(font.baseline()) * scale;
   std::size_t count = 0;
-  for (const char character : text) {
-    const auto codepoint = static_cast<unsigned char>(character);
+  for (std::size_t text_cursor = 0; text_cursor < text.size();) {
+    const auto codepoint = next_sprite_character(text, text_cursor);
     if (codepoint == '\n') {
       cursor = position.x;
       baseline += position.size;

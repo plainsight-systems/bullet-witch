@@ -16,7 +16,7 @@
 // MEM.9-embedded-allocate-at-init.md) confines diagnostic formatting to failure.
 // Action input extends the existing main-thread snapshot: retain keyboard taps,
 // sample controller holds, clear on focus loss, then derive one-shot edges.
-// RT/F stays normalized held fire intent; the game owns acceptance and cadence.
+// Raw triggers retain analog magnitude; the game mapper owns saved bindings.
 // Shoulders and face buttons publish independent physical edges/holds. No
 // chord, selection priority or ring lifecycle is interpreted by this target.
 // Both MCP phases apply I.1 (#ri-explicit) to this platform/game boundary and
@@ -25,11 +25,11 @@
 // Component replacement applies I.1 (#ri-explicit), C.85 (#rc-swap-noexcept),
 // and GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md): validate/prepare before
 // nonthrowing publication, keeping GPU assets resident. Both MCP phases read.
-// Hardware evade is held LT above 0.1; Space retains down/up taps within one
+// Physical keyboard taps retain down/up edges consumed within one
 // event pump. A stays menu confirmation. Both-phase I.1/E.4 expose distinct
 // hold/edge meanings; MEM.9 stores fixed input state without frame allocation.
-// Keyboard gameplay presses retain event edges separately from final held state
-// (P.1 #rp-direct); MEM.9 uses two stack flags without frame-time allocation.
+// Physical key presses retain event edges separately from final held state
+// (P.1 #rp-direct); MEM.9 uses fixed bitsets without frame-time allocation.
 // Sprite canvas fit is independent of world residency. Implementation ES.22
 // (#res-init) initializes the complete viewport before either pass uses it;
 // MEM.9 keeps this per-frame arithmetic in fixed stack storage.
@@ -77,11 +77,13 @@
 // COPY.5-resource-owning-types-are-move-only.md) fixes native owner identity;
 // GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md) retains uploaded frames.
 #include "bw/platform/startup_host.hpp"
+#include <IOKit/hidsystem/IOLLEvent.h>
 #include "bw/formats/texture_mips.hpp"
 #include "bw/input/action_repeat.hpp"
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/media_audio.hpp"
 #include "gamepad_actions.hpp"
+#include "physical_keys.hpp"
 #include "platform/macos/texture_allocation.hpp"
 #include "platform/macos/world_renderer.hpp"
 
@@ -147,11 +149,11 @@
 
 namespace bw::platform {
 namespace {
-constexpr std::uint32_t kConfirmAction = 0x1010U;
-constexpr std::uint32_t kCancelAction = 0x2020U;
+constexpr std::uint32_t kConfirmAction = 0x1000U;
+constexpr std::uint32_t kStartAction = 0x10U;
+constexpr std::uint32_t kCancelAction = 0x2000U;
 constexpr unsigned short kReturnKey = 36;
 constexpr unsigned short kSpaceKey = 49;
-constexpr unsigned short kCrouchKey = 8;
 constexpr unsigned short kEscapeKey = 53;
 constexpr unsigned short kFullscreenKey = 3;
 constexpr unsigned short kUpKey = 126, kDownKey = 125, kLeftKey = 123, kRightKey = 124;
@@ -160,41 +162,6 @@ constexpr std::uint32_t kDownAction = 0x02000000U;
 constexpr std::uint32_t kLeftAction = 0x04000000U;
 constexpr std::uint32_t kRightAction = 0x08000000U;
 constexpr std::uint32_t kDirections = 0x0f000000U;
-constexpr std::uint32_t kMoveForward = 1U << 0, kMoveBackward = 1U << 1;
-constexpr std::uint32_t kMoveLeft = 1U << 2, kMoveRight = 1U << 3;
-constexpr std::uint32_t kLookUp = 1U << 4, kLookDown = 1U << 5;
-constexpr std::uint32_t kLookLeft = 1U << 6, kLookRight = 1U << 7;
-constexpr std::uint32_t kFire = 1U << 8;
-constexpr std::uint32_t kReload = macos::kReloadButton;
-constexpr std::uint32_t kAttack = macos::kAttackButton;
-constexpr std::uint32_t kWeaponCycle = macos::kWeaponButton;
-constexpr std::uint32_t kAimMode = macos::kTargetButton;
-constexpr std::uint32_t kShoulderLeft = macos::kShoulderLeftButton;
-constexpr std::uint32_t kShoulderRight = macos::kShoulderRightButton;
-constexpr std::uint32_t kFaceNorth = macos::kFaceNorthButton;
-constexpr std::uint32_t kActionPresses =
-    kReload | kAttack | kWeaponCycle | kAimMode | kShoulderLeft | kShoulderRight | kFaceNorth;
-std::uint32_t gameplay_key(unsigned short code) {
-  constexpr std::array<std::pair<unsigned short, std::uint32_t>, 16> bindings{{{13, kMoveForward},
-                                                                               {1, kMoveBackward},
-                                                                               {0, kMoveLeft},
-                                                                               {2, kMoveRight},
-                                                                               {34, kLookUp},
-                                                                               {40, kLookDown},
-                                                                               {38, kLookLeft},
-                                                                               {37, kLookRight},
-                                                                               {3, kFire},
-                                                                               {15, kReload},
-                                                                               {14, kAttack},
-                                                                               {12, kWeaponCycle},
-                                                                               {17, kAimMode},
-                                                                               {33, kShoulderLeft},
-                                                                               {30, kShoulderRight},
-                                                                               {16, kFaceNorth}}};
-  const auto found =
-      std::ranges::find_if(bindings, [code](const auto& binding) { return binding.first == code; });
-  return found == bindings.end() ? 0U : found->second;
-}
 std::uint32_t key_action(unsigned short code) {
   switch (code) {
     case kReturnKey:
@@ -268,10 +235,9 @@ struct StartupHost::State {
   render::TextureHandle upload_sprite(std::uint32_t width, std::uint32_t height,
                                       MTLPixelFormat format, std::uint32_t mip_levels,
                                       std::span<const std::uint8_t> pixels);
+  input::PhysicalState physical;
   std::uint32_t keyboard_keys{};
-  std::uint32_t gameplay_keys{};
-  bool previous_pause{}, previous_crouch{};
-  macos::GameplayButtonEdges action_edges;
+  macos::GamepadButtonEdges pad_edges;
   std::uint32_t previous_held{};
   std::optional<timing::FrameTiming> frame_timing;
   input::ActionRepeat action_repeat;
@@ -376,6 +342,7 @@ StartupHost::StartupHost(const std::shared_ptr<memory::Domain>& cpu_domain,
                                                  backing:NSBackingStoreBuffered
                                                    defer:NO];
     state.window.releasedWhenClosed = NO;
+    state.window.acceptsMouseMovedEvents = YES;
     state.window_delegate = [[BWStartupWindowDelegate alloc] init];
     state.window.delegate = state.window_delegate;
     state.window.title =
@@ -434,8 +401,15 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     auto& state = *state_;
     state.window_delegate.closeEnabled = window_close_enabled;
     std::uint32_t key_edges = 0;
-    std::uint32_t action_key_edges = 0;
-    bool evade_key_edge = false, pause_key_edge = false, crouch_key_edge = false;
+    auto& physical = state.physical;
+    physical.keys_pressed.reset();
+    physical.pad_held = 0;
+    physical.mouse_pressed = 0;
+    physical.mouse_delta = {};
+    physical.wheel = 0;
+    physical.movement = {};
+    physical.look = {};
+    physical.left_trigger = physical.right_trigger = 0;
     while (NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                                untilDate:[NSDate distantPast]
                                                   inMode:NSDefaultRunLoopMode
@@ -453,25 +427,68 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
           }
           continue;
         }
+        const auto usage = macos::keyboard_usage(code);
+        if (usage != 0) {
+          const bool down = event.type == NSEventTypeKeyDown;
+          if (down && !event.isARepeat) physical.keys_pressed.set(usage);
+          physical.keys_held.set(usage, down);
+        }
         const auto action = key_action(code);
         const std::uint32_t key =
             code == kReturnKey ? 1U : (code == kSpaceKey ? 2U : (code == kEscapeKey ? 4U : action));
         if (event.type == NSEventTypeKeyDown) {
           if (!event.isARepeat) {
             key_edges |= action;
-            action_key_edges |= gameplay_key(code) & kActionPresses;
-            // A down/up pair drained together must still produce one press.
-            evade_key_edge = evade_key_edge || code == kSpaceKey;
-            pause_key_edge = pause_key_edge || code == kEscapeKey;
-            crouch_key_edge = crouch_key_edge || code == kCrouchKey;
           }
           state.keyboard_keys |= key;
-          state.gameplay_keys |= gameplay_key(code);
         } else {
           state.keyboard_keys &= ~key;
-          state.gameplay_keys &= ~gameplay_key(code);
         }
       } else {
+        if (event.type == NSEventTypeFlagsChanged) {
+          // Device-specific modifier bits retain left/right key identity even
+          // while both keys are held. The independent mask collapses that state.
+          constexpr std::array<std::pair<NSEventModifierFlags, std::uint16_t>, 8> kModifiers{
+              {{NX_DEVICELSHIFTKEYMASK, 225},
+               {NX_DEVICERSHIFTKEYMASK, 229},
+               {NX_DEVICELCTLKEYMASK, 224},
+               {NX_DEVICERCTLKEYMASK, 228},
+               {NX_DEVICELALTKEYMASK, 226},
+               {NX_DEVICERALTKEYMASK, 230},
+               {NX_DEVICELCMDKEYMASK, 227},
+               {NX_DEVICERCMDKEYMASK, 231}}};
+          for (const auto& [flag, usage] : kModifiers) {
+            const bool down = (event.modifierFlags & flag) != 0;
+            if (down && !physical.keys_held.test(usage)) physical.keys_pressed.set(usage);
+            physical.keys_held.set(usage, down);
+          }
+        }
+        if (event.type == NSEventTypeMouseMoved || event.type == NSEventTypeLeftMouseDragged ||
+            event.type == NSEventTypeRightMouseDragged ||
+            event.type == NSEventTypeOtherMouseDragged) {
+          physical.mouse_delta[0] += static_cast<float>(event.deltaX);
+          physical.mouse_delta[1] -= static_cast<float>(event.deltaY);
+        }
+        if (event.type == NSEventTypeScrollWheel) {
+          physical.wheel += event.scrollingDeltaY > 0 ? 1 : (event.scrollingDeltaY < 0 ? -1 : 0);
+        }
+        const bool mouse_down = event.type == NSEventTypeLeftMouseDown ||
+                                event.type == NSEventTypeRightMouseDown ||
+                                event.type == NSEventTypeOtherMouseDown;
+        const bool mouse_up = event.type == NSEventTypeLeftMouseUp ||
+                              event.type == NSEventTypeRightMouseUp ||
+                              event.type == NSEventTypeOtherMouseUp;
+        constexpr NSInteger kMouseButtonCount = 8;
+        if ((mouse_down || mouse_up) && event.buttonNumber >= 0 &&
+            event.buttonNumber < kMouseButtonCount) {
+          const auto bit = static_cast<std::uint8_t>(1U << event.buttonNumber);
+          if (mouse_down) {
+            physical.mouse_pressed |= bit;
+            physical.mouse_held |= bit;
+          } else {
+            physical.mouse_held &= static_cast<std::uint8_t>(~bit);
+          }
+        }
         [NSApp sendEvent:event];
       }
     }
@@ -480,18 +497,6 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     std::uint32_t held = ((state.keyboard_keys & 3U) != 0 ? kConfirmAction : 0U) |
                          ((state.keyboard_keys & 4U) != 0 ? kCancelAction : 0U) |
                          (state.keyboard_keys & kDirections);
-    const auto key_axis = [&](std::uint32_t positive, std::uint32_t negative) {
-      return static_cast<float>((state.gameplay_keys & positive) != 0) -
-             static_cast<float>((state.gameplay_keys & negative) != 0);
-    };
-    std::array<float, 2> movement{key_axis(kMoveRight, kMoveLeft),
-                                  key_axis(kMoveForward, kMoveBackward)};
-    std::array<float, 2> look{key_axis(kLookRight, kLookLeft), key_axis(kLookUp, kLookDown)};
-    bool evade = (state.keyboard_keys & 2U) != 0;
-    bool pause = (state.keyboard_keys & 4U) != 0;
-    bool crouch = false;
-    float fire_trigger = (state.gameplay_keys & kFire) != 0 ? 1.0F : 0.0F;
-    std::uint32_t action_holds = state.gameplay_keys & kActionPresses;
     NSArray<GCController*>* controllers = [GCController controllers];
     bool controller_connected = false;
     for (NSUInteger index = 0; index < controllers.count; ++index) {
@@ -501,21 +506,22 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
       for (NSUInteger index = 0; index < controllers.count; ++index) {
         GCController* controller = controllers[index];
         GCExtendedGamepad* pad = controller.extendedGamepad;
+        if (pad == nil) continue;
         const auto merge_axis = [](float keyboard, float controller_axis) {
           return std::abs(controller_axis) > std::abs(keyboard) ? controller_axis : keyboard;
         };
-        movement[0] = merge_axis(movement[0], pad.leftThumbstick.xAxis.value);
-        movement[1] = merge_axis(movement[1], pad.leftThumbstick.yAxis.value);
-        look[0] = merge_axis(look[0], pad.rightThumbstick.xAxis.value);
-        look[1] = merge_axis(look[1], pad.rightThumbstick.yAxis.value);
-        constexpr float kEvadeTriggerThreshold = 0.1F;
-        evade = evade || pad.leftTrigger.value > kEvadeTriggerThreshold;
-        pause = pause || pad.buttonMenu.pressed;
-        crouch = crouch || pad.leftThumbstickButton.pressed;
-        fire_trigger = std::max(fire_trigger, pad.rightTrigger.value);
-        action_holds |= macos::gamepad_action_holds(pad);
-        if (pad.buttonA.pressed || pad.buttonMenu.pressed) {
+        physical.movement[0] = merge_axis(physical.movement[0], pad.leftThumbstick.xAxis.value);
+        physical.movement[1] = merge_axis(physical.movement[1], pad.leftThumbstick.yAxis.value);
+        physical.look[0] = merge_axis(physical.look[0], pad.rightThumbstick.xAxis.value);
+        physical.look[1] = merge_axis(physical.look[1], pad.rightThumbstick.yAxis.value);
+        physical.left_trigger = std::max(physical.left_trigger, pad.leftTrigger.value);
+        physical.right_trigger = std::max(physical.right_trigger, pad.rightTrigger.value);
+        physical.pad_held |= macos::gamepad_physical_buttons(pad);
+        if (pad.buttonA.pressed) {
           held |= kConfirmAction;
+        }
+        if (pad.buttonMenu.pressed) {
+          held |= kStartAction;
         }
         if (pad.buttonB.pressed) {
           held |= kCancelAction;
@@ -536,20 +542,10 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
       }
     } else {
       // Focus loss retires held input rather than carrying it into the next activation.
+      physical = {};
       state.keyboard_keys = 0;
-      state.gameplay_keys = 0;
-      movement = {};
-      look = {};
-      evade = false;
-      pause = false;
       held = 0;
       key_edges = 0;
-      evade_key_edge = false;
-      pause_key_edge = false;
-      crouch_key_edge = false;
-      fire_trigger = 0;
-      action_holds = 0;
-      action_key_edges = 0;
     }
     // Keep press edges distinct from the recovered per-bit repeat timing.
     const auto pressed = key_edges | (held & ~state.previous_held);
@@ -557,34 +553,13 @@ StartupInput StartupHost::pump(bool window_close_enabled) {
     const auto repeated =
         state.action_repeat.advance({held, pressed}, state.frame_timing->presentation_seconds);
     state.previous_held = held;
-    const bool evade_held = evade_key_edge || evade;
-    const bool pause_pressed = pause_key_edge || (pause && !state.previous_pause);
-    state.previous_pause = pause;
-    const bool crouch_pressed = crouch_key_edge || (crouch && !state.previous_crouch);
-    state.previous_crouch = crouch;
-    const auto action_pressed = state.action_edges.sample(action_holds, action_key_edges);
-    return {.pressed_actions = pressed,
+    physical.controller_connected = controller_connected;
+    physical.pad_pressed = state.pad_edges.sample(physical.pad_held);
+    return {.physical = physical,
+            .pressed_actions = pressed,
             .repeated_actions = repeated,
             .close_requested = !state.window.visible,
-            .controller_connected = controller_connected,
-            .movement = movement,
-            .look = look,
-            .evade_held = evade_held,
-            .pause_pressed = pause_pressed,
-            .crouch_pressed = crouch_pressed,
-            .fire_trigger = fire_trigger,
-            .reload_pressed = (action_pressed & kReload) != 0,
-            .attack_pressed = (action_pressed & kAttack) != 0,
-            .weapon_cycle_pressed = (action_pressed & kWeaponCycle) != 0,
-            .aim_mode_pressed = (action_pressed & kAimMode) != 0,
-            .shoulder_left_pressed = (action_pressed & kShoulderLeft) != 0,
-            .shoulder_right_pressed = (action_pressed & kShoulderRight) != 0,
-            .shoulder_left_held = (action_holds & kShoulderLeft) != 0,
-            .shoulder_right_held = (action_holds & kShoulderRight) != 0,
-            .face_north_pressed = (action_pressed & kFaceNorth) != 0,
-            .face_east_pressed = (action_pressed & macos::kFaceEastButton) != 0,
-            .face_south_pressed = (action_pressed & macos::kFaceSouthButton) != 0,
-            .face_west_pressed = (action_pressed & macos::kFaceWestButton) != 0};
+            .controller_connected = controller_connected};
   }
 }
 void StartupHost::upload(const video::VideoFrame& frame) {

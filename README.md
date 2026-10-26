@@ -60,7 +60,7 @@ launching. Native host options pass through; see the
 Use `./run --texture-mips on` to enable the original texture mip option. It is
 off by default; changing it requires restarting. See the
 [texture notes](research/engine/subsystems/lighting-texture-mip-generation.md).
-For recording, use the same launcher with developer UI hidden:
+For recording, use the same launcher with diagnostics redirected:
 
 ```sh
 ./run --capture
@@ -81,32 +81,43 @@ starting camera. The explicit camera option keeps a fixed development view.
 In Concept Mission → One Shot Kill, the bounded traversal build uses these
 controls. Full mission behavior is still being reconstructed.
 
-| Action | Xbox controller | Keyboard |
+| Action | Xbox controller | Keyboard / mouse |
 | --- | --- | --- |
 | Move | Left stick | W/A/S/D |
-| Look | Right stick | I/J/K/L |
+| Look | Right stick | Mouse movement |
 | Evasive leap | LT | Space |
-| Crouch/stand | Left stick click | C |
-| Fire | RT held | F held |
+| Crouch/stand | Left stick click | Left Shift |
+| Fire | RT held | Left mouse held |
 | Reload | X | R |
-| Melee presentation | A | E |
-| Switch weapon | B | Q |
-| Aim | Right stick click | T |
-| Open/page magic ring | Tap LB/RB | Tap `[` / `]` |
-| Ring choice: right/bottom/left | B/A/X | Q/E/R |
-| Cancel ring | Y or right stick click | Y or T |
+| Melee presentation | A | Right mouse |
+| Switch weapon | B | Mouse wheel down / up (forward / backward) |
+| Aim | Right stick click | E |
+| Open/page magic ring | Tap LB/RB | Middle mouse opens; wheel changes page |
+| Ring choice: right/bottom/left | B/A/X | C/X/Z |
+| Cancel ring | Y or right stick click | Middle mouse or E |
 | Pause/resume | Menu | Escape |
+
+These are the original default bindings; Controller Configuration can rebind
+them and change camera inversion or sensitivity.
 
 Release the shoulder button after opening the ring, then tap again to page.
 Holding one shoulder while pressing the other closes it. Face buttons select
 spells directly; the sticks and D-pad do not navigate the ring. Wait for its
 opening/page transition to settle before selecting.
 
-The current inspection pause menu offers Resume, Costume, Weapon Class, and
-Animation Review. The original pause menu is still being reconstructed.
-Choose with the D-pad or arrow keys and confirm with A or Return. Animation
-Review runs selected actions and clips in the current scene; unavailable requests
-stay paused with an explanation. B/Q switches weapons with the original change
+The normal pause menu uses the original Help, Options, Return, Stage Start,
+Retire and Exit artwork. Options includes live music/effects volume, original
+controller configuration, brightness calibration and in-session costume changes.
+Back offers to discard edited settings; Exit follows the autosave/save choice.
+Stage Start rebuilds the scene. Return currently restarts the checkpoint-zero
+scene; restoring captured world checkpoints awaits actual world startup.
+
+Developer diagnostics remain separate from normal pause. Their interface and
+activation controls are pending design; no developer shortcut or overlay is
+admitted in the normal build. Build-time separation is retained independently
+of capture mode.
+
+B or the mouse wheel switches weapons with the original change
 animation, retaining body movement and aiming state; the paused Weapon Class
 selector resets presentation to neutral. Both preserve position and require
 Alicia to be grounded. Ammunition and magic are live resources: firing consumes rounds and reloads

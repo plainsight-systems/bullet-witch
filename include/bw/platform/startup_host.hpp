@@ -67,6 +67,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "bw/input/physical_state.hpp"
 #include "bw/memory/device_budget.hpp"
 #include "bw/render/sprites.hpp"
 #include "bw/render/world.hpp"
@@ -75,24 +76,33 @@
 
 namespace bw::platform {
 struct StartupInput {
+  input::PhysicalState physical;
   std::uint32_t pressed_actions{};
   std::uint32_t repeated_actions{};
   bool close_requested{};
   // Device availability observation for honest platform button prompts.
   bool controller_connected{};
-  // Raw normalized axes, held evade and pause edge. Gameplay owns dead zones,
-  // rates, motion selection and pause policy; menu repeats remain independent.
-  std::array<float, 2> movement{}, look{};
+  // Fixed UI receiver axis, populated by the game adapter from positional
+  // stick Y plus wheel impulses. Independent of saved gameplay bindings.
+  float menu_vertical_axis{};
+  // The game binding translator populates the following intentions from the
+  // physical sample and authoritative settings. Native pump leaves them
+  // neutral. Gameplay owns dead zones, rates and acceptance; menu repeats are
+  // separate.
+  std::array<float, 2> movement{}, look{}, mouse_look{};
+  static constexpr unsigned kDefaultSensitivity = 60;
+  unsigned turn_speed{kDefaultSensitivity}, mouse_bias{kDefaultSensitivity};
   bool evade_held{}, pause_pressed{}, crouch_pressed{};
-  // Default controller RT / desktop F. No shot acceptance or cadence here.
+  // Copied binding results carry no shot acceptance or cadence.
+  bool keyboard_magic_pressed{}, keyboard_cycle_forward_pressed{},
+      weapon_cycle_backward_pressed{};
   float fire_trigger{};
-  // Controller X/A/B/RS click; desktop R/E/Q/T. Keyboard taps survive a
-  // down/up pair drained in one pump. These are not menu-repeat actions.
+  // Presses survive a down/up pair drained in one pump. These are not
+  // menu-repeat actions; saved bindings are interpreted by game code.
   bool reload_pressed{}, attack_pressed{}, weapon_cycle_pressed{},
       aim_mode_pressed{};
-  // Physical positions only: LB/RB (desktop [ / ]) and Y/B/A/X
-  // (desktop Y/Q/E/R). Holds and edges remain separate observations; game
-  // policy decides chords, selection priority and consumption.
+  // Translated shoulder and face intentions retain separate holds and edges.
+  // Game policy decides chords, selection priority and consumption.
   bool shoulder_left_pressed{}, shoulder_right_pressed{};
   bool shoulder_left_held{}, shoulder_right_held{};
   bool face_north_pressed{}, face_east_pressed{}, face_south_pressed{},

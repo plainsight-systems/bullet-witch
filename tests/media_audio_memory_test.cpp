@@ -6,6 +6,7 @@
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) injects
 // failure; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps
 // acquisition before callback execution. Fixed fixture data, no I/O.
+#include <limits>
 #include <stdexcept>
 
 #include "bw/platform/media_audio.hpp"
@@ -45,6 +46,18 @@ void media_audio_memory_contracts() {
   Source source;
   {
     bw::platform::MediaAudio audio(domain);
+    audio.set_gain(0);
+    audio.set_gain(1);
+    for (const float gain : {-1.F, 2.F, std::numeric_limits<float>::infinity(),
+                             std::numeric_limits<float>::quiet_NaN()}) {
+      bool rejected = false;
+      try {
+        audio.set_gain(gain);
+      } catch (const std::invalid_argument&) {
+        rejected = true;
+      }
+      require(rejected, "Media gain rejects invalid scalar before publication");
+    }
     domain.reset();
     require(!owner.expired(), "Empty audio service retains its domain");
     bool failed = false;

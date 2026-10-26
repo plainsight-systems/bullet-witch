@@ -38,7 +38,9 @@ if(APPLE)
     URL_HASH SHA256=987f06301b0aec73fb52472ecbbf58fa07a1737900ffccfe3e67f6746641810a
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(bw_audio_fact)
-  # Replace only the Win32 codec translation unit, not the cue/mixer sources.
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchFact.cmake")
+  # Replace the Win32 codec translation unit. The separate, checked patch above
+  # adds the original request-owned mix gain to the pinned cue/wave boundary.
   get_target_property(bw_fact_sources FAudio-static SOURCES)
   list(FILTER bw_fact_sources EXCLUDE REGEX "FAudio_platform_win32_wmadec.c$")
   set_property(TARGET FAudio-static PROPERTY SOURCES "${bw_fact_sources}")

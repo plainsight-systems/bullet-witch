@@ -15,6 +15,7 @@
 
 void profile_load_flow_contracts();
 void progression_contracts();
+void power_up_flow_contracts();
 
 namespace {
 void require(bool condition, const char* message) {
@@ -166,6 +167,7 @@ int main() {
     checkpoint_owned_bytes();
     profile_load_flow_contracts();
     progression_contracts();
+    power_up_flow_contracts();
   } catch (const std::exception&) {
     return 1;
   }

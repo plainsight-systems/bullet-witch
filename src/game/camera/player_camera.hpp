@@ -10,7 +10,11 @@
 // dominate update cost. Both MCP phases: I.1 (ri-explicit) makes input,
 // lifetime and failure contracts explicit; MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) retains fixed state.
-// Source and bounded angular reconstruction: player-camera-follow.md.
+// Live source input settings are copied with each admitted frame. The original
+// stick gain and mouse denominator apply before authored camera rates. No
+// Profile borrower or mutable global is retained. I.1/E.4 and MEM.9 (both
+// phases) preserve that ownership and fixed arithmetic. Source and bounded
+// angular reconstruction: player-camera-follow.md.
 #pragma once
 #include "initial_camera.hpp"
 
@@ -18,6 +22,9 @@ namespace bw::game {
 enum class PlayerCameraContext : std::uint8_t { ordinary, targeting };
 struct PlayerCameraLook {
   float right{}, up{};
+  static constexpr unsigned kDefaultSensitivity = 60;
+  unsigned turn_speed{kDefaultSensitivity}, mouse_bias{kDefaultSensitivity};
+  std::array<float, 2> mouse_delta{};
 };
 class PlayerCamera {
  public:

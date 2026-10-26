@@ -6,10 +6,11 @@
 // commands or interprets resource receipts. A completed bounded resource
 // transaction requests deadline rebasing without exposing its game policy.
 // Resources precede Stage, which precedes its gameplay coordinator, preserving
-// reverse-order retirement. Capture suppresses developer presentation only; it
-// does not alter simulation. Existing loading callbacks pump presentation
-// without admitting world ticks. Core I.1 (#ri-explicit), C.9 (#rc-private),
-// implementation E.4
+// reverse-order retirement. Confirmed retirement destroys those borrowers and
+// resource owners before notifying the root script; no victory is fabricated.
+// Build configuration alone enables developer views. Existing loading callbacks
+// pump presentation without admitting world ticks. Core I.1 (#ri-explicit), C.9
+// (#rc-private), implementation E.4
 // (#re-design-invariants), and both-phase performance MEM.9 (guidelines/memory/
 // MEM.9-embedded-allocate-at-init.md) retain explicit phases and fixed
 // per-frame handoffs. See gameplay-integration-boundaries.md and
@@ -26,12 +27,15 @@
 
 #include "bw/timing/frame_clock.hpp"
 #include "bw/world/world_clock.hpp"
+#include "game/controller_input.hpp"
 #include "game/gameplay_hud_surface.hpp"
 #include "game/initial_placement_shim.hpp"
 #include "game/mission_control.hpp"
 #include "game/mission_gameplay.hpp"
 #include "game/mission_loading.hpp"
+#include "game/mission_pause_surface.hpp"
 #include "game/player_resources.hpp"
+#include "game/power_up_surface.hpp"
 #include "game/source_random.hpp"
 #include "game/stage_inspection.hpp"
 #include "game/startup_loading_surface.hpp"
@@ -94,8 +98,18 @@ int run_startup(const StartupOptions& configuration,
            loading_count;
   });
   bw::game::Profile profile;
+  game::DeviceOptions device_options(saves);
+  const auto device_status = device_options.load();
+  if (device_status != platform::SaveStatus::ok &&
+      device_status != platform::SaveStatus::missing) {
+    throw std::runtime_error("Native device options could not be loaded");
+  }
   bw::game::StartupMenuSurface menu_surface(resources, host);
-  bw::game::FrontEnd frontend(profile, saves, playback, menu_surface, {});
+  game::PowerUpSurface power_up_surface(
+      resources, host,
+      files.read(configuration.game / "data/menu/9900", memory.resources));
+  bw::game::FrontEnd frontend(profile, saves, playback, menu_surface, {},
+                              &power_up_surface);
   bw::game::StartupSession session(playback, &title_surface, &frontend,
                                    memory.runtime);
   session.start_root(resources, 1);
@@ -125,6 +139,10 @@ int run_startup(const StartupOptions& configuration,
   std::optional<game::MissionAudio> mission_audio;
   std::optional<game::PlayerResources> player_resources;
   game::GameplayHudSurface hud_surface(resources, host);
+  game::MissionPauseSurface pause_surface(
+      resources, host, menu_surface,
+      files.read(configuration.game / "data/menu/9900", memory.resources),
+      files.read(configuration.game / "data/menu/9952", memory.resources));
   std::optional<game::StageInspection> stage_inspection;
   std::optional<game::MissionGameplay> mission_gameplay;
   std::optional<game::MissionPhase> reported_mission_phase;
@@ -161,7 +179,11 @@ int run_startup(const StartupOptions& configuration,
     const float presentation_delta = timing.presentation_seconds;
     longest_tick = std::max(longest_tick, wall_delta);
     const auto pump_started = std::chrono::steady_clock::now();
-    const auto input = host.pump(session.window_close_enabled());
+    const auto controller_settings =
+        profile.settings_control().controller_settings();
+    const auto input = game::map_controller_input(
+        host.pump(session.window_close_enabled()), controller_settings,
+        device_options.snapshot(), wall_delta);
     longest_pump = std::max(longest_pump,
                             std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - pump_started)
@@ -179,6 +201,14 @@ int run_startup(const StartupOptions& configuration,
           presentation_delta,
           {.player = {.movement = input.movement,
                       .look = input.look,
+                      .mouse_look = input.mouse_look,
+                      .turn_speed = input.turn_speed,
+                      .mouse_bias = input.mouse_bias,
+                      .keyboard_magic_pressed = input.keyboard_magic_pressed,
+                      .keyboard_cycle_forward_pressed =
+                          input.keyboard_cycle_forward_pressed,
+                      .weapon_cycle_backward_pressed =
+                          input.weapon_cycle_backward_pressed,
                       .fire_trigger = input.fire_trigger,
                       .evade_held = input.evade_held,
                       .crouch_pressed = input.crouch_pressed,
@@ -195,7 +225,11 @@ int run_startup(const StartupOptions& configuration,
                       .face_south_pressed = input.face_south_pressed,
                       .face_west_pressed = input.face_west_pressed},
            .pause_pressed = input.pause_pressed,
-           .menu = {input.pressed_actions, input.repeated_actions}});
+           .menu = {input.pressed_actions, input.repeated_actions,
+                    input.menu_vertical_axis},
+           .physical = input.physical,
+           .help_icons = game::help_input_icons(controller_settings,
+                                                input.controller_connected)});
       if (mission_frame.resource_transaction) {
         frame_clock.rebase(std::chrono::steady_clock::now());
       }
@@ -242,16 +276,61 @@ int run_startup(const StartupOptions& configuration,
     // Game owns the admitted action/resource/presentation ordering; media
     // transport remains a separate service between input and world phases.
     if (mission_gameplay) mission_gameplay->advance();
+    // Device cue scheduling is a mission audio service, independent of world
+    // admission. Presentation cues continue while gameplay voices are paused.
+    if (mission_audio) {
+      mission_audio->apply_mix(
+          {static_cast<std::uint16_t>(profile.music_volume()),
+           static_cast<std::uint16_t>(profile.effects_volume())});
+      mission_audio->update();
+    }
+    playback.set_music_volume(profile.music_volume());
+    if (mission_frame.transition != game::MissionTransition::none) {
+      if (!mission_loading) {
+        throw std::logic_error("Mission transition has no committed resources");
+      }
+      // Capture the live appearance while its owner exists. Reentry carries
+      // this value across teardown without changing Profile or save data.
+      const game::MissionTransitionRequest transition{
+          mission_frame.transition, mission_loading->current_player_costume()};
+      session.validate_mission_transition(transition);
+      // A confirmed game request retires borrowers before their authorities.
+      // Retirement releases the root wait; restart/checkpoint preserve it and
+      // let the existing entry path build all owners again. No actor reset.
+      mission_gameplay.reset();
+      pause_surface.end();
+      stage_inspection.reset();
+      hud_surface.end();
+      player_resources.reset();
+      mission_audio.reset();
+      mission.reset();
+      world_clock.reset();
+      mission_control.reset();
+      mission_player.reset();
+      mission_loading.reset();
+      mission_resources.reset();
+      loading_surface.end();
+      loading_started.reset();
+      reported_mission_phase.reset();
+      inspected_stage = false;
+      session.complete_mission_transition(transition);
+      frame_clock.rebase(std::chrono::steady_clock::now());
+    }
     const auto actions =
-        configuration.verify || stage_inspection ? 0U : input.pressed_actions;
+        configuration.verify || stage_inspection || mission_frame.ui_consumed
+            ? 0U
+            : input.pressed_actions;
     const auto result = session.advance(
-        {presentation_delta, actions},
-        configuration.verify || stage_inspection ? 0U : input.repeated_actions);
+        {presentation_delta, actions, input.controller_connected},
+        configuration.verify || stage_inspection || mission_frame.ui_consumed
+            ? 0U
+            : input.repeated_actions);
     if (mission_gameplay) {
-      mission_gameplay->present(!configuration.capture);
+      mission_gameplay->present();
       // Inspection presents independently while the original mission load and
       // its black fade remain pending; this never advances script completion.
-      (void)host.draw(1.0F);
+      (void)host.draw(
+          mission_gameplay ? mission_gameplay->presentation_opacity() : 1.F);
     } else if (mission_loading && mission_loading->loading_scene().active) {
       loading_pulse();
     } else {
@@ -261,7 +340,7 @@ int run_startup(const StartupOptions& configuration,
       throw std::runtime_error(result.diagnostic);
     }
     if (session.quit_requested()) return 0;
-    if (session.gameplay_request() && !mission) {
+    if (session.gameplay_request() && !mission && session.mission_pending()) {
       const auto& request = *session.gameplay_request();
       std::cout << "{\"status\":\"gameplay_request_ready\",\"mission\":\""
                 << request.mission << "\",\"stage\":" << request.selection.stage
@@ -394,12 +473,14 @@ int run_startup(const StartupOptions& configuration,
                                             mission_loading->enemy_light()});
         stage_inspection->bind_audio(mission_audio->prepared(),
                                      *mission_audio->output(), random);
-        menu_surface.begin_pause();
-        while (!menu_surface.ready()) loading_pulse();
         mission_gameplay.emplace(
             *world_clock, *mission_control, *mission_player, *player_resources,
-            *mission_loading, *stage_inspection, hud_surface, menu_surface,
-            random, !configuration.capture,
+            *mission_loading, *stage_inspection, hud_surface, pause_surface,
+            random, *mission_audio->output(), profile.help_control(),
+            game::PauseOptionsServices{profile.settings_control(),
+                                       profile.settings_save_control(saves),
+                                       device_options.control(),
+                                       device_options.save_control()},
             game::CockpitActivation::inspection);
         inspected_stage = true;
         loading_surface.end();

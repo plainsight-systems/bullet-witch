@@ -6,6 +6,7 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BW_WARNINGS_AS_ERRORS "Treat project compiler warnings as errors" ON)
 option(BW_SANITIZE "Enable compiler sanitizers" OFF)
+option(BW_DEVELOPER_VIEWS "Enable separate developer inspection views" OFF)
 set(BW_SANITIZERS "address,undefined" CACHE STRING "Sanitizers to enable with BW_SANITIZE")
 include(cmake/Lua502.cmake)
 add_library(bw_math INTERFACE)
@@ -73,7 +74,8 @@ add_library(bw_runtime src/script/chunk.cpp src/script/context.cpp src/tasks/tas
 target_link_libraries(bw_runtime PUBLIC bw_resources PRIVATE bw_lua502)
 bw_strict(bw_runtime)
 add_library(bw_profiles src/game/profile.cpp src/game/profile_load_flow.cpp
-  src/game/progression.cpp src/game/progression_save.cpp src/game/mission_player_state.cpp)
+  src/game/progression.cpp src/game/progression_save.cpp src/game/mission_player_state.cpp
+  src/game/power_up_flow.cpp)
 target_link_libraries(bw_profiles PUBLIC bw_resources)
 target_include_directories(bw_profiles PUBLIC src)
 bw_strict(bw_profiles)
@@ -82,7 +84,9 @@ if(UNIX)
   target_link_libraries(bw_save_storage_posix PUBLIC bw_resources)
   bw_strict(bw_save_storage_posix)
 endif()
-add_library(bw_game src/game/mission_control.cpp src/game/pause_flow.cpp src/game/camera/initial_camera.cpp src/game/camera/player_camera.cpp src/game/placed_collision.cpp src/game/placed_lighting.cpp src/game/stage_inspection.cpp src/game/stage_animation_review.cpp src/game/stage_shadow.cpp src/game/mission_driver.cpp src/game/initial_placement_shim.cpp src/game/mission_loading.cpp src/game/mission_package_inputs.cpp src/game/npc_palette.cpp src/game/root_driver.cpp src/game/startup_flows.cpp src/game/startup_services.cpp src/game/advertise_flow.cpp src/game/title_flows.cpp src/game/menu_flow.cpp src/game/frontend.cpp)
+add_library(bw_game src/game/mission_control.cpp src/game/developer_review_flow.cpp src/game/camera/initial_camera.cpp src/game/camera/player_camera.cpp src/game/placed_collision.cpp src/game/placed_lighting.cpp src/game/stage_inspection.cpp src/game/stage_animation_review.cpp src/game/stage_shadow.cpp src/game/mission_driver.cpp src/game/initial_placement_shim.cpp src/game/mission_loading.cpp src/game/mission_package_inputs.cpp src/game/npc_palette.cpp src/game/root_driver.cpp src/game/startup_flows.cpp src/game/startup_services.cpp src/game/advertise_flow.cpp src/game/title_flows.cpp src/game/menu_flow.cpp src/game/frontend.cpp)
+target_sources(bw_profiles PRIVATE src/game/controller_settings.cpp)
+target_sources(bw_game PRIVATE src/game/device_options.cpp src/game/controller_input.cpp src/game/controller_options.cpp)
 target_sources(bw_game PRIVATE src/game/stage_environment.cpp src/game/player_actor.cpp src/game/player_controller.cpp src/game/alicia_secondary_motion.cpp src/game/alicia_support_arm.cpp
   src/game/character_animations.cpp src/game/alicia_motion_bindings.cpp src/game/motion_presentation.cpp
   src/game/facial_animation.cpp src/game/character_audio.cpp src/game/mission_audio.cpp
@@ -95,14 +99,21 @@ target_sources(bw_game PRIVATE src/game/ammunition_hud.cpp src/game/gameplay_hud
   src/game/aim_posture.cpp
   src/game/alicia_action_owner.cpp)
 target_link_libraries(bw_game PUBLIC bw_runtime bw_profiles bw_timing PRIVATE bw_images bw_render bw_scene bw_animation)
+target_compile_definitions(bw_game PUBLIC BW_DEVELOPER_VIEWS=$<BOOL:${BW_DEVELOPER_VIEWS}>)
+target_sources(bw_game PRIVATE src/game/menu_audio.cpp
+  src/game/menu_dialog.cpp
+  src/game/menu_prompt.cpp src/game/pause_menu.cpp src/game/pause_help.cpp
+  src/game/mission_help_state.cpp src/game/pause_options.cpp
+  src/game/input_icon.cpp src/game/help_input_icons.cpp)
 bw_strict(bw_game)
 add_library(bw_startup_playback src/game/startup_playback.cpp)
 target_link_libraries(bw_startup_playback PUBLIC bw_game bw_video)
 target_include_directories(bw_startup_playback PUBLIC src)
 bw_strict(bw_startup_playback)
-add_library(bw_startup_presentation src/game/gameplay_hud_surface.cpp src/game/sprite_text.cpp src/game/startup_title_surface.cpp src/game/startup_menu_surface.cpp src/game/startup_loading_surface.cpp)
+add_library(bw_startup_presentation src/game/power_up_surface.cpp src/game/gameplay_hud_surface.cpp src/game/sprite_text.cpp src/game/startup_title_surface.cpp src/game/startup_menu_surface.cpp src/game/startup_loading_surface.cpp)
 target_link_libraries(bw_startup_presentation PUBLIC bw_game PRIVATE bw_images)
 target_include_directories(bw_startup_presentation PUBLIC src)
+target_sources(bw_startup_presentation PRIVATE src/game/controller_options_surface.cpp src/game/pause_menu_surface.cpp src/game/pause_help_surface.cpp src/game/pause_options_surface.cpp src/game/mission_pause_surface.cpp)
 # Display the target OS, including when a toolchain selects a cross-build target.
 set(bw_target_platform_name "${CMAKE_SYSTEM_NAME}")
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -189,7 +200,7 @@ if(BUILD_TESTING)
   bw_strict(memory-tests)
   add_test(NAME memory COMMAND memory-tests)
   set_tests_properties(memory PROPERTIES TIMEOUT 30)
-  add_executable(profile-tests tests/profile_test.cpp tests/profile_load_flow_test.cpp tests/progression_test.cpp)
+  add_executable(profile-tests tests/profile_test.cpp tests/profile_load_flow_test.cpp tests/progression_test.cpp tests/power_up_flow_test.cpp)
   target_link_libraries(profile-tests PRIVATE bw_profiles)
   bw_strict(profile-tests)
   add_test(NAME profile COMMAND profile-tests)
@@ -202,6 +213,8 @@ if(BUILD_TESTING)
   add_executable(runtime-tests tests/runtime_test.cpp tests/task_memory_test.cpp tests/lua_memory_test.cpp tests/startup_flows_test.cpp
     tests/startup_services_test.cpp tests/startup_playback_test.cpp tests/pcm_buffer_test.cpp tests/advertise_flow_test.cpp tests/title_flow_test.cpp tests/menu_flow_test.cpp tests/initial_camera_test.cpp tests/player_camera_test.cpp tests/placed_collision_test.cpp tests/startup_options_test.cpp tests/stage_shadow_test.cpp)
   target_sources(runtime-tests PRIVATE tests/ammunition_hud_test.cpp tests/gameplay_hud_test.cpp tests/gameplay_integration_test.cpp tests/motion_presentation_test.cpp tests/world_timing_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/controller_options_test.cpp tests/pause_menu_test.cpp tests/pause_help_test.cpp tests/menu_audio_test.cpp
+  tests/menu_prompt_test.cpp)
   target_sources(runtime-tests PRIVATE tests/alicia_action_policy_test.cpp
     tests/alicia_reaction_policy_test.cpp
     tests/scripted_jump_policy_test.cpp

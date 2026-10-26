@@ -13,11 +13,16 @@
 // remains the route owner; StartMission validates its identifier against the
 // confirmed menu selection and captures an owned request/checkpoint once.
 // Concept aliases retain selected package identity separately from root name.
-// WaitMission remains pending until a future world consumer supplies outcomes.
-// Main-thread only. Invalid/mismatched routes throw, never become successful
-// gameplay. Design MCP I.30 (#ri-encapsulate) keeps compatibility slots at this
-// boundary; implementation E.6 (#re-raii) retains owned request cleanup;
-// cpp-performance COPY.4
+// WaitMission remains pending until the owning composition reports actual
+// retirement. Restart and checkpoint-zero reentry keep that wait pending;
+// actual saved-world restoration and victory remain unavailable. Only source
+// abort status 2 is supported. Root music/concept-unload acknowledge completed
+// owner teardown in order, never ignore a live owner. I.1/E.6 and MEM.9 were
+// reread for these implementation invariants; the retained status adds fixed
+// storage. Main-thread only. Invalid/mismatched routes throw, never become
+// successful gameplay. Design MCP I.30 (#ri-encapsulate) keeps compatibility
+// slots at this boundary; implementation E.6 (#re-raii) retains owned request
+// cleanup; cpp-performance COPY.4
 // (guidelines/copy-move/COPY.4-rule-of-five-rule-of-zero.md) gives request data
 // ordinary container ownership. Checkpoint copy is O(bytes) at handoff, not
 // per-frame. See research/engine/subsystems/frontend-integration.md. Startup
@@ -54,6 +59,7 @@
 #include "advertise_flow.hpp"
 #include "bw/tasks/task_lifecycle_scheduler.hpp"
 #include "frontend.hpp"
+#include "mission_transition.hpp"
 #include "root_driver.hpp"
 #include "startup_flows.hpp"
 #include "title_surface.hpp"
@@ -96,6 +102,20 @@ class StartupSession final : public StartupServices {
   double latest_stage() const override;
   void start_mission(std::string_view mission) override;
   bool mission_pending() override;
+  double mission_status() const override;
+  void stop_mission_music() override;
+  void unload_concept_mission() override;
+  // Called only after mission/actor/audio/resource owners have retired. The
+  // original root consumes status 2; victory/results are not representable.
+  void complete_mission_retirement();
+  // Validate before destroying live owners. Checkpoint reentry currently admits
+  // only absent snapshots; real imported world restoration remains unavailable.
+  // Completion follows actual teardown, refreshes permanent entry observations,
+  // retains the captured live appearance and the root wait for reentry. The
+  // request observes committed mission state before its owners retire; no
+  // Profile/save mutation or capability travels through this value handoff.
+  void validate_mission_transition(MissionTransitionRequest request) const;
+  void complete_mission_transition(MissionTransitionRequest request);
   const std::optional<GameplayRequest>& gameplay_request() const {
     return gameplay_request_;
   }
@@ -117,12 +137,13 @@ class StartupSession final : public StartupServices {
   TitleSurface* title_surface_{};
   FrontEnd* frontend_{};
   ScreenTask logo_task_, check_task_, advertise_task_, title_task_, load_task_,
-      menu_task_;
+      menu_task_, power_up_task_;
   LogoUpdate input_;
   std::uint32_t repeated_{};
   unsigned campaign_stage_{1}, replay_stage_{1};
   bool replay_mode_{}, concept_mode_{};
   std::optional<GameplayRequest> gameplay_request_;
+  bool mission_retired_{}, retired_music_observed_{}, concept_unloaded_{};
   std::int32_t title_return_request_{};
   bool window_close_enabled_{};
   script::RunResult root_result_{script::RunState::idle, {}};

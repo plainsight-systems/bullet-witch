@@ -1,9 +1,9 @@
 // Bullet Witch mission pause and gameplay-input admission policy. This is the
-// sole mutable pause authority. Stage borrows const observations; PauseFlow
-// receives only a user-pause command handle. The
-// engine WorldClock owns time; this owner selects normal/control work and real
-// versus neutral commands from the original independent flags. Fixed source
-// stack saves menu admission, script pause and pad restriction, not user pause.
+// sole mutable pause authority. Stage borrows const observations;
+// DeveloperReviewFlow receives only a user-pause command handle. The engine
+// WorldClock owns time; this owner selects normal/control work and real versus
+// neutral commands from the original independent flags. Fixed source stack
+// saves menu admission, script pause and pad restriction, not user pause.
 // Algorithm: apply requested control transition -> consume UI frame -> snapshot
 // tick admission -> neutralize excluded input; evade requires release after UI.
 // Other held axes resume normally. No device sampling, animation clock, I/O or
@@ -29,7 +29,11 @@
 
 namespace bw::game {
 struct GameplayInput {
-  std::array<float, 2> movement{}, look{};
+  std::array<float, 2> movement{}, look{}, mouse_look{};
+  static constexpr unsigned kDefaultSensitivity = 60;
+  unsigned turn_speed{kDefaultSensitivity}, mouse_bias{kDefaultSensitivity};
+  bool keyboard_magic_pressed{}, keyboard_cycle_forward_pressed{},
+      weapon_cycle_backward_pressed{};
   float fire_trigger{};
   bool evade_held{}, crouch_pressed{}, reload_pressed{}, attack_pressed{},
       weapon_cycle_pressed{}, aim_mode_pressed{};

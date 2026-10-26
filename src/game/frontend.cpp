@@ -17,15 +17,25 @@ constexpr std::uint32_t kVerticalActions = 0x03000000U;
 constexpr std::uint32_t kConfirmActions = 0x1010U;
 }  // namespace
 FrontEnd::FrontEnd(Profile& profile, platform::SaveStorage& storage,
-                   LogoMedia& media, MenuSurface& surface, MenuUnlocks unlocks)
+                   LogoMedia& media, MenuSurface& surface, MenuUnlocks unlocks,
+                   PowerUpOutput* power_up_output)
     : profile_(profile),
       storage_(storage),
       media_(media),
       surface_(surface),
+      power_up_output_(power_up_output),
       load_(profile, storage, media),
-      menu_(profile, unlocks) {}
-FrontEnd::~FrontEnd() { surface_.end(); }
+      menu_(profile, unlocks),
+      power_up_(profile.upgrade_purchases()) {}
+FrontEnd::~FrontEnd() {
+  if (power_up_output_ != nullptr) power_up_output_->end();
+  surface_.end();
+}
 void FrontEnd::start(Screen screen) {
+  if (menu_progress_.status == FlowStatus::pending ||
+      power_up_progress_.status == FlowStatus::pending) {
+    throw std::logic_error("A front-end task already owns the shared surface");
+  }
   if (screen == Screen::character_load) {
     surface_.begin();
     load_.start();
@@ -38,6 +48,18 @@ void FrontEnd::start(Screen screen) {
     menu_.start();
     menu_progress_ = {FlowStatus::pending, false, 0};
     phase_ = Phase::resources;
+  } else if (screen == Screen::power_up) {
+    if (load_.progress().status != FlowStatus::complete) {
+      throw std::logic_error("Power-up activation precedes profile load");
+    }
+    if (power_up_output_ == nullptr) {
+      throw std::logic_error("Power-up presentation capability is required");
+    }
+    surface_.end();
+    power_up_output_->begin();
+    power_up_.start();
+    power_up_progress_ = {FlowStatus::pending, false, 0};
+    power_up_phase_ = Phase::resources;
   } else {
     throw std::invalid_argument("Not a front-end screen");
   }
@@ -45,6 +67,7 @@ void FrontEnd::start(Screen screen) {
 ScreenProgress FrontEnd::progress(Screen screen) const {
   if (screen == Screen::character_load) return load_.progress();
   if (screen == Screen::title_menu) return menu_progress_;
+  if (screen == Screen::power_up) return power_up_progress_;
   throw std::invalid_argument("Not a front-end screen");
 }
 const std::optional<MenuSelection>& FrontEnd::selection() const {
@@ -92,6 +115,10 @@ void FrontEnd::update(Screen screen, LogoUpdate input, std::uint32_t repeated) {
         surface_.show(view);
       }
     }
+    return;
+  }
+  if (screen == Screen::power_up) {
+    update_power_up(input, repeated);
     return;
   }
   if (screen != Screen::title_menu) {
@@ -151,5 +178,56 @@ void FrontEnd::update(Screen screen, LogoUpdate input, std::uint32_t repeated) {
     }
   }
   if (phase_ == Phase::save_error) show_error(save_error_, error_choice_);
+}
+
+// The native post-result task publishes its completion only after conceal.
+// Confirmed purchases dirty Profile; the original root owns the later save
+// task.
+void FrontEnd::update_power_up(LogoUpdate input, std::uint32_t repeated) {
+  constexpr float kPowerUpFadeSeconds = .25F;
+  if (power_up_progress_.status != FlowStatus::pending) return;
+  if (power_up_output_ == nullptr) {
+    throw std::logic_error("Missing power-up output");
+  }
+  switch (power_up_phase_) {
+    case Phase::resources:
+      if (!power_up_output_->ready()) return;
+      media_.begin_fade(FadeDirection::reveal, kPowerUpFadeSeconds);
+      power_up_progress_.visible = true;
+      power_up_phase_ = Phase::revealing;
+      break;
+    case Phase::revealing:
+      power_up_.update({}, input.delta);
+      if (!media_.fade_pending()) power_up_phase_ = Phase::menu;
+      break;
+    case Phase::menu:
+      power_up_.update({input.pressed_actions, repeated}, input.delta);
+      if (power_up_.conceal_requested()) {
+        power_up_phase_ = Phase::conceal;
+      }
+      break;
+    case Phase::conceal:
+      power_up_.update({}, input.delta);
+      media_.begin_fade(FadeDirection::conceal, kPowerUpFadeSeconds);
+      power_up_phase_ = Phase::closing;
+      break;
+    case Phase::closing:
+      power_up_.update({}, input.delta);
+      if (!media_.fade_pending()) power_up_phase_ = Phase::finish;
+      break;
+    case Phase::finish:
+      power_up_output_->end();
+      power_up_progress_ = {FlowStatus::complete, false, 1};
+      break;
+    case Phase::save_error:
+      throw std::logic_error("Power-up does not own the save transaction");
+  }
+  if (power_up_progress_.visible) {
+    auto view = power_up_.presentation();
+    view.input_layout = input.controller_connected
+                            ? PowerUpInputLayout::controller
+                            : PowerUpInputLayout::keyboard;
+    power_up_output_->show(view);
+  }
 }
 }  // namespace bw::game

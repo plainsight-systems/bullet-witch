@@ -118,6 +118,9 @@ StartupSession::ScreenTask& StartupSession::task(Screen screen) {
     case Screen::title_menu:
       if (frontend_ != nullptr) return menu_task_;
       unsupported_screen(screen);
+    case Screen::power_up:
+      if (frontend_ != nullptr) return power_up_task_;
+      unsupported_screen(screen);
     default:
       unsupported_screen(screen);
   }
@@ -134,6 +137,7 @@ ScreenProgress StartupSession::progress(Screen screen) const {
       return title_.progress();
     case Screen::character_load:
     case Screen::title_menu:
+    case Screen::power_up:
       if (frontend_ != nullptr) return frontend_->progress(screen);
       unsupported_screen(screen);
     default:
@@ -223,7 +227,8 @@ void StartupSession::activate(Screen screen) {
     title_surface_->begin();
   } else if (screen == Screen::advertise) {
     advertise_.start();
-  } else if (screen == Screen::character_load || screen == Screen::title_menu) {
+  } else if (screen == Screen::character_load || screen == Screen::title_menu ||
+             screen == Screen::power_up) {
     frontend_->start(screen);
   } else {
     check_.start();
@@ -238,7 +243,8 @@ void StartupSession::update(Screen screen) {
     title_surface_->show(title_.progress().visible, title_.presentation());
   } else if (screen == Screen::advertise) {
     advertise_.update(input_);
-  } else if (screen == Screen::character_load || screen == Screen::title_menu) {
+  } else if (screen == Screen::character_load || screen == Screen::title_menu ||
+             screen == Screen::power_up) {
     frontend_->update(screen, input_, repeated_);
     if (screen == Screen::character_load &&
         frontend_->progress(screen).status == FlowStatus::complete) {
@@ -305,7 +311,7 @@ double StartupSession::latest_stage() const {
   throw std::runtime_error("Saved stage selection is not implemented");
 }
 void StartupSession::start_mission(std::string_view mission) {
-  if (frontend_ == nullptr || gameplay_request_ ||
+  if (frontend_ == nullptr || (gameplay_request_ && !mission_retired_) ||
       frontend_->progress(Screen::title_menu).status != FlowStatus::complete) {
     throw std::logic_error(
         "Mission request requires one confirmed menu selection");
@@ -330,6 +336,7 @@ void StartupSession::start_mission(std::string_view mission) {
                                         {},
                                         script,
                                         frontend_->profile().progression()};
+    mission_retired_ = retired_music_observed_ = concept_unloaded_ = false;
     return;
   }
   if (selection.action != MenuAction::new_game &&
@@ -359,13 +366,84 @@ void StartupSession::start_mission(std::string_view mission) {
     request.checkpoint.assign(checkpoint.begin(), checkpoint.end());
   }
   gameplay_request_ = std::move(request);
+  mission_retired_ = retired_music_observed_ = concept_unloaded_ = false;
 }
 bool StartupSession::mission_pending() {
   if (!gameplay_request_) {
     throw std::logic_error("Mission Wait precedes StartMission");
   }
-  // World loading is not implemented; keep the captured request suspended.
-  return true;
+  return !mission_retired_;
+}
+void StartupSession::complete_mission_retirement() {
+  complete_mission_transition({MissionTransition::retire});
+}
+void StartupSession::validate_mission_transition(
+    MissionTransitionRequest transition) const {
+  if (!gameplay_request_ || mission_retired_) {
+    throw std::logic_error("Mission transition requires one active mission");
+  }
+  switch (transition.operation) {
+    case MissionTransition::retire:
+    case MissionTransition::restart_stage:
+      return;
+    case MissionTransition::checkpoint:
+      if (!gameplay_request_->checkpoint.empty()) {
+        throw std::runtime_error(
+            "Checkpoint return requires complete world restoration");
+      }
+      return;
+    case MissionTransition::none:
+      break;
+  }
+  throw std::invalid_argument("Invalid mission transition");
+}
+void StartupSession::complete_mission_transition(
+    MissionTransitionRequest transition) {
+  // Composition has retired all mission owners. Only retirement releases the
+  // root wait; fresh reentry retains its mission identity and permanent owner.
+  // Core I.1 and performance MEM.9 apply in implementation: typed publication,
+  // constant-size observations, no payload copies or per-frame allocation.
+  validate_mission_transition(transition);
+  if (!gameplay_request_) {
+    throw std::logic_error("Mission transition lost its entry request");
+  }
+  if (transition.operation == MissionTransition::retire) {
+    mission_retired_ = true;
+    return;
+  }
+  auto& request = gameplay_request_.value();
+  if (transition.operation == MissionTransition::restart_stage) {
+    request.checkpoint.clear();
+  }
+  request.progression = frontend_->profile().progression();
+  // Restart keeps the committed session appearance; the pause addition does
+  // not rewrite the permanent front-end selection merely to survive reentry.
+  request.selection.costume = transition.costume;
+}
+void StartupSession::stop_mission_music() {
+  // The current mission owns all cue/device resources. Its destruction has
+  // already stopped and joined audio before the root wait can complete. This
+  // acknowledges that postcondition; no live music is silently ignored.
+  if (!mission_retired_) {
+    throw std::logic_error("Mission audio must retire before the root stop");
+  }
+  retired_music_observed_ = true;
+}
+void StartupSession::unload_concept_mission() {
+  if (!gameplay_request_ || gameplay_request_->mission != "concept" ||
+      !mission_retired_ || !retired_music_observed_ || concept_unloaded_) {
+    throw std::logic_error(
+        "Concept unload requires completed mission teardown");
+  }
+  concept_unloaded_ = true;
+}
+double StartupSession::mission_status() const {
+  if (!gameplay_request_ || !mission_retired_ || !retired_music_observed_ ||
+      (gameplay_request_->mission == "concept" && !concept_unloaded_)) {
+    throw std::logic_error("Mission status precedes retirement consumption");
+  }
+  constexpr double kRetired = 2;
+  return kRetired;
 }
 bool StartupSession::quit_requested() const {
   return frontend_ != nullptr && frontend_->selection() &&

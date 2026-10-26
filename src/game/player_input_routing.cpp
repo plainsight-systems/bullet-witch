@@ -16,8 +16,10 @@ PlayerInputResult PlayerInputRouting::route(const world::WorldFrame& frame,
         mission.levels().spells.at(index) != 0,
         resources.can_afford_spell(static_cast<PlayerSpell>(index))};
   }
-  const bool ring_input = selection_.active() || input.shoulder_left_pressed ||
-                          input.shoulder_right_pressed;
+  const bool ring_active = selection_.active();
+  const bool ring_input = ring_active || input.shoulder_left_pressed ||
+                          input.shoulder_right_pressed ||
+                          input.keyboard_magic_pressed;
   const bool expire =
       input.shoulder_left_held && input.shoulder_right_held &&
       (input.shoulder_left_pressed || input.shoulder_right_pressed);
@@ -34,16 +36,24 @@ PlayerInputResult PlayerInputRouting::route(const world::WorldFrame& frame,
     }
   }
   const auto selection = selection_.advance(
-      {.previous_page = input.shoulder_left_pressed && !expire,
-       .next_page = input.shoulder_right_pressed && !expire,
+      {.open = input.keyboard_magic_pressed && !ring_active,
+       .previous_page =
+           (input.shoulder_left_pressed ||
+            (ring_active && input.weapon_cycle_backward_pressed)) &&
+           !expire,
+       .next_page = (input.shoulder_right_pressed ||
+                     (ring_active && input.keyboard_cycle_forward_pressed)) &&
+                    !expire,
        .choice = choice,
-       .cancel = ring_input && input.aim_mode_pressed,
+       .cancel = (ring_input && input.aim_mode_pressed) ||
+                 (ring_active && input.keyboard_magic_pressed),
        .expire = expire},
       availability, frame.delta_seconds());
   if (ring_input) {
     input.reload_pressed = false;
     input.attack_pressed = false;
     input.weapon_cycle_pressed = false;
+    input.weapon_cycle_backward_pressed = false;
     input.aim_mode_pressed = false;
   }
   const auto status = selection.rejected ? SpellRequestStatus::unavailable

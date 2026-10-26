@@ -83,13 +83,19 @@ class Surface final : public bw::game::TitleSurface {
 };
 class Saves final : public bw::platform::SaveStorage {
  public:
-  bw::platform::SaveRead read(std::string_view, std::size_t) override {
+  bw::platform::SaveRead read(std::string_view name, std::size_t) override {
+    if (name == "BulletWitchSaveData" && !checkpoint.empty()) {
+      return {bw::platform::SaveStatus::ok, checkpoint};
+    }
     return {bw::platform::SaveStatus::missing, {}};
   }
   bw::platform::SaveStatus write(std::string_view,
                                  std::span<const std::byte>) override {
+    ++writes;
     return bw::platform::SaveStatus::ok;
   }
+  std::vector<std::byte> checkpoint;
+  unsigned writes{};
 };
 class MenuSurface final : public bw::game::MenuSurface {
  public:
@@ -98,6 +104,17 @@ class MenuSurface final : public bw::game::MenuSurface {
   void show(const bw::game::MenuPresentation& view) override { current = view; }
   void end() noexcept override { active = false; }
   bw::game::MenuPresentation current;
+  bool active{};
+};
+class PowerUpOutput final : public bw::game::PowerUpOutput {
+ public:
+  void begin() override { active = true; }
+  bool ready() override { return active; }
+  void show(const bw::game::PowerUpPresentation& value) override {
+    current = value;
+  }
+  void end() noexcept override { active = false; }
+  bw::game::PowerUpPresentation current;
   bool active{};
 };
 void frontend_handoff() {
@@ -151,6 +168,149 @@ void frontend_handoff() {
           "Captured request is independent of later profile changes");
   rejects([&] { session.start_mission("st01_00"); },
           "Duplicate handoff rejected");
+  rejects([&] { (void)session.mission_status(); },
+          "Active mission cannot report retirement");
+  using bw::game::MissionTransition;
+  rejects(
+      [&] { session.validate_mission_transition({MissionTransition::none}); },
+      "Empty transition cannot acknowledge teardown");
+  constexpr unsigned kLiveCostume = 5, kNextLiveCostume = 2;
+  const auto permanent_costume = profile.costume();
+  const auto permanent_progression = profile.progression();
+  const auto writes_before_reentry = saves.writes;
+  session.validate_mission_transition(
+      {MissionTransition::restart_stage, kLiveCostume});
+  require(session.mission_pending() && session.gameplay_request() &&
+              session.gameplay_request()->progression == captured_progression,
+          "Validation before teardown leaves entry observations unchanged");
+  session.complete_mission_transition(
+      {MissionTransition::restart_stage, kLiveCostume});
+  require(
+      session.mission_pending() && session.gameplay_request() &&
+          session.gameplay_request()->mission == "st01_00" &&
+          session.gameplay_request()->selection.costume == kLiveCostume &&
+          session.gameplay_request()->progression == profile.progression() &&
+          session.gameplay_request()->checkpoint.empty(),
+      "Stage restart retains committed live costume and keeps root waiting");
+  session.complete_mission_transition(
+      {MissionTransition::checkpoint, kNextLiveCostume});
+  require(
+      session.mission_pending() && session.gameplay_request() &&
+          session.gameplay_request()->mission == "st01_00" &&
+          session.gameplay_request()->selection.costume == kNextLiveCostume &&
+          profile.costume() == permanent_costume &&
+          profile.progression() == permanent_progression &&
+          saves.writes == writes_before_reentry,
+      "Both reentry paths keep live appearance without Profile/save writes");
+  rejects([&] { session.stop_mission_music(); },
+          "Reentry does not release root music boundary");
+  session.complete_mission_retirement();
+  require(!session.mission_pending(), "Real retirement releases root wait");
+  rejects([&] { (void)session.mission_status(); },
+          "Root music boundary precedes result consumption");
+  session.stop_mission_music();
+  require(session.mission_status() == 2,
+          "Retirement is abort status, never mission success");
+  rejects([&] { session.complete_mission_retirement(); },
+          "Duplicate retirement rejected");
+  rejects([&] { session.unload_concept_mission(); },
+          "Campaign cannot consume concept unload");
+}
+void checkpoint_reentry_boundary() {
+  Media media;
+  Saves saves;
+  saves.checkpoint.resize(307200);
+  const auto word = [&](std::size_t offset, unsigned value) {
+    for (unsigned index = 0; index < 4; ++index) {
+      saves.checkpoint.at(offset + index) =
+          static_cast<std::byte>((value >> (index * 8U)) & 255U);
+    }
+  };
+  word(0, 0x10001);
+  word(4, 0x8e0);
+  word(8, 0x500);
+  word(12, 0x30);
+  word(16, 0x3a4);
+  word(20, 0x530);
+  saves.checkpoint.at(0x30) = std::byte{1};
+  MenuSurface surface;
+  bw::game::Profile profile;
+  bw::game::FrontEnd frontend(profile, saves, media, surface, {});
+  bw::game::StartupSession session(media, nullptr, &frontend);
+  session.execute(Screen::character_load);
+  for (unsigned i = 0; i < 13; ++i) (void)session.advance({});
+  session.execute(Screen::title_menu);
+  for (unsigned i = 0; i < 5; ++i) (void)session.advance({});
+  (void)session.advance({}, 0x02000000);
+  (void)session.advance({0, 0x1010});
+  for (unsigned i = 0; i < 7; ++i) (void)session.advance({});
+  session.start_mission("st01_00");
+  using bw::game::MissionTransition;
+  rejects(
+      [&] {
+        session.validate_mission_transition({MissionTransition::checkpoint});
+      },
+      "Imported checkpoint cannot pass pre-teardown restore admission");
+  rejects(
+      [&] {
+        session.complete_mission_transition({MissionTransition::checkpoint});
+      },
+      "Unsupported checkpoint cannot be acknowledged as restored");
+  require(session.mission_pending() && session.gameplay_request() &&
+              !session.gameplay_request()->checkpoint.empty(),
+          "Failed checkpoint admission preserves original request and wait");
+  session.complete_mission_transition(
+      {MissionTransition::restart_stage, profile.costume()});
+  require(session.mission_pending() && session.gameplay_request() &&
+              session.gameplay_request()->checkpoint.empty() &&
+              profile.has_checkpoint(),
+          "Stage restart clears runtime checkpoint but preserves saved bytes");
+}
+void power_up_task_lifecycle() {
+  Media media;
+  Saves saves;
+  MenuSurface surface;
+  PowerUpOutput output;
+  bw::game::Profile profile;
+  bw::game::FrontEnd frontend(profile, saves, media, surface, {}, &output);
+  bw::game::StartupSession session(media, nullptr, &frontend);
+  session.execute(Screen::character_load);
+  for (unsigned i = 0; i < 12; ++i) (void)session.advance({});
+  require(!session.pending(Screen::character_load), "Power-up fixture load");
+  (void)session.advance({});
+  (void)profile.award_result({0, 0});
+  session.execute(Screen::power_up);
+  require(session.pending(Screen::power_up), "Power-up Exec queues activation");
+  const auto settle_power_up = [&] {
+    for (unsigned i = 0; i < 90; ++i) (void)session.advance({1.F / 60.F, 0});
+  };
+  settle_power_up();
+  require(
+      output.current.page == bw::game::PowerUpPage::categories && output.active,
+      "Native task owns visible purchase policy");
+  rejects([&] { frontend.start(Screen::title_menu); },
+          "Another front-end cannot steal an active power-up surface");
+  for (unsigned i = 0; i < 3; ++i) {
+    (void)session.advance({1.F / 60.F, 0x1010});
+    settle_power_up();
+  }
+  require(profile.progression().levels.stats[0] == 2 &&
+              profile.progression().points == 150 && profile.dirty(),
+          "Confirmed screen purchase reaches authoritative Record");
+  for (unsigned i = 0; i < 2; ++i) {
+    (void)session.advance({1.F / 60.F, 0x2020});
+    settle_power_up();
+  }
+  (void)session.advance({1.F / 60.F, 0x2020});
+  media.fading = true;
+  settle_power_up();
+  require(session.pending(Screen::power_up) && output.active,
+          "Power-up cannot complete before conceal");
+  media.fading = false;
+  for (unsigned i = 0; i < 5; ++i) (void)session.advance({});
+  require(
+      !session.pending(Screen::power_up) && !output.active && profile.dirty(),
+      "Wait observes task retirement; later original save still owns I/O");
 }
 void title_readiness_and_lifecycle() {
   Media media;
@@ -299,6 +459,8 @@ void session_failures_and_globals() {
 }  // namespace
 void startup_session_contracts() {
   frontend_handoff();
+  checkpoint_reentry_boundary();
+  power_up_task_lifecycle();
   session_lifecycle();
   session_failures_and_globals();
   title_readiness_and_lifecycle();

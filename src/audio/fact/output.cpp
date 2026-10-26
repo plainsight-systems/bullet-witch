@@ -5,6 +5,12 @@
 // SL.con.3 (#rsl-bounds) checks selective cue/track/wave references before
 // publication. Both implementation corpora queried; see
 // animation-audio-presentation.md.
+// I.1 makes each cue's pause policy explicit; the fixed retained slot owns it
+// for the cue lifetime. This translates original pause-slot admission rather
+// than muting categories shared by gameplay and interface sounds.
+// Mix gain is a separate original request role, applied through the pinned
+// native wave-volume boundary. The C bridge holds FACT's API lock (CP.2,
+// #rconc-races); no game update writes mutable native state without that lock.
 #include "audio/fact/output.hpp"
 
 #include <algorithm>
@@ -149,7 +155,20 @@ struct CueSlot {
   FACTCue* cue{};
   std::uint32_t generation{};
   std::optional<math::Vector3<float>> position;
+  PauseDomain pause_domain{PauseDomain::world};
+  MixBus mix_bus{MixBus::effects};
 };
+float mix_gain(const MixGains& gains, MixBus bus) {
+  switch (bus) {
+    case MixBus::effects:
+      return gains.effects;
+    case MixBus::music:
+      return gains.music;
+    case MixBus::voice:
+      return gains.voice;
+  }
+  throw std::invalid_argument("Invalid audio mix bus");
+}
 constexpr std::size_t kMaximumOutputChannels = 8;
 }  // namespace
 
@@ -253,6 +272,7 @@ struct Output::State {
   FACTAudioEngine* engine{};
   std::array<std::uint8_t, F3DAUDIO_HANDLE_BYTESIZE> spatial{};
   Listener listener;
+  MixGains gains;
   std::size_t decoded_samples{};
   std::uint32_t output_channels{};
   bool owns_bridge{}, paused{};
@@ -403,7 +423,11 @@ std::optional<CueHandle> Output::play(const CueRequest& request) {
     throw std::logic_error("Audio banks must be sealed before playback");
   }
   if (request.position) position_valid(*request.position);
-  update();
+  if (request.pause_domain != PauseDomain::world &&
+      request.pause_domain != PauseDomain::presentation) {
+    throw std::invalid_argument("Invalid audio pause domain");
+  }
+  const auto gain = mix_gain(state_->gains, request.mix_bus);
   const auto bank = std::ranges::find_if(state_->banks, [&](const auto& value) {
     return value->slot == request.bank;
   });
@@ -421,9 +445,14 @@ std::optional<CueHandle> Output::play(const CueRequest& request) {
   try {
     available->cue = cue;
     available->position = request.position;
+    available->pause_domain = request.pause_domain;
+    available->mix_bus = request.mix_bus;
+    checked(bw_fact_set_cue_gain(cue, gain), "Set new cue mix gain");
     state_->spatialize(*available);
     checked(FACTCue_Play(cue), "Play native cue");
-    if (state_->paused) checked(FACTCue_Pause(cue, 1), "Pause new cue");
+    if (state_->paused && available->pause_domain == PauseDomain::world) {
+      checked(FACTCue_Pause(cue, 1), "Pause new world cue");
+    }
   } catch (...) {
     FACTCue_Destroy(cue);
     available->cue = nullptr;
@@ -471,9 +500,27 @@ bool Output::stop(CueHandle handle) {
   slot->cue = nullptr;
   return true;
 }
+void Output::set_mix_gains(const MixGains& gains) {
+  for (const float gain : {gains.music, gains.effects, gains.voice}) {
+    if (!std::isfinite(gain) || gain < 0 || gain > 1) {
+      throw std::invalid_argument("Invalid audio mix gain");
+    }
+  }
+  // Native publication is under FACT's lock, including paused/upcoming waves.
+  // Authored RPC/category gain remains owned by FACT and is not overwritten.
+  state_->gains = gains;
+  for (auto& slot : state_->slots) {
+    if (slot.cue) {
+      checked(bw_fact_set_cue_gain(slot.cue, mix_gain(gains, slot.mix_bus)),
+              "Set active cue mix gain");
+    }
+  }
+}
 void Output::pause(bool paused) {
   for (auto& slot : state_->slots) {
-    if (slot.cue) checked(FACTCue_Pause(slot.cue, paused), "Pause native cues");
+    if (slot.cue && slot.pause_domain == PauseDomain::world) {
+      checked(FACTCue_Pause(slot.cue, paused), "Pause native world cues");
+    }
   }
   state_->paused = paused;
 }

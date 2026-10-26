@@ -14,6 +14,7 @@
 // borrowed-capability lifetime explicit. See frontend-integration.md.
 #pragma once
 #include "menu_surface.hpp"
+#include "power_up_flow.hpp"
 #include "profile_load_flow.hpp"
 #include "root_driver.hpp"
 
@@ -21,7 +22,8 @@ namespace bw::game {
 class FrontEnd {
  public:
   FrontEnd(Profile& profile, platform::SaveStorage& storage, LogoMedia& media,
-           MenuSurface& surface, MenuUnlocks unlocks);
+           MenuSurface& surface, MenuUnlocks unlocks,
+           PowerUpOutput* power_up_output = nullptr);
   ~FrontEnd();
   FrontEnd(const FrontEnd&) = delete;
   FrontEnd& operator=(const FrontEnd&) = delete;
@@ -45,14 +47,19 @@ class FrontEnd {
     closing,
     finish
   };
+  void update_power_up(LogoUpdate input, std::uint32_t repeated);
   void show_error(ProfileResult result, unsigned choice);
   void persist();
   Profile& profile_;
   platform::SaveStorage& storage_;
   LogoMedia& media_;
   MenuSurface& surface_;
+  PowerUpOutput* power_up_output_{};
   ProfileLoadFlow load_;
   MenuFlow menu_;
+  PowerUpFlow power_up_;
+  ScreenProgress power_up_progress_;
+  Phase power_up_phase_{Phase::resources};
   ScreenProgress menu_progress_;
   Phase phase_{Phase::resources};
   ProfileResult save_error_;

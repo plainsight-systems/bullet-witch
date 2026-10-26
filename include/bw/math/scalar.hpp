@@ -55,6 +55,16 @@ T periodic_sine_interpolate(const PeriodicSineEndpoints<T>& endpoints,
   const T factor = T(1) - (T(2) - (sine + T(1))) * T(.5);
   return endpoints.first + (endpoints.last - endpoints.first) * factor;
 }
+// Source type-two periodic response traverses endpoints with one half-sine;
+// the owner wraps phase to [0,1), returning to the first endpoint at the seam.
+template <std::floating_point T>
+T half_sine_interpolate(const PeriodicSineEndpoints<T>& endpoints,
+                        T unit_phase) {
+  constexpr T kPi = T(3.14159265358979323846);
+  const T sine =
+      static_cast<T>(std::sin(static_cast<double>(unit_phase * kPi)));
+  return linear_interpolate(endpoints.first, endpoints.last, sine);
+}
 // Critically damped source UI response. The caller owns velocity and supplies
 // finite nonnegative time with a positive duration. The coefficients preserve
 // original damped-mode evaluation; no clamping/time authority is hidden.
