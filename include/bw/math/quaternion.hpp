@@ -12,6 +12,19 @@
 #include "vector.hpp"
 
 namespace bw::math {
+// Conjugate divided by squared norm; a caller-selected degeneracy threshold
+// returns the zero quaternion. Fixed arithmetic, no normalization/allocation.
+// Both phases Core R.14 and performance MEM.9 retain fixed-value inputs; the
+// caller owns finite-input and threshold policy. Source shared-motion mapping
+// uses float epsilon; other consumers need not inherit that threshold.
+template <std::floating_point T>
+constexpr Vector<T, 4> quaternion_inverse_or_zero(const Vector<T, 4>& value,
+                                                  T minimum_squared_norm) {
+  const T squared = accumulated_dot(value, value);
+  if (squared <= minimum_squared_norm) return {};
+  return {-value[0] / squared, -value[1] / squared, -value[2] / squared,
+          value[3] / squared};
+}
 template <std::floating_point T>
 struct QuaternionProduct {
   Vector<T, 4> left, right;

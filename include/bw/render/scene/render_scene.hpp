@@ -1,3 +1,6 @@
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // Retained scene lifetime over one borrowed WorldPresentation backend. The
 // backend remains the sole draw/resource registry; this owner retains only
 // admission state and an embedded update-only actor capability. Main-thread,
@@ -79,6 +82,10 @@ class RenderScene {
   void replace_model_draws(WorldModelHandle previous,
                            std::span<const WorldColorDraw> replacement);
   void remove_model_draws(WorldModelHandle model);
+  // Scene-only instance lifetime; actor borrowers cannot admit or retire peers.
+  // I.11/MEM.9: borrowed admission packets, native copies at setup only.
+  void add_instance_draws(std::span<const WorldColorDraw> draws);
+  void remove_instance_draws(WorldModelHandle model, std::uint64_t instance);
   void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate> updates);
   void update_world_visibility(std::span<const WorldVisibilityUpdate> updates);

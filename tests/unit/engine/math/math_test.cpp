@@ -1,3 +1,5 @@
+// Math boundary: both-phase Core F.4 / performance MEM.9 keep generic
+// fixed-value operations in bw::math; source policy remains with this owner.
 // Turning witnesses retain original-machine-code numeric outputs and explicit
 // policy boundary cases (both-phase I.1/I.7/MEM.9); no asset or emulator
 // runtime. Verify shared numerical contracts in process: scalar
@@ -11,6 +13,7 @@
 #include <stdexcept>
 
 #include "bw/math/direction.hpp"
+#include "bw/math/euler.hpp"
 #include "bw/math/matrix.hpp"
 #include "bw/math/two_bone.hpp"
 
@@ -23,6 +26,25 @@ void math_tests() {
   namespace math = bw::math;
   using Float = math::Vector3<float>;
   using Double = math::Vector3<double>;
+  constexpr auto identity = math::identity_matrix<float, 4>();
+  constexpr math::Vector<float, 4> homogeneous_point{3, -2, 7, 1};
+  static_assert(math::multiply(identity, homogeneous_point) ==
+                homogeneous_point);
+  static_assert(math::rotate_planar(math::Vector<double, 2>{3, 4},
+                                    math::PlanarRotation<double>{0, 1}) ==
+                math::Vector<double, 2>{-4, 3});
+  const math::Matrix<float, 2, 4> dot_rows{{{2, 0, -1, 5}, {0, 3, 2, -4}}};
+  require(math::multiply(dot_rows, homogeneous_point) ==
+              math::Vector<float, 2>{4, 4},
+          "Dot-row multiplication preserves column orientation and w lane");
+  const auto plane = math::Vector<float, 2>{3, 4};
+  const auto rotated = math::rotate_planar(plane, math::planar_rotation(.7F));
+  const auto restored_plane =
+      math::rotate_planar(rotated, math::planar_rotation(-.7F));
+  require(std::abs(restored_plane[0] - plane[0]) < .000001F &&
+              std::abs(restored_plane[1] - plane[1]) < .000001F &&
+              std::abs(math::accumulated_dot(rotated, rotated) - 25) < .00001F,
+          "Planar rotation preserves length and inverse-angle round trip");
   require(math::dot(Float{16777216, 1, -16777216}, Float{1, 1, 1}) == 0 &&
               math::dot(Double{16777216, 1, -16777216}, Double{1, 1, 1}) == 1,
           "Vector operations preserve scalar precision and addition order");

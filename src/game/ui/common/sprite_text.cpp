@@ -6,6 +6,7 @@
 // consulted.
 #include "sprite_text.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -61,6 +62,23 @@ char16_t next_sprite_character(std::string_view text, std::size_t& cursor) {
   cursor = next_cursor;
   return static_cast<char16_t>(value);
 }
+namespace {
+std::size_t validate_glyphs(const formats::BitmapFont& font,
+                            std::string_view text, std::size_t capacity) {
+  std::size_t required = 0;
+  for (std::size_t cursor = 0; cursor < text.size();) {
+    const auto codepoint = next_sprite_character(text, cursor);
+    if (codepoint == '\n') continue;
+    const auto glyph = font.glyph(codepoint);
+    if (!glyph) throw std::runtime_error("Missing original font glyph");
+    if (!glyph->blank) ++required;
+  }
+  if (required > capacity) {
+    throw std::length_error("Sprite text exceeds command capacity");
+  }
+  return required;
+}
+}  // namespace
 std::size_t append_sprite_text(const formats::BitmapFont& font,
                                render::TextureHandle atlas,
                                std::string_view text,
@@ -70,17 +88,7 @@ std::size_t append_sprite_text(const formats::BitmapFont& font,
       !std::isfinite(position.size) || position.size <= 0 || atlas.value == 0) {
     throw std::invalid_argument("Invalid sprite text placement");
   }
-  std::size_t required = 0;
-  for (std::size_t cursor = 0; cursor < text.size();) {
-    const auto codepoint = next_sprite_character(text, cursor);
-    if (codepoint == '\n') continue;
-    const auto glyph = font.glyph(codepoint);
-    if (!glyph) throw std::runtime_error("Missing original font glyph");
-    if (!glyph->blank) ++required;
-  }
-  if (required > output.size()) {
-    throw std::length_error("Sprite text exceeds command capacity");
-  }
+  (void)validate_glyphs(font, text, output.size());
   const auto scale = position.size / static_cast<float>(font.pixel_size());
   const auto atlas_width = static_cast<float>(font.atlas_width());
   const auto atlas_height = static_cast<float>(font.atlas_height());
@@ -112,6 +120,38 @@ std::size_t append_sprite_text(const formats::BitmapFont& font,
           channel(glyph.channel)};
     }
     cursor += static_cast<float>(glyph.advance) * scale;
+  }
+  return count;
+}
+std::size_t append_centered_sprite_text(const formats::BitmapFont& font,
+                                        render::TextureHandle atlas,
+                                        std::string_view text,
+                                        SpriteTextPosition position,
+                                        render::Color color,
+                                        std::span<render::Sprite> output) {
+  (void)validate_glyphs(font, text, output.size());
+  constexpr float kHalf = .5F;
+  const auto lines = 1 + std::ranges::count(text, '\n');
+  position.y -= static_cast<float>(lines) * position.size * kHalf;
+  const auto scale = position.size / static_cast<float>(font.pixel_size());
+  std::size_t count = 0, offset = 0;
+  while (offset <= text.size()) {
+    const auto newline = text.find('\n', offset);
+    const auto end = newline == std::string_view::npos ? text.size() : newline;
+    const auto line = text.substr(offset, end - offset);
+    float width = 0;
+    for (std::size_t cursor = 0; cursor < line.size();) {
+      const auto glyph = font.glyph(next_sprite_character(line, cursor));
+      if (!glyph) throw std::runtime_error("Missing original font glyph");
+      width += static_cast<float>(glyph->advance) * scale;
+    }
+    count += append_sprite_text(
+        font, atlas, line,
+        {position.x - width * kHalf, position.y, position.size}, color,
+        output.subspan(count));
+    position.y += position.size;
+    if (newline == std::string_view::npos) break;
+    offset = newline + 1;
   }
   return count;
 }

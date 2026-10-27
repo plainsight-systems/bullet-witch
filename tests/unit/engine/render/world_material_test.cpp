@@ -53,10 +53,11 @@ std::uint32_t signature(const bw::render::WorldMaterialRequirements& value) {
 void require(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
 }
-// Source signature corpus: 130 prior selectors and 28 newly restored static
-// keys. Expected words encode the named feature order above; influences come
-// from actual original palette addressing, not a copied selector equation.
-constexpr std::array<ProgramWitness, 158> kOriginalPrograms{{
+// Source signature corpus: 130 prior selectors and 28 restored static keys and
+// 10 NPC body/weapon keys. Expected words encode the named feature order above;
+// influences come from actual original palette addressing, not a copied
+// selector equation.
+constexpr std::array<ProgramWitness, 168> kOriginalPrograms{{
     {0x00800000, 0x000, 0x205a0, 0}, {0x00800200, 0x000, 0x215a0, 0},
     {0x00800a02, 0x001, 0x235b0, 0}, {0x00800a82, 0x001, 0x235b1, 0},
     {0x00800a83, 0x001, 0x23db1, 0}, {0x00820490, 0x001, 0x265e1, 4},
@@ -136,6 +137,11 @@ constexpr std::array<ProgramWitness, 158> kOriginalPrograms{{
     {0xc2800010, 0x001, 0x22580, 1}, {0xc2800011, 0x001, 0x22d80, 1},
     {0xc2800210, 0x001, 0x23580, 1}, {0xc2800211, 0x001, 0x23d80, 1},
     {0xc2800410, 0x001, 0x26580, 1}, {0xc2800610, 0x001, 0x27580, 1},
+    {0x82800210, 0x002, 0x2b582, 2}, {0x80802610, 0x001, 0x277a4, 2},
+    {0x80822610, 0x001, 0x277e4, 2}, {0x82800290, 0x001, 0x23581, 2},
+    {0x80800610, 0x001, 0x275a0, 2}, {0x80802690, 0x001, 0x277a5, 2},
+    {0xc0802290, 0x001, 0x237a5, 1}, {0xc0822290, 0x001, 0x237e5, 1},
+    {0x00800680, 0x001, 0x275a1, 0}, {0xc2800290, 0x001, 0x23581, 1},
 }};
 }  // namespace
 

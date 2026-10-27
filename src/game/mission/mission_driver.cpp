@@ -10,11 +10,11 @@
 // MEM.9-embedded-allocate-at-init.md) adds no frame storage allocation.
 // MissionDriver implements the header's script/load ownership boundary.
 // Preserve the original VM load order and 256 KiB heap; load completion stops
-// before the original actor/world setup gates. Unsupported work remains pending
-// with a named blocked reason; exceptions become terminal failure. Cancellation
-// destroys bridge captures before cancelling services/releasing resource tags.
-// Design/implementation E.6 (#re-raii) retains all owners during pending work;
-// cpp-performance MEM.6
+// until stable mission-start service owners are attached. Unsupported load work
+// remains pending with a named blocked reason; exceptions become terminal
+// failure. Cancellation destroys bridge captures before cancelling
+// services/releasing resource tags. Design/implementation E.6 (#re-raii)
+// retains all owners during pending work; cpp-performance MEM.6
 // (guidelines/memory/MEM.6-inject-allocators-behind-one-interface.md) allocates
 // context/package/string storage from the injected runtime domain. O(package
 // bytes) setup, bounded pump work; no script/package reload per poll.
@@ -67,7 +67,9 @@ MissionDriver::MissionDriver(
   package_name_ += script_name_;
   package_name_ += ".dpk";
   context_.emplace(memory_, kMissionHeapBytes);
+  context_->reserve_coroutines(1);
   bindings();
+  script_bindings();
   // Roll back partial tag registration if the second dependency is unavailable.
   try {
     resources_.request(package_name_, tag_);
@@ -78,8 +80,14 @@ MissionDriver::MissionDriver(
   }
 }
 MissionDriver::~MissionDriver() { cancel(); }
-void MissionDriver::cancel() noexcept {
+void MissionDriver::retire_script() noexcept {
+  callback_.reset();
   context_.reset();
+  script_services_ = nullptr;
+  progress_.phase = MissionPhase::cancelled;
+}
+void MissionDriver::cancel() noexcept {
+  retire_script();
   loads_.cancel();
   resources_.release(tag_);
   progress_.phase = MissionPhase::cancelled;
@@ -109,11 +117,14 @@ void MissionDriver::bindings() {
     player_->set_script_disabled_spells(static_cast<std::uint32_t>(*value));
     return script::Reply{};
   });
-  context_.value().bind("_GetCheckPoint", [](auto args) {
+  context_.value().bind("_GetCheckPoint", [this](auto args) {
     count(args, 0);
     // This driver currently admits fresh concept missions, never Continue
     // saves.
-    return script::Reply{{0.0}, {}};
+    return script::Reply{
+        {script_services_ ? static_cast<double>(script_services_->checkpoint())
+                          : 0.0},
+        {}};
   });
   context_.value().bind("_ExecLoadingScene", [this](auto args) {
     count(args, 1);
@@ -175,16 +186,47 @@ void MissionDriver::bindings() {
         });
   }
 }
+// The source has one current mission script. Conditions can become ready while
+// it waits, but another callback cannot start until that continuation finishes.
+void MissionDriver::advance_callbacks() {
+  if (!context_) throw std::logic_error("Mission callback context absent");
+  auto& context = context_.value();
+  auto& services = script_services();
+  services.scan_callbacks();
+  for (std::size_t count = 0; count <= kMissionCallbackCapacity; ++count) {
+    if (!callback_) {
+      const auto function = services.take_callback();
+      if (!function) return;
+      callback_ = context.start_coroutine(std::string(function->data()));
+    }
+    const auto result = context.pump(*callback_);
+    if (result.state == script::RunState::pending ||
+        result.state == script::RunState::running) {
+      return;
+    }
+    context.retire_coroutine(*callback_);
+    callback_.reset();
+    if (result.state == script::RunState::failed) {
+      throw std::runtime_error(result.diagnostic);
+    }
+  }
+  // A previous in-flight callback plus all 64 ready records fit this pass.
+}
 const MissionProgress& MissionDriver::advance() {
   if (!control_.mission_script_admitted()) return progress_;
   if (progress_.phase == MissionPhase::failed ||
       progress_.phase == MissionPhase::cancelled ||
+      progress_.phase == MissionPhase::awaiting_gameplay ||
       progress_.phase == MissionPhase::awaiting_world_setup) {
     return progress_;
   }
   try {
     if (!context_) {
       throw std::logic_error("Mission context is not live");
+    }
+    if (progress_.phase == MissionPhase::running) {
+      advance_callbacks();
+      return progress_;
     }
     if (progress_.phase == MissionPhase::scripts) {
       const auto report = resources_.pump(tag_);
@@ -210,10 +252,13 @@ const MissionProgress& MissionDriver::advance() {
     if (result.state == script::RunState::failed) {
       throw std::runtime_error(result.diagnostic);
     }
-    if (result.state == script::RunState::complete) {
-      progress_ = {MissionPhase::awaiting_world_setup,
-                   "Mission load completed; original actor/world setup gates "
-                   "are not implemented"};
+    if (result.state == script::RunState::complete &&
+        script_services_ != nullptr) {
+      progress_ = {MissionPhase::running, {}};
+    } else if (result.state == script::RunState::complete) {
+      progress_ = {
+          MissionPhase::awaiting_world_setup,
+          "Mission load completed; awaiting mission-start service owners"};
     }
   } catch (const std::exception& failure) {
     progress_ = {MissionPhase::failed, failure.what()};

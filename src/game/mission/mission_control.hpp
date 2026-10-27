@@ -1,3 +1,7 @@
+// Script capability follows the existing UserPauseControl boundary. Both-phase
+// Core I.4 (#ri-typed) and performance MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) restrict scripts to stack commands and
+// admission observation with one borrowed pointer and no duplicated flags.
 // Bullet Witch mission pause and gameplay-input admission policy. This is the
 // sole mutable pause authority. Stage borrows const observations;
 // DeveloperReviewFlow receives only a user-pause command handle. The engine
@@ -59,6 +63,22 @@ class UserPauseControl {
   explicit UserPauseControl(MissionControl& owner) noexcept;
   MissionControl* owner_;
 };
+// Original mission scripts may change only their pause stack and observe
+// coroutine admission. Copies alias one stable MissionControl; the handle and
+// every copy must retire before it. No default/null state or owner escape.
+// Stack rejection preserves the owner's existing state and exception policy;
+// observation is const, mutation explicit, all calls stay on the owner thread.
+class ScriptPauseControl {
+ public:
+  bool mission_script_admitted() const noexcept;
+  void push_script_pause(ScriptPause pause);
+  void pop_script_pause();
+
+ private:
+  friend class MissionControl;
+  explicit ScriptPauseControl(MissionControl& owner) noexcept;
+  MissionControl* owner_;
+};
 class MissionControl {
  public:
   MissionControl() = default;
@@ -68,6 +88,7 @@ class MissionControl {
   MissionControl& operator=(MissionControl&&) = delete;
   ~MissionControl() = default;
   UserPauseControl user_pause_control() noexcept;
+  ScriptPauseControl script_pause_control() noexcept;
   bool user_paused() const noexcept { return user_paused_; }
   bool simulation_paused() const noexcept {
     return user_paused_ || script_.simulation;

@@ -616,14 +616,27 @@ SE/VO policy, and `source_random` supplies a session-owned random stream.
 `PlayerActor` supplies emitter/contact observations; game application injects the
 target factory and preserves teardown order. See [game audio](../game-audio.md).
 
-### Explicit initial-placement exception
+### Original mission opening and placement
 
-`src/game/world/initial_placement_shim.hpp/.cpp` is the sole temporary shim authorized
-for the animation slice: fresh `cm01_00` / `st04_c` only, with checkpoint requests
-rejected. The game application injects its owned pose into the actor; reusable Stage
-inspection requires explicit placement when no actor is supplied. Replace this
-boundary with genuine mission Lua placement after the startup gates described
-in `research/engine/subsystems/mission-start-admission.md` are implemented.
+The initial-placement shim has been removed. `game/mission/mission_script_bindings`
+routes unchanged Lua commands to `MissionScriptRuntime`; `game/ui/mission` owns the
+original paged instruction task and its presentation. The application provides
+world construction at the authored pose and never selects mission coordinates.
+`game/content/original/mission_placement` decodes shared archetypes, shapes,
+groups and triggers. `game/world/mission_population` owns trigger/deferred
+records and original admission policy; `world_population` binds those decisions
+to scenery queries, shared immutable resources and live `actors/npc` instances.
+Actor observations flow through `world/presentation/stage_presentation` to the
+engine scene and native renderer. Each instance owns pose state; geometry and
+texture uploads remain shared.
+
+`mission_callbacks` owns trap/timer conditions; `mission_driver` dispatches one
+retained Lua callback at a time. `ui/hud/mission_goal_hud` projects the authored
+target with admitted world time. `ui/hud/mission_system_message` owns original
+nonmodal text with supplied control time, publishing a const view to the shared
+HUD surface. These are UI consumers, not script or simulation authorities.
+Full runtime producer boundaries are documented in
+`research/engine/subsystems/mission-startup-implementation.md`.
 
 ### Source local-light producers and character publication
 
@@ -708,7 +721,7 @@ and forwards copied input. All policies consume the existing presentation delta.
 | `src/game/ui/options/options.*`, `src/game/ui/options/controller_options.*` | Shared source settings transactions, frontend-only child requests and real physical-input receiver |
 | `src/game/ui/frontend/ranking_flow.*`, `src/game/ui/frontend/ranking_surface.*` | Original ranking shell/provider availability handling, with explicit unavailable Steam backend |
 | `src/game/ui/power_up/power_up_flow.*`, `src/game/ui/power_up/power_up_surface.*` | Reachable native upgrade policy and presentation; post-result world producer remains WIP |
-| `src/game/ui/audio/frontend_audio.*`, `src/game/session/audio/game_audio.*` | One session audio runtime, source menu requests/music and later mission-bank admission |
+| `src/game/ui/audio/frontend_audio.*`, `src/game/session/audio/game_audio.*`, `src/game/session/audio/music_playback.*` | Frontend cue requests, one session music command/envelope owner, native runtime and mission-bank admission |
 
 The independent review checks connected child return and persistence ownership,
 not just isolated flow fixtures. Detailed evidence is in the frontend subsystem

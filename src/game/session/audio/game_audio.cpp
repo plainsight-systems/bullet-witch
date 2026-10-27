@@ -1,3 +1,7 @@
+// Mission music capacity follows the measured segmented-track corpus (largest
+// 12,125,184 interleaved samples), with a fixed 16M-sample admission ceiling.
+// Core SL.con.3 and performance MEM.9 were read for design/implementation:
+// reject oversized decode before allocation; retain one prepared track owner.
 // Acquire common menu publications at session setup, mission publications at
 // mission loading and music at main entry, then
 // release encoded acquisition storage after the backend and prepared policy own
@@ -58,8 +62,8 @@ GameAudio::GameAudio(const platform::Files& files,
   {
     const auto common =
         load(files, catalogs, "audio.soundbank.bw_common", domain);
-    constexpr std::array<std::uint16_t, 12> kMenuCues{0,  1,  2,  4,  5,   8,
-                                                      10, 11, 12, 17, 362, 363};
+    constexpr std::array<std::uint16_t, 13> kMenuCues{
+        0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 17, 362, 363};
     output_->register_bank(kCommonBank, payload(common, "BW_COMMON.csb"),
                            payload(common, "BW_COMMON.xwb"), kMenuCues);
   }
@@ -127,17 +131,38 @@ void GameAudio::prepare_mission(const platform::Files& files,
 void GameAudio::prepare_frontend_music(
     const platform::Files& files, const std::filesystem::path& sound_directory,
     const std::shared_ptr<memory::Domain>& domain) {
-  if (music_prepared_) return;
+  constexpr std::uint32_t kFrontendMusic = 16;
+  prepare_script_music(kFrontendMusic, files, sound_directory, domain);
+}
+void GameAudio::prepare_script_music(
+    std::uint32_t index, const platform::Files& files,
+    const std::filesystem::path& sound_directory,
+    const std::shared_ptr<memory::Domain>& domain) {
+  // Original script IDs 1..16 map through 82f1a8 then filename table956b68.
+  // This verified range is explicit; untraced indices are not inferred from
+  // neighboring data. Source startup7 selects bgm_07, checkpoint3 bgm_03.
+  constexpr std::array<std::string_view, 16> kTracks{
+      "bgm_01.xwv",  "bgm_02.xwv", "bgm_03.xwv",  "bgm_04.xwv",
+      "bgm_05a.xwv", "bgm_06.xwv", "bgm_07.xwv",  "bgm_08b.xwv",
+      "bgm_09.xwv",  "bgm_10.xwv", "bgm_11c.xwv", "bgm_12.xwv",
+      "bgm_13.xwv",  "bgm_14.xwv", "bgm_15.xwv",  "bgm_16.xwv"};
+  if (index == 0 || index > kTracks.size()) {
+    throw std::out_of_range("Unverified original script music index");
+  }
+  if (prepared_music_ == index) return;
   const auto base = files.canonical(sound_directory);
-  const auto path = files.canonical(base / "bgm_16.xwv");
+  const auto path = files.canonical(base / kTracks.at(index - 1));
   if (path.parent_path() != base) {
-    resources::detail::malformed("Menu music escapes sound directory");
+    resources::detail::malformed("Music escapes sound directory");
   }
   const auto encoded = files.read(path, domain);
-  constexpr std::size_t kMaximumMusicSamples = 8'000'000;
+  // Segmented-track metadata census bounds the largest original track below
+  // 16M samples (64 MB of float PCM); CP610 music3 uses 11,781,120. This
+  // admission ceiling is independent of the shared 60M cue-mixer budget.
+  constexpr std::size_t kMaximumMusicSamples = 16'000'000;
   output_->music().prepare_music(
       audio::decode_segmented_music(encoded, kMaximumMusicSamples, domain));
-  music_prepared_ = true;
+  prepared_music_ = index;
 }
 // Device service continues during world pause; actor admission does not own it.
 void GameAudio::update() { output_->update(); }

@@ -188,8 +188,71 @@ void ring_original_art() {
   require(image(hud, 436).additive && image(hud, 436).color.alpha == 1,
           "native selected flame uses additive blending");
 }
+void original_mission_goal() {
+  bw::game::MissionGoalHud goal;
+  bw::game::MissionGoalObservation observed{
+      {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
+      {1, 1280.F / 720.F, .1F, 1000},
+      {0, 0, 0}};
+  goal.set_target({0, 0, 123});
+  goal.advance(observed, .5F);
+  goal.advance(observed, 0);
+  const auto sprites = goal.commands();
+  require(sprites.size() == 7 && sprites[0].image == 25 &&
+              sprites[0].destination.x == 608 &&
+              sprites[0].destination.y == 264 &&
+              near(sprites[0].rotation_radians, -1.04719758F) &&
+              near(sprites[1].rotation_radians, 1.04719758F) &&
+              sprites[2].image == 27 && sprites[2].destination.x == 624 &&
+              sprites[2].destination.y == 316,
+          "original goal draw witness: rotating marker geometry");
+  const auto units = sprites[4].tile;
+  const auto tens = sprites[5].tile;
+  const auto hundreds = sprites[6].tile;
+  if (!units || !tens || !hundreds) {
+    throw std::runtime_error("Goal digits require source atlas tiles");
+  }
+  require(sprites[3].image == 432 && sprites[3].destination.x == 640 &&
+              sprites[3].destination.y == 212 && units->index == 3 &&
+              tens->index == 2 && hundreds->index == 1 &&
+              sprites[4].destination.x == 721 &&
+              sprites[6].destination.x == 693 &&
+              sprites[4].destination.y == 223 && units->width == 24 &&
+              units->height == 40,
+          "original goal distance witness: atlas tiles and right anchor");
+  goal.clear_target();
+  for (unsigned i = 0; i < 100; ++i) goal.advance(observed, 1.F / 60);
+  require(goal.commands().empty(), "withdrawn goal finishes its source fade");
+  goal.set_target({123, 0, 0});
+  goal.advance(observed, .8F);
+  const auto arrow = goal.commands().front();
+  require(goal.commands().size() == 1 && arrow.image == 28 && arrow.centered &&
+              near(arrow.destination.x, 1152) &&
+              near(arrow.destination.y, 360) &&
+              near(arrow.rotation_radians, 1.57079637F),
+          "original offscreen arrow witness: clamped right-edge geometry");
+  observed.camera.right = {.70710678F, 0, -.70710678F};
+  observed.camera.up = {-.5F, .70710678F, -.5F};
+  observed.camera.forward = {.5F, .70710678F, .5F};
+  goal.advance(observed, 0);
+  require(
+      near(goal.commands().front().rotation_radians, .6154797F),
+      "source inverse-camera bearing retains pitch instead of yaw shortcut");
+  const auto before = goal.commands().front().destination;
+  bool rejected = false;
+  try {
+    goal.set_target({std::numeric_limits<float>::quiet_NaN(), 0, 0});
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && goal.commands().front().destination.x == before.x,
+          "bad goal rejects without replacing presentation");
+  goal.reset();
+  require(goal.commands().empty(), "mission teardown drops goal commands");
+}
 }  // namespace
 void gameplay_hud_contracts() {
+  original_mission_goal();
   source_layout_and_resources();
   ring_admission_and_lifetime();
   ring_original_art();

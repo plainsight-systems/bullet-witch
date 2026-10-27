@@ -25,6 +25,7 @@
 #include "bw/render/shadows/shadow.hpp"
 #include "bw/render/shadows/shadow_casters.hpp"
 #include "game/actors/alicia/player_actor.hpp"
+#include "game/actors/npc/npc_actor.hpp"
 #include "game/player/camera/initial_camera.hpp"
 #include "game/world/stage_source.hpp"
 #include "stage_environment.hpp"
@@ -55,11 +56,18 @@ class StagePresentation {
   // all candidate draws, atomically replace, then update the copied draw count.
   void replace_appearance(const PlayerActor& candidate, bool weapon,
                           const InitialPlayerCamera&);
+  // Borrow stable actor observations through explicit retirement. Admission
+  // prepares lighting/draws and publishes one transactional instance batch.
+  // World owns actor lifetime; no actor mutation or clock capability escapes.
+  void admit_npc(const NpcActor&, const InitialPlayerCamera&);
+  void retire_npc(PopulationIdentity);
   std::size_t selected_draws() const { return selected_draws_; }
   std::size_t omitted_draws() const { return omitted_draws_; }
   std::size_t sky_draws() const { return sky_draws_; }
   std::size_t background_draws() const { return background_draws_; }
   std::size_t player_draws() const { return player_draws_; }
+  void set_player_visible(bool visible, const InitialPlayerCamera& camera,
+                          bool force_player_visibility);
   StagePresentation(const StagePresentation&) = delete;
   StagePresentation& operator=(const StagePresentation&) = delete;
   StagePresentation(StagePresentation&&) = delete;
@@ -68,11 +76,32 @@ class StagePresentation {
  private:
   render::RenderScene output_;
   const PlayerActor* player_;
+  bool player_visible_{true};
   std::shared_ptr<memory::Domain> memory_;
   float initial_far_distance_{};
   scene::ReceiverPublication append_player_draws(
       memory::Vector<render::WorldColorDraw>&, const PlayerActor&, bool,
       const InitialPlayerCamera&);
+  struct ActorDrawVisibility {
+    std::function<bool(std::size_t)> selected;
+    std::function<bool(std::size_t)> visible;
+  };
+  scene::ReceiverPublication append_actor_draws(
+      memory::Vector<render::WorldColorDraw>&, const ResidentModelView&,
+      const animation::Matrix&, std::uint64_t instance,
+      const InitialPlayerCamera&, scene::LightingFieldId,
+      const ActorDrawVisibility& visibility,
+      const std::function<
+          std::span<const render::WorldJointMatrix>(std::size_t)>& palette,
+      std::span<const render::WorldTextureOverride> overrides = {});
+  struct NpcReceiver {
+    const NpcActor* actor{};
+    std::array<std::optional<scene::ReceiverPublication>, 2> lighting;
+  };
+  static constexpr std::size_t kNpcCapacity = 50;
+  std::array<NpcReceiver, kNpcCapacity> npc_receivers_{};
+  void publish_npc_lighting();
+  void publish_npc_visibility(const NpcActor&, bool weapon, bool casts_shadow);
   // Scene owns fields and emitter selection; game maps authored field slots
   // and supplies model observations. Controllers never own lighting state.
   std::optional<scene::ReflectionField> reflection_field_;
@@ -88,6 +117,7 @@ class StagePresentation {
       const ResidentModelView& resident,
       const animation::Matrix& transform) const;
   void publish_player_lighting();
+  void publish_player_visibility(bool weapon, bool casts_shadow);
   void publish_shadow_owners(const InitialPlayerCamera& camera,
                              bool force_player_visibility);
   void publish_view(const InitialPlayerCamera&, bool force_player_visibility);

@@ -9,35 +9,11 @@
 #include <stdexcept>
 
 #include "../../../../fixtures/camera_fixture.hpp"
-#include "game/world/initial_placement_shim.hpp"
 void initial_camera_tests() {
   using camera_fixture::Backing;
   using camera_fixture::collision;
   using camera_fixture::customization;
   using camera_fixture::require;
-  const auto shim =
-      bw::game::initial_placement_shim("cm01_00", "st04_c", false);
-  require(shim.position == std::array<float, 3>{-61.91F, .65F, -97.57F} &&
-              shim.yaw_degrees == -.28F,
-          "Explicit shim preserves fresh start");
-  for (const auto& identity :
-       {std::pair{"other", "st04_c"}, std::pair{"cm01_00", "other"}}) {
-    bool rejected = false;
-    try {
-      (void)bw::game::initial_placement_shim(identity.first, identity.second,
-                                             false);
-    } catch (const std::invalid_argument&) {
-      rejected = true;
-    }
-    require(rejected, "Shim rejects unsupported mission/stage");
-  }
-  bool checkpoint_rejected = false;
-  try {
-    (void)bw::game::initial_placement_shim("cm01_00", "st04_c", true);
-  } catch (const std::invalid_argument&) {
-    checkpoint_rejected = true;
-  }
-  require(checkpoint_rejected, "Initial shim cannot restore a checkpoint");
   const auto domain = bw::memory::Domain::create(std::make_shared<Backing>());
   {
     const auto bytes = customization();

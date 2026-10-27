@@ -1,3 +1,6 @@
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // Host is the window/input/audio composition adapter. World, movie and UI
 // resources are owned by sibling native renderers; final
 // composition/presentation and synchronous GPU retirement belong to
@@ -116,6 +119,7 @@ class WindowHost final : public video::Output,
       const formats::WorldTextureImage& image) override;
   void release_texture(render::TextureHandle texture) noexcept override;
   void set_sprites(std::span<const render::Sprite> sprites) override;
+  void append_sprites(std::span<const render::Sprite> sprites) override;
   void clear_sprites() noexcept override;
   // Immutable world geometry has device ownership distinct from color
   // readiness.
@@ -137,6 +141,10 @@ class WindowHost final : public video::Output,
   void replace_world_model_draws(
       render::WorldModelHandle previous,
       std::span<const render::WorldColorDraw> replacement) override;
+  void add_world_instance_draws(
+      std::span<const render::WorldColorDraw> draws) override;
+  void remove_world_instance_draws(render::WorldModelHandle model,
+                                   std::uint64_t instance) override;
   void update_world_texture_offsets(
       std::span<const render::WorldTextureOffsetUpdate> updates) override;
   void update_world_lighting(

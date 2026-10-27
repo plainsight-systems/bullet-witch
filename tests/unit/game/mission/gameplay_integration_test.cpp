@@ -32,9 +32,15 @@ void require(bool condition, const char* why) {
 struct Output final : GameplayHudOutput {
   unsigned shows{}, hides{};
   std::size_t visible_commands{};
+  bw::game::SystemMessageView system_message;
+  unsigned system_shows{};
   void show(const GameplayHud& hud, std::string_view) override {
     ++shows;
     visible_commands = hud.commands().size();
+  }
+  void show_system_message(bw::game::SystemMessageView message) override {
+    system_message = message;
+    ++system_shows;
   }
   void hide() noexcept override {
     ++hides;
@@ -123,6 +129,12 @@ void routing_and_publication() {
   require(output.hides == 1 && output.visible_commands == 0 &&
               random.draws() == draws_before_hidden,
           "hidden activation clears retained commands without advancing HUD");
+  hidden.present_system_message({true, 0, 1, "independent system text"});
+  require(output.system_shows == 1 && output.system_message.active &&
+              output.system_message.text == "independent system text" &&
+              output.visible_commands == 0 &&
+              random.draws() == draws_before_hidden,
+          "system text presents independently of hidden cockpit and time");
 }
 void resource_snapshot_mapping() {
   bw::world::WorldClock clock;

@@ -1,3 +1,5 @@
+// Script-world forwarding follows implementation Core I.4/Con.2 and MEM.9:
+// copy completed observations, forward only visibility, retain no second state.
 // Debug separation: Core I.1 (#ri-explicit), R.3 (#rr-ptr), and performance
 // TLM.1 (guidelines/telemetry/TLM.1-compile-telemetry-out-by-default.md),
 // retrieved in design and implementation, keep preview capabilities bounded
@@ -8,7 +10,24 @@
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps retained buffers
 // fixed during admitted frames. Existing source algorithms and ordering remain.
 #include "world_runtime.hpp"
+
+#include "world_population.hpp"
 namespace bw::game {
+ScriptWorldControl::ScriptWorldControl(WorldRuntime& owner) noexcept
+    : owner_(&owner) {}
+std::optional<ScriptedPlayerPose> ScriptWorldControl::player_pose() const {
+  const auto* player = owner_->player_state();
+  return player ? std::optional{player->pose} : std::nullopt;
+}
+PopulationCheckpoint ScriptWorldControl::population_checkpoint() const {
+  return owner_->population_checkpoint();
+}
+void ScriptWorldControl::set_player_visible(bool visible) {
+  owner_->set_player_visible(visible);
+}
+ScriptWorldControl WorldRuntime::script_world_control() noexcept {
+  return ScriptWorldControl{*this};
+}
 WorldRuntime::WorldRuntime(
     const world::WorldClock& clock, const MissionControl& control,
     render::WorldPresentation& output, StageViewSource stage,
@@ -39,7 +58,8 @@ WorldRuntime::WorldRuntime(
                     simulation_.actor(),
                     {.initial = simulation_.initial_camera(),
                      .completed = simulation_.presentation_camera()},
-                    simulation_.player_forces_visibility(), domain) {
+                    simulation_.player_forces_visibility(), domain),
+      memory_(domain) {
 #if BW_DEVELOPER_VIEWS
   review_ = make_animation_preview(
       AnimationPreviewAccess(simulation_, presentation_.actor_publisher()),
@@ -54,6 +74,7 @@ void WorldRuntime::advance(const world::WorldFrame& frame,
   if (!simulation_.advance(frame, input, presentation_.actor_publisher())) {
     return;
   }
+  if (population_) population_->advance(frame.delta_seconds());
   if (const auto far =
           presentation_.update_environment(simulation_.presentation_camera())) {
     simulation_.set_camera_far(*far);
@@ -69,6 +90,25 @@ AliciaActionUpdate WorldRuntime::begin_player_scripted_jump(
 void WorldRuntime::synchronize_pause() { simulation_.synchronize_pause(); }
 void WorldRuntime::bind_action_resources(PlayerActionResources resources) {
   simulation_.bind_action_resources(resources);
+}
+PopulationCheckpoint WorldRuntime::population_checkpoint() const {
+  if (!population_) throw std::logic_error("Mission population is not bound");
+  return population_->checkpoint();
+}
+void WorldRuntime::bind_population(const MissionLoading& loading,
+                                   PlacementRandom& random) {
+  if (population_) {
+    throw std::logic_error("Mission population is already bound");
+  }
+  population_ = std::allocate_shared<WorldPopulation>(
+      memory::Allocator<WorldPopulation>(memory_), loading, simulation_,
+      presentation_, random, memory_);
+}
+std::size_t WorldRuntime::population_count() const {
+  return population_ ? population_->active_count() : 0;
+}
+std::size_t WorldRuntime::pending_population_count() const {
+  return population_ ? population_->pending_count() : 0;
 }
 void WorldRuntime::bind_audio(const PreparedCharacterAudio& prepared,
                               audio::CueOutput& output, SourceRandom& random) {

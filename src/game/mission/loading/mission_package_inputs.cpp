@@ -1,3 +1,9 @@
+// Mission trap queries borrow both decoded registries as const spans. Design
+// R.1 (#rr-raii) retains definitions with their backing bytes; implementation
+// R.2 (#rr-use-ptr) preserves bounded views. MEM.9 design and CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
+// implementation decode once during loading; repeated containment allocates
+// nothing and returns only a value. Native callback policy remains game-owned.
 // Construct original mission package consumers: text registration, cover-point
 // definitions and background model preloads. Package spans borrow
 // MissionLoading through cancellation. Dependency owners retain injected
@@ -164,6 +170,98 @@ memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
   }
   return result;
 }
+memory::Vector<ResidentTextureSlot> MissionLoading::npc_texture_slots(
+    const ResidentModelView& model) const {
+  if (dependency_residencies_.size() != dependency_definitions_.size()) {
+    throw std::logic_error("Dependency texture residency is incomplete");
+  }
+  auto current = dependency_residencies_.begin();
+  for (const auto& definition : dependency_definitions_) {
+    const auto& residency = *current++;
+    for (std::size_t index = 0; index < residency.models.size(); ++index) {
+      if (residency.models.at(index) != model.handle) continue;
+      memory::Vector<ResidentTextureSlot> result{
+          memory::Allocator<ResidentTextureSlot>(memory_)};
+      const auto& slots = definition.models.at(index).textures;
+      result.reserve(slots.size());
+      for (const auto slot : slots) {
+        result.push_back(
+            {definition.textures.at(slot).name, residency.textures.at(slot)});
+      }
+      return result;
+    }
+  }
+  throw std::invalid_argument(
+      "NPC texture slots require a resident dependency model");
+}
+ResidentModelView MissionLoading::resident_character(
+    std::string_view family) const {
+  // The resident list is prepared at mission load. EA family meshes retain
+  // their stage suffix, while motion-owner identity remains separate.
+  const auto residents = resident_dependencies();
+  const auto found = std::ranges::find_if(residents, [&](const auto& model) {
+    return model.name == family ||
+           (family.starts_with("ea") && model.name.starts_with(family) &&
+            model.name.size() > family.size() &&
+            model.name[family.size()] == '_');
+  });
+  if (found == residents.end()) {
+    throw std::runtime_error("NPC resident model is missing: " +
+                             std::string(family));
+  }
+  return *found;
+}
+const content::CharacterSupport& MissionLoading::character_support(
+    std::string_view owner) const {
+  const auto found = std::ranges::find_if(
+      support_names_,
+      [&](const auto& name) { return std::string_view(name) == owner; });
+  if (found == support_names_.end()) {
+    throw std::runtime_error("NPC motion support is missing: " +
+                             std::string(owner));
+  }
+  return character_support_.at(
+      static_cast<std::size_t>(found - support_names_.begin()));
+}
+const formats::ModelDefinition& MissionLoading::shared_motion_model(
+    std::string_view owner) const {
+  const auto found =
+      std::ranges::find_if(motion_models_, [&](const auto& model) {
+        return std::string_view(model.owner) == owner;
+      });
+  if (found == motion_models_.end()) {
+    throw std::runtime_error("Shared motion skeleton is missing: " +
+                             std::string(owner));
+  }
+  return found->definition;
+}
+void MissionLoading::preload_shared_motion(std::string_view owner) {
+  if (std::ranges::any_of(motion_models_, [&](const auto& model) {
+        return std::string_view(model.owner) == owner;
+      })) {
+    return;
+  }
+  auto logical = memory::String("model.", memory::Allocator<char>(memory_));
+  logical += owner;
+  logical += ".mesh";
+  const auto selected = catalogs_.resolve(logical);
+  const auto& mount = catalogs_.catalogs().at(selected.catalog_index);
+  const auto& entry = mount.catalog.resources().at(selected.resource_index);
+  auto model = formats::ModelDefinition::parse(
+      content::open_archive(
+          files_, content::archive_path(files_, mount, entry.raw.at(3)),
+          memory_),
+      memory_);
+  auto support =
+      content::load_character_support(files_, catalogs_, owner, memory_);
+  // Motion-owner dummy geometry is never uploaded or submitted. Only its
+  // original bone names/bind skeleton and shared motion keys are consumers.
+  motion_models_.push_back(
+      {memory::String(owner, memory::Allocator<char>(memory_)),
+       std::move(model)});
+  character_support_.push_back(std::move(support));
+  support_names_.emplace_back(owner, memory::Allocator<char>(memory_));
+}
 void MissionLoading::load_background() {
   const auto bytes = optional_member(request_name_ + ".bgb");
   if (bytes.empty()) return;
@@ -301,6 +399,20 @@ void MissionLoading::load_npc_palette() {
                                 palette_residency_->textures, memory_);
   }
 }
+// The source player callback tests both ordinary and enemy placement traps.
+bool MissionLoading::contains_mission_trap(
+    std::int32_t event, const math::Vector3<float>& position) const {
+  for (const auto& placement : placements_) {
+    if (!placement || !placement->population) continue;
+    const auto& definition = *placement->population;
+    for (const auto& trap : definition.triggers()) {
+      if (trap.id == event && definition.contains_2d(trap.shape, position)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 void MissionLoading::load_placements() {
   constexpr std::array<std::string_view, 2> suffixes{".settbl", "_ene.settbl"};
   constexpr std::size_t kFlagsOffset = 36, kHealthColumn = 3;
@@ -368,6 +480,10 @@ void MissionLoading::load_placements() {
       }
       definition.bytes.at(kFlagsOffset) |= 1U;
     }
+    // Decode after source difficulty scaling, while retaining the same owned
+    // bytes. Archetype rows describe shared support, not eager actor spawns.
+    definition.population =
+        content::MissionPlacementDefinition::decode(definition.bytes, memory_);
     placements_.at(index) = std::move(definition);
   }
   // Table registration resets the original event callback registry. These
@@ -412,6 +528,14 @@ void MissionLoading::load_placements() {
     }
   }
   for (const auto name : weapons) preload_character(name);
+  // The original shared-motion table maps grounded slot1 for these families.
+  // Other state requests must resolve their own owner; this is not a universal
+  // clip-name rewrite (HBSE and other publication basenames differ).
+  for (const auto name : characters) {
+    if (name == "hm0" || name == "hm1") preload_shared_motion("hm0s");
+    if (name == "hw0" || name == "hw1") preload_shared_motion("hw0s");
+    if (name == "hm2" || name == "hw2") preload_shared_motion("hm2s");
+  }
   load_npc_palette();
 }
 

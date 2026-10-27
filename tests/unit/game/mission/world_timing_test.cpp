@@ -1,10 +1,12 @@
+// Script capability checks apply both-phase Core I.4/Con.2 and MEM.9:
+// forwarding shares state, while forbidden mutations remain compile errors.
 // In-process world timing and mission admission contracts; no device or I/O.
 // Fixtures own clocks/control state and retain observations only while the
 // issuing world exists. Synthetic monotonic samples exercise publication,
 // rejection, pause nesting and input routing through public interfaces.
 // Algorithm: supply an interval or transition, observe admitted work and time,
 // then verify rejection/next-frame behavior without inspecting private storage.
-// Nine bounded cases use inline state and a fixed eight-entry pause sequence;
+// Bounded cases use inline state and a fixed eight-entry pause sequence;
 // no fixture heap storage or performance claim. Exceptions may allocate.
 // Design and implementation consultations: Core E.4 (#re-design-invariants)
 // preserves usable state after rejection; performance MEM.9 (guidelines/memory/
@@ -23,6 +25,7 @@
 #include "bw/timing/world_clock.hpp"
 #include "developer/animation_review/developer_review_flow.hpp"
 #include "game/mission/mission_control.hpp"
+#include "game/mission/mission_script_runtime.hpp"
 #include "game/world/world_runtime.hpp"
 
 namespace {
@@ -51,6 +54,41 @@ concept HasInputMutation =
 template <class T>
 concept HasInputRouting =
     requires(T& value) { value.route(GameplayInput{}, false); };
+template <class T>
+concept HasUserPauseMutation =
+    requires(T& value) { value.set_user_paused(true); };
+template <class T>
+concept HasOwnerAccess = requires(T& value) { value.get(); };
+template <class T>
+concept HasPlayerActions = requires(T& value) { value.player_actions(); };
+template <class T>
+concept HasWorldAdvance = requires(
+    T& value, const bw::world::WorldFrame& frame) { value.advance(frame); };
+using ScriptPauseControl = bw::game::ScriptPauseControl;
+using ScriptWorldControl = bw::game::ScriptWorldControl;
+static_assert(std::is_same_v<decltype(bw::game::MissionWorldActivation::world),
+                             ScriptWorldControl>);
+static_assert(HasScriptPauseMutation<ScriptPauseControl> &&
+              !HasUserPauseMutation<ScriptPauseControl> &&
+              !HasInputMutation<ScriptPauseControl> &&
+              !HasInputRouting<ScriptPauseControl> &&
+              !HasOwnerAccess<ScriptPauseControl>);
+static_assert(!std::is_default_constructible_v<ScriptPauseControl> &&
+              !std::is_constructible_v<ScriptPauseControl, MissionControl&> &&
+              !std::is_convertible_v<ScriptPauseControl, MissionControl&>);
+static_assert(
+    !std::is_default_constructible_v<ScriptWorldControl> &&
+    !std::is_constructible_v<ScriptWorldControl, bw::game::WorldRuntime&> &&
+    !std::is_convertible_v<ScriptWorldControl, bw::game::WorldRuntime&> &&
+    !HasOwnerAccess<ScriptWorldControl> &&
+    !HasPlayerActions<ScriptWorldControl> &&
+    !HasWorldAdvance<ScriptWorldControl>);
+static_assert(std::is_same_v<decltype(std::declval<const ScriptWorldControl&>()
+                                          .player_pose()),
+                             std::optional<bw::game::ScriptedPlayerPose>> &&
+              std::is_same_v<decltype(std::declval<const ScriptWorldControl&>()
+                                          .population_checkpoint()),
+                             bw::game::PopulationCheckpoint>);
 static_assert(stable_authority<FrameClock> && stable_authority<WorldClock> &&
               stable_authority<MissionControl>);
 static_assert(!HasStagePauseMutation<bw::game::WorldRuntime>);
@@ -213,6 +251,29 @@ void menu_pause_capability() {
   control.pop_script_pause();
   require(second.set_user_paused(true) && first.user_paused(),
           "restored menu admission must reach the original owner");
+}
+
+// Script handles preserve the same nested stack while user pause admission
+// remains observable but unavailable as a script mutation.
+void script_pause_capability() {
+  MissionControl control;
+  auto first = control.script_pause_control();
+  auto second = first;
+  first.push_script_pause(ScriptPause::input);
+  second.push_script_pause(ScriptPause::simulation);
+  require(!control.admission().simulation && first.mission_script_admitted(),
+          "Script handles share nested pause without blocking script work");
+  first.pop_script_pause();
+  require(control.admission().simulation && !control.admission().hardware_input,
+          "Script resume restores the outer input restriction");
+  second.pop_script_pause();
+  require(control.admission().simulation && control.admission().hardware_input,
+          "Copied script handles release the original owner's stack");
+  require_rejected([&] { first.pop_script_pause(); },
+                   "Script capability preserves empty-stack rejection");
+  require(control.set_user_paused(true) && !first.mission_script_admitted() &&
+              !second.mission_script_admitted(),
+          "Script observations follow independent user pause authority");
 }
 
 void independent_pause_admission() {
@@ -383,6 +444,7 @@ void world_timing_contracts() {
   deadlines_and_loading_rebase();
   rejection_and_retained_observations();
   menu_pause_capability();
+  script_pause_capability();
   independent_pause_admission();
   nested_restore_excludes_user_pause();
   checked_pause_stack_preserves_state();

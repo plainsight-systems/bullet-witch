@@ -17,6 +17,8 @@ struct NpcPaletteBinding {
   std::string_view family, material;
   std::size_t variation{};
   render::WorldTextureHandle texture;
+  // Original registry skips entries whose target name equals their base name.
+  bool baseline{};
 };
 memory::Vector<NpcPaletteBinding> make_npc_palette(
     const content::StageDefinition& definition,

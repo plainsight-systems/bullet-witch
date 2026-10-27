@@ -186,8 +186,8 @@ memory::Vector<NpcPaletteBinding> make_npc_palette(
         if (textures[index].value == 0) {
           throw std::runtime_error("NPC palette texture is not resident");
         }
-        result.push_back(
-            {rule.family, rule.material, variation, textures[index]});
+        result.push_back({rule.family, rule.material, variation,
+                          textures[index], name == rule.material});
       }
       ++variation;
       if (split == std::string_view::npos) break;

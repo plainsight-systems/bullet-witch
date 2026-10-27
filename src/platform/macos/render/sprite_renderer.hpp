@@ -38,11 +38,14 @@ class SpriteRenderer final : public render::SpriteOutput {
       const formats::WorldTextureImage& image) override;
   void release_texture(render::TextureHandle texture) noexcept override;
   void set_sprites(std::span<const render::Sprite> sprites) override;
+  void append_sprites(std::span<const render::Sprite> sprites) override;
   void clear_sprites() noexcept override;
   void encode(id<MTLRenderCommandEncoder> encoder, MTLViewport viewport,
               float opacity) const;
 
  private:
+  void submit_sprites(std::span<const render::Sprite> sprites,
+                      std::size_t retained_count);
   id<MTLDevice> device;
   std::shared_ptr<memory::DeviceBudget> device_budget;
   id<MTLRenderPipelineState> sprite_pipeline;

@@ -11,13 +11,15 @@ PlayerCockpit::PlayerCockpit(GameplayHudOutput& surface, SourceRandom& random,
                              CockpitActivation activation)
     : surface_(surface), random_(random), activation_(activation) {
   if (activation != CockpitActivation::hidden &&
-      activation != CockpitActivation::inspection) {
+      activation != CockpitActivation::inspection &&
+      activation != CockpitActivation::script) {
     throw std::invalid_argument("Invalid cockpit activation");
   }
 }
 void PlayerCockpit::advance(const world::WorldFrame& frame,
                             const PlayerResourceSnapshot& resources,
-                            bool aiming, const SpellRingPresentation& ring) {
+                            bool aiming, const SpellRingPresentation& ring,
+                            const MissionGoalObservation* goal_observation) {
   if (activation_ == CockpitActivation::hidden ||
       !frame.admission().simulation) {
     return;
@@ -33,7 +35,8 @@ void PlayerCockpit::advance(const world::WorldFrame& frame,
                 .recharged = (resources.recharged_weapons &
                               (1U << resources.selected_weapon)) != 0,
                 .aiming = aiming,
-                .magic_ring = ring},
+                .magic_ring = ring,
+                .goal_observation = goal_observation},
                frame.delta_seconds(), random_);
 }
 void PlayerCockpit::show(std::string_view diagnostic) {

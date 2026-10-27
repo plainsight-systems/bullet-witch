@@ -123,7 +123,16 @@ void SpriteRenderer::release_texture(render::TextureHandle texture) noexcept {
   state.sprite_count -= static_cast<std::size_t>(removed.size());
 }
 void SpriteRenderer::set_sprites(std::span<const render::Sprite> sprites) {
-  if (sprites.size() > render::kMaximumSprites) {
+  submit_sprites(sprites, 0);
+}
+void SpriteRenderer::append_sprites(std::span<const render::Sprite> sprites) {
+  submit_sprites(sprites, sprite_count);
+}
+// Both-phase I.1 and MEM.9: replacement and append share the complete validator;
+// fixed storage commits only after every suffix identity/geometry is accepted.
+void SpriteRenderer::submit_sprites(std::span<const render::Sprite> sprites,
+                                    std::size_t retained_count) {
+  if (sprites.size() > render::kMaximumSprites - retained_count) {
     throw std::runtime_error("Sprite command limit exceeded");
   }
   auto& state = *this;
@@ -153,10 +162,10 @@ void SpriteRenderer::set_sprites(std::span<const render::Sprite> sprites) {
   // Commit the complete command list into fixed storage after validation succeeds.
   index = 0;
   for (const auto& sprite : sprites) {
-    state.sprites.at(index) = {.sprite = sprite, .texture_slot = slots.at(index)};
+    state.sprites.at(retained_count + index) = {.sprite = sprite, .texture_slot = slots.at(index)};
     ++index;
   }
-  state.sprite_count = sprites.size();
+  state.sprite_count = retained_count + sprites.size();
 }
 void SpriteRenderer::clear_sprites() noexcept { this->sprite_count = 0; }
 

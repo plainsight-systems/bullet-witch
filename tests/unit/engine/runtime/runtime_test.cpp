@@ -41,6 +41,11 @@ void player_camera_tests();
 void BWGamepadTargetingTests();
 #endif
 void placed_collision_tests();
+void mission_population_tests();
+void shared_motion_pose_tests();
+void npc_appearance_tests();
+void mission_message_tests();
+void mission_system_message_tests();
 void stage_shadow_tests();
 void startup_options_tests();
 void motion_presentation_tests();
@@ -199,8 +204,12 @@ void scheduling() {
   check(trace == "abAB", "Priority-ordered separate passes");
 }
 }  // namespace
+void script_coroutine_tests();
+void mission_callback_tests();
 int main() {
   try {
+    script_coroutine_tests();
+    mission_callback_tests();
     startup_flow_contracts();
     startup_session_contracts();
     advertise_flow_contracts();
@@ -214,6 +223,11 @@ int main() {
     BWGamepadTargetingTests();
 #endif
     placed_collision_tests();
+    mission_population_tests();
+    shared_motion_pose_tests();
+    npc_appearance_tests();
+    mission_message_tests();
+    mission_system_message_tests();
     stage_shadow_tests();
     startup_options_tests();
     motion_presentation_tests();

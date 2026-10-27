@@ -62,6 +62,7 @@ MissionLoading::MissionLoading(const platform::Files& files,
       dependency_names_(memory::Allocator<memory::String>(memory_)),
       character_support_(memory::Allocator<content::CharacterSupport>(memory_)),
       support_names_(memory::Allocator<memory::String>(memory_)),
+      motion_models_(memory::Allocator<MotionModel>(memory_)),
       palette_(memory::Allocator<NpcPaletteBinding>(memory_)),
       text_override_(memory::Allocator<std::uint8_t>(memory_)),
       cover_points_(memory::Allocator<CoverPointDefinition>(memory_)) {}
@@ -548,6 +549,7 @@ void MissionLoading::cancel() noexcept {
   palette_definition_.reset();
   character_support_.clear();
   support_names_.clear();
+  motion_models_.clear();
   dependency_residencies_.clear();
   dependency_definitions_.clear();
   dependency_names_.clear();

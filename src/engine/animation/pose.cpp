@@ -480,6 +480,25 @@ std::array<float, 3> PreparedClip::root_translation_delta(
   }
   return result;
 }
+// A retarget consumer supplies target-local SRTs; hierarchy and inverse bind
+// remain owned here. Validation precedes the existing atomic compose commit.
+// Both-phase R.14/I.11/MEM.9 preserve bounded, allocation-free borrowed input.
+void SkeletonPose::evaluate_locals(
+    std::span<const formats::SkeletonTransform> locals,
+    const Matrix& actor_world) {
+  if (locals.size() != local_.size() || !math::all_finite(actor_world)) {
+    throw std::invalid_argument("Invalid local pose batch");
+  }
+  for (const auto& local : locals) {
+    if (!math::all_finite(local.rotation) ||
+        !math::all_finite(local.translation) ||
+        !math::all_finite(local.scale)) {
+      throw std::invalid_argument("Nonfinite local pose transform");
+    }
+  }
+  std::ranges::copy(locals, pending_local_.begin());
+  compose(actor_world);
+}
 void SkeletonPose::evaluate(
     const PreparedClip& clip, double elapsed_seconds, const Matrix& actor_world,
     bool lock_root_translation,

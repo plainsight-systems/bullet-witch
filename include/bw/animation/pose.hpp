@@ -1,3 +1,5 @@
+// Math boundary: both-phase Core F.4 / performance MEM.9 keep generic
+// fixed-value operations in bw::math; source policy remains with this owner.
 // Ordered local layers retain source channel masks and independently supplied
 // sample clocks. Both phases I.1 (#ri-explicit), E.4 (#re-design-invariants),
 // MEM.9 and CDSA.32 validate the entire borrowed request before publication,
@@ -56,8 +58,8 @@
 
 namespace bw::animation {
 using Matrix = math::Matrix4<float>;
-inline constexpr Matrix kIdentityMatrix{
-    {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}}};
+// Compatibility name; identity construction belongs to shared mathematics.
+inline constexpr Matrix kIdentityMatrix = math::identity_matrix<float, 4>();
 
 struct ClipRootStep {
   double previous_seconds{}, seconds{}, signed_tick{};
@@ -224,6 +226,13 @@ class SkeletonPose {
   SkeletonPose& operator=(const SkeletonPose&) = delete;
   SkeletonPose(SkeletonPose&&) noexcept = default;
   SkeletonPose& operator=(SkeletonPose&&) noexcept = default;
+  // Compose explicit target-local transforms supplied by a prepared retarget
+  // consumer. Exact bone count and finite SRT/world values are required;
+  // failure retains all published transforms. O(bones), no allocation, no
+  // borrowed lifetime beyond this call. Both-phase Core R.14/I.11 and MEM.9
+  // retain bounded scratch and the target's own hierarchy/inverse bind.
+  void evaluate_locals(std::span<const formats::SkeletonTransform> locals,
+                       const Matrix& actor_world = kIdentityMatrix);
   // Frame selection is explicit; no hidden real-time clock or actor movement.
   // Root/world translation comes from the game movement owner, not this clip.
   void evaluate(const PreparedClip& clip, double elapsed_seconds,

@@ -14,6 +14,7 @@
 #include <memory>
 #include <string_view>
 
+#include "bw/content/formats/text_table.hpp"
 #include "bw/content/resources/service.hpp"
 #include "gameplay_hud.hpp"
 
@@ -29,8 +30,10 @@ class GameplayHudSurface final : public GameplayHudOutput {
   GameplayHudSurface& operator=(GameplayHudSurface&&) = delete;
   void prepare();
   bool prepared() const noexcept;
+  const formats::TextTable& system_text_table() const;
   void show(const GameplayHud& hud, std::string_view diagnostic) override;
   void show(const GameplayHud& hud) { show(hud, {}); }
+  void show_system_message(SystemMessageView message) override;
   void hide() noexcept override;
   void end() noexcept;
 

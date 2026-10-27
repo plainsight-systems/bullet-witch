@@ -28,6 +28,7 @@ enum class MenuSound : std::uint8_t {
   error,
   dialog_open,
   dialog_close,
+  dialog_page,
   save,
   title_start,
   mission_start,

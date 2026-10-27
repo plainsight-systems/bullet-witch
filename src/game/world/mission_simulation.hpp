@@ -84,6 +84,12 @@ class MissionSimulation {
     return controller_ && controller_->action_owner().forces_model_visibility();
   }
   void set_camera_far(float distance);
+  // Read-only world scenery capability for source placement projection.
+  // The collision owner and registration remain private to simulation.
+  scene::SegmentClearanceResult clip_scenery(
+      const scene::SegmentClearance& value) const {
+    return collision_.clip_segment(value);
+  }
   bool paused() const { return control_.simulation_paused(); }
   std::string_view action_notice() const { return action_notice_; }
   void synchronize_pause();

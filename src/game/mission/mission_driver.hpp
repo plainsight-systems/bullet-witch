@@ -17,7 +17,11 @@
 // cancels Lua polls before releasing tagged scripts. Native mission heap
 // capacity is 256 KiB. Algorithm: request selected
 // mission/default_callback packages -> load original chunks in native order ->
-// prepare load -> pump native requests -> await setup. Mission aliases are
+// prepare load -> pump native requests -> attach startup owners -> run start.
+// After start, condition selection supplies one serial callback in the same VM.
+// A named unimplemented gameplay producer retains its native wait and publishes
+// awaiting_gameplay; world/pause owners remain live. Context/callback handles
+// never escape this owner. Mission aliases are
 // resolved by the session, not by modifying original Lua. Costs: O(package
 // bytes) at setup plus bounded Lua pump work; named requests copy once across
 // the wait boundary, not per poll. Runtime/package storage retains the injected
@@ -31,6 +35,7 @@
 #include "bw/script/context.hpp"
 #include "mission_control.hpp"
 #include "mission_player_state.hpp"
+#include "mission_script_services.hpp"
 
 namespace bw::game {
 enum class MissionLoadKind : std::uint8_t {
@@ -77,6 +82,9 @@ enum class MissionPhase : std::uint8_t {
   loading,
   blocked,
   awaiting_world_setup,
+  starting,
+  running,
+  awaiting_gameplay,
   failed,
   cancelled
 };
@@ -99,6 +107,13 @@ class MissionDriver {
   MissionDriver& operator=(MissionDriver&&) = delete;
   // Advance genuine native waits; awaiting_world_setup retains the original VM.
   const MissionProgress& advance();
+  // Bind after asset readiness and stable script-runtime ownership. This
+  // retains the same loaded VM; services must outlive the driver.
+  // Repeated/early admission is rejected.
+  void start(MissionScriptServices& services);
+  // Retire native callbacks before their world receivers. Asset cancellation
+  // remains separate so render borrowers can release before load definitions.
+  void retire_script() noexcept;
   void cancel() noexcept;
   const MissionProgress& progress() const { return progress_; }
   std::string_view stage_name() const { return stage_name_; }
@@ -108,6 +123,9 @@ class MissionDriver {
 
  private:
   void bindings();
+  void script_bindings();
+  void advance_callbacks();
+  MissionScriptServices& script_services() const;
   struct ScriptPackage {
     std::string_view resource;
     std::string_view member;
@@ -120,7 +138,9 @@ class MissionDriver {
   memory::String script_name_, package_name_, stage_name_;
   MissionProgress progress_;
   MissionPlayerState* player_{};
+  MissionScriptServices* script_services_{};
   const MissionControl& control_;
   std::optional<script::Context> context_;
+  std::optional<script::CoroutineId> callback_;
 };
 }  // namespace bw::game

@@ -14,6 +14,11 @@
 #include "bw/content/formats/stage_definitions.hpp"
 #include "bw/render/scene/world.hpp"
 namespace bw::game {
+// Runtime texture-table order and names, not the informational model TLST.
+struct ResidentTextureSlot {
+  std::string_view name;
+  render::WorldTextureHandle texture;
+};
 struct ResidentModelView {
   std::string_view name;
   std::reference_wrapper<const formats::ModelDefinition> definition;

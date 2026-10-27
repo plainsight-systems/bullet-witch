@@ -1,3 +1,5 @@
+// Script forwarding reread Core I.4/Con.2 and performance MEM.9 in the
+// implementation phase: no alternate pause state or owner escape is added.
 // Recovered game pause flags and neutral-input publication. One owner supplies
 // menu, world and player observations; no clock or renderer owns copies.
 // Preserve the shared script snapshot order and exclude user pause from it.
@@ -17,6 +19,18 @@
 #include <stdexcept>
 
 namespace bw::game {
+ScriptPauseControl::ScriptPauseControl(MissionControl& owner) noexcept
+    : owner_(&owner) {}
+bool ScriptPauseControl::mission_script_admitted() const noexcept {
+  return owner_->mission_script_admitted();
+}
+void ScriptPauseControl::push_script_pause(ScriptPause pause) {
+  owner_->push_script_pause(pause);
+}
+void ScriptPauseControl::pop_script_pause() { owner_->pop_script_pause(); }
+ScriptPauseControl MissionControl::script_pause_control() noexcept {
+  return ScriptPauseControl{*this};
+}
 UserPauseControl::UserPauseControl(MissionControl& owner) noexcept
     : owner_(&owner) {}
 bool UserPauseControl::user_paused() const noexcept {

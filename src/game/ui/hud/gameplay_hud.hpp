@@ -17,10 +17,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 
 #include "ammunition_hud.hpp"
 #include "hud_sprite.hpp"
+#include "mission_goal_hud.hpp"
+#include "mission_system_message.hpp"
 #include "spell_selection.hpp"
 
 namespace bw::game {
@@ -44,6 +47,7 @@ struct GameplayHudSnapshot {
   bool reticle_hidden{};
   HudTargetKind target{HudTargetKind::neutral};
   SpellRingPresentation magic_ring;
+  const MissionGoalObservation* goal_observation{};
 };
 class GameplayHud {
  public:
@@ -53,6 +57,11 @@ class GameplayHud {
   GameplayHud& operator=(const GameplayHud&) = delete;
   GameplayHud(GameplayHud&&) = delete;
   GameplayHud& operator=(GameplayHud&&) = delete;
+  void set_goal_target(std::array<float, 3> position) {
+    goal_.set_target(position);
+  }
+  void clear_goal_target() noexcept { goal_.clear_target(); }
+
   void reset() noexcept;
   void advance(const GameplayHudSnapshot& observed, float seconds,
                SourceRandom& random);
@@ -79,6 +88,7 @@ class GameplayHud {
   std::array<HudSprite, kCommandCapacity> commands_{};
   std::size_t count_{};
   AmmunitionHud ammunition_;
+  MissionGoalHud goal_;
   Gauge health_;
   Gauge magic_;
   bool initialized_{};
@@ -122,6 +132,11 @@ class GameplayHudOutput {
   GameplayHudOutput& operator=(GameplayHudOutput&&) = delete;
   virtual ~GameplayHudOutput() = default;
   virtual void show(const GameplayHud& hud, std::string_view diagnostic) = 0;
+  // Independent text follows cockpit, pause and modal submissions; it never
+  // inherits cockpit visibility. Immediate view borrow, no timing authority.
+  virtual void show_system_message(SystemMessageView) {
+    throw std::logic_error("HUD output does not support system text");
+  }
   virtual void hide() noexcept = 0;
 };
 }  // namespace bw::game

@@ -1,3 +1,9 @@
+// Mission trap queries borrow both decoded registries as const spans. Design
+// R.1 (#rr-raii) retains definitions with their backing bytes; implementation
+// R.2 (#rr-use-ptr) preserves bounded views. MEM.9 design and CDSA.32
+// (guidelines/cpu-dsa/CDSA.32-transform-static-data-into-the-consumer-layout.md)
+// implementation decode once during loading; repeated containment allocates
+// nothing and returns only a value. Native callback policy remains game-owned.
 // Texture construction policy is captured by value in immutable mission
 // options. Preparation alone consumes it; no renderer borrows mutable settings.
 // CPU mip candidates and native handles follow E.6 (#re-raii), I.11 (#ri-raw)
@@ -65,6 +71,7 @@
 #include "bw/content/formats/text_table.hpp"
 #include "bw/render/scene/world.hpp"
 #include "game/content/original/character_support.hpp"
+#include "game/content/original/mission_placement.hpp"
 #include "game/content/original/npc_palette.hpp"
 #include "game/content/original/resident_model.hpp"
 #include "game/content/original/stage.hpp"
@@ -105,6 +112,7 @@ struct PlacementDefinition {
       : bytes(memory::Allocator<std::uint8_t>(domain)) {}
   resources::ArchiveBytes bytes;
   std::optional<formats::SectionTable> table;
+  std::optional<content::MissionPlacementDefinition> population;
 };
 class MissionLoading final : public MissionLoadServices {
  public:
@@ -158,6 +166,19 @@ class MissionLoading final : public MissionLoadServices {
   ResidentModelView resident_weapon() const;
   const content::CharacterSupport& player_support() const;
   const content::CharacterSupport& weapon_support() const;
+  // Population preparation borrows already resident family models and support.
+  // Resolve once per archetype at setup, never per frame or actor admission.
+  // Missing prepared identities throw; these calls perform no I/O or uploads.
+  // Setup-only runtime table snapshot. Names borrow this loader; handles
+  // observe existing residency and confer no resource mutation authority.
+  memory::Vector<ResidentTextureSlot> npc_texture_slots(
+      const ResidentModelView& model) const;
+  ResidentModelView resident_character(std::string_view family) const;
+  const content::CharacterSupport& character_support(
+      std::string_view owner) const;
+  const formats::ModelDefinition& shared_motion_model(
+      std::string_view owner) const;
+  std::span<const NpcPaletteBinding> npc_palettes() const { return palette_; }
   // Handles align with their retained definition model vectors and borrow this
   // owner until cancellation. CPU definition presence does not imply residency.
   std::span<const render::WorldModelHandle> resident_models() const {
@@ -194,6 +215,16 @@ class MissionLoading final : public MissionLoadServices {
   std::span<const MissionCallbackDefinition> callbacks() const {
     return callbacks_;
   }
+  // Immutable registration data, never live actors. Backing bytes and decoded
+  // names remain stable until cancellation; consumers retire before this owner.
+  const content::MissionPlacementDefinition* population_definition() const {
+    const auto& enemy = placements_.at(1);
+    return enemy && enemy->population ? &*enemy->population : nullptr;
+  }
+  // Read both native placement registries for a player trap. No mutable
+  // table capability escapes; absent tables contribute no containing shape.
+  bool contains_mission_trap(std::int32_t event,
+                             const math::Vector3<float>& position) const;
   // Borrow authored placements through cancellation. This definition does not
   // execute _SetBgObj or own a simulated destructible actor.
   const std::optional<formats::BackgroundPlacementDefinition>& background()
@@ -228,6 +259,7 @@ class MissionLoading final : public MissionLoadServices {
   void load_background();
   void load_placements();
   void preload_character(std::string_view name);
+  void preload_shared_motion(std::string_view owner);
   void load_npc_palette();
   void preload_model(std::string_view name);
   struct ResidentDefinition {
@@ -292,6 +324,11 @@ class MissionLoading final : public MissionLoadServices {
   memory::Vector<memory::String> dependency_names_;
   memory::Vector<content::CharacterSupport> character_support_;
   memory::Vector<memory::String> support_names_;
+  struct MotionModel {
+    memory::String owner;
+    formats::ModelDefinition definition;
+  };
+  memory::Vector<MotionModel> motion_models_;
   std::optional<content::StageDefinition> palette_definition_;
   std::optional<ResidentDefinition> palette_residency_;
   memory::Vector<NpcPaletteBinding> palette_;

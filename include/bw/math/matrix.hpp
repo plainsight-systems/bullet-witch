@@ -13,7 +13,9 @@
 // (#ri-concepts) constrains scalar/accumulator types, I.1
 // (#ri-explicit) names row/point conventions; performance MEM.9
 // (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps operations
-// fixed.
+// fixed. Identity and column-vector multiplication additionally follow Core
+// F.4 (#rf-constexpr), queried in both phases: pure fixed-value operations
+// support constant evaluation without adding runtime configuration.
 #pragma once
 #include <optional>
 
@@ -26,6 +28,29 @@ template <std::floating_point T>
 using Affine3 = Matrix<T, 4, 3>;
 template <std::floating_point T>
 using Matrix4 = Matrix<T, 4, 4>;
+
+// Construct the square identity without choosing a subsystem or scalar width.
+template <std::floating_point T, std::size_t Size>
+constexpr Matrix<T, Size, Size> identity_matrix() {
+  Matrix<T, Size, Size> result{};
+  for (std::size_t i = 0; i < Size; ++i) {
+    result.at(i).at(i) = 1;
+  }
+  return result;
+}
+
+// Dot-row storage multiplies a column vector; unlike transform_point, this
+// includes every supplied lane and performs no implicit perspective divide.
+// Each row uses zero-seeded ascending accumulation in the input scalar type.
+template <std::floating_point T, std::size_t Rows, std::size_t Columns>
+constexpr Vector<T, Rows> multiply(const Matrix<T, Rows, Columns>& matrix,
+                                   const Vector<T, Columns>& vector) {
+  Vector<T, Rows> result{};
+  for (std::size_t row = 0; row < Rows; ++row) {
+    result.at(row) = accumulated_dot(matrix.at(row), vector);
+  }
+  return result;
+}
 
 // Shape conversion preserves the affine lanes exactly. Extracting the affine
 // part discards the homogeneous column; callers requiring an affine transform

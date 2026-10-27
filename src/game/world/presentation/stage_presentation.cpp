@@ -767,11 +767,26 @@ scene::ReceiverPublication StagePresentation::append_player_draws(
     memory::Vector<render::WorldColorDraw>& draws, const PlayerActor& actor,
     bool weapon, const InitialPlayerCamera& camera) {
   const auto& resident = weapon ? actor.source().weapon : actor.source().body;
+  return append_actor_draws(
+      draws, resident, actor.model_transform(weapon), 0, camera,
+      character_field_,
+      {[&](std::size_t index) { return actor.includes_draw(weapon, index); },
+       [&](std::size_t index) { return actor.draw_visible(weapon, index); }},
+      [&](std::size_t index) { return actor.draw_palette(weapon, index); });
+}
+scene::ReceiverPublication StagePresentation::append_actor_draws(
+    memory::Vector<render::WorldColorDraw>& draws,
+    const ResidentModelView& resident, const animation::Matrix& transform,
+    std::uint64_t instance, const InitialPlayerCamera& camera,
+    scene::LightingFieldId field, const ActorDrawVisibility& visibility,
+    const std::function<std::span<const render::WorldJointMatrix>(std::size_t)>&
+        palette,
+    std::span<const render::WorldTextureOverride> overrides) {
   const auto& model = resident.definition.get();
   if (!output_.geometry_status(resident.handle).texture_bindings_ready ||
       !environment_ || !lighting_) {
     throw std::runtime_error(
-        "Player appearance requires resident stage resources");
+        "Actor appearance requires resident stage resources");
   }
   const auto& environment = *environment_;
   const auto directional = lighting_->directional_lighting();
@@ -782,18 +797,18 @@ scene::ReceiverPublication StagePresentation::append_player_draws(
       camera.pose, camera.perspective,
       initial_stage_shadow_settings(environment.shadow),
       {direction[0], direction[1], direction[2]});
-  auto lighting = lighting_->prepare_receiver(
-      model_receiver(resident, actor.model_transform(weapon)),
-      model.draws().size());
+  auto receiver = model_receiver(resident, transform);
+  receiver.field = field;
+  auto lighting = lighting_->prepare_receiver(receiver, model.draws().size());
   for (std::size_t index = 0; index < model.draws().size(); ++index) {
-    if (!actor.includes_draw(weapon, index)) continue;
+    if (!visibility.selected(index)) continue;
     const auto& source_draw = model.draws().at(index);
     if (source_draw.group >= kSourceGroupCount ||
         std::ranges::any_of(
             source_draw.texture_animation_slots,
             [](const auto& slot) { return slot.has_value(); })) {
       throw std::runtime_error(
-          "Player draw has unsupported group or material animation");
+          "Actor draw has unsupported group or material animation");
     }
     const auto& material = model.materials().at(source_draw.material);
     constexpr std::uint32_t kSphericalHarmonics = 0x200;
@@ -804,11 +819,13 @@ scene::ReceiverPublication StagePresentation::append_player_draws(
     const auto requirements =
         render::world_material_requirements(flags, variant);
     if (!requirements.supported) {
-      throw std::runtime_error("Player material family is not reconstructed");
+      throw std::runtime_error("Actor material family is not reconstructed");
     }
     render::WorldColorDraw draw;
     draw.model = resident.handle;
     draw.draw = index;
+    draw.instance = instance;
+    draw.texture_overrides = overrides;
     draw.view_space = render::WorldViewSpace::world;
     draw.effective_shader_flags = flags;
     draw.lighting = render::WorldLightingPolicy::supplied;
@@ -824,8 +841,11 @@ scene::ReceiverPublication StagePresentation::append_player_draws(
         environment.shadow.receiver_radius /
             static_cast<float>(render::kDirectionalShadowExtent),
         0};
-    draw.joint_matrices = actor.draw_palette(weapon, index);
-    draw.visible = actor.draw_visible(weapon, index);
+    draw.joint_matrices = palette(index);
+    if (requirements.joint_influences == 0) {
+      draw.model_transform = math::transpose(transform);
+    }
+    draw.visible = visibility.visible(index);
     draw.use_shape_positions = source_draw.shape_stream.has_value();
     draw.casts_shadow = source_draw.chunk <= 1;
     draw.state = {render::WorldTextureFilter::anisotropic,
@@ -844,6 +864,116 @@ scene::ReceiverPublication StagePresentation::append_player_draws(
   lighting.seal();
   return lighting;
 }
+void StagePresentation::admit_npc(const NpcActor& actor,
+                                  const InitialPlayerCamera& camera) {
+  const auto existing =
+      std::ranges::find_if(npc_receivers_, [&](const auto& value) {
+        return value.actor && value.actor->identity() == actor.identity();
+      });
+  if (existing != npc_receivers_.end()) {
+    throw std::logic_error("NPC instance is already presented");
+  }
+  const auto free =
+      std::ranges::find(npc_receivers_, nullptr, &NpcReceiver::actor);
+  if (free == npc_receivers_.end()) {
+    throw std::length_error("NPC presentation capacity exceeded");
+  }
+  memory::Vector<render::WorldColorDraw> draws{
+      memory::Allocator<render::WorldColorDraw>(memory_)};
+  std::array<std::optional<scene::ReceiverPublication>, 2> receivers;
+  for (const bool weapon : {false, true}) {
+    const auto* pose = weapon ? actor.weapon() : &actor.body();
+    if (!pose) continue;
+    const auto& prepared = pose->prepared();
+    const auto selected = [&](std::size_t index) {
+      return prepared.appearance.draws()[index].selected;
+    };
+    receivers.at(weapon ? 1 : 0)
+        .emplace(append_actor_draws(
+            draws, prepared.resident, actor.model_transform(weapon),
+            actor.identity().value, camera, character_field_,
+            {selected, selected},
+            [&](std::size_t index) { return pose->palette(index); },
+            prepared.appearance.texture_overrides()));
+  }
+  // All body/attachment receivers prepare before the one native transaction.
+  // The following receiver moves cannot throw after successful membership.
+  output_.add_instance_draws(draws);
+  for (std::size_t index = 0; index < receivers.size(); ++index) {
+    auto& receiver = receivers.at(index);
+    if (receiver) {
+      free->lighting.at(index).emplace(std::move(*receiver));
+    }
+  }
+  free->actor = &actor;
+}
+void StagePresentation::retire_npc(PopulationIdentity identity) {
+  const auto found =
+      std::ranges::find_if(npc_receivers_, [&](const auto& value) {
+        return value.actor && value.actor->identity() == identity;
+      });
+  if (found == npc_receivers_.end()) {
+    throw std::logic_error("NPC presentation identity is absent");
+  }
+  const auto& actor = *found->actor;
+  output_.remove_instance_draws(actor.body().prepared().resident.handle,
+                                identity.value);
+  if (const auto* weapon = actor.weapon()) {
+    output_.remove_instance_draws(weapon->prepared().resident.handle,
+                                  identity.value);
+  }
+  for (auto& receiver : found->lighting) receiver.reset();
+  found->actor = nullptr;
+}
+void StagePresentation::publish_npc_lighting() {
+  for (auto& value : npc_receivers_) {
+    if (!value.actor) continue;
+    for (std::size_t index = 0; index < value.lighting.size(); ++index) {
+      auto& receiver = value.lighting.at(index);
+      if (receiver) {
+        receiver->publish_model(
+            math::affine_part(value.actor->model_transform(index != 0)));
+      }
+    }
+  }
+}
+void StagePresentation::set_player_visible(bool visible,
+                                           const InitialPlayerCamera& camera,
+                                           bool force_player_visibility) {
+  player_visible_ = visible;
+  // Script visibility is immediate even while simulation is paused.
+  publish_shadow_owners(camera, force_player_visibility);
+}
+void StagePresentation::publish_player_visibility(bool weapon,
+                                                  bool casts_shadow) {
+  if (!player_) return;
+  const auto& actor = *player_;
+  const auto& resident = weapon ? actor.source().weapon : actor.source().body;
+  for (std::size_t index = 0; index < resident.definition.get().draws().size();
+       ++index) {
+    if (!actor.includes_draw(weapon, index)) continue;
+    const auto& draw = resident.definition.get().draws().at(index);
+    const render::WorldVisibilityUpdate update{
+        resident.handle, index,
+        player_visible_ && actor.draw_visible(weapon, index),
+        player_visible_ && casts_shadow && draw.chunk <= 1, 0};
+    output_.update_world_visibility(std::span(&update, 1));
+  }
+}
+void StagePresentation::publish_npc_visibility(const NpcActor& actor,
+                                               bool weapon, bool casts_shadow) {
+  const auto* pose = weapon ? actor.weapon() : &actor.body();
+  if (!pose) return;
+  const auto& prepared = pose->prepared();
+  const auto& draws = prepared.resident.definition.get().draws();
+  for (std::size_t index = 0; index < draws.size(); ++index) {
+    if (!prepared.appearance.draws()[index].selected) continue;
+    const render::WorldVisibilityUpdate update{
+        prepared.resident.handle, index, true,
+        casts_shadow && draws.at(index).chunk <= 1, actor.identity().value};
+    output_.update_world_visibility(std::span(&update, 1));
+  }
+}
 void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
                                               bool force_player_visibility) {
   using scene::visibility::make_shadow_selection_volume;
@@ -852,7 +982,16 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
   using scene::visibility::shadow_caster_admitted;
   using scene::visibility::ShadowModelCaster;
   using scene::visibility::ShadowSelectionCamera;
-  if (!environment_ || !environment_->shadow.setup_enabled) return;
+  if (!environment_ || !environment_->shadow.setup_enabled) {
+    publish_player_visibility(false, false);
+    publish_player_visibility(true, false);
+    for (const auto& value : npc_receivers_) {
+      if (!value.actor) continue;
+      publish_npc_visibility(*value.actor, false, false);
+      publish_npc_visibility(*value.actor, true, false);
+    }
+    return;
+  }
   const auto& shadow = environment_->shadow;
   const bool static_admitted = shadow_caster_admitted(
       query_static_shadow_caster(shadow.minimum_projected_size));
@@ -862,7 +1001,6 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
   if (!static_shadow_updates_.empty()) {
     output_.update_world_visibility(static_shadow_updates_);
   }
-  if (!player_) return;
   const auto& pose = camera.pose;
   const auto& perspective = camera.perspective;
   const float height =
@@ -877,10 +1015,10 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
   toward_light[2] += kSourceLightDirectionBias;
   const auto volume = make_shadow_selection_volume(
       selected_camera, shadow.far_distance, toward_light);
-  const auto& actor = *player_;
-  for (const bool weapon : {false, true}) {
-    const auto& resident = weapon ? actor.source().weapon : actor.source().body;
-    const auto transform = math::affine_part(actor.model_transform(weapon));
+  const auto admitted_model = [&](const ResidentModelView& resident,
+                                  const animation::Matrix& matrix,
+                                  bool force_visible) {
+    const auto transform = math::affine_part(matrix);
     const resources::detail::Reader header{resident.definition.get().header()};
     constexpr std::size_t kGroupCenter = 0x30, kGroupRadius = 0x40;
     math::Vector3<float> group_center{};
@@ -895,18 +1033,31 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
         {math::transform_point<float>(group_center, transform),
          std::bit_cast<float>(header.u32(kGroupRadius))},
         true,
-        !weapon && force_player_visibility,
+        force_visible,
         false};
-    const bool admitted = shadow_caster_admitted(query_model_shadow_caster(
+    return shadow_caster_admitted(query_model_shadow_caster(
         selected_camera, volume, shadow.minimum_projected_size, owner));
-    for (std::size_t index = 0;
-         index < resident.definition.get().draws().size(); ++index) {
-      if (!actor.includes_draw(weapon, index)) continue;
-      const auto& draw = resident.definition.get().draws().at(index);
-      const render::WorldVisibilityUpdate update{
-          resident.handle, index, actor.draw_visible(weapon, index),
-          admitted && draw.chunk <= 1, 0};
-      output_.update_world_visibility(std::span(&update, 1));
+  };
+  if (player_) {
+    const auto& actor = *player_;
+    for (const bool weapon : {false, true}) {
+      const auto& resident =
+          weapon ? actor.source().weapon : actor.source().body;
+      publish_player_visibility(
+          weapon, admitted_model(resident, actor.model_transform(weapon),
+                                 !weapon && force_player_visibility));
+    }
+  }
+  for (const auto& value : npc_receivers_) {
+    if (!value.actor) continue;
+    const auto& actor = *value.actor;
+    for (const bool weapon : {false, true}) {
+      const auto* pose = weapon ? actor.weapon() : &actor.body();
+      if (!pose) continue;
+      publish_npc_visibility(
+          actor, weapon,
+          admitted_model(pose->prepared().resident,
+                         actor.model_transform(weapon), false));
     }
   }
 }
@@ -1000,6 +1151,7 @@ void StagePresentation::present(const InitialPlayerCamera& camera,
                                 bool force_player_visibility, double next) {
   publish_view(camera, force_player_visibility);
   publish_player_lighting();
+  publish_npc_lighting();
   // Evaluate each authored channel once, then distribute through prepared
   // slots.
   for (auto& curve : animated_curves_) curve.value = curve.curve.sample(next);

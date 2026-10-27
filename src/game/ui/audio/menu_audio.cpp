@@ -12,8 +12,9 @@ namespace bw::game {
 namespace {
 // Compatibility boundary: source event table 0x8367b0, common bank 0.
 constexpr std::uint16_t kPauseCue = 12, kConfirmCue = 362, kCursorCue = 363,
-                        kErrorCue = 5, kSaveCue = 11, kTitleStartCue = 8,
-                        kMissionStartCue = 10, kUpgradePurchaseCue = 17;
+                        kErrorCue = 5, kDialogPageCue = 6, kSaveCue = 11,
+                        kTitleStartCue = 8, kMissionStartCue = 10,
+                        kUpgradePurchaseCue = 17;
 std::uint16_t cue(MenuSound sound) {
   switch (sound) {
     case MenuSound::pause:
@@ -32,6 +33,8 @@ std::uint16_t cue(MenuSound sound) {
       return 2;
     case MenuSound::dialog_close:
       return 4;
+    case MenuSound::dialog_page:
+      return kDialogPageCue;
     case MenuSound::save:
       return kSaveCue;
     case MenuSound::title_start:
@@ -61,7 +64,9 @@ void MenuAudio::submit(const MenuSoundRequests& requests) {
   for (std::size_t i = 0; i < requests.size; ++i) {
     const auto& request = requests.requests.at(i);
     validate(request);
-    if (request.delay_seconds > 0) ++delayed;
+    if (request.delay_seconds > 0) {
+      ++delayed;
+    }
   }
   if (delayed > pending_.size() - size_) {
     throw std::length_error("Menu sound scheduling capacity exceeded");

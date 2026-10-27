@@ -1,3 +1,6 @@
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // Native window/input/media-audio integration. Rendering producers and final
 // output composition have independent owners: WorldRenderer, MovieRenderer,
 // SpriteRenderer and OutputCompositor. Existing producer-facing APIs forward
@@ -301,6 +304,10 @@ void WindowHost::set_sprites(std::span<const render::Sprite> sprites) {
   require_main_thread();
   state_->sprites->set_sprites(sprites);
 }
+void WindowHost::append_sprites(std::span<const render::Sprite> sprites) {
+  require_main_thread();
+  state_->sprites->append_sprites(sprites);
+}
 void WindowHost::clear_sprites() noexcept { state_->sprites->clear_sprites(); }
 
 render::WorldModelHandle WindowHost::upload_model(const formats::ModelDefinition& model) {
@@ -339,6 +346,15 @@ void WindowHost::replace_world_model_draws(render::WorldModelHandle previous,
                                            std::span<const render::WorldColorDraw> replacement) {
   require_main_thread();
   state_->world->replace_world_model_draws(previous, replacement);
+}
+void WindowHost::add_world_instance_draws(std::span<const render::WorldColorDraw> draws) {
+  require_main_thread();
+  state_->world->add_world_instance_draws(draws);
+}
+void WindowHost::remove_world_instance_draws(render::WorldModelHandle model,
+                                             std::uint64_t instance) {
+  require_main_thread();
+  state_->world->remove_world_instance_draws(model, instance);
 }
 // Forward only mutable material constants; retained scene resources stay owned.
 void WindowHost::update_world_texture_offsets(

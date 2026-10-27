@@ -20,6 +20,8 @@ Bullet Witch game policy owns the recovered pause and input decisions.
 | Scaled world delta and admitted simulation time | Base game producer and hierarchy context | Engine world clock and immutable frame observation |
 | User/script/pad pause and request admission | Base game fields and shared script pause stack | One game mission control owner |
 | Pause navigation | Native pause task | PauseMenuFlow borrows only UserPauseControl; menu state does not duplicate world pause |
+| Script pause | Original script pause/resume receivers | MissionScriptRuntime borrows ScriptPauseControl for stack push/pop and script-admission observation only |
+| Music policy | Persistent original music command/envelope service | One session MusicPlayback consumes control time; frontend/mission publish MusicCommands only |
 | Hardware versus neutral commands | Base game input admission before actor traversal | Game input routing consumes the current sampled frame once |
 | Actor/model clocks and retained motion interval | Parent hierarchy, model children | Existing actor/model update consumes the supplied world interval |
 | Material elapsed | World-driven model/material updates | Stage samples admitted world time; no Stage-local master clock |
@@ -92,6 +94,19 @@ delegates these phases; it does not interpret pause/ring/resource policy.
 See [live gameplay ownership](player-gameplay.md).
 
 ### Mutation authority
+
+The persistent script runtime receives `ScriptPauseControl`, not mutable
+`MissionControl`. It can observe script admission and push/pop the original
+script stack, but cannot change user pause, hardware restriction or input
+routing. Its `ScriptWorldControl` permits visibility commands and copied player
+pose/population-checkpoint observations; it cannot advance the world or obtain
+player-action mutation. Both handles alias stable authorities and retire first.
+
+`MusicPlayback` is session-owned and advances once from the composition's
+existing control interval, including loading and user pause. `MusicCommands`
+contains no advance, gain, native output or preparation capability. Frontend and
+mission callbacks share that command receiver; they own no independent fades.
+See [music authority](../../research/engine/subsystems/mission-music-ownership.md).
 
 The original native pause task changes user pause; it does not own frame
 publication, script nesting or hardware-input routing. `PauseFlow` therefore

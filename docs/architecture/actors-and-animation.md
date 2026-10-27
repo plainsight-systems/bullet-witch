@@ -107,11 +107,11 @@ entity, paused-hierarchy and transition-exception consumers are not implemented.
 See [actor/model phase order](../../research/engine/subsystems/actor-model-clock-order.md)
 for the separately verified local parent/model contract.
 
-The normal One Shot Kill menu path enters this bounded traversal without
-pretending the complete Lua mission `start()` has executed. The sole approved
-`initial_placement_shim` validates fresh `cm01_00`/`st04_c` and injects the original
-initial pose. There is no production checkpoint-coordinate table or playerless
-Stage fallback; save restoration and mission progression remain incomplete. User review reopened earlier traversal acceptance:
+The normal One Shot Kill menu path now obtains its initial pose from unchanged
+Lua `start()` through the mission startup owner; the former placement shim has
+been removed. There is no production checkpoint-coordinate table or playerless
+Stage fallback. Source-triggered NPC admission is implemented; save restoration
+and mission progression remain incomplete. Opening completion is not gameplay completion. User review reopened earlier traversal acceptance:
 the hardware leap had been wired to a generic scripted jump and the model retained
 its constructor height. Those defects are corrected from original consumers;
 fresh native verification is tracked in [traversal acceptance](../../research/engine/subsystems/player-traversal-acceptance.md).

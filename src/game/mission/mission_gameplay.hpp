@@ -15,6 +15,7 @@
 #include "game/ui/frontend/menu_surface.hpp"
 #include "game/ui/hud/player_cockpit.hpp"
 #include "mission_interaction.hpp"
+#include "mission_script_services.hpp"
 #include "mission_transition.hpp"
 
 namespace bw::game {
@@ -40,6 +41,20 @@ class MissionGameplay {
                                 const MissionInput& input);
   void advance();
   void present();
+  void set_goal_target(std::array<float, 3> position) {
+    cockpit_.set_goal_target(position);
+  }
+  void clear_goal_target() noexcept { cockpit_.clear_goal_target(); }
+  void present_system_message(SystemMessageView view) {
+    cockpit_.present_system_message(view);
+  }
+  void set_cockpit_visible(bool visible) noexcept {
+    cockpit_.set_script_visible(visible);
+  }
+  MissionScriptInterval control_interval() const noexcept { return interval_; }
+  MissionScriptInterval simulation_interval() const noexcept {
+    return simulation_interval_;
+  }
   float presentation_opacity() const {
     return interaction_.presentation_opacity();
   }
@@ -55,5 +70,7 @@ class MissionGameplay {
   PlayerCockpit cockpit_;
   std::optional<world::WorldFrame> frame_;
   GameplayInput actions_;
+  MissionScriptInterval interval_;
+  MissionScriptInterval simulation_interval_;
 };
 }  // namespace bw::game

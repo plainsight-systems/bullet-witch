@@ -39,6 +39,7 @@
 #include "game/mission/loading/mission_loading.hpp"
 #include "game/mission/mission_control.hpp"
 #include "game/mission/mission_gameplay.hpp"
+#include "game/mission/mission_script_runtime.hpp"
 #include "game/player/input/controller_input.hpp"
 #include "game/session/compatibility/source_random.hpp"
 #include "game/session/session_services.hpp"
@@ -48,11 +49,12 @@
 #include "game/ui/frontend/ranking_surface.hpp"
 #include "game/ui/hud/gameplay_hud_surface.hpp"
 #include "game/ui/loading/loading_surface.hpp"
+#include "game/ui/mission/mission_message_surface.hpp"
 #include "game/ui/options/frontend_options_surface.hpp"
 #include "game/ui/pause/mission_pause_surface.hpp"
 #include "game/ui/power_up/power_up_surface.hpp"
 #include "game/ui/startup/startup_playback.hpp"
-#include "game/world/initial_placement_shim.hpp"
+#include "game/world/mission_population.hpp"
 #include "game/world/world_runtime.hpp"
 
 namespace bw::game {
@@ -114,18 +116,14 @@ int run_application(const ApplicationOptions& configuration,
   // Original selector seeds MSVCRT rand with platform milliseconds per title
   // activation, then chooses rand()%10. Preserve the algorithm with a portable
   // unsigned seed; exact boot epoch is host-specific.
-  bw::game::FrontendTitleSurface title_surface(resources, host, [] {
+  game::PlacementRandomStream placement_random(1);
+  bw::game::FrontendTitleSurface title_surface(resources, host, [&] {
     const auto ticks = std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::steady_clock::now().time_since_epoch())
                            .count();
-    constexpr std::uint32_t multiplier = 214013;
-    constexpr std::uint32_t increment = 2531011;
-    constexpr std::uint32_t random_mask = 0x7fff;
-    constexpr unsigned random_shift = 16;
+    placement_random.seed(static_cast<std::uint32_t>(ticks));
     constexpr unsigned loading_count = 10;
-    const auto seed =
-        static_cast<std::uint32_t>(ticks) * multiplier + increment;
-    return static_cast<unsigned>((seed >> random_shift) & random_mask) %
+    return static_cast<unsigned>(placement_random.next_random15()) %
            loading_count;
   });
   // One native game mixer survives screen and mission tasks. Only menu cues
@@ -134,10 +132,12 @@ int run_application(const ApplicationOptions& configuration,
       .banks = 3, .cues = 128, .decoded_samples = 60'000'000};
   game::GameAudio game_audio(files, resources.catalogs(), memory.media,
                              audio_factory, kGameAudioLimits);
-  game::FrontEndAudio frontend_audio(*game_audio.output(), [&] {
-    game_audio.prepare_frontend_music(files, configuration.game / "data/sound",
-                                      memory.media);
-  });
+  game::MusicPlayback music(
+      game_audio.output()->music(), [&](std::uint32_t index) {
+        game_audio.prepare_script_music(
+            index, files, configuration.game / "data/sound", memory.media);
+      });
+  game::FrontEndAudio frontend_audio(*game_audio.output(), music.commands());
   bw::game::Profile profile;
   game::DeviceOptions device_options(saves);
   const auto device_status = device_options.load();
@@ -203,6 +203,12 @@ int run_application(const ApplicationOptions& configuration,
       files.read(configuration.game / "data/menu/9952", memory.resources));
   std::optional<game::WorldRuntime> stage_inspection;
   std::optional<game::MissionGameplay> mission_gameplay;
+  game::MissionMessageSurface message_surface(
+      resources, host,
+      files.read(configuration.game / "data/menu/9900", memory.resources));
+  std::optional<game::MissionMessage> mission_message;
+  // Retire script callbacks before message/world receivers, then load assets.
+  std::optional<game::MissionScriptRuntime> mission_script_runtime;
   std::optional<game::MissionPhase> reported_mission_phase;
   // Completed asset operations may pump only loading presentation. They never
   // reenter Lua, inspect a partial world or transfer native ownership threads.
@@ -226,6 +232,9 @@ int run_application(const ApplicationOptions& configuration,
     game_audio.apply_mix(
         {static_cast<std::uint16_t>(profile.music_volume()),
          static_cast<std::uint16_t>(profile.effects_volume())});
+    if (music.advance(loading_timing.presentation_seconds)) {
+      frame_clock.rebase(std::chrono::steady_clock::now());
+    }
     game_audio.update();
     // Loading consumes the same game mapping history without delivering
     // actions.
@@ -271,7 +280,8 @@ int run_application(const ApplicationOptions& configuration,
     }
     game::MissionFrameDisposition mission_frame;
     if (mission_gameplay) {
-      mission_frame = mission_gameplay->begin(
+      message_surface.set_input_device(input.prompt_device);
+      mission_frame = mission_script_runtime->begin(
           presentation_delta,
           {.player = {.movement = input.movement,
                       .look = input.look,
@@ -351,11 +361,14 @@ int run_application(const ApplicationOptions& configuration,
     }
     // Game owns the admitted action/resource/presentation ordering; media
     // transport remains a separate service between input and world phases.
-    if (mission_gameplay) mission_gameplay->advance();
+    if (mission_gameplay) mission_script_runtime->advance();
     // Service the one device even outside missions and during world pause.
     game_audio.apply_mix(
         {static_cast<std::uint16_t>(profile.music_volume()),
          static_cast<std::uint16_t>(profile.effects_volume())});
+    if (music.advance(presentation_delta)) {
+      frame_clock.rebase(std::chrono::steady_clock::now());
+    }
     game_audio.update();
     playback.set_music_volume(profile.music_volume());
     if (mission_frame.transition != game::MissionTransition::none) {
@@ -370,6 +383,10 @@ int run_application(const ApplicationOptions& configuration,
       // A confirmed game request retires borrowers before their authorities.
       // Retirement releases the root wait; restart/checkpoint preserve it and
       // let the existing entry path build all owners again. No actor reset.
+      mission_script_runtime.reset();
+      music.retire();
+      mission_message.reset();
+      message_surface.end();
       mission_gameplay.reset();
       pause_surface.end();
       stage_inspection.reset();
@@ -400,11 +417,8 @@ int run_application(const ApplicationOptions& configuration,
             : input.repeated_actions,
         input.physical, input.menu_vertical_axis);
     if (mission_gameplay) {
-      mission_gameplay->present();
-      // Inspection presents independently while the original mission load and
-      // its black fade remain pending; this never advances script completion.
-      (void)host.draw(
-          mission_gameplay ? mission_gameplay->presentation_opacity() : 1.F);
+      mission_script_runtime->present();
+      (void)host.draw(mission_script_runtime->presentation_opacity());
     } else if (mission_loading && mission_loading->loading_scene().active) {
       loading_pulse();
     } else {
@@ -492,8 +506,9 @@ int run_application(const ApplicationOptions& configuration,
       if (!inspected_stage &&
           progress.phase == game::MissionPhase::awaiting_world_setup &&
           !mission->stage_name().empty()) {
-        // Publish a static view only after the original load has completed.
-        // It borrows those owners while actor/gameplay setup remains separate.
+        // Prepare stable mission owners after the original load. World
+        // admission follows the authored transform in the retained start
+        // coroutine.
         if (!mission_loading) {
           throw std::logic_error("Mission loading owner is missing");
         }
@@ -504,8 +519,6 @@ int run_application(const ApplicationOptions& configuration,
           throw std::logic_error(
               "Inspection stage/sky definitions are missing");
         }
-        const auto background_models = mission_loading->resident_dependencies();
-        const auto& background = mission_loading->background();
         mission_loading->prepare_player(
             session.gameplay_request()->selection.costume,
             mission_player->selected_weapon());
@@ -520,49 +533,70 @@ int run_application(const ApplicationOptions& configuration,
             game::PlayerResourceSettings::parse(customization), *mission_player,
             *world_clock);
         hud_surface.prepare();
-        stage_inspection.emplace(
-            *world_clock, *mission_control, host,
-            game::StageViewSource{stage.value(),
-                                  mission_loading->resident_models(),
-                                  mission_loading->resident_textures()},
-            game::StageViewSource{sky.value(),
-                                  mission_loading->sky_resident_models()},
-            memory.resources, configuration.inspection_camera,
-            game::StageBackgroundSource{background ? &*background : nullptr,
-                                        background_models},
-            game::PlayerActorSource{
-                mission_loading->resident_player(),
-                mission_loading->resident_weapon(),
-                mission_loading->player_support(),
-                mission_loading->weapon_support(),
-                game::initial_placement_shim(
-                    session.gameplay_request()->script_name,
-                    mission->stage_name(),
-                    !session.gameplay_request()->checkpoint.empty())},
-            loading_pulse,
-            game::StageCharacterLightSource{mission_loading->character_light(),
-                                            mission_loading->enemy_light()});
-        stage_inspection->bind_audio(game_audio.prepared(),
-                                     *game_audio.output(), random);
-        mission_gameplay.emplace(
-            *world_clock, *mission_control, *mission_player, *player_resources,
-            *mission_loading, *stage_inspection, hud_surface, pause_surface,
-            random, *game_audio.output(), profile.help_control(),
-            game::OptionsServices{profile.settings_control(),
-                                  profile.settings_save_control(saves),
-                                  device_options.control(),
-                                  device_options.save_control()},
-            game::CockpitActivation::inspection);
-        inspected_stage = true;
-        loading_surface.end();
-        // Loading wall time is not an initial simulation step.
-        frame_clock.rebase(std::chrono::steady_clock::now());
-        std::cerr << "Static inspection: " << stage_inspection->selected_draws()
-                  << " ordinary draws, " << stage_inspection->background_draws()
-                  << " placed-prop draws, " << stage_inspection->omitted_draws()
-                  << " omitted draws, " << stage_inspection->player_draws()
-                  << " player/weapon draws; authored poses, fog and shadows; "
-                     "actor simulation remains separate\n";
+        message_surface.begin();
+        while (!message_surface.ready()) loading_pulse();
+        const auto& text = mission_loading->text_table();
+        if (!text) {
+          throw std::logic_error("Mission instructions are unregistered");
+        }
+        mission_message.emplace(*text, session.gameplay_request()->script_name,
+                                message_surface, *game_audio.output());
+        const auto activate = [&](game::ScriptedPlayerPose placement,
+                                  bool admit_background) {
+          const auto& live_stage = mission_loading->stage().value();
+          const auto& live_sky = mission_loading->sky().value();
+          const auto background_models =
+              mission_loading->resident_dependencies();
+          const auto& background = mission_loading->background();
+          stage_inspection.emplace(
+              *world_clock, *mission_control, host,
+              game::StageViewSource{live_stage,
+                                    mission_loading->resident_models(),
+                                    mission_loading->resident_textures()},
+              game::StageViewSource{live_sky,
+                                    mission_loading->sky_resident_models()},
+              memory.resources, configuration.inspection_camera,
+              game::StageBackgroundSource{
+                  admit_background && background ? &*background : nullptr,
+                  background_models},
+              game::PlayerActorSource{mission_loading->resident_player(),
+                                      mission_loading->resident_weapon(),
+                                      mission_loading->player_support(),
+                                      mission_loading->weapon_support(),
+                                      placement},
+              loading_pulse,
+              game::StageCharacterLightSource{
+                  mission_loading->character_light(),
+                  mission_loading->enemy_light()});
+          stage_inspection->bind_population(*mission_loading, placement_random);
+          stage_inspection->bind_audio(game_audio.prepared(),
+                                       *game_audio.output(), random);
+          mission_gameplay.emplace(
+              *world_clock, *mission_control, *mission_player,
+              *player_resources, *mission_loading, *stage_inspection,
+              hud_surface, pause_surface, random, *game_audio.output(),
+              profile.help_control(),
+              game::OptionsServices{profile.settings_control(),
+                                    profile.settings_save_control(saves),
+                                    device_options.control(),
+                                    device_options.save_control()},
+              game::CockpitActivation::hidden);
+          inspected_stage = true;
+          loading_surface.end();
+          frame_clock.rebase(std::chrono::steady_clock::now());
+          return game::MissionWorldActivation{
+              stage_inspection->script_world_control(), *mission_gameplay,
+              *player_resources, *mission_player};
+        };
+        const auto& background = mission_loading->background();
+        mission_script_runtime.emplace(
+            *mission, mission_control->script_pause_control(), *mission_message,
+            activate, music.commands(), background ? &*background : nullptr,
+            [&](std::int32_t event, const std::array<float, 3>& position) {
+              return mission_loading->contains_mission_trap(event, position);
+            },
+            hud_surface.system_text_table());
+        mission->start(*mission_script_runtime);
       }
     }
     if (configuration.verify &&

@@ -29,4 +29,12 @@ std::size_t append_sprite_text(const formats::BitmapFont& font,
                                std::string_view text,
                                SpriteTextPosition position, render::Color color,
                                std::span<render::Sprite> output);
+// Original font flags 0x30 center each line horizontally and the complete
+// line block vertically around the supplied position. Same bounded contract.
+std::size_t append_centered_sprite_text(const formats::BitmapFont& font,
+                                        render::TextureHandle atlas,
+                                        std::string_view text,
+                                        SpriteTextPosition position,
+                                        render::Color color,
+                                        std::span<render::Sprite> output);
 }  // namespace bw::game

@@ -110,7 +110,8 @@ void layer_contract(id<MTLTexture> target, OutputCompositor& output, MovieRender
                          .destination = {0, 0, 1280, 720},
                          .color = {1, 1, 1, .25F},
                          .blend = bw::render::SpriteBlend::additive}};
-  sprites.set_sprites(quads);
+  sprites.set_sprites(std::span(quads).first(1));
+  sprites.append_sprites(std::span(quads).subspan(1));
   output.compose(target, full);
   require(near(pixel(target), {64, 128, 128, 255}),
           "Ordered alpha then additive UI overlays movie");
@@ -132,8 +133,33 @@ void layer_contract(id<MTLTexture> target, OutputCompositor& output, MovieRender
   output.compose(target, full);
   require(near(pixel(target), {64, 128, 128, 255}),
           "Failed UI replacement preserves prior composition");
-  sprites.release_texture(green);
+  rejected = false;
+  try {
+    sprites.append_sprites(invalid);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "Stale overlay rejects the entire suffix");
+  output.compose(target, full);
+  require(near(pixel(target), {64, 128, 128, 255}),
+          "Failed append preserves base and prior overlay atomically");
+  std::array<bw::render::Sprite, bw::render::kMaximumSprites> excess;
+  excess.fill(quads.front());
+  rejected = false;
+  try {
+    sprites.append_sprites(excess);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "Append checks combined command capacity");
+  output.compose(target, full);
+  require(near(pixel(target), {64, 128, 128, 255}),
+          "Capacity rejection leaves retained composition unchanged");
   sprites.release_texture(blue);
+  output.compose(target, full);
+  require(near(pixel(target), {0, 128, 128, 255}),
+          "Overlay retirement preserves the independently owned base");
+  sprites.release_texture(green);
   output.compose(target, full);
   require(pixel(target) == Pixel{0, 0, 255, 255},
           "Retired textures remove their queued UI consumers");

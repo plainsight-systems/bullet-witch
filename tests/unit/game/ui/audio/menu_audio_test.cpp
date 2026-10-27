@@ -69,6 +69,13 @@ class Output final : public bw::audio::CueOutput,
 };
 static_assert(!std::is_copy_constructible_v<bw::game::MenuAudio>);
 static_assert(!std::is_move_constructible_v<bw::game::MenuAudio>);
+static_assert(!std::is_default_constructible_v<bw::game::MusicCommands>);
+static_assert(!std::is_constructible_v<bw::game::MusicCommands,
+                                       bw::game::MusicPlayback&>);
+template <class T>
+concept CanAdvanceMusic = requires(T& value) { value.advance(0.F); };
+static_assert(!CanAdvanceMusic<bw::game::MusicCommands>);
+static_assert(!std::is_copy_constructible_v<bw::game::MusicPlayback>);
 template <class Exception, class Operation>
 void rejects(Operation operation, const char* reason) {
   bool rejected = false;
@@ -172,7 +179,8 @@ void invalid_requests_are_atomic() {
 void frontend_lifetime_and_fade() {
   Output output;
   unsigned preparations = 0;
-  bw::game::FrontEndAudio frontend(output, [&] { ++preparations; });
+  bw::game::MusicPlayback music(output, [&](std::uint32_t) { ++preparations; });
+  bw::game::FrontEndAudio frontend(output, music.commands());
   MenuSoundRequests title;
   title.add(MenuSound::title_start);
   frontend.submit(title);
@@ -180,23 +188,29 @@ void frontend_lifetime_and_fade() {
               preparations == 0 && output.starts == 0,
           "title cue does not prepare or start main music");
   frontend.start_menu_music();
+  music.advance(0);
   require(preparations == 1 && output.starts == 1 && output.playing,
           "first main entry prepares and starts music");
   frontend.advance(10);
+  music.advance(10);
   require(output.playing && output.stops == 0 && output.owner_operations == 0,
           "frontend updates preserve music and do not pump shared device");
   frontend.stop_menu_music(1);
   frontend.advance(.25F);
+  music.advance(.25F);
   require(output.playing && output.envelope == .75F,
           "title return fades existing music over original one second");
   frontend.advance(.75F);
+  music.advance(.75F);
   require(!output.playing && output.stops == 1 && output.envelope == 0,
           "fade completion stops only music");
   frontend.start_menu_music();
-  require(preparations == 1 && output.starts == 2 && output.envelope == 1,
-          "reentry reuses preparation and restores full envelope");
+  music.advance(0);
+  require(preparations == 2 && output.starts == 2 && output.envelope == 1,
+          "reentry reselects menu track after shared device use");
   frontend.stop_menu_music(3);
   frontend.advance(1.5F);
+  music.advance(1.5F);
   require(output.envelope == .5F && output.playing,
           "mission transition uses original three second fade");
   const auto before = output.envelope;
@@ -210,24 +224,82 @@ void frontend_lifetime_and_fade() {
   require(output.envelope == before && output.playing,
           "invalid input preserves native state");
   frontend.advance(2);
+  music.advance(2);
   require(output.stops == 2 && !output.playing,
           "oversized frame completes fade once");
   frontend.advance(2);
+  music.advance(2);
   require(output.stops == 2, "completed fade is retired");
   Output rejected;
   unsigned attempts = 0;
-  bw::game::FrontEndAudio failing(rejected, [&] {
+  bw::game::MusicPlayback retry(rejected, [&](std::uint32_t) {
     if (++attempts == 1) throw std::runtime_error("preparation failure");
   });
-  rejects<std::runtime_error>([&] { failing.start_menu_music(); },
+  bw::game::FrontEndAudio failing(rejected, retry.commands());
+  failing.start_menu_music();
+  rejects<std::runtime_error>([&] { retry.advance(0); },
                               "preparation failure is surfaced");
   require(rejected.starts == 0, "failed preparation does not start playback");
   failing.start_menu_music();
+  retry.advance(0);
   require(attempts == 2 && rejected.starts == 1,
           "failed preparation does not publish readiness");
 }
+// Regression: unfinished frontend departure cannot fade the mission track.
+// Both policies publish into the same native source state machine. Clock and
+// preparation authority are deliberately unavailable on either command handle.
+void shared_music_handoff() {
+  Output output;
+  std::array<std::uint32_t, 4> prepared{};
+  std::size_t count = 0;
+  bw::game::MusicPlayback music(
+      output, [&](std::uint32_t track) { prepared.at(count++) = track; });
+  bw::game::FrontEndAudio frontend(output, music.commands());
+  const auto mission = music.commands();
+  frontend.start_menu_music();
+  music.advance(0);
+  frontend.stop_menu_music(3);
+  music.advance(.5F);
+  mission.play({7, 1});
+  require(count == 1 && output.starts == 1,
+          "mission request cannot replace PCM during old frontend fade");
+  frontend.advance(10);
+  require(output.playing && output.envelope > 0,
+          "frontend has no retained envelope authority after request");
+  music.advance(2.5F);
+  require(!output.playing && output.stops == 1 && count == 1,
+          "old fade finishes before new track admission");
+  music.advance(0);
+  require(output.playing && output.starts == 2 && count == 2 &&
+              prepared[0] == 16 && prepared[1] == 7 && output.envelope == 0,
+          "next update admits original mission track and its own fade");
+  music.advance(.5F);
+  require(output.envelope == .5F,
+          "mission fade uses source one-second duration");
+  frontend.advance(20);
+  music.advance(.5F);
+  require(output.playing && output.envelope == 1 && output.stops == 1,
+          "expired frontend policy cannot stop mission music");
+  mission.play({3, 1});
+  music.advance(1);
+  require(count == 2, "original playing service ignores play without a stop");
+  mission.stop(3);
+  music.advance(3);
+  require(!output.playing, "checkpoint stop applies original fade");
+  music.advance(2);
+  mission.play({3, 1});
+  music.advance(0);
+  music.advance(1);
+  require(prepared[2] == 3 && output.playing && output.envelope == 1,
+          "checkpoint timer may start its next track after source silence");
+  music.retire();
+  require(!output.playing,
+          "composition retirement stops current session track");
+}
+
 }  // namespace
 void menu_audio_contracts() {
+  shared_music_handoff();
   frontend_lifetime_and_fade();
   mapping_and_timing();
   invalid_requests_are_atomic();

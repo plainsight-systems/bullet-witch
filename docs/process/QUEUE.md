@@ -1,5 +1,23 @@
 # Remaining work
 
+- Mission startup was accepted for commit on October 27, 2026:
+  original Lua opening/modal, source trigger/deferred NPC admission, shared
+  initial motion and appearance, per-instance native presentation, checkpoint
+  observations, serial trap/timer callbacks, goal and system-message UI, restart.
+  Initial zero NPCs is source-correct; authored trigger regions admit real actors.
+  Full purchased-content traversal and the final full gate pass. All 58
+  authored group rows are exercised; distance-gated records remain deferred.
+  Native checks cover all thirteen NPC model families separately. Live review
+  reopened music continuity and ownership: single-session music service and
+  restricted script capabilities are implemented. Updated full gate, focused
+  original-Lua mission/restart traversal, source comparison and native PCM
+  continuity/handoff checks pass. Independent corrected-source review closes
+  all findings. The accepted scope retains the documented coverage limits.
+  AI decisions, combat/effects/audio outcomes, dynamic physics and complete
+  checkpoint restoration remain later owners; goal completion must expose its
+  explicit awaiting-gameplay boundary without exiting the game.
+  See [current boundary](../../research/engine/subsystems/mission-startup-implementation.md).
+
 - Revised architecture slice 3 was accepted on October 26, 2026; the user
   authorized its scoped commit.
   Implementation and both configuration gates/purchased-content traversals pass;
@@ -154,11 +172,11 @@
   See `research/engine/subsystems/character-material-brightness-audit.md` and
   `docs/architecture/lighting.md`.
 
-- Preserve the sole authorized initial-placement shim for exact fresh
-  `cm01_00`/`st04_c`, with no checkpoint restoration or hidden Stage fallback.
-  Genuine mission startup remains incomplete and replaces that shim once its
-  real dependencies are implemented. See the current table in
-  `research/engine/subsystems/overfitting-and-shim-review.md`.
+- The fresh `cm01_00` placement shim is removed in the accepted original-start
+  implementation. Lua now supplies the transform and live source-triggered NPC
+  admission is implemented. Nonzero checkpoint restoration remains open; see
+  `research/engine/subsystems/mission-startup-implementation.md`. The earlier
+  `overfitting-and-shim-review.md` records the historical authorization.
 
 - Before the next implementation slice, reconcile the playable-level dependencies
   around the concrete next priority: real in-level pause/resume and a HUD bound

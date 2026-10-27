@@ -57,6 +57,12 @@ class GameAudio {
   void prepare_frontend_music(const platform::Files& files,
                               const std::filesystem::path& sound_directory,
                               const std::shared_ptr<memory::Domain>& domain);
+  // Original script track selection resolves through the source compatibility
+  // table. Preparation replaces the one device track, so frontend reentry
+  // must select its track again. No caller samples or paths survive this call.
+  void prepare_script_music(std::uint32_t index, const platform::Files& files,
+                            const std::filesystem::path& sound_directory,
+                            const std::shared_ptr<memory::Domain>& domain);
   const std::shared_ptr<audio::CueOutput>& output() const { return output_; }
   // Session control-thread service; independent of world tick admission.
   void update();
@@ -75,6 +81,7 @@ class GameAudio {
  private:
   std::shared_ptr<audio::CueOutput> output_;
   std::optional<PreparedCharacterAudio> prepared_;
-  bool music_prepared_{}, mission_preparation_started_{};
+  std::optional<std::uint32_t> prepared_music_;
+  bool mission_preparation_started_{};
 };
 }  // namespace bw::game

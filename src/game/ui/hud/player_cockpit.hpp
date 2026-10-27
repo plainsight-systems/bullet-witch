@@ -16,7 +16,7 @@
 #include "gameplay_hud.hpp"
 
 namespace bw::game {
-enum class CockpitActivation : std::uint8_t { hidden, inspection };
+enum class CockpitActivation : std::uint8_t { hidden, inspection, script };
 class PlayerCockpit {
  public:
   PlayerCockpit(GameplayHudOutput& surface, SourceRandom& random,
@@ -28,8 +28,20 @@ class PlayerCockpit {
   ~PlayerCockpit() = default;
   void advance(const world::WorldFrame& frame,
                const PlayerResourceSnapshot& resources, bool aiming,
-               const SpellRingPresentation& ring);
+               const SpellRingPresentation& ring,
+               const MissionGoalObservation* goal_observation = nullptr);
   void show(std::string_view diagnostic = {});
+  void set_script_visible(bool visible) noexcept {
+    activation_ =
+        visible ? CockpitActivation::script : CockpitActivation::hidden;
+  }
+  void set_goal_target(std::array<float, 3> position) {
+    hud_.set_goal_target(position);
+  }
+  void clear_goal_target() noexcept { hud_.clear_goal_target(); }
+  void present_system_message(SystemMessageView view) {
+    surface_.show_system_message(view);
+  }
   const GameplayHud& presentation() const { return hud_; }
 
  private:

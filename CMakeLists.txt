@@ -88,7 +88,8 @@ target_link_libraries(bw_host_files PUBLIC bw_resources)
 bw_strict(bw_host_files)
 add_library(bw_game_content src/game/content/original/stage_environment_settings.cpp
   src/game/player/camera/player_camera_settings.cpp src/game/content/original/stage.cpp
-  src/game/content/original/character_support.cpp)
+  src/game/content/original/character_support.cpp
+  src/game/content/original/mission_placement.cpp)
 target_link_libraries(bw_game_content PUBLIC bw_resources)
 bw_strict(bw_game_content)
 add_library(bw_profiles src/game/profile/profile.cpp src/game/profile/progression.cpp
@@ -101,13 +102,14 @@ if(UNIX)
   target_link_libraries(bw_save_storage_posix PUBLIC bw_resources)
   bw_strict(bw_save_storage_posix)
 endif()
-add_library(bw_game src/game/mission/mission_control.cpp src/game/player/camera/initial_camera.cpp src/game/player/camera/player_camera.cpp src/game/world/placed_collision.cpp src/game/world/presentation/placed_lighting.cpp src/game/world/world_runtime.cpp src/game/world/mission_simulation.cpp src/game/world/presentation/stage_presentation.cpp src/game/world/presentation/stage_shadow.cpp src/game/mission/mission_driver.cpp src/game/world/initial_placement_shim.cpp src/game/mission/loading/mission_loading.cpp src/game/mission/loading/mission_package_inputs.cpp src/game/content/original/npc_palette.cpp src/game/session/root_driver.cpp src/game/ui/startup/startup_flows.cpp src/game/session/session_services.cpp src/game/ui/startup/advertise_flow.cpp src/game/ui/frontend/title_flows.cpp src/game/ui/frontend/menu_flow.cpp src/game/ui/frontend/frontend.cpp src/game/ui/frontend/ranking_flow.cpp)
+add_library(bw_game src/game/mission/mission_control.cpp src/game/player/camera/initial_camera.cpp src/game/player/camera/player_camera.cpp src/game/world/placed_collision.cpp src/game/world/presentation/placed_lighting.cpp src/game/world/world_runtime.cpp src/game/world/mission_simulation.cpp src/game/world/presentation/stage_presentation.cpp src/game/world/presentation/stage_shadow.cpp src/game/mission/mission_driver.cpp src/game/mission/mission_script_bindings.cpp src/game/mission/mission_script_runtime.cpp
+  src/game/mission/mission_callbacks.cpp src/game/ui/mission/mission_message.cpp src/game/world/mission_population.cpp src/game/world/world_population.cpp src/game/actors/npc/npc_actor.cpp src/game/actors/npc/npc_initial_motion.cpp src/game/actors/npc/npc_appearance.cpp src/game/actors/animation/shared_motion_pose.cpp src/game/mission/loading/mission_loading.cpp src/game/mission/loading/mission_package_inputs.cpp src/game/content/original/npc_palette.cpp src/game/session/root_driver.cpp src/game/ui/startup/startup_flows.cpp src/game/session/session_services.cpp src/game/ui/startup/advertise_flow.cpp src/game/ui/frontend/title_flows.cpp src/game/ui/frontend/menu_flow.cpp src/game/ui/frontend/frontend.cpp src/game/ui/frontend/ranking_flow.cpp)
 target_sources(bw_game PRIVATE src/game/player/input/controller_input.cpp src/game/ui/options/controller_options.cpp)
 target_sources(bw_game PRIVATE src/game/world/presentation/stage_environment.cpp src/game/actors/alicia/player_actor.cpp src/game/actors/alicia/player_controller.cpp src/game/actors/alicia/animation/alicia_secondary_motion.cpp src/game/actors/alicia/animation/alicia_support_arm.cpp
   src/game/actors/animation/character_animations.cpp src/game/actors/alicia/animation/alicia_motion_bindings.cpp src/game/actors/animation/motion_presentation.cpp
-  src/game/actors/alicia/animation/facial_animation.cpp src/game/actors/alicia/audio/character_audio.cpp src/game/session/audio/game_audio.cpp src/game/ui/audio/frontend_audio.cpp
+  src/game/actors/alicia/animation/facial_animation.cpp src/game/actors/alicia/audio/character_audio.cpp src/game/session/audio/game_audio.cpp src/game/session/audio/music_playback.cpp src/game/ui/audio/frontend_audio.cpp
   src/game/actors/animation/character_motion_player.cpp)
-target_sources(bw_game PRIVATE src/game/ui/hud/ammunition_hud.cpp src/game/ui/hud/gameplay_hud.cpp src/game/ui/hud/spell_selection.cpp src/game/actors/alicia/player_resources.cpp src/game/actors/alicia/actions/alicia_action_policy.cpp
+target_sources(bw_game PRIVATE src/game/ui/hud/ammunition_hud.cpp src/game/ui/hud/gameplay_hud.cpp src/game/ui/hud/mission_system_message.cpp src/game/ui/hud/mission_goal_hud.cpp src/game/ui/hud/spell_selection.cpp src/game/actors/alicia/player_resources.cpp src/game/actors/alicia/actions/alicia_action_policy.cpp
   src/game/actors/alicia/actions/alicia_reaction_policy.cpp
   src/game/actors/alicia/actions/scripted_jump_policy.cpp
   src/game/actors/alicia/actions/spell_presentation_policy.cpp
@@ -147,7 +149,7 @@ bw_strict(bw_game_playback)
 add_library(bw_game_presentation src/game/ui/options/frontend_options_surface.cpp src/game/ui/frontend/ranking_surface.cpp src/game/ui/power_up/power_up_surface.cpp src/game/ui/hud/gameplay_hud_surface.cpp src/game/ui/common/sprite_text.cpp src/game/ui/frontend/frontend_title_surface.cpp src/game/ui/frontend/frontend_menu_surface.cpp src/game/ui/loading/loading_surface.cpp)
 target_link_libraries(bw_game_presentation PUBLIC bw_game PRIVATE bw_images)
 target_include_directories(bw_game_presentation PRIVATE src)
-target_sources(bw_game_presentation PRIVATE src/game/ui/options/controller_options_surface.cpp src/game/ui/pause/pause_menu_surface.cpp src/game/ui/pause/pause_help_surface.cpp src/game/ui/options/options_surface.cpp src/game/ui/pause/mission_pause_surface.cpp)
+target_sources(bw_game_presentation PRIVATE src/game/ui/options/controller_options_surface.cpp src/game/ui/pause/pause_menu_surface.cpp src/game/ui/pause/pause_help_surface.cpp src/game/ui/options/options_surface.cpp src/game/ui/pause/mission_pause_surface.cpp src/game/ui/mission/mission_message_surface.cpp)
 # Display the target OS, including when a toolchain selects a cross-build target.
 set(bw_target_platform_name "${CMAKE_SYSTEM_NAME}")
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -250,9 +252,11 @@ if(BUILD_TESTING)
   bw_strict(image-font-tests)
   add_test(NAME image-font COMMAND image-font-tests)
   set_tests_properties(image-font PROPERTIES TIMEOUT 30)
-  add_executable(runtime-tests tests/unit/engine/runtime/runtime_test.cpp tests/unit/engine/runtime/task_memory_test.cpp tests/unit/engine/runtime/lua_memory_test.cpp tests/unit/game/ui/startup/startup_flows_test.cpp
+  add_executable(runtime-tests tests/unit/engine/runtime/runtime_test.cpp
+  tests/unit/engine/runtime/script_coroutine_test.cpp tests/unit/engine/runtime/task_memory_test.cpp tests/unit/engine/runtime/lua_memory_test.cpp tests/unit/game/ui/startup/startup_flows_test.cpp
     tests/unit/game/session/startup_services_test.cpp tests/unit/game/ui/startup/startup_playback_test.cpp tests/unit/engine/video/pcm_buffer_test.cpp tests/unit/game/ui/startup/advertise_flow_test.cpp tests/unit/game/ui/frontend/title_flow_test.cpp tests/unit/game/ui/frontend/menu_flow_test.cpp tests/unit/game/player/camera/initial_camera_test.cpp tests/unit/game/player/camera/player_camera_test.cpp tests/unit/game/world/placed_collision_test.cpp tests/unit/game/application/startup_options_test.cpp tests/unit/game/world/presentation/stage_shadow_test.cpp)
-  target_sources(runtime-tests PRIVATE tests/unit/game/ui/hud/ammunition_hud_test.cpp tests/unit/game/ui/hud/gameplay_hud_test.cpp tests/unit/game/mission/gameplay_integration_test.cpp tests/unit/game/actors/animation/motion_presentation_test.cpp tests/unit/game/mission/world_timing_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/world/mission_population_test.cpp
+  tests/unit/game/mission/mission_callbacks_test.cpp tests/unit/game/actors/shared_motion_pose_test.cpp tests/unit/game/actors/npc_appearance_test.cpp tests/unit/game/ui/mission/mission_message_test.cpp tests/unit/game/ui/mission/mission_system_message_test.cpp tests/unit/game/ui/hud/ammunition_hud_test.cpp tests/unit/game/ui/hud/gameplay_hud_test.cpp tests/unit/game/mission/gameplay_integration_test.cpp tests/unit/game/actors/animation/motion_presentation_test.cpp tests/unit/game/mission/world_timing_test.cpp)
   target_sources(runtime-tests PRIVATE tests/unit/game/ui/options/controller_options_test.cpp tests/unit/game/ui/pause/pause_menu_test.cpp tests/unit/game/ui/frontend/ranking_test.cpp tests/unit/game/ui/pause/pause_help_test.cpp tests/unit/game/ui/audio/menu_audio_test.cpp
   tests/unit/game/ui/common/menu_prompt_test.cpp)
   target_sources(runtime-tests PRIVATE tests/unit/game/actors/alicia/alicia_action_policy_test.cpp

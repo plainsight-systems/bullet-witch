@@ -1,3 +1,10 @@
+// Runtime texture-table overrides follow npc-appearance.md. Both-phase I.1
+// and MEM.9 make input borrowing explicit and copy resolved bindings only at
+// admission; color/shadow slots never search caller metadata during a frame.
+// Instance admission owns copied animation state separately from shared assets.
+// Design I.11 (ri-raw)/MEM.9 and implementation C.85/GPU.1: borrowed packets,
+// allocation only at admission, atomic commit and retained geometry. See
+// research/engine/subsystems/animated-instance-publication.md.
 // Shading admission applies both-phase I.6 (#ri-expects), I.7 (#ri-post) and
 // GPU.1 (guidelines/gpu/GPU.1-keep-data-on-device.md): consumed power exponents
 // are nonnegative; native filtering owns derived device-local normal moments.
@@ -243,6 +250,10 @@ struct WorldViewUpdate {
   std::optional<ScenePasses> scene_passes{};
   std::optional<ShadowPass> shadow_pass{};
 };
+struct WorldTextureOverride {
+  std::size_t slot{};
+  WorldTextureHandle texture;
+};
 struct WorldColorDraw {
   WorldModelHandle model;
   std::size_t draw{};
@@ -270,6 +281,10 @@ struct WorldColorDraw {
   // Receiver-selected environment. Null uses material/global defaults; zero
   // explicitly selects opaque black. An authored material LENV binding wins.
   std::optional<WorldTextureHandle> reflection_texture{};
+  // Instance-local runtime texture-table changes, affecting every semantic
+  // that references a slot. Borrowed for admission only; renderer copies.
+  // Slots must be distinct, in range, and name resident compatible textures.
+  std::span<const WorldTextureOverride> texture_overrides{};
   // Source owner opacity is independent of the material chunk. Absent retains
   // diagnostic constants/Main admission. Present finite values replace only
   // indirect-color alpha: <=0 omits color, >=1 selects Main, (0,1) selects
@@ -277,6 +292,11 @@ struct WorldColorDraw {
   // membership is separately published. No inferred fade clock is owned here.
   // I.1/E.4/MEM.9: explicit value, atomic validation, retained storage.
   std::optional<float> owner_opacity{};
+  // Optional rigid model-to-world rows, copied at admission and composed with
+  // the current view and shadow projection. Must be finite affine rows and
+  // have no joint palette: skinned palettes already carry owner placement.
+  // I.1/MEM.9 (both phases): explicit value ownership, no frame allocation.
+  std::optional<WorldJointMatrix> model_transform{};
 };
 // Update only retained UV constants. Every matching model/draw instance
 // receives the values; duplicate updates apply in order. The full borrowed
@@ -289,8 +309,8 @@ struct WorldTextureOffsetUpdate {
   std::size_t draw{};
   std::array<std::array<float, 4>, 2> texture_offset{};
 };
-// Replace palettes of all submitted instances matching model/draw. The full
-// batch must resolve, retain each published palette size, and contain only
+// Replace palettes of selected submitted instances matching model/draw. The
+// full batch must resolve, retain each published palette size, and contain only
 // finite rows before any write. Duplicate updates apply in order. Complexity
 // O(updates * log(draws) + copied matrices), no steady-state allocation. The
 // owner must retire prior GPU work before updates, as for scene submission.
@@ -298,6 +318,12 @@ struct WorldPoseUpdate {
   WorldModelHandle model;
   std::size_t draw{};
   std::span<const WorldJointMatrix> joint_matrices;
+  // Omission broadcasts; an explicit identity must resolve before any write.
+  std::optional<std::uint64_t> instance{};
+  // A rigid draw accepts an empty palette only with this finite affine
+  // model-to-world transform. Omission preserves the retained transform.
+  // Nonempty palettes and model_transform together are rejected.
+  std::optional<WorldJointMatrix> model_transform{};
 };
 // Publish sampled world-space irradiance and up to four source direct lights
 // together, without replacing geometry/materials. A zero direct count clears
@@ -344,6 +370,8 @@ struct WorldShapePositionUpdate {
   WorldModelHandle model;
   std::size_t buffer{};
   std::span<const std::array<float, 3>> positions;
+  // Select admitted instance storage; omission broadcasts to live instances.
+  std::optional<std::uint64_t> instance{};
 };
 class WorldObservation {
  public:
@@ -395,15 +423,28 @@ class WorldPresentation : public virtual WorldObservation {
   virtual void replace_world_model_draws(
       WorldModelHandle previous,
       std::span<const WorldColorDraw> replacement) = 0;
+  // Admit one instance identity across one or more fresh model pairs
+  // atomically. Every (model, instance) must be absent; ordinals are unique per
+  // model. Immutable assets are shared; copied palettes and shape storage
+  // belong to the new instance. Preserve existing state/view. Nonempty, unique
+  // draw identities. Required fallback textures must already be resident.
+  // Admission allocates O(scene + palettes + texture bindings + shape bytes);
+  // steady-state publication does not.
+  virtual void add_world_instance_draws(
+      std::span<const WorldColorDraw> draws) = 0;
+  // Remove exactly one live pair; stale pairs reject. Does not release assets.
+  virtual void remove_world_instance_draws(WorldModelHandle model,
+                                           std::uint64_t instance) = 0;
   virtual void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate> updates) = 0;
   virtual void update_world_lighting(
       std::span<const WorldLightingUpdate> updates) = 0;
   virtual void update_world_poses(std::span<const WorldPoseUpdate> updates) = 0;
   // Caller retires prior GPU work. Validate the entire batch (resident model,
-  // exact float3 extent, finite values) before copying retained shared storage.
-  // Both color and shadow passes consume the same snapshot; no allocation or
-  // skinning occurs here. Duplicate destinations apply in supplied order.
+  // exact float3 extent, finite values) before copying retained instance
+  // storage. Both color and shadow passes consume the same snapshot; no
+  // allocation or skinning occurs here. Duplicate destinations apply in
+  // supplied order.
   virtual void update_shape_positions(
       std::span<const WorldShapePositionUpdate> updates) = 0;
   virtual void update_world_visibility(

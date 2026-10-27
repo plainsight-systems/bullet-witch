@@ -82,3 +82,54 @@ records exactly match the earlier report at the probe's recorded precision.
 This is additional geometry regression evidence, not a cross-compiler bitwise
 claim or corrected-foot native acceptance. Evidence is retained as
 `floor-alignment-math.jsonl` beside the original traversal report.
+
+## Mission-startup math boundary audit
+
+The uncommitted mission-startup slice was reviewed across tracked additions and
+new files, including its tests. Generic operations found outside the boundary:
+
+- The animation header owned a literal identity matrix, now reused by NPCs;
+  the new native material fixture independently constructed one with a loop.
+  Identity construction belongs in `math::identity_matrix`; the existing
+  animation name remains only a compatibility alias to the common value.
+- Placement containment and population expansion repeated planar rotation.
+  Shared planar rotation retains double trig evaluation rounded to the input
+  scalar before component products. The callers still select the X/Z plane,
+  zero-angle bypass, box policy and containment bounds.
+- Goal projection repeated matrix-by-column-vector multiplication. Shared
+  multiplication retains the zero-seeded dot order and does not perform a
+  perspective divide. Goal fade uses the existing scalar interpolation helper;
+  its source rate, phase and clamp remain HUD policy.
+- Rigid native transform validation repeated finite-matrix traversal. It now
+  uses `math::all_finite`; optionality and the required last row remain renderer
+  admission policy.
+
+Already-shared operations include quaternion inversion/product, transpose,
+point/vector transforms, dot products, lengths, and vector arithmetic. The
+remaining local helpers validate content or select source behavior: NPC body
+radius/facing and attachment composition; retarget bone-name/index policy;
+placement sampling/RNG and region tests; goal receiver phases, original w-lane
+distance, inverse-camera bearing and screen bounds. These are not new generic
+math implementations. Mission callback/startup input validators also remain
+local error-policy adapters; their scalar finite checks do not define arithmetic.
+
+Source-level reference for this consolidation: Unreal revision
+`f45729c0b6f097038e72b52d366a62baeca3275b`,
+`Core/Public/Math/Matrix.inl` (`SetIdentity`, `TransformFVector4`) and
+`Core/Public/Math/Vector2D.h` (`GetRotated`). These place identity, vector transform
+and planar rotation at the common math boundary. We retain this project's
+explicit dot-row versus row-vector conventions and original scalar/trig order,
+without copying Unreal's SIMD implementation or implicit angle conversion.
+Design and implementation consultation reread Core F.4 (`#rf-constexpr`) and
+performance MEM.9: fixed values support compile-time identity/rotation arithmetic
+and allocate no storage during frame operations. Core I.1 keeps matrix orientation
+and trig precision explicit in each shared contract.
+
+This consolidation passed the existing resource, runtime and native memory
+CTest groups. Added in-process math checks cover constant-evaluated identity,
+column-vector orientation including the w lane, and planar rotation handedness,
+length preservation and inverse-angle round trips. Existing placement/goal and
+native rigid-instance checks remain enabled. All seven affected or representative
+translation units passed scoped fatal clang-tidy; `git diff --check` passed.
+The parent integration owns the final repository-wide gate; this bounded audit
+adds no gameplay launch or new integration scenario.

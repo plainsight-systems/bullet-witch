@@ -1,3 +1,7 @@
+// Script-world capability: both-phase Core I.4 (#ri-typed), Con.2
+// (#rconst-fct), and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) expose copied observations and visibility
+// commands without actor, clock, resource or renderer mutation authority.
 // Debug separation: Core I.1 (#ri-explicit), R.3 (#rr-ptr), and performance
 // TLM.1 (guidelines/telemetry/TLM.1-compile-telemetry-out-by-default.md),
 // retrieved in design and implementation, keep preview capabilities bounded
@@ -21,8 +25,30 @@
 #include "game/world/presentation/stage_presentation.hpp"
 #include "mission_simulation.hpp"
 namespace bw::game {
+class WorldPopulation;
+class PlacementRandom;
+class WorldRuntime;
+// Mission scripts borrow this restricted view until the world retires. Copies
+// alias the same stable world; no public construction, null state or owner
+// escape. Observations copy completed pose/checkpoint values, never state
+// pointers. Visibility forwards synchronously to the retained presentation.
+// All operations use the world-owner thread; no allocation or clock
+// advancement. Missing player yields nullopt; unbound population retains the
+// owner's error.
+class ScriptWorldControl {
+ public:
+  std::optional<ScriptedPlayerPose> player_pose() const;
+  PopulationCheckpoint population_checkpoint() const;
+  void set_player_visible(bool visible);
+
+ private:
+  friend class WorldRuntime;
+  explicit ScriptWorldControl(WorldRuntime& owner) noexcept;
+  WorldRuntime* owner_;
+};
 class WorldRuntime {
  public:
+  ScriptWorldControl script_world_control() noexcept;
   // Playerless inspection requires an explicit placement; no mission default
   // is hidden in this reusable view. Player input owns its own placement.
   WorldRuntime(
@@ -78,12 +104,20 @@ class WorldRuntime {
   bool paused() const { return simulation_.paused(); }
   // Publish pause to the audio device before any paused resource transaction.
   void synchronize_pause();
+  void set_player_visible(bool visible) {
+    presentation_.set_player_visible(visible, simulation_.presentation_camera(),
+                                     simulation_.player_forces_visibility());
+  }
   // Mission-owned output/prepared policy and session RNG outlive this view.
   // Bind once after actor admission; pause and listener updates follow the
   // same stage clock as its animation event owners.
   // Mission resources outlive this stage. Bind once before ordinary actions;
   // this handle can spend accepted actions, never reset a resource or clock.
   void bind_action_resources(PlayerActionResources resources);
+  void bind_population(const MissionLoading&, PlacementRandom&);
+  std::size_t population_count() const;
+  std::size_t pending_population_count() const;
+  PopulationCheckpoint population_checkpoint() const;
   void bind_audio(const PreparedCharacterAudio& prepared,
                   audio::CueOutput& output, SourceRandom& random);
   // Explicit paused appearance transaction. Prepare/load candidate resources,
@@ -155,6 +189,8 @@ class WorldRuntime {
                const formats::CustomizationDefinition&);
   MissionSimulation simulation_;
   StagePresentation presentation_;
+  std::shared_ptr<memory::Domain> memory_;
+  std::shared_ptr<WorldPopulation> population_;
 #if BW_DEVELOPER_VIEWS
   std::shared_ptr<AnimationPreview> review_;
 #endif

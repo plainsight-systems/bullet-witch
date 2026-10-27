@@ -6,8 +6,13 @@
 // performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // consulted in both phases: bounded owner arrays publish const command spans.
 #pragma once
+#include <optional>
+
 #include "bw/render/output/sprites.hpp"
 namespace bw::game {
+struct HudAtlasTile {
+  unsigned index{}, width{}, height{};
+};
 struct HudSprite {
   unsigned image{};
   render::Rect destination;
@@ -19,5 +24,7 @@ struct HudSprite {
   bool canvas_pivot{};
   bool additive{};
   bool top_left_pivot{};
+  // Original horizontal tile selector resolves UVs from resident atlas size.
+  std::optional<HudAtlasTile> tile{};
 };
 }  // namespace bw::game

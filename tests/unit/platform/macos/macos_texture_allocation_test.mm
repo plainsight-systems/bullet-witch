@@ -1,3 +1,8 @@
+// Math boundary: both-phase Core F.4 / performance MEM.9 keep generic
+// fixed-value operations in bw::math; source policy remains with this owner.
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // Unit-normal tests apply both-phase Core I.7 (#ri-post) and performance GPU.1
 // (guidelines/gpu/GPU.1-keep-data-on-device.md): verify the directional
 // postcondition through public native draws, with completion before readback.
@@ -41,6 +46,7 @@
 #include "../../../fixtures/model_fixture.hpp"
 #include "bw/content/formats/model.hpp"
 #include "bw/content/formats/world_texture.hpp"
+#include "bw/math/matrix.hpp"
 #include "bw/render/shadows/shadow.hpp"
 #include "platform/macos/memory/cpu_backing.hpp"
 #include "platform/macos/render/buffer_allocation.hpp"
@@ -230,6 +236,182 @@ void receiver_instance_contract(bw::platform::macos::WorldRenderer& renderer,
   require(read_pixel(extent / 4, extent / 2) == left_lit &&
               read_pixel(3 * extent / 4, extent / 2) == right_lit,
           "Explicit broadcast still updates every matching instance");
+  renderer.set_world_draws(std::span(&draw, 1));
+}
+// Shared immutable geometry must not imply shared actor poses or shape streams.
+// Exercise completed pixels through admission, stale rejection and retirement.
+template <class ReadPixel>
+void animated_instance_contract(bw::platform::macos::WorldRenderer& renderer,
+                                bw::render::WorldColorDraw draw, const ReadPixel& read_pixel,
+                                std::uint32_t extent,
+                                const std::shared_ptr<bw::memory::Domain>& domain,
+                                const std::shared_ptr<bw::memory::DeviceBudget>& budget,
+                                std::span<const bw::render::WorldTextureHandle> textures) {
+  const bw::render::WorldLightingUpdate original_light{draw.model, draw.draw,
+                                                       draw.parameters.irradiance_coefficients};
+  receiver_instance_contract(renderer, draw, original_light, read_pixel, extent);
+  auto left = draw;
+  auto right = draw;
+  left.instance = 41;
+  right.instance = 42;
+  left.parameters.clip_rows[0][0] *= .4F;
+  right.parameters.clip_rows[0][0] *= .4F;
+  left.parameters.clip_rows[0][3] -= .5F;
+  right.parameters.clip_rows[0][3] += .5F;
+  const auto left_pixel = [&] { return read_pixel(extent / 4, extent / 2); };
+  const auto right_pixel = [&] { return read_pixel(3 * extent / 4, extent / 2); };
+  constexpr std::array<std::uint8_t, 4> kClear{};
+  renderer.set_world_draws(std::span(&left, 1));
+  const auto lit = left_pixel();
+  require(lit[0] > 0, "First animated instance visible");
+  const auto one_instance_resources = budget->snapshot().live_resources;
+  std::array<bw::render::WorldJointMatrix, 4> palette{};
+  std::ranges::copy(draw.joint_matrices, palette.begin());
+  for (auto& matrix : palette) matrix[0][3] += 8;
+  bw::render::WorldPoseUpdate pose{draw.model, draw.draw, palette, left.instance};
+  renderer.update_world_poses(std::span(&pose, 1));
+  renderer.add_world_instance_draws(std::span(&right, 1));
+  require(left_pixel() == kClear && right_pixel() == lit &&
+              budget->snapshot().live_resources == one_instance_resources + 1,
+          "Admission retains existing pose and uploads only one private shape stream");
+  bool rejected = false;
+  try {
+    renderer.add_world_instance_draws(std::span(&right, 1));
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && right_pixel() == lit, "Duplicate live identity rejects without mutation");
+  auto bad = right;
+  bad.instance = 43;
+  auto bad_tail = bad;
+  bad_tail.draw = 9999;
+  const std::array invalid_admission{bad, bad_tail};
+  rejected = false;
+  try {
+    renderer.add_world_instance_draws(invalid_admission);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && left_pixel() == kClear && right_pixel() == lit &&
+              budget->snapshot().live_resources == one_instance_resources + 1,
+          "Late failed admission rolls back private storage and preserves existing instances");
+  pose.instance = right.instance;
+  renderer.update_world_poses(std::span(&pose, 1));
+  std::ranges::copy(draw.joint_matrices, palette.begin());
+  pose.instance = left.instance;
+  renderer.update_world_poses(std::span(&pose, 1));
+  require(left_pixel() == lit && right_pixel() == kClear,
+          "Explicit pose updates affect only their selected instance");
+  auto stale_pose = pose;
+  stale_pose.instance = 99;
+  for (auto& matrix : palette) matrix[0][3] += 8;
+  const std::array invalid_poses{pose, stale_pose};
+  rejected = false;
+  try {
+    renderer.update_world_poses(invalid_poses);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && left_pixel() == lit, "Stale pose rejects the complete batch");
+  std::ranges::copy(draw.joint_matrices, palette.begin());
+  pose.instance.reset();
+  renderer.update_world_poses(std::span(&pose, 1));
+  require(left_pixel() == lit && right_pixel() == lit,
+          "Omitted pose identity broadcasts explicitly");
+  const auto update_bytes = domain->snapshot().live_bytes;
+  std::array<std::array<float, 3>, 3> positions{{{7, -1, .5F}, {9, -1, .5F}, {8, 1, .5F}}};
+  bw::render::WorldShapePositionUpdate shape{draw.model, 0, positions, left.instance};
+  renderer.update_shape_positions(std::span(&shape, 1));
+  require(left_pixel() == kClear && right_pixel() == lit &&
+              domain->snapshot().live_bytes == update_bytes,
+          "Instance deformation does not mutate shared rest data or another actor");
+  renderer.remove_world_instance_draws(draw.model, right.instance);
+  require(left_pixel() == kClear && right_pixel() == kClear &&
+              budget->snapshot().live_resources == one_instance_resources,
+          "Instance retirement leaves other poses and immutable residency intact");
+  rejected = false;
+  shape.instance = right.instance;
+  try {
+    renderer.update_shape_positions(std::span(&shape, 1));
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected, "Removed shape identity cannot update another actor");
+  renderer.add_world_instance_draws(std::span(&right, 1));
+  require(left_pixel() == kClear && right_pixel() == lit,
+          "Readmission starts from immutable rest data, not another actor deformation");
+  bw::formats::WorldTextureImage image;
+  image.width = 1;
+  image.height = 1;
+  image.pixels = bw::memory::Vector<std::uint8_t>({128, 255, 128, 255},
+                                                  bw::memory::Allocator<std::uint8_t>(domain));
+  const auto palette_texture = renderer.upload_world_texture(image);
+  renderer.remove_world_instance_draws(draw.model, right.instance);
+  const std::array palette_override{bw::render::WorldTextureOverride{0, palette_texture}};
+  right.texture_overrides = palette_override;
+  renderer.add_world_instance_draws(std::span(&right, 1));
+  pose.instance = left.instance;
+  for (auto& position : positions) position[0] -= 8;
+  shape.instance = left.instance;
+  renderer.update_shape_positions(std::span(&shape, 1));
+  const auto green = right_pixel();
+  require(left_pixel() == lit && green != lit && green[1] > 0,
+          "Instance base palette does not rebind the shared model texture table");
+  const std::array invalid_override{bw::render::WorldTextureOverride{0, {99999}}};
+  bad.texture_overrides = invalid_override;
+  rejected = false;
+  try {
+    renderer.add_world_instance_draws(std::span(&bad, 1));
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && left_pixel() == lit && right_pixel() == green,
+          "Absent override texture rejects admission atomically");
+  renderer.release_world_texture(palette_texture);
+  require(left_pixel() == lit && right_pixel() == kClear,
+          "Private texture retirement removes only its consuming draw");
+  renderer.remove_world_instance_draws(draw.model, left.instance);
+  // One actor may own body and weapon model pairs. Admission is one atomic
+  // transaction, but retirement can remove either pair independently.
+  const auto second_definition = bw::formats::ModelDefinition::parse(
+      bw::resources::ResourceArchive::parse(
+          model_fixture::archive({.shader = {0x00020490, 1},
+                                  .normal_mapped = true,
+                                  .shape = true,
+                                  .joint_palette = true,
+                                  .ambient_occlusion = true,
+                                  .joint_indices = {0, 1, 2, 3},
+                                  .joint_weights = {63, 64, 64, 64}})),
+      domain);
+  const auto second_model = renderer.upload_model(second_definition);
+  renderer.bind_model_textures(second_model, textures);
+  left.instance = 71;
+  right.instance = 71;
+  right.model = second_model;
+  right.texture_overrides = {};
+  const std::array actor_draws{left, right};
+  renderer.set_world_draws({});
+  renderer.add_world_instance_draws(actor_draws);
+  require(left_pixel() == lit && right_pixel() == lit,
+          "One atomic actor admission supports multiple model pairs");
+  auto invalid_actor = actor_draws;
+  for (auto& candidate : invalid_actor) candidate.instance = 72;
+  invalid_actor[1].draw = 9999;
+  const auto actor_resources = budget->snapshot().live_resources;
+  rejected = false;
+  try {
+    renderer.add_world_instance_draws(invalid_actor);
+  } catch (const std::invalid_argument&) {
+    rejected = true;
+  }
+  require(rejected && left_pixel() == lit && right_pixel() == lit &&
+              budget->snapshot().live_resources == actor_resources,
+          "Invalid second model rolls back the entire actor admission");
+  renderer.remove_world_instance_draws(draw.model, left.instance);
+  require(left_pixel() == kClear && right_pixel() == lit,
+          "Retiring one model pair preserves its owner's other model");
+  renderer.remove_world_instance_draws(second_model, right.instance);
+  renderer.release_model(second_model);
   renderer.set_world_draws(std::span(&draw, 1));
 }
 // Selected receiver maps supply the original default binding; authored LENV
@@ -733,6 +915,123 @@ void retained_removal_contract(bw::platform::macos::WorldRenderer& renderer,
   require(renderer.has_color_draws() && read_pixel()[0] != 0 &&
               budget.snapshot().live_resources == before_removal.live_resources,
           "Removed geometry and textures remain usable without reupload or rebinding");
+}
+template <class ReadPixel>
+void shape_publication_contract(bw::platform::macos::WorldRenderer& renderer,
+                                bw::render::WorldModelHandle skinned, const ReadPixel& read_pixel,
+                                const std::array<std::uint8_t, 4>& skin_pixel,
+                                const std::shared_ptr<bw::memory::Domain>& domain) {
+  // CPU shape positions are retained once, then consumed by skinning without
+  // changing normals, materials, palettes or native allocation ownership.
+  std::array<std::array<float, 3>, 3> shape_positions{{{-1, -1, .5F}, {1, -1, .5F}, {0, 1, .5F}}};
+  const bw::render::WorldShapePositionUpdate shape_update{skinned, 0, shape_positions};
+  for (auto& position : shape_positions) position[0] += 4;
+  const auto shape_budget = domain->snapshot().live_bytes;
+  renderer.update_shape_positions(std::span(&shape_update, 1));
+  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0} &&
+              domain->snapshot().live_bytes == shape_budget,
+          "CPU shape deformation updates native skin positions without allocating");
+  for (auto& position : shape_positions) position[0] -= 4;
+  const std::array shape_batch{shape_update,
+                               bw::render::WorldShapePositionUpdate{{999999}, 0, shape_positions}};
+  bool rejected_shape_batch = false;
+  try {
+    renderer.update_shape_positions(shape_batch);
+  } catch (const std::invalid_argument&) {
+    rejected_shape_batch = true;
+  }
+  require(rejected_shape_batch && read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
+          "Late invalid shape destination preserves the previous whole publication");
+  renderer.update_shape_positions(std::span(&shape_update, 1));
+  require(read_pixel() == skin_pixel, "Zero shape deformation restores authored positions");
+}
+// Exact NPC source selectors use the same retained geometry/texture contract.
+// Exercise both newly admitted programs and rigid instance/view composition.
+template <class ReadPixel>
+void npc_material_contract(bw::platform::macos::WorldRenderer& renderer,
+                           const bw::render::WorldColorDraw& original, const ReadPixel& read_pixel,
+                           const std::shared_ptr<bw::memory::Domain>& domain,
+                           std::span<const bw::render::WorldTextureHandle> textures) {
+  constexpr std::array<std::pair<std::uint32_t, std::uint16_t>, 10> programs{{{0x82800210, 2},
+                                                                              {0x80802610, 1},
+                                                                              {0x80822610, 1},
+                                                                              {0x82800290, 1},
+                                                                              {0x80800610, 1},
+                                                                              {0x80802690, 1},
+                                                                              {0xc0802290, 1},
+                                                                              {0xc0822290, 1},
+                                                                              {0x00800680, 1},
+                                                                              {0xc2800290, 1}}};
+  constexpr auto identity = bw::math::identity_matrix<float, 4>();
+  const std::array palette{identity, identity};
+  const std::array bindings{textures[0], textures[1], textures[0]};
+  for (const auto [flags, variant] : programs) {
+    const bool skinned = (flags & 0x10) != 0;
+    const auto model = bw::formats::ModelDefinition::parse(
+        bw::resources::ResourceArchive::parse(
+            model_fixture::archive({.shader = {flags & ~0x00800200U, variant},
+                                    .normal_mapped = true,
+                                    .secondary_base = variant == 2,
+                                    .joint_palette = skinned,
+                                    .ambient_occlusion = true})),
+        domain);
+    const auto handle = renderer.upload_model(model);
+    renderer.bind_model_textures(handle, bindings);
+    auto draw = original;
+    draw.model = handle;
+    draw.effective_shader_flags = flags;
+    draw.parameters.ambient = {1, 1, 1, 0};
+    draw.parameters.shadow_parameters = {};
+    draw.casts_shadow = false;
+    draw.parameters.light_direction = {0, 0, -1, 0};
+    draw.parameters.light_diffuse = {.5F, .5F, .5F, 0};
+    if (skinned) draw.joint_matrices = palette;
+    renderer.set_world_draws(std::span(&draw, 1));
+    require(read_pixel()[3] != 0, "Original NPC material executes on Metal");
+    if (!skinned) {
+      const auto visible = read_pixel();
+      draw.model_transform = identity;
+      draw.model_transform->at(0).at(3) = 8;
+      renderer.set_world_draws(std::span(&draw, 1));
+      constexpr std::array<std::uint8_t, 4> kClear{};
+      require(read_pixel() == kClear, "Rigid admission applies model placement");
+      bw::render::WorldPoseUpdate update{handle, 0, {}, draw.instance, identity};
+      auto invalid = update;
+      invalid.instance = 123;
+      const std::array batch{update, invalid};
+      bool rejected = false;
+      try {
+        renderer.update_world_poses(batch);
+      } catch (const std::invalid_argument&) {
+        rejected = true;
+      }
+      require(rejected && read_pixel() == kClear,
+              "Rigid pose batch rejects stale identity atomically");
+      const auto bytes = domain->snapshot().live_bytes;
+      renderer.update_world_poses(std::span(&update, 1));
+      require(read_pixel() == visible && domain->snapshot().live_bytes == bytes,
+              "Rigid pose publication retains storage and restores position");
+      update.model_transform->at(3).at(0) = 1;
+      rejected = false;
+      try {
+        renderer.update_world_poses(std::span(&update, 1));
+      } catch (const std::invalid_argument&) {
+        rejected = true;
+      }
+      require(rejected && read_pixel() == visible,
+              "Projective model transforms reject before mutation");
+      draw.view_space = bw::render::WorldViewSpace::world;
+      renderer.set_world_draws(std::span(&draw, 1));
+      bw::render::WorldViewUpdate view{};
+      view.world.clip_rows = original.parameters.clip_rows;
+      view.world.world_rows = original.parameters.world_rows;
+      renderer.update_world_view(view);
+      require(read_pixel() == kClear,
+              "Camera publication preserves retained rigid model placement");
+    }
+    renderer.release_model(handle);
+  }
+  renderer.set_world_draws(std::span(&original, 1));
 }
 void world_surface_contract(id<MTLDevice> device) {
   using bw::render::WorldColorDraw;
@@ -1275,7 +1574,7 @@ void world_surface_contract(id<MTLDevice> device) {
           "Nonfinite lighting cannot contaminate retained rendering");
   renderer.update_world_lighting(std::span(&original_light, 1));
   require(read_pixel() == skin_pixel, "Spatial lighting restoration preserves skin pose and view");
-  receiver_instance_contract(renderer, draw, original_light, read_pixel, extent);
+  animated_instance_contract(renderer, draw, read_pixel, extent, domain, budget, skin_textures);
   // Exercise the original direct-light material path independently of SH.
   // One emitter in front of the surface contributes; moving it behind removes
   // that contribution. Invalid batches cannot partially replace either field.
@@ -1310,28 +1609,7 @@ void world_surface_contract(id<MTLDevice> device) {
   draw.lighting = bw::render::WorldLightingPolicy::without_direct_lighting;
   draw.parameters.irradiance_coefficients = original_light.irradiance_coefficients;
   renderer.set_world_draws(std::span(&draw, 1));
-  // CPU shape positions are retained once, then consumed by skinning without
-  // changing normals, materials, palettes or native allocation ownership.
-  std::array<std::array<float, 3>, 3> shape_positions{{{-1, -1, .5F}, {1, -1, .5F}, {0, 1, .5F}}};
-  const bw::render::WorldShapePositionUpdate shape_update{skinned, 0, shape_positions};
-  for (auto& position : shape_positions) position[0] += 4;
-  renderer.update_shape_positions(std::span(&shape_update, 1));
-  require(read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0} &&
-              domain->snapshot().live_bytes == pose_budget,
-          "CPU shape deformation updates native skin positions without allocating");
-  for (auto& position : shape_positions) position[0] -= 4;
-  const std::array shape_batch{shape_update,
-                               bw::render::WorldShapePositionUpdate{{999999}, 0, shape_positions}};
-  bool rejected_shape_batch = false;
-  try {
-    renderer.update_shape_positions(shape_batch);
-  } catch (const std::invalid_argument&) {
-    rejected_shape_batch = true;
-  }
-  require(rejected_shape_batch && read_pixel() == std::array<std::uint8_t, 4>{0, 0, 0, 0},
-          "Late invalid shape destination preserves the previous whole publication");
-  renderer.update_shape_positions(std::span(&shape_update, 1));
-  require(read_pixel() == skin_pixel, "Zero shape deformation restores authored positions");
+  shape_publication_contract(renderer, skinned, read_pixel, skin_pixel, domain);
   // Unrelated live palettes survive replacement, and candidate palettes are
   // owned before the caller resumes or reuses its scratch matrices.
   auto retained_skin = draw;
@@ -1787,6 +2065,7 @@ void world_surface_contract(id<MTLDevice> device) {
     renderer.release_world_texture(handle);
   }
   draw = original_draw;
+  npc_material_contract(renderer, draw, read_pixel, domain, bindings);
   renderer.set_world_draws(std::span(&draw, 1));
   renderer.release_world_texture(normal);
   require(!renderer.has_color_draws(), "Released texture invalidates retained submissions");

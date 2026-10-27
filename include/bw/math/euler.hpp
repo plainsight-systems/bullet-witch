@@ -3,13 +3,34 @@
 // applies negative translation, -Z, -Y, -X. Caller validates finite inputs.
 // Preserve scalar trig rounded to T before shared matrix multiplication; no
 // normalization, allocation or synchronization. Core I.1/SL.con.3 expose order
-// and bounded arrays; MEM.9 fixed storage. Both phases queried for the spatial
-// light consumer. No renderer/game-specific coordinate convention is hidden.
+// and bounded arrays; MEM.9 fixed storage. Planar rotation follows both-phase
+// Core F.4 (#rf-constexpr): cached sine/cosine values support pure constant
+// component arithmetic; trig evaluation remains runtime and rounded to T.
+// Both phases queried for the spatial light consumer and common rotation.
+// No renderer/game-specific coordinate convention is hidden.
 #pragma once
 #include <cmath>
 
 #include "matrix.hpp"
 namespace bw::math {
+// Cached planar basis. Positive radians rotate (1,0) toward (0,1); callers
+// select the physical plane and own finite-input/angle policy. Evaluate trig
+// in double and round to T before products, matching original placement math.
+template <std::floating_point T>
+struct PlanarRotation {
+  T cosine, sine;
+};
+template <std::floating_point T>
+PlanarRotation<T> planar_rotation(T radians) {
+  return {static_cast<T>(std::cos(static_cast<double>(radians))),
+          static_cast<T>(std::sin(static_cast<double>(radians)))};
+}
+template <std::floating_point T>
+constexpr Vector<T, 2> rotate_planar(const Vector<T, 2>& point,
+                                     const PlanarRotation<T>& rotation) {
+  return {rotation.cosine * point[0] - rotation.sine * point[1],
+          rotation.sine * point[0] + rotation.cosine * point[1]};
+}
 template <std::floating_point T>
 struct EulerTransform {
   Matrix4<T> forward, inverse;

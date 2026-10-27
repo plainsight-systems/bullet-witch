@@ -1,5 +1,21 @@
 # Current engineering decisions
 
+- Genuine mission startup now replaces the sole initial-placement shim. Source
+  triggers, deferred rows and shared CRT random state own NPC placement; loading
+  an archetype does not create an actor. The world owns individual initial
+  motion/appearance state and shares immutable resources. Lua callbacks are
+  serial even though the engine supports multiple retained coroutines. This
+  implementation passes the full repository gate and purchased-content
+  traversal, including all 58 authored group rows and restart. Native offscreen
+  coverage executes 667 surfaces across thirteen NPC model families. After
+  reopening for live review, session music authority, restricted script
+  handles and shared math are repaired. The independent corrected-source review
+  closes all three findings; updated full gate, focused original-Lua traversal,
+  source music comparison and native PCM checks pass. The user accepted the
+  repaired slice and authorized its commit on October 27, 2026. Acceptance does
+  not expand the documented native coverage or gameplay boundaries. See
+  `research/engine/subsystems/mission-startup-implementation.md`.
+
 - The user accepted revised architecture slice 3 on October 26, 2026 and
   authorized its commit after reviewing the lighting ownership walkthrough.
   Both developer-OFF and developer-ON full gates and purchased-content traversal
@@ -33,7 +49,8 @@
   spatial and timing have separate families. `binary_reader.hpp` is the bounded
   public schema primitive. Build/dependency/documentation closure from former
   slice 4 is included now, not deferred. Preserve source order, clock authority,
-  math/shaders, synchronous completion and the sole initial-placement shim.
+  math/shaders and synchronous completion. The later mission-startup slice
+  replaces the former initial-placement shim with original Lua startup.
 
 - Build owners use `bw_game_application`, `bw_game_presentation`,
   `bw_game_playback`, `bw_window_host_macos`; executable `bullet-witch` and
@@ -245,11 +262,15 @@
   remains a reference; recommended hardware has no documented FPS/resolution.
   See `research/engine/subsystems/steam-performance-baseline.md`.
 
-- The sole user-authorized temporary shim is fresh One Shot Kill initial
-  placement, isolated in `initial_placement_shim` with exact mission/stage and
-  no-checkpoint guards. No reusable controller/Stage fallback owns these
-  coordinates. Remove it when original mission-start gates and Lua player
-  commands run against the real world; this does not claim startup completion.
+- The original mission opening now gets its first pose from unchanged Lua
+  through `MissionScriptRuntime`; the sole initial-placement shim is removed.
+  VM callbacks retire before startup/world receivers. The original three-page
+  instruction modal, shared pause stack, cockpit visibility and music request
+  are connected. Source-triggered NPC admission, independent instance animation
+  and restart are verified and accepted; full checkpoint restoration and combat
+  remain future work. Source records show zero NPCs at the initial position; all
+  68 potential NPC placements are behind triggers/deferred admission. See
+  `research/engine/subsystems/mission-startup-implementation.md`.
   Earlier adversarial ownership and lighting findings have scoped re-review
   clearance. Subsequent physical review reopened melee during weapon lowering
   and costume brightness. The source-owned complete Shooter state matrix and

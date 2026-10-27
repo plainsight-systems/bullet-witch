@@ -1,3 +1,6 @@
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // In-process scene lifecycle/capability tests, without GPU or game data. The
 // fake backend observes calls/failure ordering, not material/render algorithms.
 // Core I.1/E.6 and performance MEM.9 (guidelines/memory/
@@ -48,6 +51,16 @@ concept ReplacesDraws = requires(T& owner) {
                             std::span<const WorldColorDraw>{});
 };
 template <class T>
+concept AdmitsInstances = requires(T& owner) {
+  owner.add_instance_draws(std::span<const WorldColorDraw>{});
+};
+template <class T>
+concept RemovesInstances =
+    requires(T& owner) { owner.remove_instance_draws(WorldModelHandle{}, 1); };
+static_assert(AdmitsInstances<RenderScene> && RemovesInstances<RenderScene>);
+static_assert(!AdmitsInstances<ActorPublisher> &&
+              !RemovesInstances<ActorPublisher>);
+template <class T>
 concept PublishesLighting = requires(T& owner) {
   owner.update_world_lighting(std::span<const WorldLightingUpdate>{});
 };
@@ -86,6 +99,12 @@ class Output final : public WorldPresentation {
     selected = draws.empty() ? WorldModelHandle{} : draws.front().model;
     ++replacements;
   }
+  void add_world_instance_draws(std::span<const WorldColorDraw>) override {
+    ++additions;
+  }
+  void remove_world_instance_draws(WorldModelHandle, std::uint64_t) override {
+    ++removals;
+  }
   void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate>) override {}
   void update_world_lighting(
@@ -115,7 +134,7 @@ class Output final : public WorldPresentation {
   }
   WorldModelHandle selected;
   unsigned configurations{}, registrations{}, replacements{}, poses{}, shapes{},
-      visibility{}, clears{};
+      visibility{}, clears{}, additions{}, removals{};
   bool reject_registration{};
 };
 void admission_and_retirement() {
@@ -129,6 +148,10 @@ void admission_and_retirement() {
             "Preparing scene cannot accept actor poses");
     rejects([&] { actor.update_shapes({}); },
             "Preparing scene cannot accept actor shapes");
+    rejects([&] { scene.add_instance_draws({}); },
+            "Preparing scene cannot admit instances");
+    rejects([&] { scene.remove_instance_draws({1}, 0); },
+            "Preparing scene cannot retire instances");
     scene.set_world_output_parameters({});
     const WorldColorDraw draw{
         .model = {1}, .parameters = {}, .state = {}, .joint_matrices = {}};
@@ -140,6 +163,10 @@ void admission_and_retirement() {
     output.reject_registration = false;
     scene.register_draws(std::span(&draw, 1));
     rejects([&] { scene.register_draws({}); }, "Registration happens once");
+    scene.add_instance_draws(std::span(&draw, 1));
+    scene.remove_instance_draws(draw.model, 1);
+    require(output.additions == 1 && output.removals == 1,
+            "Scene owns instance membership");
     actor.update_poses({});
     actor.update_shapes({});
     actor.update_visibility({});
@@ -168,6 +195,10 @@ void admission_and_retirement() {
             "Removal uses sole retained backend");
     scene.retire();
     scene.retire();
+    rejects([&] { scene.add_instance_draws({}); },
+            "Retired scene cannot admit instances");
+    rejects([&] { scene.remove_instance_draws({1}, 0); },
+            "Retired scene cannot remove instances");
     rejects([&] { actor.update_poses({}); }, "Retired publisher rejects poses");
     rejects([&] { actor.update_shapes({}); },
             "Retired publisher rejects shapes");

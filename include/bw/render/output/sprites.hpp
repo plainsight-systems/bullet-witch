@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 
 namespace bw::formats {
 struct WorldTextureImage;
@@ -89,6 +90,12 @@ class SpriteOutput {
   virtual void release_texture(TextureHandle texture) noexcept = 0;
   // Validate the whole submission before replacing the ordered command list.
   virtual void set_sprites(std::span<const Sprite> sprites) = 0;
+  // Append after the retained base list, preserving order. Validate the entire
+  // suffix, texture identities and combined capacity before any mutation.
+  // Both-phase I.1/MEM.9: explicit bounded composition, no new frame owner.
+  virtual void append_sprites(std::span<const Sprite>) {
+    throw std::logic_error("Sprite output does not support ordered append");
+  }
   virtual void clear_sprites() noexcept = 0;
 };
 }  // namespace bw::render

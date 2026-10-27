@@ -76,8 +76,9 @@ physical replacement to StageInspection and selection to MissionPlayerState.
 result. `PlayerCockpit` owns HUD mapping and skips phase updates on a consumed
 pause/resume frame, while drawing the retained HUD when resume replaces the
 pause menu. Explicit hidden activation clears the previous sprite submission.
-Inspection activation does not imply the unavailable `_DispCockpit` world
-binding was executed. These responsibilities were missed by the first ownership
+Inspection activation remains separate from script activation. The retained
+mission opening now routes `_DispCockpit` through `MissionScriptRuntime` to this owner.
+These responsibilities were missed by the first ownership
 review; see [the repair evidence](../../research/engine/subsystems/gameplay-integration-boundaries.md).
 
 ## Source routes and slice limits
@@ -90,10 +91,12 @@ The native power-up consumer and its real transactions can be verified directly
 before the missing campaign-result producer is implemented. No mission success
 or completion reward will be fabricated to reach it.
 
-The current scene remains explicitly distinct from completed mission startup.
-This slice reuses its live actor, timing/control, scene and presentation owners.
-It must not mark the retained mission coroutine's world setup gates complete.
-The only authorized initial-placement shim remains unchanged.
+The original mission opening reuses these live actor, timing/control, scene and
+presentation owners. Lua supplies initial placement; the former placement shim
+has been removed. The original three-page instruction modal must be acknowledged
+before `start()` finishes. Source-triggered NPC admission and serial mission
+callbacks are implemented; completed gameplay remains separate. See
+[world startup](world-and-simulation.md).
 
 Player action resource semantics must follow source events. In particular,
 reloading couples current ammunition to shared magic and publishes at accepted

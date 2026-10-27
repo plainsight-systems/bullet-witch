@@ -13,6 +13,43 @@ Permanent/mission player authority is detailed in [player progression](player-pr
 
 [Actors, poses and animation](actors-and-animation.md).
 
+## Original mission opening
+
+`MissionDriver` retains one Lua VM across `load()` and `start()`.
+`MissionScriptRuntime` receives validated commands throughout the mission,
+coordinates script pause/fade/messages and retains source goal/callback state. Its first authored
+player transform commits staged `WorldRuntime`/`MissionGameplay` construction
+before any world interval. The application supplies the composition factory;
+it contains no mission coordinates. Destruction retires script callbacks before
+their UI/world receivers, then releases scene borrowers before shared assets.
+
+`MissionLoading` owns immutable placement definitions and shared resources.
+The sixteen One Shot Kill character rows describe archetypes, not live actors.
+The original initial position is outside all 39 enemy spawn triggers: the
+initial population is Alicia and 276 placed background objects, with zero NPCs.
+`MissionPopulationExpansion` reproduces the original 58 group rows/68 possible
+placements using an explicit original 15-bit random-input interface.
+`MissionPopulation` owns source trigger/deferred state. `WorldPopulation` owns
+live NPC instances and connects admission to the existing scenery query;
+`MissionLoading` retains shared motion, geometry, textures and appearance data.
+Per-instance poses and rigid attachment transforms reach the scene through const
+observations. Admission and retirement are bounded by original manager order.
+
+`MissionCallbacks` owns fixed trap/timer conditions; `MissionDriver` dispatches
+one retained original Lua callback at a time. Checkpoint callbacks capture
+implemented player/population values and original trigger-fired state. Goal UI
+consumes world time and camera observations; nonmodal system text consumes
+control time independently of paused simulation. The immutable background
+baseline is retained, while dynamic-background serialization and full checkpoint
+restoration remain separate boundaries. Reaching unsupported mission-clear
+production suspends script dispatch in `awaiting_gameplay` while world and pause
+remain available. No combat completion or saved result is fabricated.
+
+This integration passes repository and purchased-content verification. The
+user accepted the repaired slice on October 27, 2026. See
+[startup implementation](../../research/engine/subsystems/mission-startup-implementation.md)
+and [source trace](../../research/engine/subsystems/mission-startup-source-trace.md).
+
 A world is the authoritative collection of live scene and gameplay instances for
 a mission. It integrates entity identity, hierarchy, stage instances, subsystem
 bindings and the phase context through which state changes. A scene is a view or

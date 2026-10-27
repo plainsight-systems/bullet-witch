@@ -96,24 +96,32 @@ struct Context::Impl {
   std::shared_ptr<memory::Domain> domain;
   std::optional<memory::CoalescingHeap> heap;
   std::unique_ptr<lua_State, Close> state;
-  lua_State*
-      coroutine{};  // Borrowed; anchored by thread_ref in parent's registry.
-  int thread_ref{LUA_NOREF};
+  struct Thread {
+    // The registry owns the Lua object; this borrow never outlives that anchor.
+    lua_State* coroutine{};
+    int thread_ref{LUA_NOREF};
+    CoroutineId id{};
+    Reply reply;
+    std::function<bool()> pending;
+    RunState phase{RunState::idle};
+    std::array<char, kDiagnosticBytes> error{};
+    void set_error(std::string_view text) noexcept {
+      const auto count = std::min(text.size(), error.size() - 1);
+      std::copy_n(text.begin(), count, error.begin());
+      std::span(error).subspan(count).front() = '\0';
+    }
+  };
   using Entry = std::pair<const memory::String, Binding>;
   std::map<memory::String, Binding, std::less<>, memory::Allocator<Entry>>
       bindings;
-  Reply reply;
-  std::function<bool()> pending;
-  RunState phase{RunState::idle};
-  std::array<char, kDiagnosticBytes> error{};
+  Thread primary;
+  memory::Vector<Thread> children;
+  Thread* active_thread{};
+  std::uint64_t next_id{1};
+  bool pumping{}, started{}, reserved{};
   template <typename T>
   memory::Allocator<T> allocator() const {
     return domain ? memory::Allocator<T>(domain) : memory::Allocator<T>{};
-  }
-  void set_error(std::string_view text) noexcept {
-    const auto count = std::min(text.size(), error.size() - 1);
-    std::copy_n(text.begin(), count, error.begin());
-    std::span(error).subspan(count).front() = '\0';
   }
   static void* allocate_lua(void* userdata, void* pointer, std::size_t,
                             std::size_t bytes) noexcept {
@@ -122,7 +130,9 @@ struct Context::Impl {
   }
   explicit Impl(std::shared_ptr<memory::Domain> memory = {},
                 std::size_t heap_bytes = kRootHeapBytes)
-      : domain(std::move(memory)), bindings(std::less<>{}, allocator<Entry>()) {
+      : domain(std::move(memory)),
+        bindings(std::less<>{}, allocator<Entry>()),
+        children(allocator<Thread>()) {
     if (domain) {
       heap.emplace(domain, heap_bytes);
       state.reset(lua_open_with_allocator(allocate_lua, &*heap));
@@ -136,8 +146,12 @@ struct Context::Impl {
   ~Impl() {
     // Cancel captured work and close the VM while its backing heap is still
     // alive.
-    pending = {};
-    reply = {};
+    primary.pending = {};
+    primary.reply = {};
+    for (auto& child : children) {
+      child.pending = {};
+      child.reply = {};
+    }
     state.reset();
   }
   Impl(const Impl&) = delete;
@@ -155,14 +169,14 @@ struct Context::Impl {
     lua_setglobal(active, request->name);
   }
   struct StartRequest {
-    Impl* owner;
+    Thread* thread;
     const char* name;
     bool found;
   };
   static void protected_start(lua_State* active, void* userdata) {
     // Anchor the new coroutine before any execution can yield or trigger GC.
     auto* request = static_cast<StartRequest*>(userdata);
-    auto* owner = request->owner;
+    auto* owner = request->thread;
     if (owner->thread_ref != LUA_NOREF) {
       luaL_unref(active, LUA_REGISTRYINDEX, owner->thread_ref);
       owner->thread_ref = LUA_NOREF;
@@ -182,63 +196,125 @@ struct Context::Impl {
   static void protected_global(lua_State* active, void* userdata) {
     lua_getglobal(active, static_cast<GlobalRequest*>(userdata)->name);
   }
-  void checked(int status) {
+  void checked(int status, Thread& thread) {
     if (status == 0) return;
     const char* message = lua_type(state.get(), -1) == LUA_TSTRING
                               ? lua_tostring(state.get(), -1)
                               : nullptr;
-    set_error(message ? message : "Lua host operation failed");
-    phase = RunState::failed;
+    thread.set_error(message ? message : "Lua host operation failed");
+    thread.phase = RunState::failed;
+    lua_settop(state.get(), 0);
     if (status == LUA_ERRMEM) throw std::bad_alloc();
-    throw Error(ErrorCode::unsupported, error.data());
+    throw Error(ErrorCode::unsupported, thread.error.data());
   }
+  void require_not_pumping() const {
+    if (pumping || active_thread) {
+      throw Error(ErrorCode::unsupported, "Reentrant Lua task operation");
+    }
+  }
+  bool children_live() const {
+    return std::ranges::any_of(
+        children, [](const Thread& child) { return child.id.value != 0; });
+  }
+  Thread& find(CoroutineId id) {
+    if (id.value != 0) {
+      const auto found = std::ranges::find(children, id, &Thread::id);
+      if (found != children.end()) return *found;
+    }
+    throw Error(ErrorCode::not_found, "Stale Lua coroutine identity");
+  }
+  static void protected_retire(lua_State* active, void* userdata) {
+    auto* thread = static_cast<Thread*>(userdata);
+    if (thread->thread_ref != LUA_NOREF) {
+      luaL_unref(active, LUA_REGISTRYINDEX, thread->thread_ref);
+      thread->thread_ref = LUA_NOREF;
+    }
+    thread->coroutine = nullptr;
+    // Release unreachable stacks now rather than allowing canceled tasks to
+    // accumulate until a later task happens to trigger the collector.
+    lua_setgcthreshold(active, 0);
+  }
+  void retire(Thread& thread) {
+    thread.pending = {};
+    thread.reply = {};
+    checked(lua_bw_protected(state.get(), protected_retire, &thread), thread);
+    thread = Thread{};
+  }
+  void start_thread(Thread& thread, const std::string& function) {
+    require_not_pumping();
+    if (thread.phase == RunState::running ||
+        thread.phase == RunState::pending || thread.phase == RunState::failed) {
+      throw Error(ErrorCode::unsupported, "Context task is not ready to start");
+    }
+    started = true;
+    thread.reply = {};
+    thread.error = {};
+    StartRequest request{&thread, function.c_str(), false};
+    checked(lua_bw_protected(state.get(), protected_start, &request), thread);
+    if (!request.found) {
+      throw Error(ErrorCode::not_found, "Lua function: " + function);
+    }
+    thread.phase = RunState::running;
+  }
+  RunResult pump_thread(Thread& thread);
   void capture(Binding& binding, lua_State* active) {
+    if (!active_thread) {
+      throw std::logic_error("Native call has no active task");
+    }
+    auto& thread = *active_thread;
     memory::Vector<Value> args(allocator<Value>());
     const int count = lua_gettop(active);
     args.reserve(static_cast<std::size_t>(count));
     for (int i = 1; i <= count; ++i) {
       args.push_back(read_value(active, i));
     }
-    reply = binding.native(args);
-    if (reply.pending && !reply.values.empty()) {
+    thread.reply = binding.native(args);
+    if (thread.reply.pending && !thread.reply.values.empty()) {
       throw Error(ErrorCode::unsupported, "Wait bridges return no Lua values");
     }
-    pending = std::move(reply.pending);
+    thread.pending = std::move(thread.reply.pending);
   }
   static int bridge(lua_State* active) {
     auto* binding =
         static_cast<Binding*>(lua_touserdata(active, lua_upvalueindex(1)));
+    auto* thread = binding->owner->active_thread;
+    if (thread == nullptr) {
+      lua_pushliteral(active, "Native call outside protected task execution");
+      return lua_error(active);
+    }
     // No C++ objects with destructors survive across lua_error/lua_yield below.
     // Lua's longjmp stays inside its protected resume/load boundary.
     try {
       binding->owner->capture(*binding, active);
     } catch (const std::exception& failure) {
-      binding->owner->set_error(failure.what());
+      thread->set_error(failure.what());
     } catch (...) {
-      binding->owner->set_error("Unknown native exception");
+      thread->set_error("Unknown native exception");
     }
-    if (binding->owner->error.front() != '\0') {
-      lua_pushstring(active, binding->owner->error.data());
+    if (thread->error.front() != '\0') {
+      lua_pushstring(active, thread->error.data());
       return lua_error(active);
     }
-    if (binding->owner->pending) {
+    if (thread->pending) {
       return lua_yield(active, 0);
     }
-    const auto result_count = binding->owner->reply.values.size();
+    const auto result_count = thread->reply.values.size();
     if (result_count >
             static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
         !lua_checkstack(active, static_cast<int>(result_count))) {
       lua_pushliteral(active, "Native result stack limit");
       return lua_error(active);
     }
-    for (const auto& value : binding->owner->reply.values) {
+    for (const auto& value : thread->reply.values) {
       push_value(active, value);
     }
-    return static_cast<int>(binding->owner->reply.values.size());
+    return static_cast<int>(thread->reply.values.size());
   }
   void load(std::string_view source) {
-    if (phase == RunState::running || phase == RunState::pending ||
-        phase == RunState::failed) {
+    require_not_pumping();
+    if (primary.phase == RunState::running ||
+        primary.phase == RunState::pending ||
+        primary.phase == RunState::failed || children_live()) {
       throw Error(ErrorCode::unsupported, "Cannot load while executing");
     }
     lua_settop(state.get(), 0);
@@ -250,14 +326,22 @@ struct Context::Impl {
       throw Error(ErrorCode::malformed, message ? message : "Lua load failed");
     }
     lua_sethook(state.get(), budget, LUA_MASKCOUNT, kInstructionBudget);
-    if (lua_pcall(state.get(), 0, 0, 0) != 0) {
+    primary.error = {};
+    primary.reply = {};
+    primary.pending = {};
+    active_thread = &primary;
+    const int status = lua_pcall(state.get(), 0, 0, 0);
+    active_thread = nullptr;
+    if (status != 0) {
+      primary.pending = {};
+      primary.reply = {};
       const auto* message = lua_type(state.get(), -1) == LUA_TSTRING
                                 ? lua_tostring(state.get(), -1)
                                 : nullptr;
       throw Error(ErrorCode::malformed,
                   message ? message : "Lua top-level failed");
     }
-    phase = RunState::idle;
+    primary.phase = RunState::idle;
   }
 };
 Context::Context() : impl_(std::make_shared<Impl>()) {}
@@ -272,7 +356,9 @@ Context::~Context() = default;
 Context::Context(Context&&) noexcept = default;
 Context& Context::operator=(Context&&) noexcept = default;
 void Context::bind(std::string name, Native native) {
-  if (!native || impl_->phase != RunState::idle) {
+  impl_->require_not_pumping();
+  if (!native || impl_->primary.phase != RunState::idle ||
+      impl_->children_live()) {
     throw Error(ErrorCode::unsupported, "Bind before execution");
   }
   auto [it, added] = impl_->bindings.emplace(
@@ -283,7 +369,8 @@ void Context::bind(std::string name, Native native) {
   }
   Impl::BindRequest request{&it->second, it->first.c_str()};
   impl_->checked(
-      lua_bw_protected(impl_->state.get(), Impl::protected_bind, &request));
+      lua_bw_protected(impl_->state.get(), Impl::protected_bind, &request),
+      impl_->primary);
 }
 void Context::load_binary(std::span<const std::uint8_t> bytes) {
   if (impl_->domain) {
@@ -295,66 +382,107 @@ void Context::load_binary(std::span<const std::uint8_t> bytes) {
 }
 void Context::load_source(std::string_view source) { impl_->load(source); }
 void Context::start(const std::string& function) {
-  if (impl_->phase == RunState::running || impl_->phase == RunState::pending ||
-      impl_->phase == RunState::failed) {
-    throw Error(ErrorCode::unsupported, "Context is not ready to start");
-  }
-  Impl::StartRequest request{impl_.get(), function.c_str(), false};
-  impl_->checked(
-      lua_bw_protected(impl_->state.get(), Impl::protected_start, &request));
-  if (!request.found) {
-    throw Error(ErrorCode::not_found, "Lua function: " + function);
-  }
-  impl_->phase = RunState::running;
+  impl_->start_thread(impl_->primary, function);
 }
-RunResult Context::pump() {
-  if (impl_->phase != RunState::running && impl_->phase != RunState::pending) {
-    return {impl_->phase, impl_->error.data()};
+RunResult Context::pump() { return impl_->pump_thread(impl_->primary); }
+void Context::reserve_coroutines(std::size_t capacity) {
+  impl_->require_not_pumping();
+  if (impl_->started || impl_->reserved) {
+    throw Error(ErrorCode::unsupported,
+                "Reserve Lua callbacks once before start");
+  }
+  impl_->children.resize(capacity);
+  impl_->reserved = true;
+}
+CoroutineId Context::start_coroutine(const std::string& function) {
+  impl_->require_not_pumping();
+  const auto free = std::ranges::find_if(
+      impl_->children,
+      [](const Impl::Thread& child) { return child.id.value == 0; });
+  if (free == impl_->children.end() ||
+      impl_->next_id == std::numeric_limits<std::uint64_t>::max()) {
+    throw Error(ErrorCode::unsupported, "Lua callback capacity exhausted");
+  }
+  free->id = {impl_->next_id++};
+  try {
+    impl_->start_thread(*free, function);
+    return free->id;
+  } catch (...) {
+    impl_->retire(*free);
+    throw;
+  }
+}
+RunResult Context::pump(CoroutineId coroutine) {
+  return impl_->pump_thread(impl_->find(coroutine));
+}
+void Context::retire_coroutine(CoroutineId coroutine) {
+  impl_->require_not_pumping();
+  impl_->retire(impl_->find(coroutine));
+}
+RunResult Context::Impl::pump_thread(Thread& thread) {
+  require_not_pumping();
+  struct Guard {
+    bool* value;
+    explicit Guard(bool& flag) : value(&flag) { *value = true; }
+    Guard(const Guard&) = delete;
+    Guard& operator=(const Guard&) = delete;
+    Guard(Guard&&) = delete;
+    Guard& operator=(Guard&&) = delete;
+    ~Guard() { *value = false; }
+  } guard(pumping);
+  if (thread.phase != RunState::running && thread.phase != RunState::pending) {
+    return {thread.phase, thread.error.data()};
   }
   try {
     for (std::size_t i = 0; i < kResumeBudget; ++i) {
       // A waiting bridge owns continuation; resume Lua only after it clears.
-      if (impl_->pending) {
-        if (impl_->pending()) {
-          impl_->phase = RunState::pending;
-          return {impl_->phase, {}};
+      if (thread.pending) {
+        if (thread.pending()) {
+          thread.phase = RunState::pending;
+          return {thread.phase, {}};
         }
-        impl_->pending = {};
+        thread.pending = {};
       }
-      lua_sethook(impl_->coroutine, budget, LUA_MASKCOUNT, kInstructionBudget);
-      const int status = lua_resume(impl_->coroutine, 0);
+      lua_sethook(thread.coroutine, budget, LUA_MASKCOUNT, kInstructionBudget);
+      active_thread = &thread;
+      const int status = lua_resume(thread.coroutine, 0);
+      active_thread = nullptr;
       if (status != 0) {
-        const auto* message = lua_type(impl_->coroutine, -1) == LUA_TSTRING
-                                  ? lua_tostring(impl_->coroutine, -1)
+        const auto* message = lua_type(thread.coroutine, -1) == LUA_TSTRING
+                                  ? lua_tostring(thread.coroutine, -1)
                                   : nullptr;
         throw Error(ErrorCode::unsupported,
                     message ? message : "Lua execution failed");
       }
-      if (!impl_->pending) {
-        impl_->phase = RunState::complete;
-        return {impl_->phase, {}};
+      if (!thread.pending) {
+        thread.phase = RunState::complete;
+        return {thread.phase, {}};
       }
     }
     // Bound host work without treating an unfinished coroutine as complete.
-    impl_->phase = RunState::running;
-    return {impl_->phase, "Host resume budget reached"};
+    thread.phase = RunState::running;
+    return {thread.phase, "Host resume budget reached"};
   } catch (const std::exception& failure) {
-    impl_->pending = {};
-    impl_->set_error(failure.what());
-    impl_->phase = RunState::failed;
-    return {impl_->phase, impl_->error.data()};
+    thread.pending = {};
+    thread.reply = {};
+    thread.set_error(failure.what());
+    thread.phase = RunState::failed;
+    return {thread.phase, thread.error.data()};
   } catch (...) {
-    impl_->pending = {};
-    impl_->set_error("Unknown pending callback exception");
-    impl_->phase = RunState::failed;
-    return {impl_->phase, impl_->error.data()};
+    thread.pending = {};
+    thread.reply = {};
+    thread.set_error("Unknown pending callback exception");
+    thread.phase = RunState::failed;
+    return {thread.phase, thread.error.data()};
   }
 }
 Value Context::global(const std::string& name) const {
+  impl_->require_not_pumping();
   // The protected callback only borrows this name during the C operation.
   Impl::GlobalRequest request{name.c_str()};
   impl_->checked(
-      lua_bw_protected(impl_->state.get(), Impl::protected_global, &request));
+      lua_bw_protected(impl_->state.get(), Impl::protected_global, &request),
+      impl_->primary);
   try {
     auto value = read_value(impl_->state.get(), -1);
     lua_pop(impl_->state.get(), 1);

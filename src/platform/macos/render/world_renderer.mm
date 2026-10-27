@@ -1,3 +1,14 @@
+// Math boundary: both-phase Core F.4 / performance MEM.9 keep generic
+// fixed-value operations in bw::math; source policy remains with this owner.
+// Rigid pose publication follows both-phase I.1/MEM.9: copied affine rows,
+// batch validation, then allocation-free composition with each current view.
+// Runtime texture-table overrides follow npc-appearance.md. Both-phase I.1
+// and MEM.9 make input borrowing explicit and copy resolved bindings only at
+// admission; color/shadow slots never search caller metadata during a frame.
+// Instance membership owns copied animation state. I.11/MEM.9 (design),
+// C.85/GPU.1 (implementation): validate/allocate before publication; retain
+// immutable geometry and allocate no storage during pose/shape updates.
+// See animated-instance-publication.md for the reference and cost boundary.
 // Native specular filtering uses both-phase I.6/I.7/GPU.1 (world.hpp): reject
 // unsupported negative exponents before publishing a draw; keep normal moments
 // in the shader, without per-frame allocations, transfers or new ownership.
@@ -68,7 +79,9 @@
 // validate the supplied filter, build retained sampler state during submission,
 // and preserve resident texture levels without hidden generation or frame work.
 #include "world_renderer.hpp"
+
 #include <cstring>
+#include "bw/math/matrix.hpp"
 #include "world_postprocess.hpp"
 
 #include <algorithm>
@@ -181,6 +194,10 @@ bool supported_depth_material(const formats::ModelMaterial& material) {
   return material.shader_selector[0] == kStaticMaterialFlags &&
          (material.shader_selector[1] & kShaderVariantMask) == 1;
 }
+bool valid_model_transform(const std::optional<render::WorldJointMatrix>& transform) {
+  return !transform ||
+         (transform->back() == std::array<float, 4>{0, 0, 0, 1} && math::all_finite(*transform));
+}
 bool finite_parameters(const render::WorldDepthParameters& parameters) {
   const auto finite = [](float value) { return std::isfinite(value); };
   return std::ranges::all_of(parameters.position_scale, finite) &&
@@ -206,6 +223,12 @@ struct WorldRenderer::State {
     memory::Vector<render::WorldTextureHandle> textures;
     std::size_t required_textures{};
   };
+  struct ShapeStorage {
+    explicit ShapeStorage(const std::shared_ptr<memory::Domain>& domain)
+        : buffers(memory::Allocator<BufferAllocation>(domain)) {}
+    memory::Vector<BufferAllocation> buffers;
+    std::pair<std::uint64_t, std::uint64_t> key;
+  };
   struct SubmittedDraw {
     render::WorldColorDraw command;
     ColorStream stream;
@@ -214,6 +237,8 @@ struct WorldRenderer::State {
     id<MTLSamplerState> environment_sampler{};
     memory::Vector<render::WorldJointMatrix> joint_matrices;
     render::ShadowReceiverProjection receiver;
+    std::shared_ptr<ShapeStorage> shapes;
+    memory::Vector<render::WorldTextureHandle> textures;
   };
   struct PreparedDraws {
     memory::Vector<SubmittedDraw> draws;
@@ -243,7 +268,25 @@ struct WorldRenderer::State {
              std::pair{draws[right].command.color_phase, right};
     });
   }
+  memory::Vector<std::shared_ptr<ShapeStorage>> index_shapes(
+      std::span<const SubmittedDraw> draws) const {
+    memory::Vector<std::shared_ptr<ShapeStorage>> result{
+        memory::Allocator<std::shared_ptr<ShapeStorage>>(cpu_domain)};
+    result.reserve(static_cast<std::size_t>(std::ranges::count_if(
+        draws, [](const auto& draw) { return static_cast<bool>(draw.shapes); })));
+    for (const auto& draw : draws) {
+      if (draw.shapes) result.push_back(draw.shapes);
+    }
+    const auto key = [](const auto& storage) { return storage->key; };
+    std::ranges::sort(result, {}, key);
+    const auto duplicates = std::ranges::unique(result, {}, key);
+    result.erase(duplicates.begin(), duplicates.end());
+    return result;
+  }
   void refresh_destinations() noexcept {
+    // The index is the sole remaining owner when the last consuming draw retires.
+    // Shape storage is private to this serialized backend, never lent outside.
+    std::erase_if(shape_storage, [](const auto& storage) { return storage.use_count() == 1; });
     texture_destinations.erase(
         texture_destinations.begin() + static_cast<std::ptrdiff_t>(submitted.size()),
         texture_destinations.end());
@@ -284,6 +327,7 @@ struct WorldRenderer::State {
         submitted(memory::Allocator<SubmittedDraw>(cpu_domain)),
         texture_destinations(memory::Allocator<TextureDestination>(cpu_domain)),
         color_order(memory::Allocator<std::size_t>(cpu_domain)),
+        shape_storage(memory::Allocator<std::shared_ptr<ShapeStorage>>(cpu_domain)),
         output(native_device, cpu_domain, device_budget) {}
   id<MTLDevice> device;
   id<MTLCommandQueue> queue;
@@ -306,6 +350,7 @@ struct WorldRenderer::State {
   memory::Vector<SubmittedDraw> submitted;
   memory::Vector<TextureDestination> texture_destinations;
   memory::Vector<std::size_t> color_order;
+  memory::Vector<std::shared_ptr<ShapeStorage>> shape_storage;
   std::array<std::array<id<MTLRenderPipelineState>, 2>, 2> color_pipelines{};
   std::array<id<MTLRenderPipelineState>, 2> preparation_pipelines{};
   WorldPostprocess output;
@@ -332,6 +377,11 @@ struct WorldRenderer::State {
           result.shadow_parameters[2] = light.shadow_radius;
         }
       }
+    }
+    if (draw.model_transform) {
+      result.clip_rows = math::multiply(result.clip_rows, *draw.model_transform);
+      result.world_rows = math::multiply(result.world_rows, *draw.model_transform);
+      result.shadow_clip_rows = math::multiply(result.shadow_clip_rows, *draw.model_transform);
     }
     return result;
   }
@@ -551,8 +601,10 @@ void WorldRenderer::release_world_texture(render::WorldTextureHandle texture) no
       }
     }
   }
-  std::erase_if(state_->submitted,
-                [&](const auto& draw) { return draw.command.reflection_texture == texture; });
+  std::erase_if(state_->submitted, [&](const auto& draw) {
+    return draw.command.reflection_texture == texture ||
+           std::ranges::find(draw.textures, texture) != draw.textures.end();
+  });
   state_->refresh_destinations();
   std::erase_if(state_->textures, [texture](const auto& entry) { return entry.handle == texture; });
 }
@@ -624,12 +676,25 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
             draw.parameters);
     const auto requirements = render::world_material_requirements(
         draw.effective_shader_flags, native.source_variant, draw.lighting);
-    const auto resident = [&](std::size_t slot, MTLTextureType type) {
-      if (slot >= model.textures.size() || model.textures.at(slot).value == 0) {
-        return false;
+    memory::Vector<render::WorldTextureHandle> texture_table(
+        model.textures.begin(), model.textures.end(),
+        memory::Allocator<render::WorldTextureHandle>(state.cpu_domain));
+    for (std::size_t index = 0; index < draw.texture_overrides.size(); ++index) {
+      const auto& replacement = draw.texture_overrides[index];
+      if (replacement.slot >= texture_table.size() || replacement.texture.value == 0 ||
+          std::ranges::find(state.textures, replacement.texture, &State::Texture::handle) ==
+              state.textures.end() ||
+          std::ranges::any_of(draw.texture_overrides.first(index), [&](const auto& previous) {
+            return previous.slot == replacement.slot;
+          })) {
+        throw std::invalid_argument("Invalid instance texture-table override");
       }
+      texture_table.at(replacement.slot) = replacement.texture;
+    }
+    const auto resident = [&](std::size_t slot, MTLTextureType type) {
+      if (slot >= texture_table.size() || texture_table.at(slot).value == 0) return false;
       const auto texture =
-          std::ranges::find(state.textures, model.textures.at(slot), &State::Texture::handle);
+          std::ranges::find(state.textures, texture_table.at(slot), &State::Texture::handle);
       return texture != state.textures.end() && texture->native.get().textureType == type;
     };
     constexpr std::uint32_t kSourcePassFeatures = 0x00e00200;
@@ -641,7 +706,7 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
     constexpr std::size_t kMaximumJoints = 32;
     const bool joint_palette_valid =
         requirements.joint_influences == 0
-            ? draw.joint_matrices.empty() && !native.requires_deformation
+            ? draw.joint_matrices.empty()
             : native.joint_indices_present && !draw.joint_matrices.empty() &&
                   draw.joint_matrices.size() <= kMaximumJoints &&
                   (requirements.joint_influences == 1 || native.joint_weights_present) &&
@@ -668,7 +733,8 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
         (draw.owner_opacity && !std::isfinite(*draw.owner_opacity)) ||
         (draw.owner_opacity && draw.color_phase == render::WorldColorPhase::background) ||
         (native.shape_deformation && !draw.use_shape_positions) || !joint_palette_valid ||
-        !requirements.supported ||
+        !valid_model_transform(draw.model_transform) ||
+        (draw.model_transform && !draw.joint_matrices.empty()) || !requirements.supported ||
         (draw.effective_shader_flags | kSourcePassFeatures) !=
             (native.source_flags | kSourcePassFeatures) ||
         (omitted_lights && (!no_energy(draw.parameters.light_diffuse) ||
@@ -794,6 +860,7 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
         draw.joint_matrices.begin(), draw.joint_matrices.end(),
         memory::Allocator<render::WorldJointMatrix>(state.cpu_domain));
     auto command = draw;
+    command.texture_overrides = {};
     command.joint_matrices = {};  // Never retain the caller's borrowed storage.
     render::ShadowReceiverProjection receiver{};
     if (requirements.shadow_reception && draw.parameters.shadow_parameters[0] != 0) {
@@ -809,8 +876,29 @@ WorldRenderer::State::PreparedDraws WorldRenderer::State::prepare_draws(
         throw std::invalid_argument("Retained view has an unsupported shadow receiver basis");
       }
     }
-    pending.push_back(
-        {command, stream, sampler, depth, environment_sampler, std::move(palette), receiver});
+    std::shared_ptr<ShapeStorage> shapes;
+    if (native.shape_deformation) {
+      const auto previous = std::ranges::find_if(pending, [&](const auto& candidate) {
+        return candidate.command.model == draw.model &&
+               candidate.command.instance == draw.instance && candidate.shapes;
+      });
+      if (previous != pending.end()) {
+        shapes = previous->shapes;
+      } else {
+        shapes = std::allocate_shared<ShapeStorage>(
+            memory::Allocator<ShapeStorage>(state.cpu_domain), state.cpu_domain);
+        shapes->key = {draw.model.value, draw.instance};
+        shapes->buffers.reserve(model.shapes.size());
+        for (const auto& rest : model.shapes) {
+          const auto bytes = std::span<const std::uint8_t>(
+              static_cast<const std::uint8_t*>(rest.get().contents), rest.get().length);
+          shapes->buffers.push_back(
+              BufferAllocation::create(state.device, state.device_budget, bytes));
+        }
+      }
+    }
+    pending.push_back({command, stream, sampler, depth, environment_sampler, std::move(palette),
+                       receiver, std::move(shapes), std::move(texture_table)});
   }
   return {std::move(pending), shadow_guard, needs_default_environment};
 }
@@ -838,9 +926,11 @@ void WorldRenderer::set_world_draws(std::span<const render::WorldColorDraw> draw
   memory::Vector<std::size_t> color_order(pending.size(),
                                           memory::Allocator<std::size_t>(state.cpu_domain));
   State::index_color_order(pending, color_order);
+  auto shape_storage = state.index_shapes(pending);
   state.submitted = std::move(pending);
   state.texture_destinations = std::move(destinations);
   state.color_order = std::move(color_order);
+  state.shape_storage = std::move(shape_storage);
   state.shadow_guard = shadow_guard;
   state.view.reset();
   state.world_receiver.reset();
@@ -901,12 +991,73 @@ void WorldRenderer::replace_world_model_draws(render::WorldModelHandle previous,
   memory::Vector<std::size_t> color_order(pending.size(),
                                           memory::Allocator<std::size_t>(state.cpu_domain));
   State::index_color_order(pending, color_order);
+  auto shape_storage = state.index_shapes(pending);
   const auto shadow_guard = state.effective_shadow_guard(pending);
   // No operation after this point can fail; view and output remain untouched.
   state.submitted.swap(pending);
   state.texture_destinations.swap(destinations);
   state.color_order.swap(color_order);
+  state.shape_storage.swap(shape_storage);
   state.shadow_guard = shadow_guard;
+  state.shadows_prepared = false;
+}
+// Instance setup shares immutable assets and prepares private mutable state before
+// one transactional membership commit. The current view and all existing poses survive.
+void WorldRenderer::add_world_instance_draws(std::span<const render::WorldColorDraw> draws) {
+  auto& state = *state_;
+  if (draws.empty()) throw std::invalid_argument("Instance admission requires draws");
+  const auto instance = draws.front().instance;
+  for (std::size_t index = 0; index < draws.size(); ++index) {
+    const auto& candidate = draws[index];
+    if (candidate.instance != instance ||
+        std::ranges::any_of(state.submitted, [&](const auto& existing) {
+          return existing.command.model == candidate.model && existing.command.instance == instance;
+        })) {
+      throw std::invalid_argument(
+          "Instance admission requires fresh model pairs and one owner identity");
+    }
+    if (std::ranges::any_of(draws.first(index), [&](const auto& previous) {
+          return previous.model == candidate.model && previous.draw == candidate.draw;
+        })) {
+      throw std::invalid_argument("Instance admission contains duplicate draw identities");
+    }
+  }
+  auto prepared = state.prepare_draws(draws, true);
+  if (prepared.needs_default_environment && state.default_environment.get() == nil) {
+    throw std::invalid_argument("Instance admission requires a resident environment fallback");
+  }
+  memory::Vector<State::SubmittedDraw> pending(
+      state.submitted.begin(), state.submitted.end(),
+      memory::Allocator<State::SubmittedDraw>(state.cpu_domain));
+  pending.reserve(pending.size() + prepared.draws.size());
+  for (auto& draw : prepared.draws) pending.push_back(std::move(draw));
+  memory::Vector<State::TextureDestination> destinations(
+      pending.size(), memory::Allocator<State::TextureDestination>(state.cpu_domain));
+  State::index_destinations(pending, destinations);
+  memory::Vector<std::size_t> color_order(pending.size(),
+                                          memory::Allocator<std::size_t>(state.cpu_domain));
+  State::index_color_order(pending, color_order);
+  auto shape_storage = state.index_shapes(pending);
+  const auto shadow_guard = state.effective_shadow_guard(pending);
+  state.submitted.swap(pending);
+  state.texture_destinations.swap(destinations);
+  state.color_order.swap(color_order);
+  state.shape_storage.swap(shape_storage);
+  state.shadow_guard = shadow_guard;
+  state.shadows_prepared = false;
+}
+void WorldRenderer::remove_world_instance_draws(render::WorldModelHandle model,
+                                                std::uint64_t instance) {
+  auto& state = *state_;
+  const auto matches = [&](const auto& draw) {
+    return draw.command.model == model && draw.command.instance == instance;
+  };
+  if (!std::ranges::any_of(state.submitted, matches)) {
+    throw std::invalid_argument("Unknown retained world instance");
+  }
+  std::erase_if(state.submitted, matches);
+  state.refresh_destinations();
+  state.shadow_guard = state.effective_shadow_guard(state.submitted);
   state.shadows_prepared = false;
 }
 // Validate the complete batch before changing retained constants; geometry,
@@ -990,6 +1141,10 @@ void WorldRenderer::update_world_poses(std::span<const render::WorldPoseUpdate> 
                                     std::pair{update.model.value, update.draw}, std::ranges::less{},
                                     &State::TextureDestination::key);
   };
+  const auto matches = [&](const auto& update, const auto& destination) {
+    return !update.instance ||
+           state.submitted[destination.submitted_index].command.instance == *update.instance;
+  };
   for (const auto& update : updates) {
     const auto selected = destinations(update);
     const bool finite = std::ranges::all_of(update.joint_matrices, [](const auto& matrix) {
@@ -997,18 +1152,25 @@ void WorldRenderer::update_world_poses(std::span<const render::WorldPoseUpdate> 
         return std::ranges::all_of(row, [](float value) { return std::isfinite(value); });
       });
     });
-    if (!finite || update.joint_matrices.empty() || selected.empty() ||
+    if (!finite || !valid_model_transform(update.model_transform) ||
+        (update.joint_matrices.empty() && !update.model_transform) ||
+        (!update.joint_matrices.empty() && update.model_transform) ||
+        !std::ranges::any_of(
+            selected, [&](const auto& destination) { return matches(update, destination); }) ||
         !std::ranges::all_of(selected, [&](const auto& destination) {
-          return state.submitted[destination.submitted_index].joint_matrices.size() ==
-                 update.joint_matrices.size();
+          return !matches(update, destination) ||
+                 state.submitted[destination.submitted_index].joint_matrices.size() ==
+                     update.joint_matrices.size();
         })) {
       throw std::invalid_argument("Invalid retained world pose update");
     }
   }
   for (const auto& update : updates) {
     for (const auto& destination : destinations(update)) {
-      std::ranges::copy(update.joint_matrices,
-                        state.submitted[destination.submitted_index].joint_matrices.begin());
+      if (!matches(update, destination)) continue;
+      auto& submitted = state.submitted[destination.submitted_index];
+      std::ranges::copy(update.joint_matrices, submitted.joint_matrices.begin());
+      if (update.model_transform) submitted.command.model_transform = update.model_transform;
     }
   }
   if (!updates.empty()) state.shadows_prepared = false;
@@ -1018,6 +1180,10 @@ void WorldRenderer::update_world_poses(std::span<const render::WorldPoseUpdate> 
 void WorldRenderer::update_shape_positions(
     std::span<const render::WorldShapePositionUpdate> updates) {
   auto& state = *state_;
+  const auto matches = [](const auto& update, const auto& storage) {
+    return storage->key.first == update.model.value &&
+           (!update.instance || storage->key.second == *update.instance);
+  };
   for (const auto& update : updates) {
     const auto& model = state.model(update.model);
     const bool packed_positions = std::ranges::all_of(model.draws, [&](const auto& draw) {
@@ -1026,6 +1192,8 @@ void WorldRenderer::update_shape_positions(
               draw.position_offset == 0);
     });
     if (!packed_positions || update.buffer >= model.shapes.size() || update.positions.empty() ||
+        !std::ranges::any_of(state.shape_storage,
+                             [&](const auto& storage) { return matches(update, storage); }) ||
         update.positions.size_bytes() != model.shapes.at(update.buffer).get().length ||
         !std::ranges::all_of(update.positions, [](const auto& position) {
           return std::ranges::all_of(position, [](float value) { return std::isfinite(value); });
@@ -1034,8 +1202,11 @@ void WorldRenderer::update_shape_positions(
     }
   }
   for (const auto& update : updates) {
-    const auto& buffer = state.model(update.model).shapes.at(update.buffer);
-    std::memcpy(buffer.get().contents, update.positions.data(), update.positions.size_bytes());
+    for (const auto& storage : state.shape_storage) {
+      if (!matches(update, storage)) continue;
+      const auto& buffer = storage->buffers.at(update.buffer);
+      std::memcpy(buffer.get().contents, update.positions.data(), update.positions.size_bytes());
+    }
   }
   if (!updates.empty()) state.shadows_prepared = false;
 }
@@ -1136,6 +1307,7 @@ void WorldRenderer::clear_world_draws() noexcept {
   state_->world_receiver.reset();
   state_->sky_receiver.reset();
   state_->submitted.clear();
+  state_->shape_storage.clear();
   state_->texture_destinations.clear();
   state_->color_order.clear();
   state_->output.release_scene_targets();
@@ -1282,10 +1454,11 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
     // Shape declarations store original rest positions in their own stream;
     // other attributes and immutable skin weights stay in the ordinary stream.
     const auto& positions = draw.shape_stream ? *draw.shape_stream : draw.stream;
-    [encoder setVertexBuffer:draw.shape_stream ? model.shapes.at(positions.buffer).get()
-                                               : model.vertices.at(positions.buffer).get()
-                      offset:positions.offset
-                     atIndex:4];
+    [encoder
+        setVertexBuffer:draw.shape_stream ? submitted.shapes->buffers.at(positions.buffer).get()
+                                          : model.vertices.at(positions.buffer).get()
+                 offset:positions.offset
+                atIndex:4];
     [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:1];
     [encoder setVertexBytes:&stream length:sizeof(stream) atIndex:2];
     constexpr render::WorldJointMatrix kUnusedPalette{};
@@ -1299,7 +1472,7 @@ void WorldRenderer::prepare_shadows(id<MTLCommandBuffer> command, id<MTLLibrary>
     [encoder setFragmentBytes:&stream length:sizeof(stream) atIndex:2];
     id<MTLTexture> base = nil;
     if (submitted.stream.base_texture) {
-      base = std::ranges::find(state.textures, model.textures.at(native.base_texture),
+      base = std::ranges::find(state.textures, submitted.textures.at(native.base_texture),
                                &State::Texture::handle)
                  ->native.get();
     }
@@ -1436,12 +1609,12 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     const auto& draw = native.source;
     const auto base =
         submitted.stream.base_texture
-            ? std::ranges::find(state.textures, model.textures.at(native.base_texture),
+            ? std::ranges::find(state.textures, submitted.textures.at(native.base_texture),
                                 &State::Texture::handle)
             : state.textures.end();
     const auto normal =
         submitted.stream.normal_map
-            ? std::ranges::find(state.textures, model.textures.at(native.normal_texture),
+            ? std::ranges::find(state.textures, submitted.textures.at(native.normal_texture),
                                 &State::Texture::handle)
             : state.textures.end();
     const auto blend = partial && request.color_phase != render::WorldColorPhase::material_blended
@@ -1460,10 +1633,11 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     // Shape declarations store original rest positions in their own stream;
     // other attributes and immutable skin weights stay in the ordinary stream.
     const auto& positions = draw.shape_stream ? *draw.shape_stream : draw.stream;
-    [encoder setVertexBuffer:draw.shape_stream ? model.shapes.at(positions.buffer).get()
-                                               : model.vertices.at(positions.buffer).get()
-                      offset:positions.offset
-                     atIndex:4];
+    [encoder
+        setVertexBuffer:draw.shape_stream ? submitted.shapes->buffers.at(positions.buffer).get()
+                                          : model.vertices.at(positions.buffer).get()
+                 offset:positions.offset
+                atIndex:4];
     [encoder setVertexBytes:&parameters length:sizeof(parameters) atIndex:1];
     [encoder setVertexBytes:&stream length:sizeof(stream) atIndex:2];
     if (!submitted.joint_matrices.empty()) {
@@ -1490,7 +1664,7 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     [encoder setFragmentTexture:submitted.stream.normal_map ? normal->native.get() : nil atIndex:3];
     id<MTLTexture> occlusion = nil;
     if (submitted.stream.ambient_occlusion) {
-      occlusion = std::ranges::find(state.textures, model.textures.at(native.occlusion_texture),
+      occlusion = std::ranges::find(state.textures, submitted.textures.at(native.occlusion_texture),
                                     &State::Texture::handle)
                       ->native.get();
     }
@@ -1498,7 +1672,7 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     [encoder setFragmentTexture:occlusion atIndex:kOcclusionSlot];
     if (submitted.stream.secondary_base) {
       const auto secondary = std::ranges::find(
-          state.textures, model.textures.at(native.secondary_texture), &State::Texture::handle);
+          state.textures, submitted.textures.at(native.secondary_texture), &State::Texture::handle);
       [encoder setFragmentTexture:secondary->native.get() atIndex:1];
     } else {
       [encoder setFragmentTexture:nil atIndex:1];
@@ -1514,8 +1688,9 @@ void WorldRenderer::encode_color(id<MTLRenderCommandEncoder> encoder, id<MTLLibr
     // Source receiver publication precedes the model command list. A later
     // authored LENV record overrides that default on the selected material.
     if (submitted.stream.environment_map && native.environment_bound) {
-      const auto environment = std::ranges::find(
-          state.textures, model.textures.at(native.environment_texture), &State::Texture::handle);
+      const auto environment =
+          std::ranges::find(state.textures, submitted.textures.at(native.environment_texture),
+                            &State::Texture::handle);
       [encoder setFragmentTexture:environment->native.get() atIndex:kEnvironmentSlot];
     }
     [encoder setFragmentSamplerState:submitted.environment_sampler atIndex:kEnvironmentSlot];

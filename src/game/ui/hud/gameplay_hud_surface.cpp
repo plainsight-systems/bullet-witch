@@ -20,11 +20,11 @@
 namespace bw::game {
 namespace {
 constexpr resources::ResourceTag kHudTag = 18;
-constexpr std::array<std::string_view, 3> kGroups{
-    "sprite.cockpit", "sprite.magicring", "sprite.font"};
-constexpr std::array<unsigned, 21> kCockpitImages{
-    6,  9,  14, 17,  18,  19,  20,  21,  37,  38, 39,
-    40, 41, 42, 425, 426, 427, 428, 429, 430, 434};
+constexpr std::array<std::string_view, 4> kGroups{
+    "sprite.cockpit", "sprite.magicring", "sprite.font", "sprite.text.sys"};
+constexpr std::array<unsigned, 27> kCockpitImages{
+    6,   9,   14,  17,  18,  19,  20,  21, 37, 38, 39, 40,  41, 42,
+    425, 426, 427, 428, 429, 430, 434, 25, 26, 27, 28, 432, 433};
 constexpr std::array<unsigned, 26> kRingImages{
     101, 102, 106, 107, 111, 112, 113, 114, 118, 119, 120, 121, 123,
     124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 435, 436};
@@ -60,6 +60,7 @@ struct GameplayHudSurface::State {
   std::array<Image, kImageCapacity> images{};
   std::size_t image_count{};
   std::optional<formats::BitmapFont> font;
+  std::optional<formats::TextTable> system_text;
   std::array<render::Sprite, render::kMaximumSprites> commands{};
   bool ready{};
   State(resources::ResourceService& service, render::SpriteOutput& renderer)
@@ -74,6 +75,7 @@ struct GameplayHudSurface::State {
       output.release_texture(images.at(--image_count).texture);
     }
     font.reset();
+    system_text.reset();
     for (auto& lease : leases) lease.reset();
     resources.release(kHudTag);
     ready = false;
@@ -101,7 +103,12 @@ struct GameplayHudSurface::State {
         throw std::runtime_error("HUD resource publication missing");
       }
       const auto& lease = slot.value();
-      const bool is_font = group == kGroups.size() - 1;
+      constexpr std::size_t kTextGroup = 3, kFontGroup = 2;
+      if (group == kTextGroup) {
+        system_text = formats::TextTable::parse(lease.bytes());
+        continue;
+      }
+      const bool is_font = group == kFontGroup;
       if (is_font) font = formats::BitmapFont::parse(lease.bytes(), allocator);
       const auto& archive = lease.archive();
       std::size_t image_index = 0;
@@ -151,6 +158,12 @@ void GameplayHudSurface::prepare() {
   }
 }
 bool GameplayHudSurface::prepared() const noexcept { return state_->ready; }
+const formats::TextTable& GameplayHudSurface::system_text_table() const {
+  if (!state_->ready || !state_->system_text) {
+    throw std::logic_error("HUD system text is not prepared");
+  }
+  return *state_->system_text;
+}
 void GameplayHudSurface::end() noexcept { state_->end(); }
 void GameplayHudSurface::hide() noexcept { state_->output.clear_sprites(); }
 void GameplayHudSurface::show(const GameplayHud& hud,
@@ -164,6 +177,26 @@ void GameplayHudSurface::show(const GameplayHud& hud,
     }
     const auto& image = state.image(command.image);
     auto position = command.destination;
+    auto uv = command.uv;
+    if (command.tile) {
+      const auto tile = *command.tile;
+      if (tile.width == 0 || tile.height == 0 ||
+          static_cast<float>(tile.width) > image.width ||
+          static_cast<float>(tile.height) > image.height) {
+        throw std::invalid_argument("Invalid HUD atlas tile");
+      }
+      const auto columns =
+          static_cast<unsigned>(image.width / static_cast<float>(tile.width));
+      if (tile.index >= columns) {
+        throw std::out_of_range("HUD tile exceeds horizontal atlas");
+      }
+      const float width = static_cast<float>(tile.width);
+      const float height = static_cast<float>(tile.height);
+      uv = {static_cast<float>(tile.index) * width / image.width, 0,
+            width / image.width, height / image.height};
+      position.width = width;
+      position.height = height;
+    }
     if (position.width == 0) position.width = image.width;
     if (position.height == 0) position.height = image.height;
     constexpr float kHalf = .5F;
@@ -184,7 +217,7 @@ void GameplayHudSurface::show(const GameplayHud& hud,
     state.commands.at(count++) = {
         image.texture,
         position,
-        command.uv,
+        uv,
         command.color,
         render::TextureChannel::rgba,
         command.rotation_radians,
@@ -203,5 +236,22 @@ void GameplayHudSurface::show(const GameplayHud& hud,
                            {}, std::span(state.commands).subspan(count));
   }
   state.output.set_sprites(std::span(state.commands).first(count));
+}
+// This suffix uses the same prepared font but has no cockpit visibility gate.
+// The base owner replaces/clears its list each frame before this atomic append.
+void GameplayHudSurface::show_system_message(SystemMessageView message) {
+  auto& state = *state_;
+  if (!state.ready) throw std::logic_error("HUD surface is not prepared");
+  if (message.active && message.opacity > 0) {
+    if (!state.font) throw std::logic_error("HUD system font unavailable");
+    constexpr SpriteTextPosition kMessagePosition{640, 78, 25};
+    constexpr float kMessageIntensity = .9F, kMessageAlpha = .56F;
+    const auto count = append_centered_sprite_text(
+        *state.font, state.image(0).texture, message.text, kMessagePosition,
+        {kMessageIntensity, kMessageIntensity, kMessageIntensity,
+         kMessageAlpha * message.opacity},
+        std::span(state.commands));
+    state.output.append_sprites(std::span(state.commands).first(count));
+  }
 }
 }  // namespace bw::game

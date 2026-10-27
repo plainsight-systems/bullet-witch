@@ -1,3 +1,6 @@
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // Scene admission and retirement are one RAII responsibility; native retained
 // draws remain authoritative. E.6 and MEM.9 were reread for implementation:
 // validate lifecycle before forwarding, retain no copied packets or dynamic
@@ -53,6 +56,15 @@ void RenderScene::replace_model_draws(
 void RenderScene::remove_model_draws(WorldModelHandle model) {
   require_active();
   output_.replace_world_model_draws(model, {});
+}
+void RenderScene::add_instance_draws(std::span<const WorldColorDraw> draws) {
+  require_active();
+  output_.add_world_instance_draws(draws);
+}
+void RenderScene::remove_instance_draws(WorldModelHandle model,
+                                        std::uint64_t instance) {
+  require_active();
+  output_.remove_world_instance_draws(model, instance);
 }
 void RenderScene::update_world_texture_offsets(
     std::span<const WorldTextureOffsetUpdate> updates) {

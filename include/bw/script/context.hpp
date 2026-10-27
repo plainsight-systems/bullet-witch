@@ -55,6 +55,13 @@ struct RunResult {
   RunState state;
   std::string diagnostic;
 };
+// Context-local identity, never reused during that Context's lifetime. Zero
+// is invalid; retiring an identity invalidates all copies, even after reuse of
+// its storage slot. These are cooperative Lua tasks, not operating threads.
+struct CoroutineId {
+  std::uint64_t value{};
+  bool operator==(const CoroutineId&) const = default;
+};
 class Context {
  public:
   Context();  // Legacy tool/test route; native composition supplies a domain.
@@ -72,6 +79,22 @@ class Context {
   void start(const std::string& function);
   // Poll pending native work, then resume within the per-call safety budget.
   RunResult pump();
+  // Configure fixed domain-backed callback slots before any start. All child
+  // coroutines share this VM's globals, bindings and bounded Lua heap. Finished
+  // or failed children occupy their slot until explicitly retired. Reservation
+  // allocates host metadata once; starts may allocate inside Lua, and native
+  // replies keep their existing caller-owned allocation contract. No pool
+  // growth or separate VM occurs while pumping. Exhaustion, stale IDs and
+  // reentrant execution/mutation throw. Child failure does not terminate the
+  // primary task or siblings. Destruction cancels all captures before VM close.
+  // Design/implementation SL.C.1 (#rclib-jmp) confines longjmp to protected C
+  // calls; MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) gives
+  // fixed slot addresses. O(capacity) identity lookup; Lua work uses the same
+  // per-pump budget as the primary task. See script-callback-coroutines.md.
+  void reserve_coroutines(std::size_t capacity);
+  CoroutineId start_coroutine(const std::string& function);
+  RunResult pump(CoroutineId coroutine);
+  void retire_coroutine(CoroutineId coroutine);
   Value global(const std::string& name) const;
 
  private:

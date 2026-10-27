@@ -37,6 +37,10 @@ MissionFrameDisposition MissionGameplay::begin(float presentation_seconds,
   const auto interaction = interaction_.admit(presentation_seconds, input);
   frame_.emplace(clock_.publish(presentation_seconds,
                                 control_.admission(interaction.ui_consumed)));
+  interval_ = {frame_->sequence(), frame_->delta_seconds()};
+  simulation_interval_ = {frame_->sequence(), frame_->admission().simulation
+                                                  ? frame_->delta_seconds()
+                                                  : 0.F};
   resources_.begin_frame(*frame_);
   const auto routed =
       input_.route(*frame_, interaction.actions, player_, resources_);
@@ -65,8 +69,16 @@ void MissionGameplay::advance() {
                         .attack_pressed = actions_.attack_pressed,
                         .aim_mode_pressed = actions_.aim_mode_pressed}});
   resources_.finish_frame();
+  std::optional<MissionGoalObservation> goal_observation;
+  if (const auto* camera = stage_.camera_state()) {
+    if (const auto* player = stage_.player_state()) {
+      goal_observation = MissionGoalObservation{
+          camera->pose, camera->perspective, player->pose.position};
+    }
+  }
   cockpit_.advance(*frame_, resources_.snapshot(),
-                   stage_.targeting_state().active(), input_.ring());
+                   stage_.targeting_state().active(), input_.ring(),
+                   goal_observation ? &*goal_observation : nullptr);
   frame_.reset();
 }
 void MissionGameplay::present() {

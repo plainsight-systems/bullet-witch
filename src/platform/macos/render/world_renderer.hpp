@@ -1,3 +1,6 @@
+// Instance publication uses design I.11 (#ri-raw)/MEM.9 and implementation
+// C.85/GPU.1: borrowed inputs, scene-owned membership and retained native
+// storage. See animated-instance-publication.md for the complete contract.
 // Receiver projection is prepared once per accepted view/fixed draw and
 // retained as immutable screen/texture matrix values. Shadow-consuming draws
 // require world-aligned camera-relative coordinates; unsupported rotated/scaled
@@ -93,6 +96,10 @@ class WorldRenderer final : public render::WorldOutput {
   void replace_world_model_draws(
       render::WorldModelHandle previous,
       std::span<const render::WorldColorDraw> replacement) override;
+  void add_world_instance_draws(
+      std::span<const render::WorldColorDraw> draws) override;
+  void remove_world_instance_draws(render::WorldModelHandle model,
+                                   std::uint64_t instance) override;
   void update_world_texture_offsets(
       std::span<const render::WorldTextureOffsetUpdate> updates) override;
   void update_world_lighting(
