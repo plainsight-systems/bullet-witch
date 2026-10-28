@@ -1,44 +1,28 @@
-# Working on Bullet Witch
+# Working on the rebuild
 
 Read `docs/process/MEMORY.md`, `docs/process/QUEUE.md`, and
-`docs/process/workflow.md` at session entry, then the relevant architecture and
-source. `CLAUDE.md` points to the same instructions.
+`docs/process/workflow.md`, then the relevant architecture document.
 
-- Follow the self-contained workflow. Do not import governance repositories,
-  submodules or symlinks from DoLittle.
-- Name engine types, functions and files by responsibility. Keep opaque original
-  identifiers at compatibility/provenance boundaries, with the naming map in
-  `docs/architecture/file-mapping.md`; do not invent acronym expansions.
-- Design architecture and file contracts before implementation. The architecture
-  set is the working structural baseline. Detailed file/behavior contracts
-  still need refinement; documented modules are not automatically implemented.
-- Before designing or changing a standard engine subsystem, inspect established
-  production implementations at source level. Reuse proven algorithms and
-  contracts; explain departures with concrete project needs or measurements.
-  Record pinned sources, relevant functions, applicability and the chosen design
-  under organized `research/` before implementation. See the reference-first
-  requirement in `docs/process/workflow.md`; passing synthetic tests alone does
-  not validate native behavior.
-- C++ header design and implementation must each query both `cpp_guidelines`
-  and `cpp_performance` MCP corpora. Retrieve full applicable rules and explain
-  their application in opening file comments; follow the unavailable-server
-  rule in the workflow. Do not cite unread rules.
-- Run `python3 scripts/check.py all` for C++ changes. Use the pinned Google
-  formatter and fatal clang-tidy policy; fix findings instead of disabling
-  check families. Report only verification actually performed.
-- Keep the game installation read-only. Research, recovered material and
-  generated diagnostics belong in organized `research/` subdirectories.
-  Generated evidence and proprietary assets stay ignored. Preserve repository
-  content guards and do not force-add assets or unreviewed evidence.
-- Keep current decisions in MEMORY and remaining work in QUEUE. Keep build logs
-  and implementation diaries under ignored `research/evidence/`, not in those
-  current-state documents. No machine-specific paths or credentials in new docs.
-- Unit tests exercise public contracts in process. Integration tests launch
-  processes or use real files/components. See the explicit existing integration
-  inventory and adoption exception; do not hide scenarios by relabeling them.
-- Delegate task execution to subagents by default so
-  the main conversation remains available for planning. Integrate their work
-  and run the required checks before delivery. Independent agent review is on
-  request. Do not start rendering or new engine
-  features as incidental tooling work. Commit, publish or message externally
-  only within the user's instructions.
+- This is a new implementation. Do not copy, call, wrap, link, import, or reuse
+  any existing Bullet Witch project code. This includes math, allocators, clocks,
+  platform adapters, decoders, Lua bindings, controllers, rendering, shaders,
+  tests, scripts, configurations, caches, and generated runtime resources.
+- Original purchased game data and Lua are input data only. Keep the game
+  installation read-only; no original assets, scripts, raw decompiler output,
+  downloaded source, or generated evidence in Git.
+- Unreal is the design and algorithm reference. Inspect pinned source functions
+  before implementing the corresponding system. Record the selected algorithm
+  and any adaptation in the architecture docs. Original engine structure and
+  timing are not constraints on the replacement architecture.
+- A diagram or a compiled class does not establish an implemented subsystem.
+  Keep proposed design, implemented behavior, and verified behavior distinct.
+- Write header contracts first. For both header design and implementation,
+  query the C++ Guidelines and C++ Performance MCP corpora and read applicable
+  full rules. Put concise rule applications in opening comments and algorithm
+  intent above implementation code. Do not cite unread guidance.
+- Establish fresh formatting, fatal clang-tidy, build, and meaningful test tools
+  with the first code slice. Never invoke or copy old repository tooling.
+- Use subagents for execution so the main conversation remains available.
+  Keep file ownership explicit when work proceeds in parallel.
+- Do not commit, push, launch a game, or expand an implementation slice beyond
+  the user's authorization. Preserve the old worktree unchanged.

@@ -1,84 +1,68 @@
-# Bullet Witch engine architecture
+# Runtime architecture
 
-> **Revised slice 3 implemented and accepted October 26, 2026.** The earlier
-> mechanical grouping was rejected. The explicit engine/game/platform/developer
-> layout and ownership repairs replace that proposal. Both configuration gates
-> and purchased-data checks pass; the user authorized the scoped commit.
+This is the seed design for a new engine and game implementation. None of the
+systems below exists in this branch yet. No existing Bullet Witch project code
+is an implementation dependency. Original purchased assets and Lua are inputs
+through newly written readers and bindings.
 
-**Approved architecture redesign · October 26, 2026. Implementation verified and accepted.**
-Start with the [reorganization plan](reorganization-plan.md) and the
-[complete physical/ownership proposal](../../research/engine/subsystems/architecture-layout-proposal.md).
-The initial mechanical slice 3 grouping was rejected; its uncommitted work was
-replaced by explicit engine/game/platform/developer roots with actual
-ownership repairs. Build dependencies and documentation closure are included.
-Slices 1 and 2 remain accepted; this revised implementation passed integrated
-verification and was accepted on October 26, 2026.
+Unreal Engine source at `f45729c0b6f097038e72b52d366a62baeca3275b` supplies the
+architectural and algorithm references. Linked Epic source requires an account
+with source access. Links identify inspected paths/functions; their presence
+does not claim implementation or validation. We describe the design in our own
+words and do not bundle Unreal code.
 
-[Current ownership](current-ownership.md) records concrete owners and paths;
-[boundary diagrams](proposed-boundaries.md) show complete system scope, including
-clearly marked future work. The
-[subsystem inventory](../../research/engine/subsystems/runtime-subsystem-inventory.md)
-provides implementation history and remaining gameplay boundaries.
+## Connected runtime
 
-The broader [target architecture](logical-overview.md) describes the finished
-game/engine structure. It is not an implementation inventory. In particular,
-`EngineInstance`, a complete mission `World`, entity registry, generic render-scene
-extraction and a general job system are not all present as runtime owners today.
-Proposed names describe responsibilities, not recovered Cavia C++ class names.
+```mermaid
+flowchart TD
+    Host[Platform host and input events] --> Loop[EngineLoop: elapsed time and frame pacing]
+    Loop --> Session[GameSession: frontend, loading, play and travel]
+    Session --> World[World: clocks, actor lifecycle and tick dependencies]
+    Data[Purchased assets and Lua] --> Load[New IO, decode and preparation pipeline]
+    Load --> Activate[Budgeted world activation]
+    Activate --> World
+    World --> Intent[Player input and AI decision owners]
+    Intent --> Motion[Character actions, movement and animation]
+    Motion --> Physics[Physics simulation and contacts]
+    Physics --> Complete[Completed poses, transforms and gameplay events]
+    Complete --> World
+    Complete --> Camera[Camera and presentation extraction]
+    Camera --> Render[Scene, materials, lighting and render passes]
+    Render --> GPU[Platform graphics backend and presentation]
+    Complete --> FX[Effects and audio]
+    Session --> UI[Menus and HUD]
+    UI --> Render
+    Session --> Save[Save and progression]
+```
 
-## Current review
+This diagram is an ownership map, not permission for arbitrary call cycles.
+The world scheduler orders dependencies and publication barriers. Workers
+receive explicit inputs and return owned results; render/audio consumers do not
+mutate world state. Loading and activation have distinct owners.
 
-The frontend, gameplay pause and HUD have user acceptance. Main-menu music/cues,
-live audio gain, original shared Options/controller/calibration children, costume
-persistence and reachable Power Up are implemented. Original Lua still orchestrates
-native tasks. Concept status/resource routing is resolved; it is not an open
-status-5-versus-6 question. See [frontend verification](../../research/engine/subsystems/frontend-verification.md)
-and [mission launch](../../research/engine/subsystems/mission-launch.md).
+## Drill-ins
 
-The current One Shot Kill scene has stage/actor rendering, lighting, custom static
-contact, Alicia motion/actions and camera. Authored full mission/entity startup,
-dynamic physics, NPC AI, live effects, mission-result production and complete
-world checkpoint restoration remain unfinished. Steam rankings use the original
-unavailable-service route; no achievement import provider is implemented.
+| Document | Boundary |
+|---|---|
+| [Engine loop](engine-loop.md) | Host frame, pacing, world time, tick phases and jobs |
+| [World lifecycle](world-lifecycle.md) | Prepared resources, actor activation, registration and retirement |
+| [Characters and AI](characters-ai.md) | Player/NPC decisions, task lifetime, movement and animation |
+| [Rendering and assets](rendering-assets.md) | New import, resource preparation, scene and GPU pipeline |
+| [Runtime services](runtime-services.md) | Input, combat, effects, audio, media, UI, save and session |
+| [Implementation order](implementation-order.md) | Dependency sequence and the first concrete build slice |
 
-The agreed design separates game-world behavior from retained render-scene
-membership, keeps scene lighting identifiable, and composes world/movie/UI as
-sibling outputs. Engine mechanisms live under `src/engine`; game files group by actual responsibility.
-Original-install admission and future enhanced asset/script selection are policy
-above ordered resource resolution; mission activation remains distinct from
-residency. The plan preserves current algorithms and native acceptance. It adds
-no gameplay, physics, AI, asset upgrades or new debug UI. Existing developer
-implementations are now compiled out of production.
+## Proposed source boundaries
 
-## Read in this order
+`src/core/` holds common types, math, memory and jobs; `src/platform/` holds OS
+and silicon-specific implementations behind shared contracts. `src/engine/`
+owns runtime scheduling, actors/components, content, animation, physics, scene,
+rendering, audio, media and UI mechanisms. `src/game/` owns Bullet Witch rules,
+Lua binding semantics, actors, missions, progression and frontend behavior.
+`src/hosts/` contains target executable entry points. Tools and tests get their
+own new roots. These are planned directories, not empty placeholder modules.
 
-| View | Question |
-| --- | --- |
-| [Finalized reorganization plan](reorganization-plan.md) | What moves, which ownership contracts change, and in what order? |
-| [Complete proposed architecture boundaries](proposed-boundaries.md) | What are the recommended engine/game/content/native boundaries, lifetimes and frame flow? |
-| [Current systems and proposed ownership repairs](current-ownership.md) | What exists now, where does it live, and who owns its state? |
-| [Runtime subsystem inventory](../../research/engine/subsystems/runtime-subsystem-inventory.md) | Which source/build owners are implemented, partial or planned? |
-| [Target engine architecture](logical-overview.md) | What should the completed engine/game structure support? |
-| [Runtime ownership](runtime-model.md) | What survives each transition? Target lifetime model, clearly separate from current composition. |
-| [World timing](world-timing.md) | Who owns pacing, presentation/world time, pause admission and current input? |
-| [Rendering and presentation](rendering-and-presentation.md), [lighting](lighting.md) | How do scene observations, light evaluation, passes and native output relate? |
-| [Actors and animation](actors-and-animation.md), [gameplay](player-gameplay.md) | Where are actor/action state, resources, pose publication and HUD boundaries? |
-| [Progression](player-progression.md), [world and simulation](world-and-simulation.md) | What is permanent, mission-effective or future world/entity state? |
-| [Memory and residency](memory-and-residency.md) | Who retains allocations/assets, and what is current versus future replacement-pack resolution? |
-| [Execution contracts](execution-contracts.md), [shared math](shared-math.md) | Which mutation, completion, numerical and reuse rules must hold? |
-| [Source mapping](file-mapping.md), [change axes](change-axes.md) | How should established owners constrain later directory and dependency changes? |
-| [Runtime scenarios](runtime-scenarios.md), [renderer reconstruction](world-renderer-reconstruction.md) | What recovered behavior constrains implementation? |
-
-**Implemented** means code exists at the stated scope; acceptance and test evidence
-remain separate. **Recovered** means supported by original source/data evidence.
-**Proposed** means a reviewable reconstruction design. **Unresolved/planned** means
-a missing decision or runtime consumer, not an inert implementation to count as
-done. Current and proposed diagrams are explicitly labelled; arrows describe
-ownership, dependency or data/order as stated, never implicit worker threads.
-
-The [original-engine map](../../research/engine/ARCHITECTURE.md) owns recovered
-facts; the [brief](../../BRIEF.md) retains the faithful-port-then-improvements
-sequence. Existing pinned Unreal references guide ownership where needed without
-importing its framework, source code or directory layout. The accepted
-[integrated game/engine organization](../../research/engine/subsystems/source-organization.md)
-and singular portable contracts/native implementations remain the baseline.
+A subsystem may contain a public contract, shared algorithms, and target
+implementations. Responsibility determines the boundary; filenames do not
+substitute for it. The engine provides mechanisms; game scripts and data select
+behavior. No old package, helper, shader, cache, adapter or test crosses into
+these directories.

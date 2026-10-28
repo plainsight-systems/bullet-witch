@@ -1,4 +1,0 @@
-# Authored byte layouts and expected boundary values are test inputs.
-InheritParentConfig: true
-Checks: >
-  -cppcoreguidelines-avoid-magic-numbers
