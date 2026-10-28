@@ -180,7 +180,8 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
   constexpr std::size_t kPayload = kNodes + 3 * kNodeBytes;
   constexpr std::size_t kSettingsBytes = 0x160;
   constexpr std::uint32_t kAbsent = 0xffffffff;
-  bw::resources::Bytes bytes(kPayload + kSettingsBytes);
+  constexpr std::size_t kLightNode = kPayload + kSettingsBytes;
+  bw::resources::Bytes bytes(kLightNode + 2 * kNodeBytes + 12);
   signature(bytes, "CSTM");
   word(bytes, 4, 0x04030201);
   word(bytes, 12, kNames);
@@ -194,6 +195,23 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
                    : static_cast<std::uint32_t>((node + 1) * kNodeBytes));
     word(bytes, kNodes + node * kNodeBytes + 8,
          static_cast<std::uint32_t>(node * 6));
+  }
+  constexpr std::size_t kLightName = 18;
+  constexpr std::string_view kLightPath("light\0", 6);
+  std::copy(kLightPath.begin(), kLightPath.end(),
+            bytes.begin() + kNames + kLightName);
+  word(bytes, kNodes + kNodeBytes,
+       static_cast<std::uint32_t>(kLightNode - kNodes));
+  word(bytes, kLightNode, kAbsent);
+  word(bytes, kLightNode + 4,
+       static_cast<std::uint32_t>(kLightNode + kNodeBytes - kNodes));
+  word(bytes, kLightNode + 8, kLightName);
+  word(bytes, kLightNode + kNodeBytes, kAbsent);
+  word(bytes, kLightNode + kNodeBytes + 4, kAbsent);
+  word(bytes, kLightNode + kNodeBytes + 8, 12);
+  for (std::size_t lane = 0; lane < 3; ++lane) {
+    word(bytes, kLightNode + 2 * kNodeBytes + lane * 4,
+         std::bit_cast<std::uint32_t>(.5F));
   }
   const auto scalar = [&](std::size_t field, float value) {
     word(bytes, kPayload + field, std::bit_cast<std::uint32_t>(value));
@@ -244,7 +262,8 @@ void environment(const std::shared_ptr<bw::memory::Domain>& domain) {
   scalar(0x1c, .75F);
   scalar(0x20, 1.25F);
   const auto result = parse();
-  require(result.sky_yaw_degrees == 15 && result.sky_height == 2 &&
+  require(result.local_light_color == std::array{.5F, .5F, .5F} &&
+              result.sky_yaw_degrees == 15 && result.sky_height == 2 &&
               result.ambient_color == std::array{0.25f, 0.5f, 2.0f} &&
               result.character_light_intensity == .75F &&
               result.enemy_light_intensity == 1.25F &&

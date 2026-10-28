@@ -33,6 +33,7 @@
 #include <thread>
 #include <utility>
 
+#include "bw/effects/particle_sampling.hpp"
 #include "bw/timing/frame_clock.hpp"
 #include "bw/timing/world_clock.hpp"
 #include "game/actors/alicia/player_resources.hpp"
@@ -55,6 +56,7 @@
 #include "game/ui/power_up/power_up_surface.hpp"
 #include "game/ui/startup/startup_playback.hpp"
 #include "game/world/mission_population.hpp"
+#include "game/world/world_combat.hpp"
 #include "game/world/world_runtime.hpp"
 
 namespace bw::game {
@@ -195,6 +197,7 @@ int run_application(const ApplicationOptions& configuration,
   std::optional<world::WorldClock> world_clock;
   std::optional<game::MissionDriver> mission;
   game::SourceRandom random;
+  effects::ParticleRandom particle_random;
   std::optional<game::PlayerResources> player_resources;
   game::GameplayHudSurface hud_surface(resources, host);
   game::MissionPauseSurface pause_surface(
@@ -206,6 +209,7 @@ int run_application(const ApplicationOptions& configuration,
   game::MissionMessageSurface message_surface(
       resources, host,
       files.read(configuration.game / "data/menu/9900", memory.resources));
+  game::MissionGameOverSurface game_over_surface(resources, host);
   std::optional<game::MissionMessage> mission_message;
   // Retire script callbacks before message/world receivers, then load assets.
   std::optional<game::MissionScriptRuntime> mission_script_runtime;
@@ -522,17 +526,25 @@ int run_application(const ApplicationOptions& configuration,
         mission_loading->prepare_player(
             session.gameplay_request()->selection.costume,
             mission_player->selected_weapon());
+        mission_loading->prepare_combat();
         // Expand the retained mixer only at mission loading. Existing menu
         // callbacks keep their immutable lookup until this publication seals.
         game_audio.prepare_mission(files, mission_resources->catalogs(),
                                    configuration.game / "data/sound",
                                    memory.media, loading_pulse);
+        const auto combat_profiles =
+            game::combat_audio_profiles(*mission_loading, memory.resources);
+        game_audio.prepare_character_profiles(
+            files, mission_resources->catalogs(),
+            configuration.game / "data/sound", combat_profiles, memory.media);
         const auto customization = formats::CustomizationDefinition::parse(
             stage->customization_bytes(), memory.resources);
         player_resources.emplace(
             game::PlayerResourceSettings::parse(customization), *mission_player,
             *world_clock);
         hud_surface.prepare();
+        game_over_surface.begin();
+        while (!game_over_surface.ready()) loading_pulse();
         message_surface.begin();
         while (!message_surface.ready()) loading_pulse();
         const auto& text = mission_loading->text_table();
@@ -568,9 +580,17 @@ int run_application(const ApplicationOptions& configuration,
               game::StageCharacterLightSource{
                   mission_loading->character_light(),
                   mission_loading->enemy_light()});
+          stage_inspection->bind_physics(*mission_loading);
+          stage_inspection->bind_effects(*mission_loading, particle_random);
           stage_inspection->bind_population(*mission_loading, placement_random);
           stage_inspection->bind_audio(game_audio.prepared(),
-                                       *game_audio.output(), random);
+                                       *game_audio.output(), random,
+                                       game_audio.character_voices());
+          stage_inspection->bind_combat(*mission_loading, random,
+                                        *game_audio.output(),
+                                        game_audio.character_profiles(),
+                                        player_resources->damage_receiver(),
+                                        player_resources->defeat_receiver());
           mission_gameplay.emplace(
               *world_clock, *mission_control, *mission_player,
               *player_resources, *mission_loading, *stage_inspection,
@@ -596,6 +616,9 @@ int run_application(const ApplicationOptions& configuration,
               return mission_loading->contains_mission_trap(event, position);
             },
             hud_surface.system_text_table());
+        mission_script_runtime->bind_defeat(game_over_surface,
+                                            *game_audio.output(),
+                                            mission_loading->callbacks());
         mission->start(*mission_script_runtime);
       }
     }

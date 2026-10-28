@@ -15,7 +15,10 @@
 // fixed capacity four. Both-phase I.1 (#ri-explicit) keeps the two query
 // contracts explicit; MEM.9 retains preparation-only allocation. See
 // lighting-scene-producer-contract.md.
+// Staged publication design: Core I.1 exposes validation without mutation;
+// MEM.9 keeps batch validation and publication in prepared fixed storage.
 #pragma once
+#include <optional>
 #include <span>
 
 #include "bw/math/frustum.hpp"
@@ -64,11 +67,24 @@ class LocalLights {
   // preserves the previous publication. Replacing the owner resets history.
   SelectedLocalLights select_active(const LocalLightQuery& query);
   SelectedLocalLights select_view(const LocalLightViewQuery& query);
+  // Validation-only preparation for scene-owned batched publication. These
+  // functions do not change either candidate list or retained depth history.
+  static void validate_view(const LocalLightViewQuery&);
+  void validate_dynamic(std::size_t index,
+                        const std::optional<LocalLight>&) const;
   std::size_t size() const { return lights_.size(); }
+  // Scene preparation extends disabled storage once; indexed publication is
+  // private scene authority, never exposed through an emitter capability.
+  void reserve_dynamic(std::size_t count);
+  // Retire preparation-time emitters without invalidating dynamic handles.
+  // Owner-thread, allocation-free; the next view refreshes selected packets.
+  void clear_static_emitters();
+  void update_dynamic(std::size_t index, const std::optional<LocalLight>&);
 
  private:
   struct Emitter {
     LocalLight light;
+    bool enabled{true};
     float radius{}, visibility_radius{}, previous_view_depth{};
   };
   struct Candidate {
@@ -82,6 +98,8 @@ class LocalLights {
   std::size_t active_count_{};
   bool view_prepared_{};
   LocalLightSettings settings_;
+  std::size_t static_count_{};
+  Emitter prepare_light(const LocalLight&) const;
   SelectedLocalLights select_model(const LocalLightQuery& query, bool active);
   void order_view_candidates(std::size_t count);
   Candidate rank(std::size_t index, const LocalLightQuery& query) const;

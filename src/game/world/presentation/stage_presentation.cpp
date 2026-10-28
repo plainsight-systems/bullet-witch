@@ -19,6 +19,24 @@
 #include "placed_lighting.hpp"
 #include "stage_shadow.hpp"
 namespace bw::game {
+math::Vector3<float> StagePresentation::local_light_color() const {
+  if (!environment_) {
+    throw std::logic_error("Stage environment has not been prepared");
+  }
+  return environment_->local_light_color;
+}
+void StagePresentation::configure_dynamic_lights(std::size_t capacity) {
+  if (!lighting_) {
+    throw std::logic_error("Stage lighting has not been prepared");
+  }
+  lighting_->prepare_emitters(capacity);
+}
+scene::LocalLightEmitter StagePresentation::acquire_local_light() {
+  if (!lighting_) {
+    throw std::logic_error("Stage lighting has not been prepared");
+  }
+  return lighting_->acquire_emitter();
+}
 namespace {
 using Vector = std::array<float, 4>;
 scene::LocalLightSettings local_light_settings(
@@ -104,7 +122,9 @@ render::MaterialFloat2Curve material_curve(
     const content::StageDefinition& stage, std::string_view name) {
   std::optional<render::MaterialFloat2Curve> result;
   for (const auto& list : stage.inputs) {
-    if (list.animations.empty()) continue;
+    if (list.animations.empty()) {
+      continue;
+    }
     if (list.labels.empty()) {
       throw std::runtime_error("Stage material animation has no label table");
     }
@@ -116,7 +136,9 @@ render::MaterialFloat2Curve material_curve(
           "Stage material animation definitions are missing");
     }
     for (std::size_t index = 0; index < labels->count; ++index) {
-      if (labels->name(index) != name) continue;
+      if (labels->name(index) != name) {
+        continue;
+      }
       if (result) {
         throw std::runtime_error("Stage material animation label is ambiguous");
       }
@@ -159,7 +181,9 @@ render::WorldBlend material_blend(const formats::ModelMaterial& material) {
 // Original model chunks enter separate scene command lists. Keep this disk
 // compatibility mapping here; native rendering consumes descriptive phases.
 render::WorldColorPhase color_phase(std::uint32_t chunk, bool sky) {
-  if (sky) return render::WorldColorPhase::background;
+  if (sky) {
+    return render::WorldColorPhase::background;
+  }
   switch (chunk) {
     case 0:
       return render::WorldColorPhase::opaque;
@@ -189,8 +213,12 @@ void fog_parameters(const formats::StageEnvironment& environment,
   if (sky) {
     constexpr float kSkyFogScale = .01F;
     start *= kSkyFogScale;
-    for (auto& value : gate) value = (eye_height + value) * kSkyFogScale;
-    for (auto& value : height) value = (eye_height + value) * kSkyFogScale;
+    for (auto& value : gate) {
+      value = (eye_height + value) * kSkyFogScale;
+    }
+    for (auto& value : height) {
+      value = (eye_height + value) * kSkyFogScale;
+    }
   }
   const float gate_span = gate[1] - gate[0];
   const float height_span = height[1] - height[0];
@@ -296,6 +324,7 @@ StagePresentation::StagePresentation(
       player_(player),
       memory_(domain),
       placed_lighting_(memory::Allocator<scene::ReceiverPublication>(domain)),
+      placed_owners_(memory::Allocator<PlacedDrawOwner>(domain)),
       static_shadow_updates_(
           memory::Allocator<render::WorldVisibilityUpdate>(domain)),
       animated_curves_(memory::Allocator<AnimatedCurve>(domain)),
@@ -343,7 +372,9 @@ StagePresentation::StagePresentation(
       const auto model_index =
           static_cast<std::size_t>(name - placements.names().begin());
       for (const auto& placement : placements.placements()) {
-        if (placement.model != model_index) continue;
+        if (placement.model != model_index) {
+          continue;
+        }
         const auto body_world =
             std::span(placements.matrices())
                 .subspan(placement.first_matrix, placement.matrix_count);
@@ -398,7 +429,9 @@ StagePresentation::StagePresentation(
   scene::ReflectionBindings reflection_textures{};
   for (std::size_t slot = 0; slot < stage.environment_textures.size(); ++slot) {
     const auto index = stage.environment_textures.at(slot);
-    if (!index) continue;
+    if (!index) {
+      continue;
+    }
     if (*index >= stage_source.textures.size() ||
         stage_source.textures[*index].value == 0) {
       throw std::invalid_argument("Scene reflection texture is not resident");
@@ -444,7 +477,9 @@ StagePresentation::StagePresentation(
                 player_->source().weapon.definition.get().draws().size();
   }
   for (const auto& model : stage.models) {
-    if (model.static_world_object) capacity += model.definition.draws().size();
+    if (model.static_world_object) {
+      capacity += model.definition.draws().size();
+    }
   }
   const auto background_model =
       [&](std::size_t index) -> const ResidentModelView& {
@@ -469,6 +504,7 @@ StagePresentation::StagePresentation(
       {.policy = scene::ReceiverLightingPolicy::stage_ambient}, capacity));
   if (background.placements != nullptr) {
     placed_lighting_.reserve(background.placements->placements().size());
+    placed_owners_.reserve(background.placements->placements().size());
   }
   // Palette storage stays stable until the native owner copies the complete
   // draw list. Allocate once for the bounded placement/draw census.
@@ -499,6 +535,7 @@ StagePresentation::StagePresentation(
       const resources::detail::Reader header{model.header()};
       constexpr std::size_t kGroupRadius = 0x40;
       placed_index = placed_lighting_.size();
+      placed_owners_.push_back({handle, *placed_index + 1});
       placed_lighting_.push_back(lighting_->prepare_placed(
           character_field_, root_position,
           std::bit_cast<float>(header.u32(kGroupRadius)),
@@ -538,7 +575,9 @@ StagePresentation::StagePresentation(
       environment_parameters(
           environment, sky ? sky_transform : view, sky, directional,
           -view.camera_relative_world_rows[1][3], draw.parameters);
-      if (placed_index) draw.instance = *placed_index + 1;
+      if (placed_index) {
+        draw.instance = *placed_index + 1;
+      }
       if (placement != nullptr) {
         if (resident == nullptr || requirements.joint_influences == 0 ||
             resident->body_joints.size() != placement->matrix_count) {
@@ -591,7 +630,9 @@ StagePresentation::StagePresentation(
       draw.effective_shader_flags = flags;
       draw.lighting = lighting;
       draw.color_phase = color_phase(model.draws().at(index).chunk, sky);
-      if (!sky) draw.owner_opacity = 1;
+      if (!sky) {
+        draw.owner_opacity = 1;
+      }
       // Later scene lists test the established opaque depth without writing it.
       // Their material blend records remain independent from phase ordering.
       draw.state = {render::WorldTextureFilter::anisotropic,
@@ -622,7 +663,9 @@ StagePresentation::StagePresentation(
       const auto& animation_slots =
           model.draws().at(index).texture_animation_slots;
       for (std::size_t slot = 0; slot < animation_slots.size(); ++slot) {
-        if (!animation_slots.at(slot)) continue;
+        if (!animation_slots.at(slot)) {
+          continue;
+        }
         const auto& name =
             model.material_animation_names().at(*animation_slots.at(slot));
         auto found =
@@ -640,6 +683,7 @@ StagePresentation::StagePresentation(
       if (std::ranges::any_of(animated.curves, [](const auto& curve) {
             return curve.has_value();
           })) {
+        animated.placed = placement != nullptr;
         animated_materials_.push_back(animated);
         texture_updates_.push_back(
             {handle, index, draw.parameters.texture_offset});
@@ -658,7 +702,9 @@ StagePresentation::StagePresentation(
       draws.push_back(draw);
       ++selected;
     }
-    if (placed_index) placed_lighting_.at(*placed_index).seal();
+    if (placed_index) {
+      placed_lighting_.at(*placed_index).seal();
+    }
     return selected;
   };
   // Sky supplies the original textured backdrop. It writes no depth so the
@@ -674,7 +720,9 @@ StagePresentation::StagePresentation(
   // not imply a LOD choice.
   for (std::size_t index = 0; index < stage.models.size(); ++index) {
     const auto& model = stage.models.at(index);
-    if (!model.static_world_object) continue;
+    if (!model.static_world_object) {
+      continue;
+    }
     const auto count =
         append_model(model.definition, stage_source.models[index], false);
     selected_draws_ += count;
@@ -738,7 +786,9 @@ StagePresentation::StagePresentation(
 scene::LightingReceiver StagePresentation::model_receiver(
     const ResidentModelView& resident,
     const animation::Matrix& transform) const {
-  if (!lighting_) throw std::logic_error("Scene lighting was not prepared");
+  if (!lighting_) {
+    throw std::logic_error("Scene lighting was not prepared");
+  }
   const resources::detail::Reader reader{resident.definition.get().header()};
   scene::LightingReceiver receiver;
   receiver.policy = scene::ReceiverLightingPolicy::spatial;
@@ -753,7 +803,9 @@ scene::LightingReceiver StagePresentation::model_receiver(
   return receiver;
 }
 void StagePresentation::publish_player_lighting() {
-  if (!player_) return;
+  if (!player_) {
+    return;
+  }
   for (const bool weapon : {false, true}) {
     auto& receiver = player_lighting_.at(weapon ? 1 : 0);
     if (!receiver) {
@@ -801,7 +853,9 @@ scene::ReceiverPublication StagePresentation::append_actor_draws(
   receiver.field = field;
   auto lighting = lighting_->prepare_receiver(receiver, model.draws().size());
   for (std::size_t index = 0; index < model.draws().size(); ++index) {
-    if (!visibility.selected(index)) continue;
+    if (!visibility.selected(index)) {
+      continue;
+    }
     const auto& source_draw = model.draws().at(index);
     if (source_draw.group >= kSourceGroupCount ||
         std::ranges::any_of(
@@ -883,16 +937,19 @@ void StagePresentation::admit_npc(const NpcActor& actor,
   std::array<std::optional<scene::ReceiverPublication>, 2> receivers;
   for (const bool weapon : {false, true}) {
     const auto* pose = weapon ? actor.weapon() : &actor.body();
-    if (!pose) continue;
+    if (!pose) {
+      continue;
+    }
     const auto& prepared = pose->prepared();
-    const auto selected = [&](std::size_t index) {
-      return prepared.appearance.draws()[index].selected;
+    const auto selected = [](std::size_t) { return true; };
+    const auto visible = [&](std::size_t index) {
+      return pose->draw_visible(index);
     };
     receivers.at(weapon ? 1 : 0)
         .emplace(append_actor_draws(
             draws, prepared.resident, actor.model_transform(weapon),
             actor.identity().value, camera, character_field_,
-            {selected, selected},
+            {selected, visible},
             [&](std::size_t index) { return pose->palette(index); },
             prepared.appearance.texture_overrides()));
   }
@@ -906,6 +963,24 @@ void StagePresentation::admit_npc(const NpcActor& actor,
     }
   }
   free->actor = &actor;
+}
+void StagePresentation::retire_background() {
+  for (const auto& owner : placed_owners_) {
+    output_.remove_instance_draws(owner.model, owner.instance);
+  }
+  // Retire destinations together with their draws; source curves remain shared.
+  std::size_t retained = 0;
+  for (std::size_t index = 0; index < animated_materials_.size(); ++index) {
+    if (animated_materials_.at(index).placed) continue;
+    animated_materials_.at(retained) = animated_materials_.at(index);
+    texture_updates_.at(retained++) = texture_updates_.at(index);
+  }
+  animated_materials_.resize(retained);
+  texture_updates_.resize(retained);
+  placed_owners_.clear();
+  placed_lighting_.clear();
+  background_draws_ = 0;
+  if (lighting_) lighting_->clear_static_emitters();
 }
 void StagePresentation::retire_npc(PopulationIdentity identity) {
   const auto found =
@@ -922,12 +997,16 @@ void StagePresentation::retire_npc(PopulationIdentity identity) {
     output_.remove_instance_draws(weapon->prepared().resident.handle,
                                   identity.value);
   }
-  for (auto& receiver : found->lighting) receiver.reset();
+  for (auto& receiver : found->lighting) {
+    receiver.reset();
+  }
   found->actor = nullptr;
 }
 void StagePresentation::publish_npc_lighting() {
   for (auto& value : npc_receivers_) {
-    if (!value.actor) continue;
+    if (!value.actor) {
+      continue;
+    }
     for (std::size_t index = 0; index < value.lighting.size(); ++index) {
       auto& receiver = value.lighting.at(index);
       if (receiver) {
@@ -946,12 +1025,16 @@ void StagePresentation::set_player_visible(bool visible,
 }
 void StagePresentation::publish_player_visibility(bool weapon,
                                                   bool casts_shadow) {
-  if (!player_) return;
+  if (!player_) {
+    return;
+  }
   const auto& actor = *player_;
   const auto& resident = weapon ? actor.source().weapon : actor.source().body;
   for (std::size_t index = 0; index < resident.definition.get().draws().size();
        ++index) {
-    if (!actor.includes_draw(weapon, index)) continue;
+    if (!actor.includes_draw(weapon, index)) {
+      continue;
+    }
     const auto& draw = resident.definition.get().draws().at(index);
     const render::WorldVisibilityUpdate update{
         resident.handle, index,
@@ -963,13 +1046,14 @@ void StagePresentation::publish_player_visibility(bool weapon,
 void StagePresentation::publish_npc_visibility(const NpcActor& actor,
                                                bool weapon, bool casts_shadow) {
   const auto* pose = weapon ? actor.weapon() : &actor.body();
-  if (!pose) return;
+  if (!pose) {
+    return;
+  }
   const auto& prepared = pose->prepared();
   const auto& draws = prepared.resident.definition.get().draws();
   for (std::size_t index = 0; index < draws.size(); ++index) {
-    if (!prepared.appearance.draws()[index].selected) continue;
     const render::WorldVisibilityUpdate update{
-        prepared.resident.handle, index, true,
+        prepared.resident.handle, index, pose->draw_visible(index),
         casts_shadow && draws.at(index).chunk <= 1, actor.identity().value};
     output_.update_world_visibility(std::span(&update, 1));
   }
@@ -986,7 +1070,9 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
     publish_player_visibility(false, false);
     publish_player_visibility(true, false);
     for (const auto& value : npc_receivers_) {
-      if (!value.actor) continue;
+      if (!value.actor) {
+        continue;
+      }
       publish_npc_visibility(*value.actor, false, false);
       publish_npc_visibility(*value.actor, true, false);
     }
@@ -1049,11 +1135,15 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
     }
   }
   for (const auto& value : npc_receivers_) {
-    if (!value.actor) continue;
+    if (!value.actor) {
+      continue;
+    }
     const auto& actor = *value.actor;
     for (const bool weapon : {false, true}) {
       const auto* pose = weapon ? actor.weapon() : &actor.body();
-      if (!pose) continue;
+      if (!pose) {
+        continue;
+      }
       publish_npc_visibility(
           actor, weapon,
           admitted_model(pose->prepared().resident,
@@ -1061,9 +1151,38 @@ void StagePresentation::publish_shadow_owners(const InitialPlayerCamera& camera,
     }
   }
 }
+void StagePresentation::configure_effects(
+    const render::WorldSpriteCapacity& capacity) {
+  output_.configure_sprites(capacity);
+}
+render::EffectsPublisher& StagePresentation::effects_publisher() {
+  return output_.effects_publisher();
+}
+CombatEffectView StagePresentation::effect_view(
+    const InitialPlayerCamera& camera) const {
+  if (!environment_) {
+    throw std::logic_error("Stage effects require an admitted environment");
+  }
+  const auto transforms =
+      render::make_view_transforms(camera.pose, camera.perspective);
+  math::Affine3<float> view{};
+  // Render view rows dot world positions; source effect math uses basis-first
+  // affine rows. Transpose only the 3x3 rotation and copy translation once.
+  for (std::size_t axis = 0; axis < 3; ++axis) {
+    for (std::size_t component = 0; component < 3; ++component) {
+      view.at(axis).at(component) = transforms.view_rows.at(component).at(axis);
+    }
+    view[3].at(axis) = transforms.view_rows.at(axis)[3];
+  }
+  return {effects::make_sprite_camera(view, camera.pose.eye),
+          transforms.clip_rows, environment_->effects};
+}
+
 void StagePresentation::publish_view(const InitialPlayerCamera& camera,
                                      bool force_player_visibility) {
-  if (!environment_ || !lighting_) return;
+  if (!environment_ || !lighting_) {
+    return;
+  }
   const auto& environment = *environment_;
   const auto directional = lighting_->directional_lighting();
   const auto& direction = directional.direction;
@@ -1122,7 +1241,9 @@ void StagePresentation::publish_view(const InitialPlayerCamera& camera,
     throw std::logic_error("Stage lighting receiver was not prepared");
   }
   static_lighting_->publish();
-  for (auto& placed : placed_lighting_) placed.publish();
+  for (auto& placed : placed_lighting_) {
+    placed.publish();
+  }
 }
 std::optional<float> StagePresentation::update_environment(
     const InitialPlayerCamera& camera) {
@@ -1154,13 +1275,17 @@ void StagePresentation::present(const InitialPlayerCamera& camera,
   publish_npc_lighting();
   // Evaluate each authored channel once, then distribute through prepared
   // slots.
-  for (auto& curve : animated_curves_) curve.value = curve.curve.sample(next);
+  for (auto& curve : animated_curves_) {
+    curve.value = curve.curve.sample(next);
+  }
   for (std::size_t index = 0; index < animated_materials_.size(); ++index) {
     const auto& animated = animated_materials_.at(index);
     auto& update = texture_updates_.at(index);
     for (std::size_t slot = 0; slot < animated.curves.size(); ++slot) {
       const auto& curve = animated.curves.at(slot);
-      if (!curve) continue;
+      if (!curve) {
+        continue;
+      }
       const auto value = animated_curves_.at(*curve).value;
       update.texture_offset.at(slot) = {value[0], value[1], 0, 0};
     }
@@ -1188,7 +1313,9 @@ void StagePresentation::replace_appearance(const PlayerActor& candidate,
   std::size_t old_draws = 0;
   for (std::size_t index = 0; index < previous.definition.get().draws().size();
        ++index) {
-    if (player_->includes_draw(weapon, index)) ++old_draws;
+    if (player_->includes_draw(weapon, index)) {
+      ++old_draws;
+    }
   }
   output_.replace_model_draws(previous.handle, draws);
   // Candidate draw destinations/caches are already prepared; adoption cannot

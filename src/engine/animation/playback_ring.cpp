@@ -13,6 +13,14 @@
 #include <stdexcept>
 
 namespace bw::animation {
+bool crossed_frame(const ClipPlaybackState& state, float marker) {
+  const auto fps = state.clip->frames_per_second();
+  const auto previous = static_cast<float>(state.previous_seconds * fps);
+  const auto current = static_cast<float>(state.seconds * fps);
+  return current < previous ? marker > previous || marker <= current
+                            : previous < marker && marker <= current;
+}
+
 namespace {
 constexpr std::size_t kMaximumControllers = 32;
 double sampled_time(double time, const PreparedClip& clip) {

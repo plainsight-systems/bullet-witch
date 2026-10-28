@@ -147,6 +147,8 @@ class WindowHost final : public video::Output,
                                    std::uint64_t instance) override;
   void update_world_texture_offsets(
       std::span<const render::WorldTextureOffsetUpdate> updates) override;
+  void configure_world_sprites(const render::WorldSpriteCapacity&) override;
+  void update_world_sprites(const render::WorldSpriteUpdate&) override;
   void update_world_lighting(
       std::span<const render::WorldLightingUpdate> updates) override;
   void update_world_poses(

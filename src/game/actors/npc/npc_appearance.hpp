@@ -19,6 +19,7 @@ struct NpcDrawAppearance {
 };
 class PreparedNpcAppearance {
  public:
+  static constexpr std::size_t kGroupWordCount = 8;
   static PreparedNpcAppearance prepare(
       const content::PlacementArchetype& archetype,
       const ResidentModelView& model,
@@ -31,6 +32,9 @@ class PreparedNpcAppearance {
       const ResidentModelView& model,
       const std::shared_ptr<memory::Domain>& domain);
   std::span<const NpcDrawAppearance> draws() const { return draws_; }
+  std::span<const std::uint32_t, kGroupWordCount> groups() const {
+    return groups_;
+  }
   std::span<const render::WorldTextureOverride> texture_overrides() const {
     return texture_overrides_;
   }
@@ -41,6 +45,7 @@ class PreparedNpcAppearance {
         texture_overrides_(
             memory::Allocator<render::WorldTextureOverride>(domain)) {}
   memory::Vector<NpcDrawAppearance> draws_;
+  std::array<std::uint32_t, kGroupWordCount> groups_{};
   memory::Vector<render::WorldTextureOverride> texture_overrides_;
 };
 }  // namespace bw::game

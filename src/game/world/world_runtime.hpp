@@ -22,10 +22,15 @@
 #pragma once
 #include "animation_preview.hpp"
 #include "animation_review.hpp"
+#include "game/actors/audio/character_audio.hpp"
 #include "game/world/presentation/stage_presentation.hpp"
 #include "mission_simulation.hpp"
 namespace bw::game {
 class WorldPopulation;
+struct PopulationActorObservation;
+class WorldCombat;
+class CharacterAudioLookup;
+class WorldPhysics;
 class PlacementRandom;
 class WorldRuntime;
 // Mission scripts borrow this restricted view until the world retires. Copies
@@ -40,6 +45,8 @@ class ScriptWorldControl {
   std::optional<ScriptedPlayerPose> player_pose() const;
   PopulationCheckpoint population_checkpoint() const;
   void set_player_visible(bool visible);
+  void remove_population(PopulationFamily);
+  void remove_background();
 
  private:
   friend class WorldRuntime;
@@ -68,6 +75,10 @@ class WorldRuntime {
   // or allocation occurs. Foreign/repeated frames reject before scene work;
   // control-only frames synchronize pause without advancing scene consumers.
   void advance(const world::WorldFrame& frame, StageTraversalInput input = {});
+  // Copied pose-authority observation; exposes no body/provider capability.
+  bool player_physical() const {
+    return simulation_.actor() && simulation_.actor()->physical();
+  }
   const PlayerTargeting& targeting_state() const {
     return simulation_.targeting_state();
   }
@@ -102,6 +113,9 @@ class WorldRuntime {
     return player_ ? player_->animation_state(bank) : nullptr;
   }
   bool paused() const { return simulation_.paused(); }
+  std::uint8_t damage_direction_mask() const noexcept {
+    return simulation_.damage_direction_mask();
+  }
   // Publish pause to the audio device before any paused resource transaction.
   void synchronize_pause();
   void set_player_visible(bool visible) {
@@ -115,11 +129,27 @@ class WorldRuntime {
   // this handle can spend accepted actions, never reset a resource or clock.
   void bind_action_resources(PlayerActionResources resources);
   void bind_population(const MissionLoading&, PlacementRandom&);
+  // Startup-only provider admission. This world retains the only advance
+  // authority; controllers receive separate weak capabilities internally.
+  void bind_physics(const MissionLoading&);
+  // Mission assets and session particle stream outlive this retained effect
+  // owner. World alone advances effects; scene owns their publication capacity.
+  void bind_effects(const MissionLoading&, effects::ParticleRandom&);
+  void bind_combat(const MissionLoading&, SourceRandom&, audio::CueOutput&,
+                   CharacterAudioLookup, PlayerDamageResources,
+                   PlayerDefeatResources);
+  void remove_population(PopulationFamily);
+  void remove_background();
   std::size_t population_count() const;
   std::size_t pending_population_count() const;
+  // Copies every admitted actor, including corpses omitted by checkpoint save.
+  // Caller capacity must cover population_count(); no owner/mutation escapes.
+  // Core R.2 (#rr-use-ptr), MEM.9: bounded span, no frame allocation.
+  std::size_t observe_population(std::span<PopulationActorObservation>) const;
   PopulationCheckpoint population_checkpoint() const;
   void bind_audio(const PreparedCharacterAudio& prepared,
-                  audio::CueOutput& output, SourceRandom& random);
+                  audio::CueOutput& output, SourceRandom& random,
+                  CharacterVoicePool& voices);
   // Explicit paused appearance transaction. Prepare/load candidate resources,
   // compatible clip bindings and current pose, atomically replace body draws,
   // then adopt without moving controller/camera or their clocks. Preparation
@@ -187,10 +217,19 @@ class WorldRuntime {
                const content::LoadProgress&, StageCharacterLightSource,
                const std::optional<ScriptedPlayerPose>&,
                const formats::CustomizationDefinition&);
+  const world::WorldClock& clock_;
+  std::uint64_t last_frame_{};
+  // Session owns shared arbitration/history; this world alone advances it.
+  // Audio binding supplies the borrow before combat or player audio admission.
+  CharacterVoicePool* voices_{};
+  scene::StaticCollision collision_;
+  std::shared_ptr<WorldPhysics> physics_;
   MissionSimulation simulation_;
   StagePresentation presentation_;
   std::shared_ptr<memory::Domain> memory_;
   std::shared_ptr<WorldPopulation> population_;
+  std::shared_ptr<CombatEffects> effects_;
+  std::shared_ptr<WorldCombat> combat_;
 #if BW_DEVELOPER_VIEWS
   std::shared_ptr<AnimationPreview> review_;
 #endif

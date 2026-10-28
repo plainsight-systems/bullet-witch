@@ -45,6 +45,9 @@ struct ClipPlaybackState {
   float rate{1}, weight{1};
   bool linked{}, completed{}, remove_on_completion{};
 };
+// Source single-wrap marker observation on the already completed clip step.
+// Pure copied timing; does not advance playback or retain the borrowed clip.
+bool crossed_frame(const ClipPlaybackState& state, float marker);
 struct PlaybackAdmission {
   std::size_t slot{};
   bool started{};

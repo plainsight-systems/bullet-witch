@@ -212,7 +212,7 @@ selected state afterward; it is not a complete isolated device-state snapshot.
 Decoded x86 device offsets: +0xe4 SetRenderState, +0x144 DrawPrimitive,
 +0x15c SetVertexDeclaration, +0x170 SetVertexShader, +0x178 SetVertexShaderConstantF,
 +0x190 SetStreamSource, +0x1ac SetPixelShader. Setup **0x536b20** disables culling,
-enables all color channels, sets less-equal depth comparison, wrap addressing and
+enables all color channels, sets greater-equal depth comparison (`D3DRS_ZFUNC=7`), wrap addressing and
 linear min/mag filtering for samplers 0/1, and point min/mag filtering for sampler 2.
 
 **0x5367e0** sets alpha blending and alpha test (GREATER) for all six modes:

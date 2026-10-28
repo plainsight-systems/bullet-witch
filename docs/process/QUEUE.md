@@ -1,5 +1,24 @@
 # Remaining work
 
+- Immediate next work: deeper original-source AI investigation. The user
+  accepted the October 28 work for commit only as an **initial combat baseline**,
+  with serious enemy AI behavior still unresolved in live review. Reproduce
+  the observations associated with the October 28 screenshots (7.01.57,
+  7.02.18 and 7.03.43 AM), trace their original producers and consumers, and
+  establish causes before changing behavior. Passing tests, finite source
+  reviews and the existing native captures do not establish full AI fidelity.
+  Preserve their actual coverage: movement, both damage directions, active-fire
+  pause/resume, fresh restart and supported corpse physics. Keep hardware audio
+  and live timing limits explicit. See
+  [initial combat baseline](../../research/engine/subsystems/first-combat-exchange.md).
+
+- Approved deferred work after the immediate AI investigation: original
+  checkpoint restoration. Preserve GameOver Yes outcome 3 and its route through
+  `43eea0` to `494020`; replace the current fresh-stage restart adaptation with
+  restoration of authoritative mission, player and population state. Acceptance
+  of initial combat does not imply checkpoint fidelity. Player melee, spells
+  and other weapons remain separate gameplay work.
+
 - Mission startup was accepted for commit on October 27, 2026:
   original Lua opening/modal, source trigger/deferred NPC admission, shared
   initial motion and appearance, per-instance native presentation, checkpoint

@@ -30,6 +30,7 @@
 #include "bw/memory/allocator.hpp"
 
 void device_budget_tests();
+void physics_world_tests();
 #if defined(BW_TEST_MACOS_MEMORY)
 void macos_cpu_backing_tests();
 void BWMacosTextureAllocationTests();
@@ -432,6 +433,7 @@ int main() {
     pending_failure_rollback();
     release_keeps_budget_until_complete();
     device_budget_tests();
+    physics_world_tests();
 #if defined(BW_TEST_MACOS_MEMORY)
     macos_cpu_backing_tests();
     BWMacosTextureAllocationTests();

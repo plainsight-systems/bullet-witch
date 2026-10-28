@@ -45,6 +45,12 @@ void MissionCallbacks::add_timer(std::string_view function,
   record.interval = record.remaining = timer.seconds;
   add(record, function);
 }
+void MissionCallbacks::add_player_defeated(std::string_view function) {
+  MissionCallbackRecord record;
+  record.cause = MissionCallbackRecord::Cause::player_defeated;
+  add(record, function);
+}
+void MissionCallbacks::cancel_all() noexcept { records_.fill({}); }
 void MissionCallbacks::tick(float seconds) {
   if (!std::isfinite(seconds) || seconds < 0) {
     throw std::invalid_argument("Invalid mission callback world interval");
@@ -57,7 +63,8 @@ void MissionCallbacks::tick(float seconds) {
   }
 }
 void MissionCallbacks::scan(const std::array<float, 3>& position,
-                            const MissionTrapContains& contains) {
+                            const MissionTrapContains& contains,
+                            bool player_defeated) {
   if (!contains || !std::ranges::all_of(position, [](float value) {
         return std::isfinite(value);
       })) {
@@ -78,7 +85,9 @@ void MissionCallbacks::scan(const std::array<float, 3>& position,
   }
   for (auto& record : records_) {
     if (record.triggered) continue;
-    if (record.cause == MissionCallbackRecord::Cause::timer) {
+    if (record.cause == MissionCallbackRecord::Cause::player_defeated) {
+      record.triggered = player_defeated;
+    } else if (record.cause == MissionCallbackRecord::Cause::timer) {
       record.triggered = record.remaining <= 0;
     } else if (record.cause == MissionCallbackRecord::Cause::trap) {
       const bool inside = contains(record.event, position);

@@ -1,5 +1,28 @@
 # Current engineering decisions
 
+- On October 28, 2026, the user accepted the current work for commit as an
+  **initial combat baseline**, despite serious unresolved enemy AI behavior in
+  the live walkthrough. This is not acceptance of full AI or source behavioral
+  fidelity. The next work is a deeper original-source AI investigation, using
+  the October 28 screenshots and live observations as evidence of symptoms,
+  not proof of their cause. Earlier finite source reviews and passing captures
+  did not establish complete encounter behavior.
+  The baseline includes ordinary-gun projectiles, actor/scenery hits, damage,
+  reactions, physical death, effects/audio, HUD, pause and fresh-stage restart.
+  Pinned source-built Jolt remains private to engine physics; WorldRuntime owns
+  the single step and controllers borrow queries/submit copied commands.
+  Full repository gates and actual-content replay pass. Native evidence covers
+  living movement, both damage directions, active-fire pause/resume, fresh
+  restart and a visibly supported corpse after the shared dead-radius repair.
+  These checks retain their recorded coverage limits; hardware listening and
+  exact live audiovisual timing are not certified. Alternate archetype101
+  grenade behavior is not admitted; provider contact-group ordering and safe
+  initialization of an original unwritten byte are documented adaptations.
+  Original checkpoint restoration remains an approved deferred task, after
+  the immediate AI investigation; current GameOver Yes fresh-restarts. Player
+  melee, spells and other weapons are not completed by this baseline. See
+  `research/engine/subsystems/first-combat-exchange.md`.
+
 - Genuine mission startup now replaces the sole initial-placement shim. Source
   triggers, deferred rows and shared CRT random state own NPC placement; loading
   an archetype does not create an actor. The world owns individual initial

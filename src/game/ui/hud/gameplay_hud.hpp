@@ -21,6 +21,7 @@
 #include <string_view>
 
 #include "ammunition_hud.hpp"
+#include "damage_direction_hud.hpp"
 #include "hud_sprite.hpp"
 #include "mission_goal_hud.hpp"
 #include "mission_system_message.hpp"
@@ -62,6 +63,9 @@ class GameplayHud {
   }
   void clear_goal_target() noexcept { goal_.clear_target(); }
 
+  bool notify_damage(DamageDirection direction) {
+    return damage_.request(direction);
+  }
   void reset() noexcept;
   void advance(const GameplayHudSnapshot& observed, float seconds,
                SourceRandom& random);
@@ -88,6 +92,7 @@ class GameplayHud {
   std::array<HudSprite, kCommandCapacity> commands_{};
   std::size_t count_{};
   AmmunitionHud ammunition_;
+  DamageDirectionHud damage_;
   MissionGoalHud goal_;
   Gauge health_;
   Gauge magic_;

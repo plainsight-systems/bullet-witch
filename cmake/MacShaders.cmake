@@ -12,6 +12,7 @@ set(bw_sprite_air "${bw_shader_dir}/sprites.air")
 set(bw_world_depth_air "${bw_shader_dir}/world_depth.air")
 set(bw_world_color_air "${bw_shader_dir}/world_color.air")
 set(bw_world_output_air "${bw_shader_dir}/world_output.air")
+set(bw_world_effects_air "${bw_shader_dir}/world_effects.air")
 set(bw_metal_library "${bw_shader_dir}/bullet_witch.metallib")
 add_custom_command(OUTPUT "${bw_movie_air}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${bw_shader_dir}"
@@ -43,9 +44,15 @@ add_custom_command(OUTPUT "${bw_world_output_air}"
     -c "${PROJECT_SOURCE_DIR}/src/platform/macos/render/shaders/world_output.metal" -o "${bw_world_output_air}"
   DEPENDS "${PROJECT_SOURCE_DIR}/src/platform/macos/render/shaders/world_output.metal"
   COMMENT "Compiling original world display-output equations" VERBATIM)
+add_custom_command(OUTPUT "${bw_world_effects_air}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${bw_shader_dir}"
+  COMMAND "${BW_XCRUN}" -sdk macosx metal -Wall -Wextra -Werror
+    -c "${PROJECT_SOURCE_DIR}/src/platform/macos/render/shaders/world_effects.metal" -o "${bw_world_effects_air}"
+  DEPENDS "${PROJECT_SOURCE_DIR}/src/platform/macos/render/shaders/world_effects.metal"
+  COMMENT "Compiling original effect sprite shader equations" VERBATIM)
 add_custom_command(OUTPUT "${bw_metal_library}"
-  COMMAND "${BW_XCRUN}" -sdk macosx metallib "${bw_movie_air}" "${bw_sprite_air}" "${bw_world_depth_air}" "${bw_world_color_air}" "${bw_world_output_air}" -o "${bw_metal_library}"
-  DEPENDS "${bw_movie_air}" "${bw_sprite_air}" "${bw_world_depth_air}" "${bw_world_color_air}" "${bw_world_output_air}"
+  COMMAND "${BW_XCRUN}" -sdk macosx metallib "${bw_movie_air}" "${bw_sprite_air}" "${bw_world_depth_air}" "${bw_world_color_air}" "${bw_world_output_air}" "${bw_world_effects_air}" -o "${bw_metal_library}"
+  DEPENDS "${bw_movie_air}" "${bw_sprite_air}" "${bw_world_depth_air}" "${bw_world_color_air}" "${bw_world_output_air}" "${bw_world_effects_air}"
   COMMENT "Linking native Metal shader library" VERBATIM)
 add_custom_target(bw_metal_shaders
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different

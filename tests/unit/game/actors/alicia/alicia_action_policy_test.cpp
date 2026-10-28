@@ -134,11 +134,15 @@ void paired_receivers() {
   require(accepted_shot({AliciaStance::standing, 0x2c0, 0, false})
                   .requests[2]
                   .slot == 0x2c1,
-          "Air recoil uses its specific native slot");
+          "Camera-less actor recoil uses its specific native slot");
   require(
       accepted_weapon_change(AliciaStance::crouched, 0x9c).requests[0].slot ==
           0x14c,
       "Hardware switch retains crouched direction family");
+  require(accepted_shot({AliciaStance::standing, 0x2c0, 0, true})
+                  .requests[2]
+                  .slot == 0xf0,
+          "Airborne player retains camera-owned body-family recoil");
   const auto migrate = adapt_upper_stance(AliciaStance::crouched, 0x179);
   require(migrate && migrate->slot == 0x189 && migrate->fresh &&
               migrate->start == ActionMotionStart::preserve_phase &&

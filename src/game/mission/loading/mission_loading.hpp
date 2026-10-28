@@ -70,12 +70,19 @@
 #include "bw/content/formats/section_table.hpp"
 #include "bw/content/formats/text_table.hpp"
 #include "bw/render/scene/world.hpp"
+#include "combat_effect_assets.hpp"
+#include "game/combat/damage_definition.hpp"
+#include "game/combat/weapon_audio.hpp"
+#include "game/combat/weapon_definition.hpp"
+#include "game/combat/weapon_presentation.hpp"
+#include "game/content/original/character_physics_recipe.hpp"
 #include "game/content/original/character_support.hpp"
 #include "game/content/original/mission_placement.hpp"
 #include "game/content/original/npc_palette.hpp"
 #include "game/content/original/resident_model.hpp"
 #include "game/content/original/stage.hpp"
 #include "game/mission/mission_driver.hpp"
+#include "mission_behavior_assets.hpp"
 namespace bw::game {
 struct LoadingSceneState {
   unsigned item{};
@@ -106,6 +113,17 @@ struct MissionLoadOptions {
   content::LoadProgress progress{};
   bool loading_presentation_ready{};
   bool texture_mips{};
+};
+struct MissionPhysicsRecipes {
+  ScenePhysicsRecipe scene;
+  CharacterPhysicsRecipe player, soldier;
+};
+struct MissionCombatDefinitions {
+  StraightWeaponDefinition player, soldier;
+  ActorDamageDefinition player_damage, soldier_damage;
+  WeaponSoundProfile player_sound, soldier_sound;
+  WeaponPresentationDefinition player_presentation, soldier_presentation;
+  std::size_t source_query_budget{};
 };
 struct PlacementDefinition {
   explicit PlacementDefinition(const std::shared_ptr<memory::Domain>& domain)
@@ -141,6 +159,17 @@ class MissionLoading final : public MissionLoadServices {
   // transaction below. Failed admission owns
   // no player assets; all borrowed views remain tied to this owner.
   void prepare_player(unsigned costume, unsigned weapon_class = 0);
+  // Load copied scene/body recipes once from the purchased executable during
+  // admission. No executable code is run or retained. The result belongs to
+  // this mission until cancel; worlds borrow it only while constructing.
+  void prepare_physics();
+  const MissionPhysicsRecipes& physics_recipes() const;
+  void prepare_combat();
+  const MissionCombatDefinitions& combat_definitions() const;
+  const MissionBehaviorAssets& combat_behaviors() const;
+  const formats::CollisionDefinition& player_hit_definition() const;
+  std::span<const CombatEffectPack> combat_effect_packs() const;
+  std::span<const std::uint32_t> combat_effect_ids() const;
   ResidentModelView resident_player() const;
   // Requires an admitted player and a different valid costume. Failures leave
   // current views valid. Candidate views survive successful promotion.
@@ -283,6 +312,14 @@ class MissionLoading final : public MissionLoadServices {
   std::shared_ptr<memory::Domain> memory_;
   render::WorldResources* renderer_{};
   const MissionLoadOptions options_;
+  std::optional<MissionPhysicsRecipes> physics_recipes_;
+  std::optional<MissionCombatDefinitions> combat_definitions_;
+  std::optional<MissionBehaviorAssets> combat_behaviors_;
+  std::optional<content::StageDefinition> player_hit_definition_;
+  std::optional<CombatEffectAssets> combat_effect_assets_;
+  std::array<std::uint32_t, 2 * (WeaponEffects::kSurfaceCount + 4) + 1>
+      combat_effect_ids_{};
+  std::size_t combat_effect_count_{};
   memory::String request_name_, stage_name_;
   std::optional<MissionLoadKind> request_kind_;
   bool pending_{};

@@ -98,6 +98,35 @@ struct WorldTextureHandle {
   std::uint64_t value{};
   friend bool operator==(WorldTextureHandle, WorldTextureHandle) = default;
 };
+
+// Original sprite GPU inputs are copied at publication. Resident texture
+// identities remain owned by WorldResources. Configure fixed storage once;
+// successful frame publication neither allocates nor borrows caller spans.
+// Core I.11 (#ri-raw), performance GPU.1 (guidelines/gpu/
+// GPU.1-keep-data-on-device.md): explicit packet lifetime, retained GPU
+// buffer, no readback. Both header corpora queried; see
+// first-combat-effects.md.
+enum class WorldSpriteBlend : std::uint8_t { alpha, additive };
+struct WorldSpriteVertex {
+  std::array<float, 3> position;
+  std::array<float, 4> color;
+  std::array<float, 2> uv;
+};
+struct WorldSpriteBatch {
+  std::uint32_t first_vertex{}, vertex_count{};
+  WorldTextureHandle texture;
+  WorldSpriteBlend blend{};
+};
+struct WorldSpriteCapacity {
+  std::uint32_t vertices{}, batches{};
+};
+struct WorldSpriteUpdate {
+  std::span<const WorldSpriteVertex> vertices;
+  std::span<const WorldSpriteBatch> batches;
+  std::array<std::array<float, 4>, 4> clip_rows{};
+  std::array<float, 3> alpha_color_rate{}, additive_color_rate{};
+  float fog_far{}, fog_distance_reciprocal{};
+};
 struct WorldGeometryStatus {
   std::size_t vertex_bytes{}, index_bytes{}, draws{}, materials{};
   // Original color-pass readiness must not be inferred from successful upload.
@@ -454,6 +483,13 @@ class WorldPresentation : public virtual WorldObservation {
   // state stay intact. Successful publication allocates nothing. Replacing or
   // clearing the draw list resets the override to its submitted constants.
   virtual void update_world_view(const WorldViewUpdate& update) = 0;
+  // Scene setup allocates bounded native vertex/batch storage. Replacement
+  // requires empty sprite publication and completed prior GPU submissions.
+  virtual void configure_world_sprites(const WorldSpriteCapacity& capacity) = 0;
+  // Require configured capacity, finite values, contiguous complete triangle
+  // ranges and resident 2D textures. Validate before replacing the prior frame.
+  // Empty spans clear publication. Caller retires prior GPU use before writing.
+  virtual void update_world_sprites(const WorldSpriteUpdate& update) = 0;
   virtual void clear_world_draws() noexcept = 0;
 
  private:

@@ -84,6 +84,11 @@
 // selection and MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // fixes runtime storage. See alicia-animation-layers.md and
 // motion-event-timeline.md.
+// Damage voice requests reuse the actor's existing arbitration/environment.
+// Only reaction/death selection crosses this boundary; no audio owner escapes.
+// Core I.1 (#ri-explicit) and MEM.9 (guidelines/memory/
+// MEM.9-embedded-allocate-at-init.md) keep the command explicit and
+// allocation-free.
 #pragma once
 #include "bw/animation/pose.hpp"
 #include "bw/audio/output.hpp"
@@ -93,6 +98,8 @@
 #include "game/actors/alicia/animation/alicia_support_arm.hpp"
 #include "game/actors/animation/character_animations.hpp"
 #include "game/actors/animation/character_motion_player.hpp"
+#include "game/actors/character_physics.hpp"
+#include "game/combat/actor_hit_geometry.hpp"
 #include "game/content/original/character_support.hpp"
 #include "game/content/original/resident_model.hpp"
 #include "game/player/camera/initial_camera.hpp"
@@ -102,18 +109,35 @@ class StaticCollision;
 }
 namespace bw::game {
 class PreparedCharacterAudio;
+class CharacterVoicePool;
+class ActorSoundEvents;
 class SourceRandom;
 struct PlayerActorAudioSource {
   std::reference_wrapper<const PreparedCharacterAudio> prepared;
   std::reference_wrapper<audio::CueOutput> output;
   std::reference_wrapper<const scene::StaticCollision> collision;
   std::reference_wrapper<SourceRandom> random;
+  std::reference_wrapper<CharacterVoicePool> voices;
 };
 struct PlayerActorSource {
   ResidentModelView body, weapon;
   std::reference_wrapper<const content::CharacterSupport> support,
       weapon_support;
   ScriptedPlayerPose placement;
+};
+// Immutable admission values survive appearance replacement. The candidate
+// prepares independent provider resources before publication; the live owner
+// is untouched on failure. Geometry is shared, provider capabilities are weak,
+// and no world-step authority is available. Both-phase I.11/MEM.9 retain
+// skeleton borrowing within the appearance transaction and setup-only storage.
+struct PlayerActorCombatSource {
+  physics::Resources resources;
+  physics::Queries queries;
+  physics::Mutations mutations;
+  std::shared_ptr<const ActorHitGeometry> geometry;
+  CharacterPhysicsRecipe recipe;
+  CharacterPhysicsCollision collision;
+  std::uint8_t hit_layer{};
 };
 enum class PlayerMotion : std::uint8_t {
   stand,
@@ -139,9 +163,6 @@ enum class CharacterMotionBank : std::uint8_t {
   upper_body,
   additive,
   weapon
-};
-struct ActionPresentationAdmission {
-  std::size_t admitted{}, unavailable{};
 };
 struct CharacterPresentationStatus {
   // Source channels with no concrete consumer are counted, never acknowledged
@@ -189,7 +210,20 @@ class PlayerActor {
   // the mission output is destroyed.
   void bind_audio(PlayerActorAudioSource source,
                   const std::shared_ptr<memory::Domain>& domain);
+  void bind_sound_events(std::weak_ptr<ActorSoundEvents>);
   void set_audio_listener(const audio::Listener& listener);
+  void play_damage_voice(std::uint32_t action);
+  void bind_combat(PlayerActorCombatSource source,
+                   const std::shared_ptr<memory::Domain>& domain);
+  bool physical() const noexcept;
+  void handoff_physics(std::optional<CharacterImpulse> impulse = {});
+  // Called only by the dead actor receipt path; no living controller impulse.
+  bool receive_corpse_shot(math::Vector3<float> direction,
+                           math::Vector3<float> point);
+  bool receive_corpse_melee(math::Vector3<float> center,
+                            math::Vector3<float> point, float radius);
+  // World calls after its authoritative solve; no second clock or step.
+  void finish_physics(render::ActorPublisher& output);
 
   // Game policy selects motion; selecting an airborne clip cannot move the
   // root without the movement owner consuming the displacement.
@@ -293,8 +327,25 @@ class PlayerActor {
   // Source model render matrix before skeleton/root animation. Lighting samples
   // the group center in this space, independently of animated root tracks.
   animation::Matrix model_transform(bool weapon) const;
+  // Copied native target point from completed eye height and resident group
+  // radius.
+  math::Vector3<float> aim_position() const;
+  math::Vector3<float> attachment_position(std::int32_t slot) const;
+  // Motion sound/contact events admit positive locator slots only.
+  math::Vector3<float> motion_attachment_position(std::int32_t slot) const;
   std::span<const animation::Matrix> body_bones() const {
     return body_pose_.bone_transforms();
+  }
+  // Completed skin and immutable attachment metadata share this appearance's
+  // lifetime. Callers borrow only until the next appearance replacement.
+  std::span<const animation::Matrix> weapon_skin() const {
+    return weapon_pose_.skin_transforms();
+  }
+  const formats::ControlPointDefinition& weapon_attachments() const {
+    return *weapon_attachments_;
+  }
+  std::span<const animation::Matrix> weapon_bones() const {
+    return weapon_pose_.bone_transforms();
   }
 
  private:
@@ -328,6 +379,7 @@ class PlayerActor {
   struct Playback;
   struct ShapeState;
   struct AudioState;
+  struct PhysicsState;
   PlayerActorSource source_;
   animation::Matrix model_world_;
   animation::Matrix relative_root_rotation_{animation::kIdentityMatrix};
@@ -341,6 +393,8 @@ class PlayerActor {
   animation::SkeletonPose body_pose_, weapon_pose_;
   animation::PoseReleaseState body_release_;
   std::optional<AliciaSecondaryMotion> secondary_motion_;
+  std::shared_ptr<const formats::ControlPointDefinition> body_attachments_,
+      weapon_attachments_;
   std::optional<AliciaSupportArm> support_arm_;
   memory::Vector<animation::BoneWorldOverride> modifier_overrides_;
   double secondary_delta_{};
@@ -364,5 +418,7 @@ class PlayerActor {
   std::shared_ptr<CharacterMotionPlayer> weapon_playback_;
   std::uint32_t weapon_rest_slot_{1};
   bool live_weapon_candidate_{};
+  // Retire provider objects before the borrowed appearance/skeleton resources.
+  std::shared_ptr<PhysicsState> physics_;
 };
 }  // namespace bw::game

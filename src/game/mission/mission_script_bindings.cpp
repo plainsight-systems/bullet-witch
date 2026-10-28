@@ -13,6 +13,7 @@
 #include <limits>
 #include <stdexcept>
 
+#include "game/world/mission_population.hpp"
 #include "mission_driver.hpp"
 
 namespace bw::game {
@@ -75,8 +76,8 @@ void MissionDriver::script_bindings() {
   // Full mission outcomes are outside initialization. Preserve the suspended
   // native call, expose the exact missing producer, and leave world/pause
   // ownership alive. Do not return success or partially remove actors.
-  for (const auto* symbol : {"_RemoveEnemyAll", "_ExecMissionClear",
-                             "_WaitMissionClear", "_ClearMission"}) {
+  for (const auto* symbol :
+       {"_ExecMissionClear", "_WaitMissionClear", "_ClearMission"}) {
     context.bind(symbol, [this, symbol](auto args) {
       require_count(args, 0);
       progress_ = {MissionPhase::awaiting_gameplay,
@@ -86,6 +87,50 @@ void MissionDriver::script_bindings() {
       return script::Reply{{}, [] { return true; }};
     });
   }
+  struct FamilyRemoval {
+    const char* symbol;
+    PopulationFamily family;
+  };
+  for (const auto command :
+       {FamilyRemoval{"_RemoveEnemyAll", PopulationFamily::enemy},
+        FamilyRemoval{"_RemoveResistanceAll", PopulationFamily::resistance},
+        FamilyRemoval{"_RemoveCitizenAll", PopulationFamily::citizen}}) {
+    context.bind(command.symbol, [this, family = command.family](auto args) {
+      require_count(args, 0);
+      script_services().remove_population(family);
+      return script::Reply{};
+    });
+  }
+  context.bind("_CancelRealTimeEventAll", [this](auto args) {
+    require_count(args, 0);
+    script_services().cancel_realtime_event_actors();
+    return script::Reply{};
+  });
+  context.bind("_SetEnvSound", [this](auto args) {
+    require_count(args, 1);
+    script_services().set_environment_sound(index(args[0]));
+    return script::Reply{};
+  });
+  context.bind("_RemoveBgObjAll", [this](auto args) {
+    require_count(args, 0);
+    script_services().remove_background();
+    return script::Reply{};
+  });
+  context.bind("_StopMagic", [this](auto args) {
+    require_count(args, 0);
+    script_services().stop_magic();
+    return script::Reply{};
+  });
+  context.bind("_ExecGameOver", [this](auto args) {
+    require_count(args, 0);
+    script_services().begin_game_over();
+    return script::Reply{};
+  });
+  context.bind("_WaitGameOver", [this](auto args) {
+    require_count(args, 0);
+    return script::Reply{
+        {}, [this] { return script_services().game_over_pending(); }};
+  });
   context.bind("_PadPause", [this](auto args) {
     require_count(args, 0);
     script_services().pause(ScriptPause::input);

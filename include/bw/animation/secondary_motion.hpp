@@ -43,6 +43,14 @@ struct SecondaryCapsule {
   SecondaryVector origin{}, axis{};
   float half_length{}, radius{};
 };
+// Evaluate one present slot from prepared immutable metadata. Skin matrices are
+// completed world-space inverse-bind compositions. Reconstruct the basis in
+// model space, then compose the model so its scale is preserved. I.4
+// (#ri-typed) distinguishes skin input from bone poses; MEM.9 fixes scratch.
+Matrix evaluate_control_point(const formats::ControlPointDefinition& definition,
+                              const formats::ControlPointFrame& source,
+                              std::span<const Matrix> skin_world,
+                              const Matrix& model = kIdentityMatrix);
 // Three weighted authored points form an orthonormal world frame. Absent slots
 // produce identity; callers must validate every requested slot is present.
 void evaluate_control_points(const formats::ControlPointDefinition& definition,

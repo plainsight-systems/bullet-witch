@@ -45,6 +45,9 @@ No new original-engine behavior is established by that design documentation.
   control transitions, 109 action registrations, 48 constructor families and 112 method targets.
 - [Physics and collision](subsystems/physics-and-collision.md): scene ownership,
   frame stepping, collision queues, synchronization and release.
+- [Combat physics and effects](subsystems/combat-physics-effects-plan.md):
+  action-family inventory, source hit/damage/physics/effect/audio dependencies,
+  current implementation gaps and connected gameplay acceptance slices.
 - [Animation data](subsystems/animation-data.md): track layout, finite half-float
   conversion, vector interpolation and SIMD rotation blending.
 - [Rendering](subsystems/rendering.md): GPU resource creation, model commands,

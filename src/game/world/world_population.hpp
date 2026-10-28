@@ -15,10 +15,35 @@
 #include "mission_simulation.hpp"
 namespace bw::game {
 class StagePresentation;
+class WorldPhysics;
+// World combat owns controllers; population owns their actors. Admission is
+// transactional and retirement synchronously destroys the controller before
+// its actor. The hook is registered only while its nonmoving owner exists;
+// unbinding is explicit and cannot create or advance actors.
+class PopulationCombatLifecycle {
+ public:
+  virtual ~PopulationCombatLifecycle() = default;
+  virtual void admit(NpcActor&, const content::PlacementArchetype&) = 0;
+  virtual void retire(PopulationIdentity) noexcept = 0;
+
+ protected:
+  PopulationCombatLifecycle() = default;
+  PopulationCombatLifecycle(const PopulationCombatLifecycle&) = delete;
+  PopulationCombatLifecycle& operator=(const PopulationCombatLifecycle&) =
+      delete;
+  PopulationCombatLifecycle(PopulationCombatLifecycle&&) = delete;
+  PopulationCombatLifecycle& operator=(PopulationCombatLifecycle&&) = delete;
+};
+struct PopulationActorObservation {
+  PopulationIdentity identity;
+  PopulationActorState state;
+  math::Vector3<float> forward{}, velocity{}, aim_position{};
+  bool physical{};
+};
 class WorldPopulation final : private PopulationReceivers {
  public:
   WorldPopulation(const MissionLoading&, const MissionSimulation&,
-                  StagePresentation&, PlacementRandom&,
+                  StagePresentation&, PlacementRandom&, WorldPhysics&,
                   const std::shared_ptr<memory::Domain>&);
   ~WorldPopulation() override;
   WorldPopulation(const WorldPopulation&) = delete;
@@ -26,6 +51,22 @@ class WorldPopulation final : private PopulationReceivers {
   WorldPopulation(WorldPopulation&&) = delete;
   WorldPopulation& operator=(WorldPopulation&&) = delete;
   void advance(double seconds);
+  void remove_family(PopulationFamily);
+  // World phase split: lifetime changes precede shared AI observation, then
+  // per-actor motion publishes before the single physics solve.
+  void update_population();
+  void advance_actors(double seconds);
+  std::size_t observe_actors(std::span<PopulationActorObservation>) const;
+  void finish_physics();
+  void bind_combat_lifecycle(PopulationCombatLifecycle&);
+  void unbind_combat_lifecycle(PopulationCombatLifecycle&) noexcept;
+  // Route copied hits to the generation identity currently admitted by this
+  // population. Missing/retired identities reject without affecting another
+  // actor; the actor alone commits health and animation/physical response.
+  bool receive_melee(const MeleeImpact&, const ActorDamageDefinition&,
+                     SourceRandom&);
+  HitReception receive(const CombatImpact&, const ActorDamageDefinition&,
+                       SourceRandom&);
   PopulationCheckpoint checkpoint() const {
     return population_.checkpoint(*this);
   }
@@ -47,7 +88,14 @@ class WorldPopulation final : private PopulationReceivers {
   memory::Vector<NpcInitialBodySettings> body_settings_;
   memory::Vector<std::shared_ptr<const PreparedNpcModel>> bodies_;
   memory::Vector<std::shared_ptr<const PreparedNpcModel>> weapons_;
+  physics::Resources physics_resources_;
+  physics::Queries physics_queries_;
+  physics::Mutations physics_mutations_;
+  physics::Material physics_material_;
+  const CharacterPhysicsRecipe& soldier_physics_;
+  memory::Vector<std::shared_ptr<const ActorHitGeometry>> hit_geometry_;
   static constexpr std::size_t kActiveCapacity = 50;
   std::array<std::shared_ptr<NpcActor>, kActiveCapacity> actors_{};
+  PopulationCombatLifecycle* combat_lifecycle_{};
 };
 }  // namespace bw::game

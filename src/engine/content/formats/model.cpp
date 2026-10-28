@@ -24,6 +24,7 @@
 #include "bw/content/formats/model.hpp"
 
 #include <bit>
+#include <cmath>
 #include <limits>
 
 #include "bw/content/formats/binary_reader.hpp"
@@ -248,6 +249,11 @@ void ModelDefinition::decode() {
   r.range(0, kHeaderSize);
   if (r.u32(0) != tag("VFX2")) {
     unsupported("Unsupported model header signature");
+  }
+  constexpr std::size_t kRootSphereRadius = 0x40;
+  bounding_radius_ = std::bit_cast<float>(r.u32(kRootSphereRadius));
+  if (!std::isfinite(bounding_radius_) || bounding_radius_ < 0) {
+    malformed("Invalid model root sphere radius");
   }
   const auto relative = r.u32(kChunkOffset);
   if (relative < kChunkHeaderBytes) {

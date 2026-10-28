@@ -8,6 +8,12 @@
 // component arithmetic; trig evaluation remains runtime and rounded to T.
 // Both phases queried for the spatial light consumer and common rotation.
 // No renderer/game-specific coordinate convention is hidden.
+// ZXY rotation additionally exposes a pure 3x3 row-vector basis, applying Z,
+// then X, then Y. Trigonometry rounds to T before the expanded products;
+// its ordering matches the reconstructed particle rotation basis. Core I.11
+// (#ri-raw) borrows angles; SL.con.3 (#rsl-bounds) uses fixed arrays.
+// Performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
+// keeps this shared helper allocation-free; both phases consulted.
 #pragma once
 #include <cmath>
 
@@ -30,6 +36,19 @@ constexpr Vector<T, 2> rotate_planar(const Vector<T, 2>& point,
                                      const PlanarRotation<T>& rotation) {
   return {rotation.cosine * point[0] - rotation.sine * point[1],
           rotation.sine * point[0] + rotation.cosine * point[1]};
+}
+// Explicit row-vector axis order; translation and homogeneous lanes belong to
+// the caller's affine transform. Do not transpose this for column notation.
+template <std::floating_point T>
+Matrix<T, 3, 3> euler_zxy_rotation(const Vector3<T>& radians) {
+  const auto x = planar_rotation(radians[0]);
+  const auto y = planar_rotation(radians[1]);
+  const auto z = planar_rotation(radians[2]);
+  return {{{x.sine * z.sine * y.sine + y.cosine * z.cosine, x.cosine * z.sine,
+            x.sine * z.sine * y.cosine - y.sine * z.cosine},
+           {y.sine * x.sine * z.cosine - y.cosine * z.sine, x.cosine * z.cosine,
+            x.sine * z.cosine * y.cosine + y.sine * z.sine},
+           {y.sine * x.cosine, -x.sine, y.cosine * x.cosine}}};
 }
 template <std::floating_point T>
 struct EulerTransform {

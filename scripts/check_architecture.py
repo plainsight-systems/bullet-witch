@@ -15,7 +15,16 @@ def check():
             if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
                 continue
             source = path.relative_to(ROOT).as_posix()
-            for name in re.findall(r'^\s*#\s*include\s*"([^"]+)"', path.read_text(), re.M):
+            text = path.read_text()
+            physics_backend = source.startswith('src/engine/physics/jolt/')
+            # Provider syntax is private even if an accidental CMake include
+            # path makes it compile in a controller or portable header.
+            jolt_headers = re.findall(r'^\s*#\s*include\s*[<"](Jolt/[^>"]+)[>"]', text, re.M)
+            if not physics_backend and (jolt_headers or re.search(r'\bJPH\s*::', text)):
+                errors.append(f'{source}: Jolt provider syntax escapes private physics backend')
+            for name in re.findall(r'^\s*#\s*include\s*"([^"]+)"', text, re.M):
+                if physics_backend and name.startswith('Jolt/'):
+                    continue
                 candidates = (path.parent / name, ROOT / 'include' / name, ROOT / 'src' / name)
                 target = next((candidate.resolve() for candidate in candidates if candidate.is_file()), None)
                 # Pinned Lua/FACT C headers are provided by their selected targets.

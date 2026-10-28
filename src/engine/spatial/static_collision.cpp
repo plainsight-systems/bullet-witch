@@ -1,3 +1,8 @@
+// Lifetime mask: Core E.4 validates IDs before mutation; MEM.9 preserves
+// fixed storage and allocation-free query gating (implementation reread).
+// Prepared geometry observations copy existing decoded primitives; they do not
+// decode assets or expose mutable hierarchy storage. Both-phase E.6 (#re-raii)
+// preserves ownership and MEM.9 confines provider copies to preparation.
 // Report the chosen authored face surface alongside the existing corrected
 // endpoint. Prepared and borrowed paths preserve the same byte; analytic hits
 // retain absent metadata. Both-phase I.1/E.4/CDSA.32/MEM.9 contracts are in the
@@ -81,6 +86,28 @@ std::optional<std::uint32_t> registration_flags(
     flags |= kNonCamera;
   }
   return flags;
+}
+// Stage contact registration is distinct from the two segment-query banks.
+// The original character bank cooks ordinary/special geometry, never solid
+// category geometry, and rejects the named query-only wall classes.
+std::optional<std::uint8_t> physics_material(const formats::CollisionPart& part,
+                                             CollisionSourceMode mode) {
+  if (part.vertex_count == 0 || part.triangle_count == 0 ||
+      mode == CollisionSourceMode::environment) {
+    return std::nullopt;
+  }
+  if (mode == CollisionSourceMode::combined) {
+    return 0;
+  }
+  if ((part.flags & kSolidCategory) != 0) {
+    return std::nullopt;
+  }
+  for (const auto name : {"wa_", "de_", "pw_", "pc_", "np_", "nc_", "ne_"}) {
+    if (prefix(part.name, name)) {
+      return std::nullopt;
+    }
+  }
+  return 0;
 }
 Vec vertex(const formats::CollisionPart& part, std::uint32_t index) {
   const resources::detail::Reader reader{part.vertices};
@@ -191,6 +218,22 @@ std::optional<float> triangle_hit(const Ray& ray,
   return math::dot(edge2, q) / determinant;
 }
 }  // namespace
+std::uint64_t StaticCollision::group_bit(CollisionGroup group) {
+  const auto index = static_cast<std::uint8_t>(group);
+  constexpr unsigned kGroupCapacity = 64;
+  if (index >= kGroupCapacity) {
+    throw std::out_of_range("Collision group exceeds fixed lifetime capacity");
+  }
+  return std::uint64_t{1} << index;
+}
+void StaticCollision::set_group_enabled(CollisionGroup group, bool enabled) {
+  const auto bit = group_bit(group);
+  if (enabled) {
+    disabled_groups_ &= ~bit;
+  } else {
+    disabled_groups_ |= bit;
+  }
+}
 void StaticCollision::add(const formats::CollisionDefinition& definition,
                           CollisionSourceMode mode) {
   // Legacy combined records have a different part header and no typed decoder.
@@ -221,12 +264,39 @@ void StaticCollision::add(const formats::CollisionDefinition& definition,
     throw std::length_error("Static collision registration exceeds capacity");
   }
   parts_.reserve(parts_.size() + definition.parts().size());
+  if (definition.parts().size() >
+      physics_only_parts_.max_size() - physics_only_parts_.size()) {
+    throw std::length_error("Static physics registration exceeds capacity");
+  }
+  physics_only_parts_.reserve(physics_only_parts_.size() +
+                              definition.parts().size());
   for (const auto& part : definition.parts()) {
+    const auto material = physics_material(part, mode);
     if (const auto flags = registration_flags(part, mode)) {
-      parts_.push_back({std::cref(part), *flags});
+      parts_.push_back({std::cref(part), *flags, mode, material});
+    } else if (material) {
+      physics_only_parts_.push_back(
+          {std::cref(part), kStaticFlags, mode, material});
     }
   }
   character_ready_ = false;
+}
+std::size_t StaticCollision::geometry_count() const {
+  if (!character_ready_) {
+    throw std::logic_error("Static geometry requires prepared collision");
+  }
+  return character_primitives_.size() + physics_only_geometry_.size();
+}
+PreparedCollisionGeometry StaticCollision::geometry(std::size_t index) const {
+  (void)geometry_count();
+  if (index >= character_primitives_.size()) {
+    return physics_only_geometry_.at(index - character_primitives_.size());
+  }
+  const auto& primitive = character_primitives_.at(index);
+  return {primitive.vertices,         primitive.flags,    primitive.ordinal,
+          primitive.radius,           primitive.capsule,  primitive.surface,
+          primitive.source,           primitive.category, true,
+          primitive.physics_material, primitive.group};
 }
 SegmentClearanceResult StaticCollision::clip_segment(
     const SegmentClearance& request) const {
@@ -251,16 +321,19 @@ SegmentClearanceResult StaticCollision::clip_segment(
   float closest = std::numeric_limits<float>::max();
   Vec normal{};
   std::optional<std::uint8_t> closest_surface;
+  bool closest_actor_owned = false;
   std::size_t closest_ordinal = std::numeric_limits<std::size_t>::max();
   const auto evaluate = [&](const std::array<Vec, 3>& vertices,
                             std::size_t ordinal,
-                            std::optional<std::uint8_t> surface) {
+                            std::optional<std::uint8_t> surface,
+                            bool actor_owned) {
     const auto hit = triangle_hit(ray, vertices);
     if (hit && *hit >= -ray.half_length && *hit <= ray.half_length &&
         (*hit < closest || (*hit == closest && ordinal < closest_ordinal))) {
       closest = *hit;
       closest_ordinal = ordinal;
       closest_surface = surface;
+      closest_actor_owned = actor_owned;
       normal = math::cross(math::subtract(vertices[1], vertices[0]),
                            math::subtract(vertices[2], vertices[0]));
     }
@@ -281,7 +354,9 @@ SegmentClearanceResult StaticCollision::clip_segment(
           break;
         }
       }
-      if (separated) continue;
+      if (separated) {
+        continue;
+      }
       if (node.count == 0) {
         stack.at(pending++) = node.first;
         stack.at(pending++) = node.right;
@@ -289,10 +364,11 @@ SegmentClearanceResult StaticCollision::clip_segment(
       }
       for (std::size_t i = node.first; i < node.first + node.count; ++i) {
         const auto& primitive = character_primitives_.at(i);
-        if (!primitive.capsule &&
+        if (group_enabled(primitive.group) && !primitive.capsule &&
             (primitive.flags & (request.excluded_object_flags | kDisabled)) ==
                 0) {
-          evaluate(primitive.vertices, primitive.ordinal, primitive.surface);
+          evaluate(primitive.vertices, primitive.ordinal, primitive.surface,
+                   primitive.actor_owned);
         }
       }
     }
@@ -306,6 +382,7 @@ SegmentClearanceResult StaticCollision::clip_segment(
         closest = distance;
         normal = hit.normal;
         closest_surface = hit.surface;
+        closest_actor_owned = hit.actor_owned;
       }
     }
   } else {
@@ -321,11 +398,13 @@ SegmentClearanceResult StaticCollision::clip_segment(
         continue;
       }
       const auto& part = registered.definition.get();
-      if (!overlaps(ray, part)) continue;
+      if (!overlaps(ray, part)) {
+        continue;
+      }
       for (std::uint32_t i = 0; i < part.triangle_count; ++i) {
         constexpr std::size_t kFaceBytes = 8, kSurfaceByte = 7;
         evaluate(triangle(part, i), ordinal++,
-                 part.triangles[i * kFaceBytes + kSurfaceByte]);
+                 part.triangles[i * kFaceBytes + kSurfaceByte], false);
       }
     }
   }
@@ -345,6 +424,6 @@ SegmentClearanceResult StaticCollision::clip_segment(
   }
   return {
       math::add(request.origin, math::scale(direction, std::max(0.0F, travel))),
-      true, closest_surface};
+      true, closest_surface, normal, closest_actor_owned};
 }
 }  // namespace bw::scene

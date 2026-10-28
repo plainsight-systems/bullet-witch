@@ -68,6 +68,7 @@ PreparedNpcAppearance PreparedNpcAppearance::prepare(
     groups[0] = 1;
     add_tokens(archetype.customization, std::span(groups).first(4));
   }
+  result.groups_ = groups;
   result.draws_.reserve(model.definition.get().draws().size());
   for (const auto& draw : model.definition.get().draws()) {
     if (draw.group >= kModelGroups) {
@@ -122,6 +123,7 @@ PreparedNpcAppearance PreparedNpcAppearance::default_weapon(
     const ResidentModelView& model,
     const std::shared_ptr<memory::Domain>& domain) {
   PreparedNpcAppearance result(domain);
+  result.groups_.fill(~std::uint32_t{});
   result.draws_.reserve(model.definition.get().draws().size());
   for (const auto& draw : model.definition.get().draws()) {
     if (draw.group >= kModelGroups) {

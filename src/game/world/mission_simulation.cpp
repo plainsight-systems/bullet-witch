@@ -15,86 +15,30 @@
 
 #include "animation_preview.hpp"
 #include "bw/math/vector.hpp"
+#include "game/combat/damage_feedback.hpp"
 #include "game/mission/loading/mission_loading.hpp"
 #include "game/world/presentation/stage_presentation.hpp"
-#include "placed_collision.hpp"
 namespace bw::game {
 namespace {
 constexpr float kTriggerThreshold = .8F;
-// Collision ownership follows the original static-object construction path.
-// A combined file replaces the separate character/environment registrations.
-const formats::CollisionDefinition* collision_input(
-    const content::StageDefinition& stage, std::string_view model,
-    std::string_view suffix) {
-  const auto found = std::ranges::find_if(stage.inputs, [&](const auto& input) {
-    std::string_view name = input.name;
-    constexpr std::string_view kPrefix = "model.";
-    if (!name.starts_with(kPrefix)) return false;
-    name.remove_prefix(kPrefix.size());
-    return name.starts_with(model) && name.substr(model.size()) == suffix;
-  });
-  return found != stage.inputs.end() && found->collision ? &*found->collision
-                                                         : nullptr;
-}
-void register_stage_collision(const content::StageDefinition& stage,
-                              scene::StaticCollision& collision) {
-  for (const auto& model : stage.models) {
-    if (!model.static_world_object) continue;
-    if (const auto* combined = collision_input(stage, model.name, ".hit")) {
-      collision.add(*combined, scene::CollisionSourceMode::combined);
-      continue;
-    }
-    if (const auto* character = collision_input(stage, model.name, ".chit")) {
-      collision.add(*character, scene::CollisionSourceMode::character);
-    }
-    if (const auto* environment = collision_input(stage, model.name, ".ehit")) {
-      collision.add(*environment, scene::CollisionSourceMode::environment);
-    }
-  }
-}
 }  // namespace
 MissionSimulation::MissionSimulation(
     const world::WorldClock& clock, const MissionControl& control,
-    const content::StageDefinition& stage,
+    const scene::StaticCollision& collision,
     const formats::CustomizationDefinition& customization,
-    StageBackgroundSource background,
     const std::optional<PlayerActorSource>& player,
     const std::shared_ptr<memory::Domain>& domain,
     const content::LoadProgress& progress,
     const std::optional<render::ViewPose>& camera_pose,
     const std::optional<ScriptedPlayerPose>& inspection_placement)
-    : clock_(clock), control_(control), memory_(domain), collision_(domain) {
+    : clock_(clock), control_(control), memory_(domain), collision_(collision) {
   if (!player && !inspection_placement) {
     throw std::invalid_argument(
         "Playerless inspection requires an explicit placement");
   }
   const auto camera_settings =
       formats::PlayerCameraSettings::parse_initial(customization);
-  register_stage_collision(stage, collision_);
-  // Prepare each placed model's authored shapes once, then register its frozen
-  // body poses. Render geometry is never substituted for collision geometry.
-  if (background.placements != nullptr) {
-    const auto& placements = *background.placements;
-    for (const auto& model : background.models) {
-      const auto name = std::ranges::find(placements.names(), model.name);
-      if (name == placements.names().end() ||
-          model.physics_collision == nullptr) {
-        continue;
-      }
-      const auto model_index =
-          static_cast<std::size_t>(name - placements.names().begin());
-      PreparedPropCollision prepared(*model.physics_collision, domain);
-      for (const auto& placement : placements.placements()) {
-        if (placement.model != model_index) continue;
-        const auto body_world =
-            std::span(placements.matrices())
-                .subspan(placement.first_matrix, placement.matrix_count);
-        prepared.register_instance(body_world, collision_);
-      }
-    }
-  }
   automatic_targeting_camera_ = camera_settings.automatic_targeting_camera;
-  collision_.prepare_character_queries();
   const auto placement =
       player ? player->placement : inspection_placement.value();
   auto camera =
@@ -132,22 +76,189 @@ AliciaActionUpdate MissionSimulation::begin_player_scripted_jump(
 }
 void MissionSimulation::bind_audio(const PreparedCharacterAudio& prepared,
                                    audio::CueOutput& output,
-                                   SourceRandom& random) {
+                                   SourceRandom& random,
+                                   CharacterVoicePool& voices) {
   if (audio_output_ != nullptr || !player_) {
     throw std::logic_error("Stage audio requires an unbound physical player");
   }
-  player_->bind_audio({prepared, output, collision_, random}, memory_);
+  player_->bind_audio({prepared, output, collision_, random, voices}, memory_);
   output.set_listener(audio_listener_);
   player_->set_audio_listener(audio_listener_);
   audio_paused_ = control_.audio_paused();
   output.pause(audio_paused_);
   audio_output_ = &output;
 }
+void MissionSimulation::bind_sound_events(
+    std::weak_ptr<ActorSoundEvents> events) {
+  if (!player_) throw std::logic_error("Sound attention requires player owner");
+  player_->bind_sound_events(std::move(events));
+}
 void MissionSimulation::synchronize_pause() {
   const bool paused = control_.audio_paused();
   if (paused == audio_paused_) return;
   if (audio_output_ != nullptr) audio_output_->pause(paused);
   audio_paused_ = paused;
+}
+void MissionSimulation::bind_player_combat(PlayerActorCombatSource source) {
+  if (!player_) throw std::logic_error("Combat requires a player actor");
+  player_->bind_combat(std::move(source), memory_);
+}
+void MissionSimulation::finish_physics(render::ActorPublisher& output) {
+  if (player_) player_->finish_physics(output);
+}
+void MissionSimulation::bind_player_damage(
+    PlayerDamageResources resources, const ActorDamageDefinition& definition,
+    SourceRandom& random) {
+  if (damage_resources_ || !player_ || !controller_) {
+    throw std::logic_error("Player damage requires unbound traversal");
+  }
+  damage_resources_ = resources;
+  damage_definition_ = &definition;
+  combat_random_ = &random;
+}
+bool MissionSimulation::receive_player_hit(const CombatImpact& impact) {
+  if (!damage_resources_ || impact.source == impact.target) return false;
+  if (!player_ || !controller_) {
+    throw std::logic_error("Damage receiver lost player lifetime");
+  }
+  if (player_dead_) {
+    return player_->receive_corpse_shot(impact.direction, impact.position);
+  }
+  // The original ordinary receiver requests directional feedback even when
+  // health admission rejects; self hits and corpse receivers do not request it.
+  const auto direction_channel = classify_damage_direction(
+      impact.direction, presentation_camera().pose.forward);
+  damage_direction_mask_ |=
+      static_cast<std::uint8_t>(1U << static_cast<unsigned>(direction_channel));
+  auto& actor = player_.value();
+  auto& controller = controller_.value();
+  auto& action = controller.action_owner();
+  const auto before = damage_resources_->snapshot();
+  const float magnitude =
+      damage_definition_->magnitude(impact.body, impact.damage);
+  const auto health = damage_resources_->receive(magnitude);
+  if (!health.accepted) return false;
+  const auto& state = controller.state();
+  // Player virtual600f80 reports only StateSquat as category1; flight and
+  // exclusive actions return0. NPC eye-height categorization is different.
+  const bool squatting = state.phase == PlayerMovementPhase::grounded &&
+                         state.stance == AliciaStance::crouched &&
+                         action.kind() == AliciaActionKind::none;
+  const unsigned category = squatting ? 1U : 0U;
+  const auto response = ordinary_hit_response(
+      *damage_definition_,
+      {.health = health.current,
+       .maximum_health = before.maximum_health,
+       .magnitude = magnitude,
+       .body = impact.body,
+       .movement_category = category,
+       .damage_reaction_active = action.kind() == AliciaActionKind::damage,
+       .sustained_family = false},
+      *combat_random_);
+  const auto matrix = math::affine_part(actor.model_transform(false));
+  const ReactionDirection direction{impact.direction,
+                                    math::scale(matrix[2], -1.F), matrix[2]};
+  AliciaActionUpdate update;
+  switch (response) {
+    case HitReaction::none:
+      break;
+    case HitReaction::ordinary:
+      update = action.begin_damage({direction, matrix[0]});
+      break;
+    case HitReaction::additive: {
+      constexpr std::uint32_t kOrdinaryAdditiveDamage = 0x394;
+      ActionMotionPlan plan;
+      plan.count = 1;
+      plan.requests[0] = {.bank = ActionMotionBank::additive,
+                          .slot = kOrdinaryAdditiveDamage,
+                          .fresh = true};
+      if (actor.apply_action_plan(plan).unavailable != 0) {
+        throw std::runtime_error("Player impact animation is unavailable");
+      }
+      break;
+    }
+    case HitReaction::death_motion:
+      update = action.begin_death(
+          {direction, squatting, damage_definition_->nonpositive_death_weights,
+           damage_definition_->positive_death_weights, combat_random_->unit()});
+      player_dead_ = true;
+      break;
+    case HitReaction::death_physics:
+      (void)action.interrupt();
+      actor.handoff_physics();
+      player_dead_ = true;
+      break;
+    case HitReaction::sustained:
+      throw std::logic_error(
+          "Player selected an incompatible sustained family");
+  }
+  if (update.outcome != AliciaActionOutcome::unchanged &&
+      update.outcome != AliciaActionOutcome::started) {
+    throw std::runtime_error("Player impact action was not admitted");
+  }
+  if (const auto voice = ordinary_hit_voice(response)) {
+    actor.play_damage_voice(*voice);
+  }
+  return true;
+}
+bool MissionSimulation::receive_player_melee(const MeleeImpact& impact) {
+  if (!damage_resources_ || impact.source == impact.target) return false;
+  if (!player_ || !controller_ || !damage_definition_ || !combat_random_) {
+    throw std::logic_error("Melee receiver lost player lifetime");
+  }
+  auto& actor = *player_;
+  if (player_dead_) {
+    return actor.receive_corpse_melee(impact.center, impact.contact,
+                                      impact.outer_radius);
+  }
+  const auto magnitude = melee_magnitude(impact);
+  const auto health = damage_resources_->receive(magnitude);
+  auto& action = controller_->action_owner();
+  const auto& state = controller_->state();
+  // Admitted player states have neither StateBlastStart nor StateBlast.
+  // The original surviving-melee gate checks those states, not generic flight.
+  const auto response = melee_reaction(
+      *damage_definition_,
+      {.health = health.current,
+       .magnitude = magnitude,
+       .crouched = state.phase == PlayerMovementPhase::grounded &&
+                   state.stance == AliciaStance::crouched &&
+                   action.kind() == AliciaActionKind::none},
+      health.current == 0 ? combat_random_->unit() : 0.F);
+  const auto matrix = math::affine_part(actor.model_transform(false));
+  const ReactionDirection direction{melee_direction(impact, matrix[3]),
+                                    math::scale(matrix[2], -1.F), matrix[2]};
+  AliciaActionUpdate update;
+  switch (response) {
+    case MeleeReaction::none:
+      break;
+    case MeleeReaction::ordinary:
+    case MeleeReaction::heavy:
+    case MeleeReaction::crouched: {
+      const auto category =
+          response == MeleeReaction::heavy      ? DamageImpactClass::heavy
+          : response == MeleeReaction::crouched ? DamageImpactClass::crouched
+                                                : DamageImpactClass::ordinary;
+      update = action.begin_damage({direction, matrix[0], category});
+      break;
+    }
+    case MeleeReaction::death_motion:
+      update = action.begin_melee_death(
+          {direction, damage_definition_->melee_death_weights,
+           combat_random_->unit()});
+      player_dead_ = true;
+      break;
+    case MeleeReaction::death_blast_start:
+      throw std::logic_error("Player cannot select NPC blast-start death");
+  }
+  if (update.outcome != AliciaActionOutcome::unchanged &&
+      update.outcome != AliciaActionOutcome::started) {
+    throw std::runtime_error("Player melee action was not admitted");
+  }
+  // Source melee voices survive the airborne reaction gate. Corpse receipts
+  // returned above; optional absent voice entries retain normal arbitration.
+  actor.play_damage_voice(health.current <= 0 ? 2U : 1U);
+  return health.accepted;
 }
 bool MissionSimulation::advance(const world::WorldFrame& frame,
                                 StageTraversalInput input,
@@ -156,9 +267,21 @@ bool MissionSimulation::advance(const world::WorldFrame& frame,
     throw std::invalid_argument("Foreign or repeated world frame");
   }
   last_frame_ = frame.sequence();
+  shot_receipt_.reset();
+  damage_direction_mask_ = 0;
   synchronize_pause();
   if (!frame.admission().simulation) return false;
   const double delta_seconds = frame.delta_seconds();
+  if (player_ && player_->physical()) {
+    // Dynamic bodies own the model transform now. Animation and the custom
+    // movement controller must not overwrite their solved pose.
+    if (camera_ && controller_) {
+      auto placement = controller_->state().pose;
+      placement.position = math::translation(player_->model_transform(false));
+      camera_->advance(placement, {}, delta_seconds);
+    }
+    return true;
+  }
   // Input restriction publishes a neutral event; it does not skip actor work.
   // Accepted scripted observations retain their distinct admission contract.
   if (!frame.admission().hardware_input) {
@@ -196,7 +319,7 @@ bool MissionSimulation::advance(const world::WorldFrame& frame,
           ordinary_shooter && input.presentation.aim_mode_pressed,
           ordinary_shooter && fire_targeting, automatic_targeting_camera_);
     }
-    present_input(input.presentation, input.movement);
+    present_input(frame, input.presentation, input.movement);
     // Source input settings belong to the input owner. Both camera look and
     // raised turn consume the same copied sensitivity/inversion observation.
     if (input.look.right != 0) {
@@ -204,6 +327,7 @@ bool MissionSimulation::advance(const world::WorldFrame& frame,
           input.look.right, static_cast<std::uint8_t>(input.look.turn_speed),
           false);
     }
+    input.action.alive = !player_dead_;
     input.action.aim.weapon_class = weapon_class_;
     input.action.aim.weapon_movement_scale =
         weapon_settings_.at(weapon_class_).movement_scale;
@@ -219,6 +343,11 @@ bool MissionSimulation::advance(const world::WorldFrame& frame,
     {
       consumed = controller.advance(input.movement, camera.yaw_radians(),
                                     delta_seconds, output, input.action);
+      if (controller.action_status().outcome ==
+          AliciaActionOutcome::dynamic_body_required) {
+        actor.handoff_physics(CharacterImpulse{
+            {0, 1, 0}, controller.state().pose.position, 1.F, 1, -1});
+      }
     }
     camera.set_context(targeting_.camera_targeted()
                            ? PlayerCameraContext::targeting
@@ -341,7 +470,26 @@ void MissionSimulation::bind_action_resources(PlayerActionResources resources) {
   }
   action_resources_ = resources;
 }
-void MissionSimulation::present_input(PlayerPresentationInput input,
+void MissionSimulation::bind_weapon_receiver(PlayerWeaponReceiver& receiver) {
+  if (weapon_receiver_ || !player_ || !controller_ || !camera_) {
+    throw std::logic_error("Weapon receiver requires an unbound live player");
+  }
+  weapon_receiver_ = &receiver;
+}
+void MissionSimulation::unbind_weapon_receiver(
+    const PlayerWeaponReceiver& receiver) noexcept {
+  if (weapon_receiver_ == &receiver) weapon_receiver_ = nullptr;
+}
+PlayerWeaponPose MissionSimulation::weapon_pose() const {
+  if (!player_) throw std::logic_error("Weapon observation requires player");
+  const auto* body = player_->animation_state(CharacterMotionBank::body);
+  if (!body) throw std::logic_error("Weapon observation requires body motion");
+  return {math::affine_part(player_->model_transform(true)),
+          player_->weapon_skin(), player_->weapon_attachments(), weapon_class_,
+          body->binding};
+}
+void MissionSimulation::present_input(const world::WorldFrame& frame,
+                                      PlayerPresentationInput input,
                                       PlayerMovementInput movement) {
   if (!player_ || !controller_ || !camera_) return;
   auto& actor = player_.value();
@@ -384,6 +532,10 @@ void MissionSimulation::present_input(PlayerPresentationInput input,
           accepted_reload({.stance = controller.state().stance,
                            .body_slot = slot,
                            .weapon_class = weapon_class_}));
+      if (weapon_receiver_) {
+        weapon_receiver_->recharge(controller.state().pose.position,
+                                   weapon_class_);
+      }
       action_notice_ = "Weapon recharged from magic";
     } else if (result == ResourceActionResult::insufficient_magic) {
       action_notice_ = "Not enough magic to recharge";
@@ -397,14 +549,25 @@ void MissionSimulation::present_input(PlayerPresentationInput input,
   } else if (input.fire_trigger > kTriggerThreshold &&
              controller.state().weapon_raised) {
     const auto shot = resources.try_fire();
+    shot_receipt_ = shot;
+    // Source gun emission precedes upper-body requests and model advancement.
+    // Even an empty result may carry rounds emitted while repaying time debt.
+    if (weapon_receiver_) {
+      weapon_receiver_->attempt(
+          frame, shot,
+          {weapon_pose(), camera.view().pose, controller.state().pose.position,
+           controller.body_radius()});
+    }
     if (shot.status == ShotStatus::accepted) {
       (void)actor.apply_action_plan(
           accepted_shot({.stance = controller.state().stance,
                          .body_slot = slot,
                          .weapon_class = weapon_class_,
-                         .grounded = controller.state().contact.grounded}));
+                         .player_camera = camera_.has_value()}));
       action_notice_ =
-          "Ammunition consumed; projectile receiver not yet admitted";
+          weapon_receiver_ && weapon_class_ == 0
+              ? std::string_view{}
+              : "Ammunition consumed; projectile receiver not yet admitted";
     } else if (shot.status == ShotStatus::empty) {
       // The source caller attempts recharge on empty, including a catch-up
       // call that consumed its final rounds before returning that status.

@@ -12,6 +12,9 @@
 #include <stdexcept>
 #include <utility>
 
+#include "game/mission/loading/mission_loading.hpp"
+#include "mission_ancillary_state.hpp"
+
 namespace bw::game {
 MissionScriptRuntime::MissionScriptRuntime(
     MissionDriver& driver, ScriptPauseControl control, MissionMessage& message,
@@ -34,6 +37,7 @@ MissionScriptRuntime::MissionScriptRuntime(
 MissionScriptRuntime::~MissionScriptRuntime() {
   driver_.retire_script();
   message_.cancel();
+  if (game_over_surface_) game_over_surface_->end();
 }
 MissionWorldActivation& MissionScriptRuntime::world() {
   if (!world_) throw std::logic_error("Mission world is not active");
@@ -43,8 +47,9 @@ MissionFrameDisposition MissionScriptRuntime::begin(float seconds,
                                                     const MissionInput& input) {
   auto& gameplay = world().gameplay.get();
   const bool message_frame = message_.pending();
+  const bool defeated = world().resources.get().snapshot().health <= 0;
   auto admitted = input;
-  if (message_frame) {
+  if (message_frame || defeated) {
     admitted.player = {};
     admitted.pause_pressed = false;
     admitted.menu = {};
@@ -52,6 +57,16 @@ MissionFrameDisposition MissionScriptRuntime::begin(float seconds,
   auto result = gameplay.begin(seconds, admitted);
   const auto interval = gameplay.control_interval();
   system_message_.advance(interval.delta_seconds);
+  if (game_over_surface_ && game_over_audio_) {
+    game_over_audio_->advance(interval.delta_seconds);
+    game_over_.update(interval.delta_seconds, input.menu);
+    game_over_audio_->submit(game_over_.take_sounds());
+    if (const auto outcome = game_over_.outcome()) {
+      result.transition = *outcome == MissionGameOverOutcome::restart
+                              ? MissionTransition::restart_stage
+                              : MissionTransition::retire;
+    }
+  }
   if (control_.mission_script_admitted()) {
     message_.update(input.menu, interval.delta_seconds);
     if (fading_) {
@@ -76,6 +91,10 @@ void MissionScriptRuntime::advance() {
 void MissionScriptRuntime::present() {
   world().gameplay.get().present();
   if (message_.pending()) message_.present();
+  if (game_over_surface_ &&
+      game_over_.presentation().phase != MissionGameOverPhase::inactive) {
+    game_over_surface_->show(game_over_.presentation());
+  }
   // Original 4993b0 draws system text after independently gated cockpit/modal
   // tasks, including hidden cockpit and user pause. This consumes no time.
   world().gameplay.get().present_system_message(system_message_.view());
@@ -128,7 +147,8 @@ void MissionScriptRuntime::scan_callbacks() {
   if (!player) {
     throw std::logic_error("Mission callbacks require player");
   }
-  callbacks_.scan(player->position, contains_);
+  callbacks_.scan(player->position, contains_,
+                  world().resources.get().snapshot().health <= 0);
 }
 std::optional<MissionCallbackName> MissionScriptRuntime::take_callback() {
   return callbacks_.take();
@@ -195,4 +215,45 @@ void MissionScriptRuntime::play_music(std::uint32_t index) {
   music_.play({index, 1});
 }
 void MissionScriptRuntime::stop_music(float seconds) { music_.stop(seconds); }
+void MissionScriptRuntime::bind_defeat(
+    MissionGameOverSurface& surface, audio::CueOutput& audio,
+    std::span<const MissionCallbackDefinition> definitions) {
+  if (game_over_surface_ || !surface.ready()) {
+    throw std::logic_error(
+        "Defeat assets must be prepared once before binding");
+  }
+  constexpr std::int32_t kPlayerDefeated = 1000;
+  const auto found = std::ranges::find(definitions, kPlayerDefeated,
+                                       &MissionCallbackDefinition::event);
+  if (found == definitions.end()) {
+    throw std::logic_error("Original player defeat callback is absent");
+  }
+  callbacks_.add_player_defeated(found->function);
+  game_over_audio_.emplace(audio);
+  game_over_surface_ = &surface;
+}
+void MissionScriptRuntime::cancel_realtime_event_actors() {
+  MissionAncillaryState::cancel_realtime_event_actors();
+}
+void MissionScriptRuntime::set_environment_sound(std::uint32_t identifier) {
+  MissionAncillaryState::set_environment_sound(identifier);
+}
+void MissionScriptRuntime::remove_background() {
+  world().world.remove_background();
+}
+void MissionScriptRuntime::remove_population(PopulationFamily family) {
+  world().world.remove_population(family);
+}
+void MissionScriptRuntime::stop_magic() {
+  MissionAncillaryState::stop_magic_after_defeat(
+      world().resources.get().snapshot().health <= 0);
+}
+void MissionScriptRuntime::begin_game_over() {
+  if (!game_over_surface_) throw std::logic_error("Defeat UI is not admitted");
+  game_over_.begin();
+}
+bool MissionScriptRuntime::game_over_pending() const {
+  if (!game_over_surface_) throw std::logic_error("Defeat UI is not admitted");
+  return !game_over_.outcome().has_value();
+}
 }  // namespace bw::game

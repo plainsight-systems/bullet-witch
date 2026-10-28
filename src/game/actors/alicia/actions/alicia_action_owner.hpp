@@ -115,6 +115,9 @@ class AliciaActionOwner {
   // Only source-marked requests are deferred; no motion clocks advance here.
   void finish_physical_step();
   AliciaActionUpdate begin_death(const AcceptedDeathPresentation& accepted);
+  // Native melee death replaces the current body even during a jump.
+  AliciaActionUpdate begin_melee_death(const AcceptedMeleeDeathPresentation&);
+
   AliciaActionUpdate advance_before_motion(const AliciaActionStep& step);
   AliciaActionUpdate interrupt() noexcept;
   AliciaActionKind kind() const noexcept { return kind_; }

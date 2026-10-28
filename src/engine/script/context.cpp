@@ -46,6 +46,7 @@ extern "C" {
 #include <limits>
 #include <map>
 #include <optional>
+#include <utility>
 
 #include "bw/memory/allocator.hpp"
 namespace bw::script {
@@ -104,6 +105,7 @@ struct Context::Impl {
     Reply reply;
     std::function<bool()> pending;
     RunState phase{RunState::idle};
+    int initial_arguments{};
     std::array<char, kDiagnosticBytes> error{};
     void set_error(std::string_view text) noexcept {
       const auto count = std::min(text.size(), error.size() - 1);
@@ -170,9 +172,19 @@ struct Context::Impl {
   }
   struct StartRequest {
     Thread* thread;
-    const char* name;
+    std::string_view name;
     bool found;
+    std::span<const Value> arguments;
+    int argument_status{};
   };
+  static void protected_arguments(lua_State* active, void* userdata) {
+    const auto* request = static_cast<StartRequest*>(userdata);
+    if (!lua_checkstack(active, request->thread->initial_arguments)) {
+      lua_pushliteral(active, "Lua argument stack limit");
+      lua_error(active);
+    }
+    for (const auto& value : request->arguments) push_value(active, value);
+  }
   static void protected_start(lua_State* active, void* userdata) {
     // Anchor the new coroutine before any execution can yield or trigger GC.
     auto* request = static_cast<StartRequest*>(userdata);
@@ -183,9 +195,21 @@ struct Context::Impl {
     }
     owner->coroutine = lua_newthread(active);
     owner->thread_ref = luaL_ref(active, LUA_REGISTRYINDEX);
-    lua_getglobal(active, request->name);
+    lua_pushlstring(active, request->name.data(), request->name.size());
+    lua_gettable(active, LUA_GLOBALSINDEX);
     request->found = lua_isfunction(active, -1) != 0;
     lua_xmove(active, owner->coroutine, 1);
+    // Lua5.0 resume receives nargs only on the first entry. Keep all
+    // potentially allocating pushes inside this protected C call, with no owned
+    // C++ local. Each Lua thread has its own error jump chain: protect pushes
+    // on the child itself, then propagate its error into the caller's protected
+    // frame.
+    request->argument_status =
+        lua_bw_protected(owner->coroutine, protected_arguments, request);
+    if (request->argument_status != 0) {
+      lua_xmove(owner->coroutine, active, 1);
+      lua_error(active);
+    }
     // Recovered reclaiming mode collects on preparing each global coroutine;
     // live registry references and pending frames remain owned by the VM.
     lua_setgcthreshold(active, 0);
@@ -240,7 +264,8 @@ struct Context::Impl {
     checked(lua_bw_protected(state.get(), protected_retire, &thread), thread);
     thread = Thread{};
   }
-  void start_thread(Thread& thread, const std::string& function) {
+  void start_thread(Thread& thread, std::string_view function,
+                    std::span<const Value> arguments = {}) {
     require_not_pumping();
     if (thread.phase == RunState::running ||
         thread.phase == RunState::pending || thread.phase == RunState::failed) {
@@ -249,10 +274,18 @@ struct Context::Impl {
     started = true;
     thread.reply = {};
     thread.error = {};
-    StartRequest request{&thread, function.c_str(), false};
-    checked(lua_bw_protected(state.get(), protected_start, &request), thread);
+    if (arguments.size() >
+        static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      throw Error(ErrorCode::unsupported, "Lua argument count exceeds API");
+    }
+    thread.initial_arguments = static_cast<int>(arguments.size());
+    StartRequest request{&thread, function, false, arguments};
+    const int status = lua_bw_protected(state.get(), protected_start, &request);
+    checked(request.argument_status == LUA_ERRMEM ? LUA_ERRMEM : status,
+            thread);
     if (!request.found) {
-      throw Error(ErrorCode::not_found, "Lua function: " + function);
+      throw Error(ErrorCode::not_found,
+                  "Lua function: " + std::string(function));
     }
     thread.phase = RunState::running;
   }
@@ -381,8 +414,28 @@ void Context::load_binary(std::span<const std::uint8_t> bytes) {
   }
 }
 void Context::load_source(std::string_view source) { impl_->load(source); }
-void Context::start(const std::string& function) {
-  impl_->start_thread(impl_->primary, function);
+void Context::start(std::string_view function,
+                    std::span<const Value> arguments) {
+  impl_->start_thread(impl_->primary, function, arguments);
+}
+Value Context::result() const {
+  impl_->require_not_pumping();
+  const auto& thread = impl_->primary;
+  if (thread.phase != RunState::complete || !thread.coroutine) {
+    throw Error(ErrorCode::unsupported, "Lua result requires completed task");
+  }
+  return lua_gettop(thread.coroutine) == 0 ? Value{}
+                                           : read_value(thread.coroutine, 1);
+}
+std::optional<double> Context::numeric_result() const {
+  impl_->require_not_pumping();
+  const auto& thread = impl_->primary;
+  if (thread.phase != RunState::complete || !thread.coroutine) {
+    throw Error(ErrorCode::unsupported, "Lua result requires completed task");
+  }
+  return lua_type(thread.coroutine, 1) == LUA_TNUMBER
+             ? std::optional<double>(lua_tonumber(thread.coroutine, 1))
+             : std::nullopt;
 }
 RunResult Context::pump() { return impl_->pump_thread(impl_->primary); }
 void Context::reserve_coroutines(std::size_t capacity) {
@@ -445,7 +498,8 @@ RunResult Context::Impl::pump_thread(Thread& thread) {
       }
       lua_sethook(thread.coroutine, budget, LUA_MASKCOUNT, kInstructionBudget);
       active_thread = &thread;
-      const int status = lua_resume(thread.coroutine, 0);
+      const int argument_count = std::exchange(thread.initial_arguments, 0);
+      const int status = lua_resume(thread.coroutine, argument_count);
       active_thread = nullptr;
       if (status != 0) {
         const auto* message = lua_type(thread.coroutine, -1) == LUA_TSTRING

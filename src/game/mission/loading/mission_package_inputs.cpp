@@ -140,18 +140,23 @@ memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
       const auto& model = definition.models.at(index);
       std::span<const std::int32_t> body_joints;
       const formats::PhysicsCollisionDefinition* physics_collision = nullptr;
+      const formats::CollisionDefinition* actor_hit = nullptr;
       for (const auto& input : definition.inputs) {
         constexpr std::string_view kModelPrefix = "model.";
         std::string_view name = input.name;
-        if (!input.physics_collision || !name.starts_with(kModelPrefix)) {
+        if (!name.starts_with(kModelPrefix)) {
           continue;
         }
         name.remove_prefix(kModelPrefix.size());
         if (name.starts_with(model.name) &&
-            name.substr(model.name.size()) == ".phit") {
+            name.substr(model.name.size()) == ".phit" &&
+            input.physics_collision) {
           body_joints = input.physics_collision->body_joints();
           physics_collision = &*input.physics_collision;
-          break;
+        }
+        if (name.starts_with(model.name) &&
+            name.substr(model.name.size()) == ".ehit" && input.collision) {
+          actor_hit = &*input.collision;
         }
       }
       // Control-point bytes share the retained dependency archive lifetime.
@@ -164,7 +169,7 @@ memory::Vector<ResidentModelView> MissionLoading::resident_dependencies()
       }
       result.push_back({model.name, model.definition,
                         resident->models.at(index), body_joints,
-                        physics_collision, control_points});
+                        physics_collision, control_points, actor_hit});
     }
     ++resident;
   }

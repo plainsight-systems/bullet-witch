@@ -9,7 +9,7 @@
 #pragma once
 #include <cstdint>
 
-#include "bw/math/matrix.hpp"
+#include "game/actors/animation/aim_posture.hpp"
 namespace bw::game {
 // Original input+54 is processed look-stick X, not angular velocity. Accept the
 // explicit 7-bit sensitivity setting and configured inversion; stick swapping
@@ -28,17 +28,4 @@ class RaisedWeaponLifetime {
  private:
   float seconds_{};
 };
-// Source turn667cc0: requested world direction is first transformed by the
-// live authored reference; camera horizontal frame resolves antipodal side.
-// Current model forward and the transformed target may carry authored scale;
-// both must be finite and nonzero. Requested/camera directions remain unit.
-// Dot/cross branch decisions retain that scale, then the returned forward is
-// normalized as in the source final basis construction (409b70).
-struct RaisedFacingInput {
-  math::Vector3<float> current{}, requested{}, camera_forward{};
-  math::Matrix4<float> authored_reference{};
-  float seconds{};
-  bool posture_enabled{};
-};
-math::Vector3<float> raised_facing_step(const RaisedFacingInput& input);
 }  // namespace bw::game

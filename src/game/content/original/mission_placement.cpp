@@ -28,8 +28,9 @@ constexpr std::size_t kShapeBytes = 96, kShapeName = 32, kShapeFlags = 64,
                       kShapeExtent = 16, kShapeYaw = 28, kArchetypePath = 5,
                       kArchetypeFlags = 6, kArchetypeWeapon = 14,
                       kArchetypeDrawGroups = 15, kArchetypePalette = 25,
-                      kArchetypeRetirement = 28, kGroupMode = 5, kGroupYaw = 6,
-                      kGroupPath = 7, kGroupOption = 8;
+                      kArchetypeDefeatMagic = 27, kArchetypeRetirement = 28,
+                      kGroupMode = 5, kGroupYaw = 6, kGroupPath = 7,
+                      kGroupOption = 8;
 constexpr std::uint32_t kMaximumCount = 256, kKnownShapeFlags = 0x13,
                         kShape3D = 16, kArchetypeColumns = 31,
                         kGroupColumns = 9;
@@ -146,6 +147,10 @@ MissionPlacementDefinition MissionPlacementDefinition::decode(
           table.text({*section, row, kArchetypeDrawGroups}).has_value();
       actor.secondary_customization =
           text(table, *section, row, kArchetypePalette);
+      // Source placement word 61 feeds the death-source MagicUser message.
+      // Implementation I.1/E.4 and MEM.9: decode once, no guessed award table.
+      actor.defeat_magic = integer(table, *section, row, kArchetypeDefeatMagic);
+      if (actor.defeat_magic < 0) malformed("Negative defeat magic amount");
       actor.retirement_distance =
           number(table, *section, row, kArchetypeRetirement);
       if (actor.model.empty() ||

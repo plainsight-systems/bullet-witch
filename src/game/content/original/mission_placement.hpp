@@ -31,6 +31,9 @@ struct PlacementArchetype {
   std::string_view model, weapon, behavior, path, customization,
       secondary_customization;
   std::int32_t appearance{}, life{}, actor_flags{};
+  // Source chara column 27 becomes the queued death-source magic amount.
+  // Design I.1/E.4 and MEM.9: validated copied value, no live actor authority.
+  std::int32_t defeat_magic{};
   float retirement_distance{};
   bool customization_present{};
 };

@@ -8,8 +8,8 @@
 
 #include "../../../../fixtures/model_fixture.hpp"
 #include "../../../../fixtures/shape_fixture.hpp"
-#include "game/actors/alicia/animation/facial_animation.hpp"
-#include "game/actors/alicia/audio/character_audio.hpp"
+#include "game/actors/animation/facial_animation.hpp"
+#include "game/actors/audio/character_audio.hpp"
 #include "game/session/compatibility/source_random.hpp"
 namespace {
 void require(bool value, const char* message) {
@@ -34,7 +34,7 @@ class Backing final : public bw::memory::CpuBacking {
 class Sink final : public bw::game::MotionPresentationSink {
  public:
   std::size_t visibility_calls{}, face_calls{}, voice_calls{},
-      unsupported_calls{}, sound_calls{}, resets{};
+      unsupported_calls{}, sound_calls{}, melee_calls{}, resets{};
   bw::game::SoundMotionCommand last_sound;
   bw::game::VisibilityMotionCommand last_visibility;
   bw::game::FacialMotionCommand last_face;
@@ -59,6 +59,13 @@ class Sink final : public bw::game::MotionPresentationSink {
   void voice(bw::game::VoiceMotionCommand command) noexcept override {
     ++voice_calls;
     last_voice = command;
+  }
+  bw::game::MeleeMotionCommand last_melee;
+  void melee(bw::game::MeleeMotionCommand command,
+             bw::animation::MotionEventPhase,
+             const bw::animation::MotionEventContext&) noexcept override {
+    last_melee = command;
+    ++melee_calls;
   }
   void unsupported(bw::animation::MotionEventPhase,
                    const bw::animation::MotionEventContext&) noexcept override {
@@ -108,13 +115,25 @@ void facial_banks_test() {
              "model.pw0.shape.nocompress.pw0_1", {},
              bw::memory::Allocator<std::byte>(domain)),
          bw::formats::ShapeAnimationDefinition::parse(clip_bytes, domain)});
-    bw::game::FacialAnimation face(support, prepared, domain);
-    bw::game::FacialAnimation replacement(support, prepared, domain);
+    constexpr std::array<std::string_view, 7> names{
+        "@pw0_1", "@pw0_2", "@pw0_3", "@pw0_4", "@pw0_5", "@pw0_6", "@pw0_7"};
+    const bw::game::PreparedFacialExpressions expressions(support, prepared,
+                                                          names, domain);
+    bw::game::FacialAnimation face(expressions, domain);
+    bw::game::FacialAnimation replacement(expressions, domain);
     const auto no_shape_model = bw::formats::ModelDefinition::parse(
         bw::resources::ResourceArchive::parse(model_fixture::archive()),
         domain);
     const bw::animation::PreparedModelShapes no_shapes(no_shape_model, domain);
-    bw::game::FacialAnimation absent(support, no_shapes, domain);
+    const bw::game::PreparedFacialExpressions absent_expressions(
+        support, no_shapes, names, domain);
+    bw::game::FacialAnimation absent(absent_expressions, domain);
+    constexpr std::array<std::string_view, 8> npc_names{
+        "pw0_1", "pw0_2", "pw0_3", "pw0_4", "pw0_5", "pw0_6", "pw0_7", "pw0_8"};
+    const bw::game::PreparedFacialExpressions npc_expressions(
+        support, prepared, npc_names, domain);
+    bw::game::FacialAnimation npc_face(npc_expressions, domain);
+    bw::game::FacialAnimation other_npc(npc_expressions, domain);
     const auto allocations = backing->calls;
     using Admission = bw::game::FacialAdmission;
     const bw::game::FacialMotionCommand request{0, 2, 1, 2};
@@ -158,6 +177,24 @@ void facial_banks_test() {
     replacement.advance(0);
     require(absent.weights().empty() && replacement.weights()[0] == .5F,
             "Returning from an absent costume preserves logical facial timing");
+    require(npc_face.command(request, true) == Admission::applied,
+            "NPC expression uses shared prepared keys");
+    npc_face.advance(3.0 / 30.0);
+    require(npc_face.weights()[0] == .5F && other_npc.weights()[0] == 0,
+            "NPC expression wraps while another instance retains independent "
+            "state");
+    require(
+        other_npc.command({7, 2, 1, 2}, true) == Admission::missing_expression,
+        "Absent eighth NPC expression retains its authored slot");
+    replacement.reset();
+    require(replacement.command({0, 2, 1, 0}, true) == Admission::applied,
+            "Source nonrepeat FAC admits zero duration");
+    replacement.advance(0);
+    require(replacement.weights()[0] == 0,
+            "Paused face keeps its initial frame");
+    replacement.advance(1.0 / 60.0);
+    require(replacement.weights()[0] == 1,
+            "Zero duration reaches finite endpoint on first world step");
     face.reset_motion_banks();
     face.advance(0);
     require(face.weights()[0] == 0 && backing->calls == allocations,
@@ -194,6 +231,10 @@ void motion_presentation_tests() {
     fixture.add({3, 0x46414330, 48, 36, 40, 32, 11000005});
     fixture.add({4, 0x43414e30, 36, 32, 0, 32, 1});
     fixture.add({5, 0x494e5430, 40, 32, 36, 32, 1});
+    fixture.add({7, 0x4b414b30, 52, 44, 48, 32, 1003000007});
+    model_fixture::word(fixture.bytes, fixture.bytes.size() - 52 + 36,
+                        std::bit_cast<std::uint32_t>(1.F));
+    model_fixture::word(fixture.bytes, fixture.bytes.size() - 52 + 40, 77);
     fixture.add({8, 0x56495330, 40, 32, 0, 36, 1000});
     const auto events = bw::formats::MotionEvents::parse(fixture.bytes, domain);
     const game::PreparedMotionPresentation prepared(events, domain);
@@ -217,6 +258,11 @@ void motion_presentation_tests() {
     require(sink.sound_calls == 2 && sink.last_sound.action == 9 &&
                 sink.unsupported_calls == 0,
             "Typed sound reports enter and update without guessing a cue");
+    require(sink.melee_calls == 2 && sink.last_melee.joint == 77 &&
+                sink.last_melee.effect == 7 && sink.last_melee.radius == 1 &&
+                sink.last_melee.damage == 300 &&
+                sink.last_melee.far_damage == 300,
+            "Melee decimal payload and both active phases remain typed");
     timeline.advance(4, receiver);
     require(sink.face_calls == 1 && sink.voice_calls == 1,
             "Entry consumers do not replay during updates");
@@ -242,6 +288,21 @@ void motion_presentation_tests() {
     receiver.receive(animation::MotionEventPhase::enter, context);
     require(sink.sound_calls == sound_calls + 1,
             "Sound has an independent initial zero interval latch");
+    const auto soldier = game::original_character_audio_profile("ea0", 0, 1);
+    require(soldier == game::CharacterAudioProfile{8, 1},
+            "Soldier sound class and authored voice group stay independent");
+    require(game::original_character_audio_profile("ea0", 0x8000, 13) ==
+                    game::CharacterAudioProfile{9, 20} &&
+                game::original_character_audio_profile("ea0", 0x8000, 1) ==
+                    game::CharacterAudioProfile{9, 19},
+            "Transformed actor uses original voice variant table");
+    const auto silent = game::PreparedCharacterAudio::silent(
+        game::original_character_audio_profile("ea0", 0, 100));
+    require(!silent.voice(0) && silent.profile().sound_class == 8,
+            "Absent voice identity silences voice without muting body sounds");
+    const auto soldier_step = silent.actor_sound(0, 1);
+    require(soldier_step && soldier_step->cue == 460,
+            "Soldier surface action uses its own original dispatch table");
     const auto ordinary = game::PreparedCharacterAudio::sound(0, 1);
     const auto metal = game::PreparedCharacterAudio::sound(0, 3);
     const auto direct = game::PreparedCharacterAudio::sound(1100, {});

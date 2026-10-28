@@ -88,6 +88,18 @@ void timers_and_capacity() {
   expect(callbacks, "reused");
   require(!callbacks.take(), "Retired slot cannot retain an old ready flag");
 }
+void defeat_event_ordering() {
+  MissionCallbacks callbacks;
+  callbacks.add_timer("timer", {0, 0});
+  callbacks.add_trap("trap", {0, 1});
+  callbacks.add_player_defeated("gameover");
+  callbacks.scan({}, [](auto, const auto&) { return true; }, true);
+  expect(callbacks, "gameover");
+  callbacks.cancel_all();
+  callbacks.scan({}, [](auto, const auto&) { return true; }, true);
+  require(!callbacks.take(),
+          "Default death event is one-shot and cancels pending callbacks");
+}
 void rejection() {
   MissionCallbacks callbacks;
   unsigned rejected = 0;
@@ -121,4 +133,5 @@ void mission_callback_tests() {
   ordering_and_modes();
   timers_and_capacity();
   rejection();
+  defeat_event_ordering();
 }

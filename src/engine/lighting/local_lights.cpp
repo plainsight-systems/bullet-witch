@@ -6,6 +6,8 @@
 // model versus view admission; MEM.9 retains existing per-emitter scratch.
 // Overflow implementation/design retrieval: I.1 exposes unscaled residual
 // coefficients; MEM.9 stores ranked radiance once in prepared candidate slots.
+// Publication implementation: I.1 separates validated values from committed
+// candidate lists; MEM.9 requires no allocation in either phase.
 #include "bw/lighting/local_lights.hpp"
 
 #include <algorithm>
@@ -24,9 +26,10 @@ float influence_radius(const LocalLight& light, float threshold) {
   const float radius = static_cast<float>(
       std::pow(static_cast<double>(base),
                static_cast<double>(1.F / light.attenuation[0])));
-  if (!std::isfinite(radius)) {
-    throw std::invalid_argument("Invalid light influence radius");
-  }
+  // Original fractional power can produce an unordered radius as a fading
+  // light falls below the attenuation threshold. Preserve it internally:
+  // frustum comparisons admit it, noncoincident model-distance tests do not.
+  // Published positions/colors remain finite; no radius reaches the shader.
   return radius;
 }
 // Original projection uses receiver-to-emitter world direction, the signed
@@ -80,29 +83,78 @@ LocalLights::LocalLights(std::span<const LocalLight> lights,
       settings.maximum_direct > kMaximumLocalLights) {
     throw std::invalid_argument("Unsupported local-light selection settings");
   }
-  const float threshold =
-      settings.contribution_threshold + settings.selection_margin;
-  if (!std::isfinite(threshold)) {
-    throw std::invalid_argument("Invalid light threshold");
-  }
+  static_count_ = lights.size();
   lights_.reserve(lights.size());
   for (const auto& light : lights) {
-    if (!math::all_finite(light.position) || !math::all_finite(light.diffuse) ||
-        !math::all_finite(light.specular) ||
-        !math::all_finite(light.attenuation) ||
-        std::ranges::any_of(light.diffuse, [](float v) { return v < 0; }) ||
-        std::ranges::any_of(light.specular, [](float v) { return v < 0; }) ||
-        std::ranges::any_of(light.attenuation, [](float v) { return v < 0; }) ||
-        (light.attenuation[1] == 0 && light.attenuation[2] == 0)) {
-      throw std::invalid_argument("Invalid authored local light");
-    }
-    lights_.push_back(
-        {light, influence_radius(light, threshold),
-         influence_radius(light, settings.contribution_threshold)});
+    lights_.push_back(prepare_light(light));
   }
   candidates_.resize(lights_.size());
   view_indices_.resize(lights_.size());
   active_indices_.resize(lights_.size());
+}
+// Validate a complete candidate before publishing it into prepared storage.
+// E.4 (#re-design-invariants) preserves live state on rejection; MEM.9
+// (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps updates bounded.
+LocalLights::Emitter LocalLights::prepare_light(const LocalLight& light) const {
+  const float threshold =
+      settings_.contribution_threshold + settings_.selection_margin;
+  if (!std::isfinite(threshold) || !math::all_finite(light.position) ||
+      !math::all_finite(light.diffuse) || !math::all_finite(light.specular) ||
+      !math::all_finite(light.attenuation) ||
+      std::ranges::any_of(light.diffuse, [](float v) { return v < 0; }) ||
+      std::ranges::any_of(light.specular, [](float v) { return v < 0; }) ||
+      std::ranges::any_of(light.attenuation, [](float v) { return v < 0; }) ||
+      (light.attenuation[1] == 0 && light.attenuation[2] == 0)) {
+    throw std::invalid_argument("Invalid authored local light");
+  }
+  return {light, true, influence_radius(light, threshold),
+          influence_radius(light, settings_.contribution_threshold)};
+}
+void LocalLights::reserve_dynamic(std::size_t count) {
+  if (lights_.size() != static_count_ ||
+      count > lights_.max_size() - static_count_) {
+    throw std::logic_error(
+        "Dynamic light storage already prepared or too large");
+  }
+  const auto total = static_count_ + count;
+  // Reserve every vector before changing logical sizes, so allocation failure
+  // leaves the previous published lights/query scratch usable.
+  lights_.reserve(total);
+  candidates_.reserve(total);
+  view_indices_.reserve(total);
+  active_indices_.reserve(total);
+  lights_.resize(total, Emitter{.light = {}, .enabled = false});
+  candidates_.resize(total);
+  view_indices_.resize(total);
+  active_indices_.resize(total);
+  view_prepared_ = false;
+}
+void LocalLights::clear_static_emitters() {
+  for (auto& emitter : std::span(lights_).first(static_count_)) {
+    emitter.enabled = false;
+  }
+  view_prepared_ = false;
+}
+void LocalLights::validate_dynamic(
+    std::size_t index, const std::optional<LocalLight>& light) const {
+  if (index < static_count_ || index >= lights_.size()) {
+    throw std::out_of_range("Dynamic light index outside reserved slots");
+  }
+  if (light) (void)prepare_light(*light);
+}
+void LocalLights::update_dynamic(std::size_t index,
+                                 const std::optional<LocalLight>& light) {
+  if (index < static_count_ || index >= lights_.size()) {
+    throw std::out_of_range("Dynamic light index outside reserved slots");
+  }
+  auto& destination = lights_.at(index);
+  auto candidate =
+      light ? prepare_light(*light) : Emitter{.light = {}, .enabled = false};
+  if (destination.enabled && candidate.enabled) {
+    candidate.previous_view_depth = destination.previous_view_depth;
+  }
+  destination = candidate;
+  view_prepared_ = false;
 }
 SelectedLocalLights LocalLights::select(const LocalLightQuery& query) {
   return select_model(query, false);
@@ -124,18 +176,23 @@ SelectedLocalLights LocalLights::select_model(const LocalLightQuery& query,
   for (std::size_t item = 0; item < total; ++item) {
     const auto i = active ? active_indices_[item] : item;
     const auto& emitter = lights_[i];
+    if (!emitter.enabled) {
+      continue;
+    }
     const auto delta = math::subtract(emitter.light.position, query.center);
     const float squared =
         delta[1] * delta[1] + delta[0] * delta[0] + delta[2] * delta[2];
     const float distance =
         static_cast<float>(std::sqrt(static_cast<double>(squared)));
-    if (squared > 0 && !(distance - query.radius < emitter.radius)) continue;
+    if (squared > 0 && !(distance - query.radius < emitter.radius)) {
+      continue;
+    }
     candidates_[count++] = rank(i, query);
   }
   return finish_selection(count, settings_.maximum_direct,
                           settings_.overflow_irradiance);
 }
-SelectedLocalLights LocalLights::select_view(const LocalLightViewQuery& query) {
+void LocalLights::validate_view(const LocalLightViewQuery& query) {
   if (!math::all_finite(query.eye) ||
       !std::isfinite(query.frustum.depth_range) ||
       !(query.frustum.depth_range > 0)) {
@@ -149,9 +206,15 @@ SelectedLocalLights LocalLights::select_view(const LocalLightViewQuery& query) {
       throw std::invalid_argument("Invalid view light frustum");
     }
   }
+}
+SelectedLocalLights LocalLights::select_view(const LocalLightViewQuery& query) {
+  validate_view(query);
   std::size_t count = 0;
   for (std::size_t i = 0; i < lights_.size(); ++i) {
     const auto& emitter = lights_[i];
+    if (!emitter.enabled) {
+      continue;
+    }
     if (math::intersects(query.frustum, emitter.light.position,
                          emitter.visibility_radius)) {
       view_indices_[count++] = i;
@@ -192,8 +255,12 @@ void LocalLights::order_view_candidates(std::size_t count) {
                         kGapTen = 10, kGapEleven = 11;
   while (gap > 1 || swapped) {
     gap = (gap * kNumerator) / kDenominator;
-    if (gap == 0) gap = 1;
-    if (gap == kGapNine || gap == kGapTen) gap = kGapEleven;
+    if (gap == 0) {
+      gap = 1;
+    }
+    if (gap == kGapNine || gap == kGapTen) {
+      gap = kGapEleven;
+    }
     swapped = false;
     for (std::size_t i = 0; i + gap < count; ++i) {
       if (lights_[view_indices_[i]].previous_view_depth >

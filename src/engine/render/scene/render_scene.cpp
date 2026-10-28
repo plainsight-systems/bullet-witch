@@ -84,6 +84,14 @@ void RenderScene::update_world_view(const WorldViewUpdate& update) {
   require_active();
   output_.update_world_view(update);
 }
+void RenderScene::configure_sprites(const WorldSpriteCapacity& capacity) {
+  require_active();
+  output_.configure_world_sprites(capacity);
+}
+void EffectsPublisher::publish(const WorldSpriteUpdate& update) {
+  scene_.require_active();
+  scene_.output_.update_world_sprites(update);
+}
 void RenderScene::retire() noexcept {
   if (state_ == State::retired) return;
   // Synchronous backend completion already precedes this call. Clear only a

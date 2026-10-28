@@ -14,6 +14,8 @@
 #pragma once
 #include "bw/content/formats/customization.hpp"
 #include "bw/timing/world_clock.hpp"
+#include "game/combat/health_damage.hpp"
+#include "game/combat/weapon_resources.hpp"
 #include "game/mission/mission_player_state.hpp"
 
 namespace bw::game {
@@ -38,10 +40,6 @@ struct PlayerResourceSettings {
   static PlayerResourceSettings parse(
       const formats::CustomizationDefinition& tree);
 };
-struct WeaponResourceSnapshot {
-  unsigned ammunition{}, capacity{};
-  float cooldown_seconds{};
-};
 struct PlayerResourceSnapshot {
   float health{}, recoverable_health{}, maximum_health{};
   float magic{}, recoverable_magic{}, maximum_magic{};
@@ -51,15 +49,18 @@ struct PlayerResourceSnapshot {
   // Consumers use this receipt, never infer recharge from magazine changes.
   std::uint8_t recharged_weapons{};
 };
-enum class ShotStatus : std::uint8_t {
-  accepted,
-  cooling_down,
-  empty,
-  inactive
-};
 struct ShotResourceResult {
   ShotStatus status{ShotStatus::inactive};
   unsigned shot_count{};
+  // A completed resource transaction records the selected weapon and source
+  // cooldown debt before each emitted shot. Terminal empty status does not
+  // cancel earlier emissions. The shot owner consumes count independently of
+  // the caller's animation/recharge status, using first_age - index*interval.
+  // Pure copied receipt, no mutable resource or clock authority. Core I.1 and
+  // performance MEM.9 keep this explicit and allocation-free in both phases.
+  unsigned weapon{};
+  float first_shot_age_seconds{}, interval_seconds{};
+  unsigned level{};
 };
 enum class ResourceActionResult : std::uint8_t {
   committed,
@@ -69,6 +70,36 @@ enum class ResourceActionResult : std::uint8_t {
   magazine_full
 };
 class PlayerResources;
+// Combat receives only this transaction capability. The damage policy has
+// already resolved affiliation, body multipliers and invulnerability. No health
+// setter or progression/frame authority escapes. Calls outside an admitted
+// resource frame do not mutate health or reset recovery delays.
+class PlayerDamageResources {
+ public:
+  HealthDamageResult receive(float magnitude);
+  PlayerResourceSnapshot snapshot() const;
+
+ private:
+  friend class PlayerResources;
+  explicit PlayerDamageResources(PlayerResources& owner) : owner_(&owner) {}
+  PlayerResources* owner_;
+};
+// World damage outcomes receive only the original defeat-notification
+// capability. It raises recoverable magic, never current magic or progression.
+// The world delivers each accepted lethal transition once; calls require an
+// admitted frame but remain valid in death states, as in original MagicUser
+// dispatch. Design I.1/E.4 and MEM.9: explicit borrowed authority, validated
+// scalar input, fixed state and no allocation. Source
+// 6867b0/5a4d90/60aa70/612f20.
+class PlayerDefeatResources {
+ public:
+  ResourceActionResult receive(float authored_amount);
+
+ private:
+  friend class PlayerResources;
+  explicit PlayerDefeatResources(PlayerResources& owner) : owner_(&owner) {}
+  PlayerResources* owner_;
+};
 // Borrowed action capability; no clock/frame control, selection or setters.
 // Calls are synchronous; retain only while the resource owner exists.
 class PlayerActionResources {
@@ -94,6 +125,12 @@ class PlayerResources {
   PlayerResources(PlayerResources&&) = delete;
   PlayerResources& operator=(PlayerResources&&) = delete;
   PlayerActionResources actions() { return PlayerActionResources(*this); }
+  PlayerDamageResources damage_receiver() {
+    return PlayerDamageResources(*this);
+  }
+  PlayerDefeatResources defeat_receiver() {
+    return PlayerDefeatResources(*this);
+  }
   PlayerResourceSnapshot snapshot() const;
   SpellResourceCost spell_cost(PlayerSpell spell) const;
   // Read-only affordability is valid while paused; never starts an action.
@@ -106,6 +143,10 @@ class PlayerResources {
 
  private:
   friend class PlayerActionResources;
+  friend class PlayerDamageResources;
+  friend class PlayerDefeatResources;
+  ResourceActionResult receive_defeat(float authored_amount);
+  HealthDamageResult receive_damage(float magnitude);
   ShotResourceResult fire();
   ResourceActionResult reload();
   ResourceActionResult spend_spell(PlayerSpell spell);
@@ -113,13 +154,14 @@ class PlayerResources {
   const PlayerResourceSettings settings_;
   const MissionPlayerState& mission_;
   const world::WorldClock& clock_;
-  std::array<WeaponResourceSnapshot, player_weapon_count> weapons_{};
+  std::array<WeaponResources, player_weapon_count> weapons_;
   float health_{}, health_ceiling_{}, magic_{}, magic_ceiling_{},
       magic_floor_{};
   float health_delay_{}, health_ceiling_delay_{};
   std::uint64_t last_sequence_{};
   float frame_delta_{};
   bool frame_open_{}, simulation_admitted_{};
+  bool health_recovery_active_{true};
   std::uint8_t recharged_weapons_{};
 };
 }  // namespace bw::game

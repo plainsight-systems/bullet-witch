@@ -47,7 +47,7 @@
 #include "bw/spatial/character_collision.hpp"
 #include "game/actors/alicia/actions/alicia_action_owner.hpp"
 #include "game/actors/alicia/actions/raised_weapon_state.hpp"
-#include "game/actors/alicia/actions/scripted_jump_policy.hpp"
+#include "game/actors/animation/scripted_jump_policy.hpp"
 #include "player_actor.hpp"
 namespace bw::game {
 struct PlayerMovementInput {
@@ -103,6 +103,7 @@ struct PlayerAimObservation {
 };
 struct PlayerActionObservations {
   std::optional<float> random_unit;
+  bool alive{true};
   bool death_handoff_blocked{}, source_force_idle{},
       source_low_health_recovery{};
   SpellPresentationObservation spell{};
@@ -147,7 +148,7 @@ class PlayerController final : private ShooterEntrySink {
   // No allocation or failure; actor neutral publication is a separate step.
   void restore_review_state(const PlayerMovementState& snapshot) noexcept;
   void lower_review_weapon() noexcept;
-  float body_radius() const noexcept { return settings_.radius; }
+  float body_radius() const noexcept { return contact_radius_; }
 
  private:
   bool step(float camera_yaw_radians, PlayerMovementInput input, double seconds,
@@ -169,6 +170,7 @@ class PlayerController final : private ShooterEntrySink {
   PlayerTargeting* targeting_;
   const scene::StaticCollision* collision_;
   PlayerBodySettings settings_;
+  float contact_radius_;
   PlayerMovementState state_;
   GroundIdlePolicy idle_;
   RaisedWeaponLifetime raised_;

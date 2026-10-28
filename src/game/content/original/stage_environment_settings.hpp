@@ -51,7 +51,18 @@ struct StageShadow {
   float alignment_threshold{}, parallel_near_extension{};
   float minimum_projected_size{};
 };
+// Original effect-shader rates and distance-alpha range. These belong to the
+// environment snapshot, independently of model harmonic light and surface fog.
+// Source4571e0 publishes the two blend rates and5367a0 publishes
+// far/reciprocal.
+struct StageEffects {
+  std::array<float, 3> alpha_color_rate{}, additive_color_rate{};
+  float fog_near{}, fog_far{};
+};
 struct StageEnvironment {
+  // Independent witch/light/<stage> constructor multiplier, captured by new
+  // dynamic lights. AREA's ambient/directional channels do not replace it.
+  std::array<float, 3> local_light_color{};
   // Uniform ambient RGB supplied to each ordinary static model's harmonic
   // lighting context. Sky supplies its own lighting independently.
   std::array<float, 3> ambient_color{};
@@ -68,6 +79,7 @@ struct StageEnvironment {
   std::array<float, 3> light_vector{};
   StageFog surface_fog, sky_fog;
   std::array<float, 3> fog_color{};
+  StageEffects effects;
   StageToneMapping tone_mapping;
   StageShadow shadow;
   static StageEnvironment parse(std::span<const std::uint8_t> customization,

@@ -15,6 +15,7 @@
 #include "bw/math/direction.hpp"
 #include "bw/math/euler.hpp"
 #include "bw/math/matrix.hpp"
+#include "bw/math/segment.hpp"
 #include "bw/math/two_bone.hpp"
 
 namespace {
@@ -26,6 +27,13 @@ void math_tests() {
   namespace math = bw::math;
   using Float = math::Vector3<float>;
   using Double = math::Vector3<double>;
+  require(math::point_segment_distance_squared(Float{1, 2, 0}, Float{},
+                                               Float{2, 0, 0}) == 4.F &&
+              math::point_segment_distance_squared(Float{3, 0, 0}, Float{},
+                                                   Float{2, 0, 0}) == 1.F &&
+              math::point_segment_distance_squared(Float{0, 3, 0}, Float{},
+                                                   Float{}) == 9.F,
+          "Point-to-segment projection must clamp and handle a point segment");
   constexpr auto identity = math::identity_matrix<float, 4>();
   constexpr math::Vector<float, 4> homogeneous_point{3, -2, 7, 1};
   static_assert(math::multiply(identity, homogeneous_point) ==
@@ -45,6 +53,30 @@ void math_tests() {
               std::abs(restored_plane[1] - plane[1]) < .000001F &&
               std::abs(math::accumulated_dot(rotated, rotated) - 25) < .00001F,
           "Planar rotation preserves length and inverse-angle round trip");
+  // ZXY is a different source axis order from the placement XYZ transform.
+  const Float angles{.3F, -.8F, 1.1F};
+  const auto z_rotation =
+      math::euler_xyz_transform(
+          math::EulerPlacement<float>{{0, 0, angles[2]}, {0, 0, 0}})
+          .forward;
+  const auto x_rotation =
+      math::euler_xyz_transform(
+          math::EulerPlacement<float>{{angles[0], 0, 0}, {0, 0, 0}})
+          .forward;
+  const auto y_rotation =
+      math::euler_xyz_transform(
+          math::EulerPlacement<float>{{0, angles[1], 0}, {0, 0, 0}})
+          .forward;
+  const auto composed_zxy =
+      math::multiply(math::multiply(z_rotation, x_rotation), y_rotation);
+  const auto expanded_zxy = math::euler_zxy_rotation(angles);
+  for (std::size_t row = 0; row < 3; ++row) {
+    for (std::size_t column = 0; column < 3; ++column) {
+      require(std::abs(composed_zxy.at(row).at(column) -
+                       expanded_zxy.at(row).at(column)) < .000001F,
+              "ZXY rotation preserves row-vector axis composition");
+    }
+  }
   require(math::dot(Float{16777216, 1, -16777216}, Float{1, 1, 1}) == 0 &&
               math::dot(Double{16777216, 1, -16777216}, Double{1, 1, 1}) == 1,
           "Vector operations preserve scalar precision and addition order");

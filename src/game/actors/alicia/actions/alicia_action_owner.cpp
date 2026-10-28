@@ -18,13 +18,6 @@ namespace {
 constexpr float kDamageReturnFrame = 10;
 constexpr std::size_t kSustainedNonpositiveSlot = 918;
 constexpr std::size_t kSustainedPositiveSlot = 919;
-bool crossed(const animation::ClipPlaybackState& state, float marker) {
-  const auto fps = state.clip->frames_per_second();
-  const auto previous = static_cast<float>(state.previous_seconds * fps);
-  const auto current = static_cast<float>(state.seconds * fps);
-  return current < previous ? marker > previous || marker <= current
-                            : previous < marker && marker <= current;
-}
 AliciaActionUpdate unavailable() {
   return {.outcome = AliciaActionOutcome::unavailable_motion};
 }
@@ -237,6 +230,17 @@ AliciaActionUpdate AliciaActionOwner::begin_death(
   result.outcome = AliciaActionOutcome::started;
   return result;
 }
+AliciaActionUpdate AliciaActionOwner::begin_melee_death(
+    const AcceptedMeleeDeathPresentation& accepted) {
+  const auto motion = accepted_melee_death(accepted);
+  if (!available(motion)) return unavailable();
+  publish_entry(motion, true);
+  auto result = interrupt();
+  kind_ = AliciaActionKind::death;
+  remember_body();
+  result.outcome = AliciaActionOutcome::started;
+  return result;
+}
 AliciaActionUpdate AliciaActionOwner::interrupt() noexcept {
   AliciaActionUpdate result;
   if (kind_ != AliciaActionKind::none) {
@@ -303,7 +307,7 @@ AliciaActionUpdate AliciaActionOwner::advance_before_motion(
     return {};
   }
   if (kind_ == AliciaActionKind::sustained_damage) {
-    const bool crossing = crossed(*state, kDamageReturnFrame);
+    const bool crossing = animation::crossed_frame(*state, kDamageReturnFrame);
     const bool needs_random = crossing &&
                               state->binding != kSustainedNonpositiveSlot &&
                               state->binding != kSustainedPositiveSlot;
@@ -327,7 +331,7 @@ AliciaActionUpdate AliciaActionOwner::advance_before_motion(
   }
   if (kind_ == AliciaActionKind::close_attack) {
     auto candidate = close_attack_;
-    if (followup_frame_ && crossed(*state, *followup_frame_)) {
+    if (followup_frame_ && animation::crossed_frame(*state, *followup_frame_)) {
       const auto motion = candidate.take_followup(true);
       if (!available(motion)) return unavailable();
       publish(motion);

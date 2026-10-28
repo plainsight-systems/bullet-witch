@@ -12,6 +12,7 @@
 // implementation corpora consulted; source mapping is in game-audio.md.
 #include "game_audio.hpp"
 
+#include <algorithm>
 #include <array>
 
 #include "bw/audio/music_decode.hpp"
@@ -48,7 +49,10 @@ GameAudio::GameAudio(const platform::Files& files,
                      const resources::CatalogSet& catalogs,
                      const std::shared_ptr<memory::Domain>& domain,
                      GameAudioFactory& factory, audio::Limits limits,
-                     const content::LoadProgress& progress) {
+                     const content::LoadProgress& progress)
+    : character_profiles_(
+          memory::Allocator<std::shared_ptr<const PreparedCharacterAudio>>(
+              domain)) {
   {
     const auto settings =
         load(files, catalogs, "audio.xgs.BulletWitch", domain);
@@ -128,6 +132,84 @@ void GameAudio::prepare_mission(const platform::Files& files,
   output_->seal();
   prepared_ = candidate;
 }
+const PreparedCharacterAudio& GameAudio::prepared(
+    CharacterAudioProfile profile) const {
+  if (prepared_ && prepared_->profile() == profile) return *prepared_;
+  for (const auto& candidate : character_profiles_) {
+    if (candidate->profile() == profile) return *candidate;
+  }
+  throw std::logic_error("Actor audio profile is unprepared");
+}
+void GameAudio::prepare_character_profiles(
+    const platform::Files& files, const resources::CatalogSet& catalogs,
+    const std::filesystem::path& sound_directory,
+    std::span<const CharacterAudioProfile> profiles,
+    const std::shared_ptr<memory::Domain>& domain) {
+  if (!prepared_) {
+    throw std::logic_error("Prepare mission banks before actor profiles");
+  }
+  memory::Vector<CharacterAudioProfile> pending{
+      memory::Allocator<CharacterAudioProfile>(domain)};
+  for (const auto profile : profiles) {
+    if (prepared_->profile() == profile ||
+        std::ranges::any_of(
+            character_profiles_,
+            [&](const auto& item) { return item->profile() == profile; }) ||
+        std::ranges::find(pending, profile) != pending.end()) {
+      continue;
+    }
+    pending.push_back(profile);
+  }
+  if (pending.empty()) return;
+  const auto voice = load(files, catalogs, "audio.soundbank.voice", domain);
+  const auto voice_definition = formats::AudioBankDefinition::parse(
+      {payload(voice, "VOICE.csb"), payload(voice, "VOICE.xwb")}, domain);
+  const auto streamed =
+      load(files, catalogs, "audio.soundbank.game_voice", domain);
+  const auto base = files.canonical(sound_directory);
+  const auto path = files.canonical(base / "stream_GAME_VOICE.xwb");
+  if (path.parent_path() != base) {
+    resources::detail::malformed("External voice bank escapes sound directory");
+  }
+  const auto waves = files.read(path, domain);
+  const auto streamed_definition = formats::AudioBankDefinition::parse(
+      {payload(streamed, "GAME_VOICE.csb"), waves}, domain);
+  const auto talk = load(files, catalogs, "audio.talkdata", domain);
+  const auto weights = payload(talk, "voice_weight.bin");
+  memory::Vector<std::shared_ptr<const PreparedCharacterAudio>> candidates{
+      memory::Allocator<std::shared_ptr<const PreparedCharacterAudio>>(domain)};
+  memory::Vector<std::uint16_t> cues{memory::Allocator<std::uint16_t>(domain)};
+  constexpr std::uint16_t kStreamedVoiceBank = 50;
+  for (const auto profile : pending) {
+    auto policy = profile.voice_group == 0
+                      ? PreparedCharacterAudio::silent(profile)
+                      : PreparedCharacterAudio(
+                            weights,
+                            formats::TextTable::parse(payload(
+                                talk, std::string(character_voice_group_name(
+                                          profile.voice_group)) +
+                                          ".bin")),
+                            voice_definition, streamed_definition, profile);
+    for (std::uint32_t action = 0; action < kVoiceActions; ++action) {
+      const auto* definition = policy.voice(action);
+      if (!definition) continue;
+      for (const auto& variant : definition->variants) {
+        if (variant.available && variant.bank == kStreamedVoiceBank &&
+            std::ranges::find(cues, variant.cue) == cues.end()) {
+          cues.push_back(variant.cue);
+        }
+      }
+    }
+    candidates.push_back(std::allocate_shared<const PreparedCharacterAudio>(
+        memory::Allocator<PreparedCharacterAudio>(domain), policy));
+  }
+  character_profiles_.reserve(character_profiles_.size() + candidates.size());
+  if (!cues.empty()) output_->extend_bank(kStreamedVoiceBank, cues);
+  output_->seal();
+  for (auto& candidate : candidates) {
+    character_profiles_.push_back(std::move(candidate));
+  }
+}
 void GameAudio::prepare_frontend_music(
     const platform::Files& files, const std::filesystem::path& sound_directory,
     const std::shared_ptr<memory::Domain>& domain) {
@@ -166,7 +248,13 @@ void GameAudio::prepare_script_music(
 }
 // Device service continues during world pause; actor admission does not own it.
 void GameAudio::update() { output_->update(); }
-void GameAudio::retire_mission() { output_->retire_world(); }
+void GameAudio::retire_mission() {
+  // Source stop-all clears requests, not global variant history.
+  if (voices_.stop_all() == CharacterAudioResult::backend_failure) {
+    throw std::runtime_error("Mission character voices could not stop");
+  }
+  output_->retire_world();
+}
 void GameAudio::apply_mix(AudioMixLevels levels) {
   constexpr auto kFullVolume = AudioMixLevels::kFullVolume;
   if (levels.music > kFullVolume || levels.effects > kFullVolume) {
@@ -175,5 +263,9 @@ void GameAudio::apply_mix(AudioMixLevels levels) {
   const float music = static_cast<float>(levels.music) / kFullVolume;
   const float effects = static_cast<float>(levels.effects) / kFullVolume;
   output_->set_mix_gains({music, effects, effects});
+}
+const PreparedCharacterAudio& CharacterAudioLookup::prepared(
+    CharacterAudioProfile profile) const {
+  return owner_->prepared(profile);
 }
 }  // namespace bw::game

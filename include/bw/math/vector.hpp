@@ -54,12 +54,27 @@ template <std::floating_point T>
 constexpr T dot(const Vector3<T>& a, const Vector3<T>& b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
+// Shared squared separation preserves the existing subtraction/dot precision.
+template <std::floating_point T>
+constexpr T squared_distance(const Vector3<T>& a, const Vector3<T>& b) {
+  const auto offset = subtract(a, b);
+  return dot(offset, offset);
+}
 template <std::floating_point T, std::size_t Size>
 constexpr T accumulated_dot(const Vector<T, Size>& a,
                             const Vector<T, Size>& b) {
   T result = 0;
   for (std::size_t i = 0; i < Size; ++i) result += a.at(i) * b.at(i);
   return result;
+}
+// Reflect an incident direction across a caller-supplied unit normal. No
+// normalization or policy repair; fixed arithmetic, shared by query consumers.
+// F.7/E.4 and MEM.9 were retrieved for this bounded value-only addition.
+template <std::floating_point T>
+constexpr Vector3<T> reflect(const Vector3<T>& incident,
+                             const Vector3<T>& unit_normal) {
+  return subtract(incident,
+                  scale(unit_normal, T{2} * dot(incident, unit_normal)));
 }
 template <std::floating_point T>
 constexpr Vector3<T> cross(const Vector3<T>& a, const Vector3<T>& b) {

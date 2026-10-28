@@ -55,6 +55,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <numbers>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -87,6 +88,8 @@
 #include "game/ui/pause/mission_pause_surface.hpp"
 #include "game/ui/power_up/power_up_surface.hpp"
 #include "game/world/mission_population.hpp"
+#include "game/world/world_combat.hpp"
+#include "game/world/world_population.hpp"
 #include "game/world/world_runtime.hpp"
 #if BW_TEST_MACOS_MEMORY
 #include "platform/macos/memory/cpu_backing.hpp"
@@ -462,6 +465,9 @@ class WorldOutput final : public bw::render::WorldOutput {
       }
     }
   }
+  void configure_world_sprites(
+      const bw::render::WorldSpriteCapacity&) override {}
+  void update_world_sprites(const bw::render::WorldSpriteUpdate&) override {}
   void update_world_lighting(
       std::span<const bw::render::WorldLightingUpdate> updates) override {
     for (const auto& update : updates) {
@@ -1314,6 +1320,7 @@ void model_timing_equivalence(
   batched_audio.sealed = individual_audio.sealed = true;
   batched_audio.trace_cues = individual_audio.trace_cues = true;
   bw::game::SourceRandom batched_random, individual_random;
+  bw::game::CharacterVoicePool batched_voices, individual_voices;
   CorpusWorldTime batched_time, individual_time;
   bw::game::WorldRuntime batched(
       batched_time.clock, batched_time.control, batched_world,
@@ -1335,8 +1342,10 @@ void model_timing_equivalence(
           loading.player_support(), loading.weapon_support(),
           kFixtureInitialPose},
       {}, {loading.character_light(), loading.enemy_light()});
-  batched.bind_audio(prepared_audio, batched_audio, batched_random);
-  individual.bind_audio(prepared_audio, individual_audio, individual_random);
+  batched.bind_audio(prepared_audio, batched_audio, batched_random,
+                     batched_voices);
+  individual.bind_audio(prepared_audio, individual_audio, individual_random,
+                        individual_voices);
   // Both sides start from the original float world publication. Subdivision
   // cannot compare a double-only outer interval against a rounded world frame.
   // These original intervals retain the same coverage. An independently
@@ -2106,6 +2115,11 @@ class CorpusAudioEnvironment final
     : public bw::game::CharacterAudioEnvironment {
  public:
   bw::game::SourceRandom random;
+  std::size_t actor_sound_emissions{};
+  bw::math::Vector3<float> position{0, 0, 1};
+  void emit_actor_sound(std::uint32_t, bw::math::Vector3<float>) override {
+    ++actor_sound_emissions;
+  }
   bw::game::CharacterSoundEmission sound_emission(
       bw::game::SoundMotionCommand) const override {
     return {{0, 0, 1}, 3, 0, false};
@@ -2113,7 +2127,7 @@ class CorpusAudioEnvironment final
   bw::math::Vector3<float> bone_position(std::int32_t) const override {
     return {1, 0, 1};
   }
-  bw::math::Vector3<float> voice_position() const override { return {0, 0, 1}; }
+  bw::math::Vector3<float> voice_position() const override { return position; }
   std::uint32_t random_below(std::uint32_t upper) override {
     return random.next(upper);
   }
@@ -2151,6 +2165,101 @@ void failed_audio_admission(bw::resources::ResourceService& resources,
   }
   if (!unavailable || !retry_rejected || factory.output->registrations != 2) {
     throw std::runtime_error("Failed audio preparation published readiness");
+  }
+}
+// Uses original prepared banks with a recording output. This verifies global
+// source admission/history and world-update ownership, not audible playback.
+void character_voice_pool_contracts(
+    const bw::game::PreparedCharacterAudio& prepared) {
+  using bw::game::CharacterAudio;
+  using bw::game::CharacterAudioResult;
+  using bw::game::CharacterVoicePool;
+  using bw::game::CharacterVoiceRole;
+  using bw::game::kVoiceActions;
+  const auto check = [](bool value) {
+    if (!value) {
+      throw std::runtime_error("Global character voice contract failed");
+    }
+  };
+  for (const auto bank : {std::uint16_t{4}, std::uint16_t{50}}) {
+    std::optional<std::uint32_t> action;
+    for (std::uint32_t i = 0; i < kVoiceActions; ++i) {
+      const auto* candidate = prepared.voice(i);
+      if (!candidate) continue;
+      bool valid = true, found = false;
+      for (const auto& variant : candidate->variants) {
+        if (!variant.weight) continue;
+        found = true;
+        valid = valid && variant.available && variant.bank == bank;
+      }
+      if (valid && found) {
+        action = i;
+        break;
+      }
+    }
+    check(action.has_value());
+    CorpusAudioOutput output;
+    output.seal();
+    CharacterVoicePool pool;
+    std::array<CorpusAudioEnvironment, 9> environments;
+    std::array<std::optional<CharacterAudio>, 9> actors;
+    const std::size_t capacity = bank == 4 ? 8 : 2;
+    for (std::size_t i = 0; i <= capacity; ++i) {
+      environments.at(i).position = {static_cast<float>(10 + i), 0, 0};
+      actors.at(i).emplace(prepared, output, pool, CharacterVoiceRole::actor);
+    }
+    for (std::size_t i = 0; i < capacity; ++i) {
+      check(actors.at(i)->voice(*action, environments.at(i)) ==
+            CharacterAudioResult::played);
+    }
+    check(output.plays == 0);  // Admission has no independent audio clock.
+    check(actors.at(capacity)->voice(*action, environments.at(capacity)) ==
+          CharacterAudioResult::suppressed);
+    environments.at(capacity).position = {1, 0, 0};
+    check(actors.at(capacity)->voice(*action, environments.at(capacity)) ==
+          CharacterAudioResult::played);
+    check(!actors.at(capacity - 1)
+               ->voice_active());  // Farthest equal-class request lost.
+    for (unsigned frame = 0; frame < 64 && output.plays < capacity; ++frame) {
+      check(pool.advance(1, {}) == CharacterAudioResult::updated);
+    }
+    check(output.plays == capacity);
+    for (auto& slot : output.slots) slot.active = false;
+    check(actors.at(0)->voice_active());  // Backend completion alone cannot
+                                          // advance gameplay.
+    check(pool.advance(0, {}) == CharacterAudioResult::updated);
+    for (std::size_t i = 0; i <= capacity; ++i) {
+      check(!actors.at(i)->voice_active());
+    }
+    for (auto& actor : actors) actor.reset();
+    pool.reset();
+    std::size_t alternatives = 0;
+    for (const auto& variant : prepared.voice(*action)->variants) {
+      if (variant.weight) ++alternatives;
+    }
+    if (alternatives >= 2) {
+      CharacterAudio first(prepared, output, pool, CharacterVoiceRole::actor);
+      CharacterAudio second(prepared, output, pool, CharacterVoiceRole::actor);
+      check(first.voice(*action, environments.at(0)) ==
+            CharacterAudioResult::played);
+      for (unsigned frame = 0; frame < 64 && output.plays == capacity;
+           ++frame) {
+        check(pool.advance(1, {}) == CharacterAudioResult::updated);
+      }
+      const auto first_cue = output.slots.at(0).request.cue;
+      check(first.stop_voice() == CharacterAudioResult::stopped);
+      check(first.voice(*action, environments.at(0)) ==
+            CharacterAudioResult::suppressed);
+      const auto previous_plays = output.plays;
+      check(second.voice(*action, environments.at(1)) ==
+            CharacterAudioResult::played);
+      for (unsigned frame = 0; frame < 64 && output.plays == previous_plays;
+           ++frame) {
+        check(pool.advance(1, {}) == CharacterAudioResult::updated);
+      }
+      check(output.plays == previous_plays + 1 &&
+            output.slots.at(0).request.cue != first_cue);
+    }
   }
 }
 void character_audio_presentation(
@@ -2220,20 +2329,44 @@ void character_audio_presentation(
     }
   }
   CorpusAudioEnvironment environment;
-  bw::game::CharacterAudio owner(mission.prepared(), *mission.output());
+  bw::game::CharacterVoicePool voices_pool;
+  bw::game::CharacterAudio owner(mission.prepared(), *mission.output(),
+                                 voices_pool,
+                                 bw::game::CharacterVoiceRole::player);
   bw::game::CharacterAudioChannel body(
       owner, bw::game::CharacterAudioBank::body, 1, resources.memory_domain());
   bw::game::CharacterAudioChannel upper(
       owner, bw::game::CharacterAudioBank::upper, 1, resources.memory_domain());
   const auto before = resources.memory_domain()->snapshot();
   require_audio(body.voice({8}, environment) == CharacterAudioResult::played);
+  require_audio(voices_pool.advance(0, {}) == CharacterAudioResult::updated);
+  require_audio(voices_pool.advance(0, {}) == CharacterAudioResult::updated);
   const auto first_voice = factory.output->slots.at(0).request.cue;
+  const auto first_voice_request = owner.voice_request();
+  require_audio(owner.voice_active(first_voice_request));
+  bw::game::CharacterAudio other_voice_owner(
+      mission.prepared(), *mission.output(), voices_pool,
+      bw::game::CharacterVoiceRole::player);
+  bool foreign_voice_rejected = false;
+  try {
+    (void)other_voice_owner.voice_active(first_voice_request);
+  } catch (const std::invalid_argument&) {
+    foreign_voice_rejected = true;
+  }
+  require_audio(foreign_voice_rejected);
   require_audio(upper.voice({8}, environment) ==
                 CharacterAudioResult::suppressed);
   require_audio(owner.stop_voice() == CharacterAudioResult::stopped);
+  require_audio(!owner.voice_active(first_voice_request));
   require_audio(body.voice({8}, environment) == CharacterAudioResult::played);
+  const auto replacement_voice_request = owner.voice_request();
+  require_audio(owner.voice_active(replacement_voice_request) &&
+                !owner.voice_active(first_voice_request));
+  require_audio(voices_pool.advance(0, {}) == CharacterAudioResult::updated);
+  require_audio(voices_pool.advance(0, {}) == CharacterAudioResult::updated);
   require_audio(factory.output->slots.at(0).request.cue != first_voice);
   require_audio(body.voice({0}, environment) == CharacterAudioResult::played);
+  require_audio(!owner.voice_active(replacement_voice_request));
   require_audio(body.voice({2}, environment) ==
                 CharacterAudioResult::unavailable);
   require_audio(owner.stop_voice() == CharacterAudioResult::stopped);
@@ -2251,9 +2384,10 @@ void character_audio_presentation(
                            environment) == CharacterAudioResult::capacity);
   require_audio(upper.sound({1110, 10}, MotionEventPhase::enter, context,
                             environment) == CharacterAudioResult::played);
+  const auto positions_before = factory.output->positions;
   require_audio(body.sound({1110, 10}, MotionEventPhase::update, context,
                            environment) == CharacterAudioResult::updated);
-  require_audio(factory.output->positions == 1);
+  require_audio(factory.output->positions == positions_before + 1);
   const auto stops = factory.output->stops;
   require_audio(body.reset() == CharacterAudioResult::stopped &&
                 factory.output->stops == stops + 1);
@@ -2266,6 +2400,16 @@ void character_audio_presentation(
   const auto after = resources.memory_domain()->snapshot();
   require_audio(before.live_bytes == after.live_bytes &&
                 before.live_allocations == after.live_allocations);
+  const auto emissions_before = environment.actor_sound_emissions;
+  for (auto& slot : factory.output->slots) slot.active = true;
+  require_audio(body.sound({0, 10}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::capacity);
+  require_audio(environment.actor_sound_emissions == emissions_before + 1);
+  require_audio(body.sound({999999, 10}, MotionEventPhase::enter, context,
+                           environment) == CharacterAudioResult::unavailable);
+  require_audio(environment.actor_sound_emissions == emissions_before + 1);
+  for (auto& slot : factory.output->slots) slot.active = false;
+  character_voice_pool_contracts(mission.prepared());
   std::cerr << "Prepared Alicia audio: " << voices << " voice actions, "
             << variations
             << " weighted variants; priority, history, surface and scoped "
@@ -2506,7 +2650,13 @@ void support_arm_content_contracts(
   bw::game::AliciaSupportArm arm(
       {.body = body_model,
        .weapon = weapon_model,
-       .weapon_control_points = weapon_source.control_points},
+       .weapon_control_points =
+           std::allocate_shared<bw::formats::ControlPointDefinition>(
+               bw::memory::Allocator<bw::formats::ControlPointDefinition>(
+                   domain),
+               bw::formats::ControlPointDefinition::parse(
+                   weapon_source.control_points,
+                   weapon_skeleton->bones().size(), domain))},
       domain);
   bw::game::AliciaSecondaryMotion secondary(body_model,
                                             body_source.control_points, domain);
@@ -3043,14 +3193,268 @@ bw::script::RunResult drive_frontend_route(
 // Extend the existing purchased-content route through unchanged start(). The
 // world/UI are production owners; device output remains the corpus observer.
 // No timer synthesizes acknowledgment or native script completion.
-void original_mission_start(bw::game::MissionDriver& driver,
-                            bw::game::MissionLoading& loading,
-                            bw::game::MissionControl& control,
-                            bw::game::MissionPlayerState& player,
-                            WorldOutput& output,
-                            const CorpusPausePresentation& context,
-                            bw::game::GameAudio& audio) {
+// Original-content encounter admission executes real source AI and providers.
+// Traversal uses ordinary inputs from the authored start; source triggers,
+// random expansion, action selection and both projectile paths remain real.
+void original_combat_admission(bw::game::MissionLoading& loading,
+                               WorldOutput& output,
+                               const CorpusPausePresentation& context,
+                               bw::game::GameAudio& audio,
+                               bool verify_player_death = false) {
   const auto domain = context.resources.memory_domain();
+  loading.prepare_combat();
+  audio.prepare_mission(context.files, context.resources.catalogs(),
+                        context.game / "data/sound", domain);
+  const auto profiles = bw::game::combat_audio_profiles(loading, domain);
+  audio.prepare_character_profiles(context.files, context.resources.catalogs(),
+                                   context.game / "data/sound", profiles,
+                                   domain);
+  const auto& definition = *loading.population_definition();
+  // Use the independently verified original Lua start, then ordinary traversal.
+  // The old trigger-center observer could sit outside the corrected source
+  // eye cone indefinitely and never exercised the encounter players reach.
+  const auto pose = kFixtureInitialPose;
+  CorpusWorldTime time;
+  time.bind_resources(bw::game::PlayerResourceSettings::parse(
+      bw::formats::CustomizationDefinition::parse(
+          loading.stage()->customization_bytes(), domain)));
+  bw::game::PlacementRandomStream placement_random(1);
+  bw::game::SourceRandom random;
+  bw::effects::ParticleRandom particle_random;
+  const auto dependencies = loading.resident_dependencies();
+  bw::game::WorldRuntime world(
+      time.clock, time.control, output,
+      {*loading.stage(), loading.resident_models(),
+       loading.resident_textures()},
+      {*loading.sky(), loading.sky_resident_models()}, domain, std::nullopt,
+      {&*loading.background(), dependencies},
+      bw::game::PlayerActorSource{
+          loading.resident_player(), loading.resident_weapon(),
+          loading.player_support(), loading.weapon_support(), pose},
+      {}, {loading.character_light(), loading.enemy_light()});
+  world.bind_physics(loading);
+  world.bind_effects(loading, particle_random);
+  world.bind_population(loading, placement_random);
+  world.bind_audio(audio.prepared(), context.audio, random,
+                   audio.character_voices());
+  world.bind_action_resources(time.resources->actions());
+  world.bind_combat(loading, random, context.audio, audio.character_profiles(),
+                    time.resources->damage_receiver(),
+                    time.resources->defeat_receiver());
+  const float initial_health = time.resources->snapshot().health;
+  const float initial_magic_ceiling =
+      time.resources->snapshot().recoverable_magic;
+  float first_defeat_magic = 0;
+  for (const auto& actor : definition.archetypes()) {
+    if (actor.model == "ea0") {
+      std::cerr << "Original defeat magic archetype=" << actor.id
+                << " amount=" << actor.defeat_magic << '\n';
+    }
+  }
+  bool observed_enemy_damage = false, observed_enemy_death = false;
+  bool observed_physical_death = false;
+  struct LivingOrigin {
+    bw::game::PopulationIdentity identity;
+    bw::math::Vector3<float> position{};
+  };
+  std::array<LivingOrigin, 50> living_origins{};
+  float maximum_living_displacement_squared = 0;
+  std::array<bw::game::PopulationActorObservation, 50> observations{};
+  unsigned death_frame = 0;
+  bool wound_applied = false;
+  for (unsigned frame = 0; frame < 2700; ++frame) {
+    if (verify_player_death && observed_enemy_damage && !wound_applied &&
+        time.resources->snapshot().health > 1) {
+      // Explicit wounded fixture after a real incoming hit. Applying it at
+      // startup allowed ordinary recovery during the long approach to erase
+      // the precondition. Exactly one wound is admitted; a later authored
+      // enemy projectile must still cause death and physical handoff.
+      const auto wound_frame =
+          time.clock.publish(1.F / 60, time.control.admission());
+      time.resources->begin_frame(wound_frame);
+      const auto wounded = time.resources->damage_receiver().receive(
+          (time.resources->snapshot().health - 1.F) / 4.F);
+      if (!wounded.accepted || !wounded.alive) {
+        throw std::runtime_error("Combat wound fixture failed");
+      }
+      world.advance(wound_frame);
+      time.resources->finish_frame();
+      wound_applied = true;
+    }
+    // This scenario observes command routing, not native cue duration. Explicit
+    // controlled completion prevents this non-device output retaining every
+    // one-shot forever; native audio lifecycle has separate acceptance.
+    if (frame % 60 == 0) {
+      for (auto& slot : context.audio.slots) slot.active = false;
+    }
+    bw::game::StageTraversalInput input;
+    const auto actor_count = world.observe_population(observations);
+    const auto records = std::span(observations).first(actor_count);
+    const auto target = std::ranges::find_if(records, [&](const auto& record) {
+      return record.state.life > 0 &&
+             definition.archetypes()[record.state.placement.archetype].id ==
+                 100;
+    });
+    if (frame < 240) {
+      input.movement.direction = {0, 1};
+    } else if (frame < 720) {
+      input.movement.direction = {1, 0};
+    } else if (target != records.end()) {
+      const auto& camera = world.camera_state()->pose;
+      const auto direction =
+          bw::math::subtract(target->aim_position, camera.eye);
+      const float yaw = std::atan2(direction[0], direction[2]);
+      const float current_yaw =
+          std::atan2(camera.forward[0], camera.forward[2]);
+      const float yaw_error =
+          std::remainder(yaw - current_yaw, 2.F * std::numbers::pi_v<float>);
+      const float pitch =
+          std::atan2(direction[1], std::hypot(direction[0], direction[2]));
+      const float current_pitch = std::asin(camera.forward[1]);
+      input.look.right = std::clamp(yaw_error * 10.F, -1.F, 1.F);
+      input.look.up = std::clamp((pitch - current_pitch) * 10.F, -1.F, 1.F);
+      auto offset = bw::math::subtract(target->state.placement.position,
+                                       world.player_state()->pose.position);
+      offset[1] = 0;
+      if (bw::math::length(offset) > 6.F) {
+        const auto desired =
+            bw::math::normalize_or(offset, bw::math::Vector3<float>{0, 0, 1});
+        input.movement.direction = {std::cos(current_yaw) * desired[0] -
+                                        std::sin(current_yaw) * desired[2],
+                                    std::sin(current_yaw) * desired[0] +
+                                        std::cos(current_yaw) * desired[2]};
+      }
+      // Require a real incoming receipt before returning fire. A fixed delay
+      // either kills the actor first or leaves Alicia exposed until death.
+      if (!verify_player_death && observed_enemy_damage) {
+        input.presentation.fire_trigger = 1;
+      }
+    }
+    time.advance(world, 1.0 / 60, input);
+    observed_enemy_damage |= time.resources->snapshot().health < initial_health;
+    const auto count = world.observe_population(observations);
+    for (const auto& record : std::span(observations).first(count)) {
+      if (definition.archetypes()[record.state.placement.archetype].id != 100) {
+        continue;
+      }
+      if (record.state.life > 0 && !record.physical) {
+        auto origin = std::ranges::find(living_origins, record.identity,
+                                        &LivingOrigin::identity);
+        if (origin == living_origins.end()) {
+          origin =
+              std::ranges::find(living_origins, bw::game::PopulationIdentity{},
+                                &LivingOrigin::identity);
+          if (origin == living_origins.end()) {
+            throw std::runtime_error(
+                "Combat route observation capacity exhausted");
+          }
+          *origin = {record.identity, record.state.placement.position};
+        }
+        auto delta = bw::math::subtract(record.state.placement.position,
+                                        origin->position);
+        delta[1] = 0;
+        maximum_living_displacement_squared = std::max(
+            maximum_living_displacement_squared, bw::math::dot(delta, delta));
+      }
+      observed_physical_death |= record.state.life <= 0 && record.physical;
+      if (record.state.life <= 0 && !observed_enemy_death) {
+        observed_enemy_death = true;
+        first_defeat_magic = static_cast<float>(
+            definition.archetypes()[record.state.placement.archetype]
+                .defeat_magic);
+        death_frame = frame;
+        std::cerr << "Original enemy death frame=" << frame
+                  << " identity=" << record.identity.value << '\n';
+      }
+    }
+    if (frame % 120 == 0) {
+      std::cerr << "Original combat frame=" << frame
+                << " actors=" << world.population_count()
+                << " health=" << time.resources->snapshot().health << '\n';
+    }
+    if (observed_enemy_death && observed_physical_death &&
+        frame > death_frame + 180) {
+      break;
+    }
+    if (time.resources->snapshot().health == 0 && world.player_physical()) {
+      break;
+    }
+  }
+  std::cerr << "Original living enemy maximum horizontal displacement="
+            << std::sqrt(maximum_living_displacement_squared) << '\n';
+  if (maximum_living_displacement_squared <= 1.F) {
+    throw std::runtime_error(
+        "Authored movement never moved a living enemy one unit");
+  }
+  if (verify_player_death) {
+    if (time.resources->snapshot().health != 0 || !world.player_physical()) {
+      throw std::runtime_error(
+          "Authored enemy shot did not cause physical player death");
+    }
+    std::cerr << "Original enemy projectile caused player death and physical "
+                 "handoff\n";
+    return;
+  }
+  if (!observed_enemy_damage) {
+    throw std::runtime_error("Original encounter produced no enemy damage");
+  }
+  if (!observed_enemy_death) {
+    throw std::runtime_error(
+        "Original player shots did not kill authored enemy");
+  }
+  if (!observed_physical_death) {
+    throw std::runtime_error(
+        "Original enemy death did not transfer to physics");
+  }
+  const auto expected_ceiling =
+      std::min(100.F, initial_magic_ceiling + first_defeat_magic);
+  if (time.resources->snapshot().recoverable_magic < expected_ceiling) {
+    throw std::runtime_error(
+        "Accepted original enemy defeat did not restore magic ceiling");
+  }
+  std::cerr << "Original defeat restored magic ceiling="
+            << time.resources->snapshot().recoverable_magic << '\n';
+  std::cerr << "Original two-way damage and physical enemy death exercised; "
+               "native audiovisual and "
+               "defeat/retry acceptance remain\n";
+}
+void original_mission_start(
+    bw::game::MissionDriver& driver, bw::game::MissionLoading& loading,
+    bw::game::MissionControl& control, bw::game::MissionPlayerState& player,
+    WorldOutput& output, const CorpusPausePresentation& context,
+    bw::game::GameAudio& audio, bool verify_defeat = false) {
+  const auto domain = context.resources.memory_domain();
+  loading.prepare_combat();
+  audio.prepare_mission(context.files, context.resources.catalogs(),
+                        context.game / "data/sound", domain);
+  const auto combat_profiles = bw::game::combat_audio_profiles(loading, domain);
+  audio.prepare_character_profiles(context.files, context.resources.catalogs(),
+                                   context.game / "data/sound", combat_profiles,
+                                   domain);
+  const auto& combat = loading.combat_definitions();
+  const auto damage_bound =
+      [](const bw::game::StraightWeaponDefinition& weapon,
+         const bw::game::ActorDamageDefinition& receiver) {
+        float largest = 0;
+        for (unsigned level = 1; level <= 3; ++level) {
+          const float incoming =
+              std::max(weapon.damage.at_distance(level, 0),
+                       weapon.damage.at_distance(level, weapon.range));
+          for (std::size_t body = 0; body < receiver.ordinary.size(); ++body) {
+            largest = std::max(
+                largest,
+                receiver.magnitude(static_cast<std::uint8_t>(body), incoming));
+          }
+        }
+        return largest;
+      };
+  std::cerr << "Combat original damage bounds player-to-soldier="
+            << damage_bound(combat.player, combat.soldier_damage)
+            << " threshold=" << combat.soldier_damage.heavy_damage_threshold
+            << " soldier-to-player="
+            << damage_bound(combat.soldier, combat.player_damage)
+            << " threshold=" << combat.player_damage.heavy_damage_threshold
+            << '\n';
   if (!loading.stage() || !loading.sky() || !loading.background() ||
       !loading.text_table()) {
     throw std::runtime_error("Mission opening inputs absent");
@@ -3090,6 +3494,7 @@ void original_mission_start(bw::game::MissionDriver& driver,
   bw::world::WorldClock clock;
   bw::game::SourceRandom random;
   bw::game::PlacementRandomStream placement_random(1);
+  bw::effects::ParticleRandom particle_random;
   const auto settings = bw::game::PlayerResourceSettings::parse(
       bw::formats::CustomizationDefinition::parse(stage.customization_bytes(),
                                                   domain));
@@ -3105,6 +3510,11 @@ void original_mission_start(bw::game::MissionDriver& driver,
       context.files.read(context.game / "data/menu/9900", domain));
   message_surface.begin();
   while (!message_surface.ready()) {
+  }
+  bw::game::MissionGameOverSurface game_over_surface(context.resources,
+                                                     context.sprites);
+  game_over_surface.begin();
+  while (!game_over_surface.ready()) {
   }
   bw::game::MissionMessage message(*loading.text_table(), "cm01_00",
                                    message_surface, context.audio);
@@ -3144,7 +3554,14 @@ void original_mission_start(bw::game::MissionDriver& driver,
                   bw::content::LoadProgress{},
                   bw::game::StageCharacterLightSource{loading.character_light(),
                                                       loading.enemy_light()});
+    world->bind_physics(loading);
+    world->bind_effects(loading, particle_random);
     world->bind_population(loading, placement_random);
+    world->bind_audio(audio.prepared(), context.audio, random,
+                      audio.character_voices());
+    world->bind_combat(
+        loading, random, context.audio, audio.character_profiles(),
+        player_resources.damage_receiver(), player_resources.defeat_receiver());
     gameplay.emplace(clock, control, player, player_resources, loading, *world,
                      hud, pause, random, context.audio,
                      context.profile.help_control(),
@@ -3172,6 +3589,8 @@ void original_mission_start(bw::game::MissionDriver& driver,
                    : loading.contains_mission_trap(event, position);
       },
       hud.system_text_table());
+  script_runtime.bind_defeat(game_over_surface, context.audio,
+                             loading.callbacks());
   driver.start(script_runtime);
   unsigned message_frames = 0;
   constexpr float kInterval = 1.F / 60;
@@ -3230,10 +3649,66 @@ void original_mission_start(bw::game::MissionDriver& driver,
     throw std::runtime_error(
         "Original mission start ownership/handoff incomplete");
   }
+  if (verify_defeat) {
+    // Isolate the real death callback/UI/retirement chain from combat aiming.
+    // Lethal projectile/animation/physics are checked in the encounter above;
+    // this fixture supplies only its resulting zero-health observation.
+    (void)script_runtime.begin(kInterval, {});
+    const auto lethal = player_resources.damage_receiver().receive(
+        player_resources.snapshot().maximum_health);
+    if (!lethal.accepted || lethal.alive) {
+      throw std::runtime_error("Defeat observation fixture failed");
+    }
+    script_runtime.advance();
+    (void)driver.advance();
+    bool retry_requested = false;
+    for (unsigned frame = 0; frame < 900; ++frame) {
+      if (frame % 60 == 0) {
+        for (auto& slot : context.audio.slots) slot.active = false;
+      }
+      bw::game::MissionInput input;
+      if (frame > 300 && frame % 30 == 0) input.menu.pressed = 0x1000;
+      const auto result = script_runtime.begin(kInterval, input);
+      script_runtime.advance();
+      script_runtime.present();
+      const auto& progress = driver.advance();
+      music.advance(kInterval);
+      if (progress.phase == bw::game::MissionPhase::failed ||
+          progress.phase == bw::game::MissionPhase::awaiting_gameplay) {
+        throw std::runtime_error("Original defeat callback incomplete: " +
+                                 progress.diagnostic);
+      }
+      if (result.transition == bw::game::MissionTransition::restart_stage) {
+        retry_requested = true;
+        break;
+      }
+      if (result.transition != bw::game::MissionTransition::none) {
+        throw std::runtime_error(
+            "Original defeat choice returned incorrect transition");
+      }
+    }
+    if (!retry_requested || context.audio.music_playing ||
+        world->population_count() != 0) {
+      throw std::runtime_error(
+          "Original defeat did not retire mission audio/entities and request "
+          "retry");
+    }
+    std::cerr << "Original gameover callback, source UI confirmation and "
+                 "restart request verified\n";
+    return;
+  }
+  // Ordinary starting-route combat is exercised by original_combat_admission.
+  // Keep this isolated callback witness at its verified Lua start: idling for
+  // scripted timers inside an active firefight can correctly enter GameOver
+  // and would no longer test the independent checkpoint/music callback chain.
   // Inject only the containment observation. Original recovered Lua and all
   // production callback/checkpoint/message/music owners execute unchanged.
   // Geometry of both retained placement tables is checked separately.
+  unsigned callback_frames = 0;
   const auto callback_frame = [&] {
+    if (callback_frames++ % 60 == 0) {
+      for (auto& slot : context.audio.slots) slot.active = false;
+    }
     (void)script_runtime.begin(kInterval, {});
     script_runtime.advance();
     script_runtime.present();
@@ -3250,7 +3725,8 @@ void original_mission_start(bw::game::MissionDriver& driver,
   if (script_runtime.checkpoint() != 10 ||
       !script_runtime.initial_checkpoint() ||
       script_runtime.initial_checkpoint()->background != &background ||
-      script_runtime.initial_checkpoint()->population.count != 0 ||
+      script_runtime.initial_checkpoint()->population.count !=
+          world->population_checkpoint().count ||
       !script_runtime.system_message_view().active ||
       script_runtime.system_message_view().text.empty()) {
     throw std::runtime_error(
@@ -3283,12 +3759,12 @@ void original_mission_start(bw::game::MissionDriver& driver,
   forced_callback_event = 500;
   callback_frame();
   if (driver.progress().phase != bw::game::MissionPhase::awaiting_gameplay ||
-      driver.progress().diagnostic.find("_RemoveEnemyAll") ==
+      driver.progress().diagnostic.find("_ExecMissionClear") ==
           std::string::npos ||
-      !script_runtime.goal_target() || control.simulation_paused() ||
-      !control.pause_requests_allowed()) {
+      script_runtime.goal_target() || control.simulation_paused() ||
+      control.admission().hardware_input) {
     throw std::runtime_error(
-        "Goal boundary fabricated gameplay or retired world");
+        "Goal callback did not preserve its source prefix and pending result");
   }
   const auto before_boundary_tick = clock.simulation_seconds();
   callback_frame();
@@ -3309,6 +3785,7 @@ void original_mission_start(bw::game::MissionDriver& driver,
 void original_population_admission(
     bw::game::MissionLoading& loading, WorldOutput& output,
     const std::shared_ptr<bw::memory::Domain>& domain) {
+  loading.prepare_physics();
   const auto* definition = loading.population_definition();
   if (!definition || !loading.stage() || !loading.sky() ||
       !loading.background()) {
@@ -3374,6 +3851,7 @@ void original_population_admission(
               loading.resident_player(), loading.resident_weapon(),
               loading.player_support(), loading.weapon_support(), fixture_pose},
           {}, {loading.character_light(), loading.enemy_light()});
+      world.bind_physics(loading);
       world.bind_population(loading, random);
       if (world.population_count() != 0 ||
           world.pending_population_count() != 0) {
@@ -3578,7 +4056,7 @@ void original_mission_restart(const CorpusPausePresentation& context,
       driver, loading, control, player, output,
       {context.resources, context.sprites, context.auxiliary, context.files,
        context.game, context.profile, *factory.output, context.storage},
-      audio);
+      audio, true);
   if (loading.current_player_costume() != costume ||
       context.profile.progression() != progression) {
     throw std::runtime_error("Original restart changed appearance/progression");
@@ -4296,7 +4774,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
                       stage->customization_bytes(), resources.memory_domain()));
           time.bind_resources(resource_settings);
           inspection.bind_audio(scene_audio.prepared(), *scene_audio.output(),
-                                scene_random);
+                                scene_random, scene_audio.character_voices());
           mission_gameplay_composition(
               time, inspection, loading, scene_random,
               {resources, output, menu.surface_, files, game, profile,
@@ -4913,10 +5391,6 @@ void reconstructed_session(bw::resources::ResourceService& resources,
       } else {
         loading.prepare_player(0);
       }
-      if (mission_startup_only) {
-        original_population_admission(loading, world,
-                                      resources.memory_domain());
-      }
       {
         CorpusAudioFactory opening_factory;
         bw::game::GameAudio opening_audio(
@@ -4924,6 +5398,16 @@ void reconstructed_session(bw::resources::ResourceService& resources,
             opening_factory, {3, 128, 50'000'000});
         opening_audio.prepare_frontend_music(files, game / "data/sound",
                                              resources.memory_domain());
+        original_combat_admission(
+            loading, world,
+            {resources, output, menu.surface_, files, game, profile,
+             *opening_factory.output, *storage},
+            opening_audio);
+        original_combat_admission(
+            loading, world,
+            {resources, output, menu.surface_, files, game, profile,
+             *opening_factory.output, *storage},
+            opening_audio, true);
         original_mission_start(mission, loading, mission_control,
                                development_player, world,
                                {resources, output, menu.surface_, files, game,
@@ -4937,10 +5421,7 @@ void reconstructed_session(bw::resources::ResourceService& resources,
               "Menu music identity was not restored after the mission track");
         }
       }
-      if (!mission_startup_only) {
-        original_population_admission(loading, world,
-                                      resources.memory_domain());
-      }
+      original_population_admission(loading, world, resources.memory_domain());
       const auto restart_costume = loading.current_player_costume();
       mission.cancel();
       if (mission.progress().phase != bw::game::MissionPhase::cancelled ||
@@ -5043,6 +5524,26 @@ int main(int argc, char** argv) {
           resource_memory
               ? bw::content::open_catalog(files, concept_path, resource_memory)
               : bw::content::open_catalog(files, concept_path));
+      {
+        constexpr std::array<std::string_view, 6> behavior_names{
+            "no_ea_m_000",     "sub_ea_magic_no", "sub_ea_pursue_m",
+            "sub_ea_escape_m", "sub_ea_lv01_no",  "sub_ea_lv01_follow"};
+        const bw::game::MissionBehaviorAssets behaviors(
+            files, catalogs, resource_memory, behavior_names);
+        std::size_t nodes = 0;
+        for (const auto name : behavior_names) {
+          const auto& definition = behaviors.definition(name);
+          if (definition.bytecode().empty() || definition.entries().empty()) {
+            throw std::runtime_error(
+                "Original AI closure lost bytecode or entry points");
+          }
+          nodes += definition.nodes().size();
+        }
+        if (nodes != 1893) {
+          throw std::runtime_error(
+              "Original EA0 AI closure population differs");
+        }
+      }
 #if BW_TEST_MACOS_MEMORY
       bw::resources::ResourceService resources(std::move(catalogs), files,
                                                resource_memory);

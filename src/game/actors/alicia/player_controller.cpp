@@ -38,10 +38,12 @@
 #include <numbers>
 #include <stdexcept>
 
-#include "animation/aim_posture.hpp"
 #include "bw/content/formats/binary_reader.hpp"
 #include "bw/math/direction.hpp"
+#include "game/actors/animation/aim_posture.hpp"
+#include "game/actors/character_body_radius.hpp"
 #include "player_targeting.hpp"
+
 namespace bw::game {
 namespace {
 constexpr float kGravity = 9.800000190734863F;
@@ -140,6 +142,7 @@ PlayerController::PlayerController(PlayerActor& actor,
       targeting_(&targeting),
       collision_(&collision),
       settings_(settings),
+      contact_radius_(settings.radius),
       state_{.pose = placement},
       action_(actor, state_.phase, *this) {
   if (!std::isfinite(settings.radius) ||
@@ -417,8 +420,8 @@ bool PlayerController::step_scripted(MovementStep step,
   const auto contact = collision_->move_character(
       {.previous_position = previous,
        .proposed_position = proposed,
-       .radius = settings_.radius,
-       .cylinder_height = settings_.standing_height - 2 * settings_.radius,
+       .radius = contact_radius_,
+       .cylinder_height = settings_.standing_height - 2 * contact_radius_,
        .delta_seconds = dt,
        .vertical_velocity = state_.velocity[1],
        .previously_grounded = !flight && state_.contact.grounded,
@@ -467,6 +470,9 @@ double PlayerController::advance(PlayerMovementInput input,
       aim.weapon_movement_scale < 0 || aim.weapon_class > 3) {
     throw std::invalid_argument("Invalid accepted player aiming observation");
   }
+  // Life arrives from the authoritative damage receiver; the same derived
+  // radius owns support and subsequent model publication (Core I.1, MEM.9).
+  contact_radius_ = character_body_radius(settings_.radius, observations.alive);
   action_update_ = {};
   if (delta_seconds > 0 && input.crouch_pressed &&
       !action_.blocks_locomotion() &&
@@ -498,14 +504,14 @@ double PlayerController::advance(PlayerMovementInput input,
     // Selection never erases the preceding raw movement interval.
     (void)actor_->advance_motion(step_seconds);
     actor_->complete_model_step(state_.pose, state_.orientation,
-                                settings_.radius);
+                                contact_radius_);
     completed_model = true;
     remaining -= step_seconds;
   }
   if (completed_model) {
     actor_->publish_completed_pose(output);
   } else {
-    actor_->publish_pose(state_.pose, state_.orientation, settings_.radius,
+    actor_->publish_pose(state_.pose, state_.orientation, contact_radius_,
                          output);
   }
   return delta_seconds - remaining;
@@ -763,11 +769,11 @@ bool PlayerController::step(float camera_yaw_radians, PlayerMovementInput input,
   const auto contact = collision_->move_character(
       {.previous_position = previous,
        .proposed_position = proposed,
-       .radius = settings_.radius,
+       .radius = contact_radius_,
        .cylinder_height = (state_.stance == AliciaStance::crouched
                                ? settings_.alternate_height
                                : settings_.standing_height) -
-                          2 * settings_.radius,
+                          2 * contact_radius_,
        .delta_seconds = dt,
        .vertical_velocity = state_.velocity[1],
        .previously_grounded = !airborne && state_.contact.grounded,

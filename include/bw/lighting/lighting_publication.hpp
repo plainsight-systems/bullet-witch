@@ -47,6 +47,11 @@ class LightingPublication {
   void set_field_intensity(LightingFieldId field, float intensity);
   void set_view(const LocalLightViewQuery& view);
   void replace_local_lights(std::span<const LocalLight> lights);
+  // Retire preparation-time emitters without invalidating dynamic handles.
+  // Owner-thread, allocation-free; the next view refreshes selected packets.
+  void clear_static_emitters();
+  void prepare_emitters(std::size_t capacity);
+  LocalLightEmitter acquire_emitter();
   DirectionalLighting directional_lighting() const noexcept;
   // Setup-only one-off packet, e.g. immutable white sky. Returned storage owns
   // its values; no references escape sampler scratch.

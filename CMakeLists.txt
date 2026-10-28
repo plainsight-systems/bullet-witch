@@ -18,6 +18,9 @@ target_compile_features(bw_math INTERFACE cxx_std_20)
 add_library(bw_resources src/engine/content/formats/named_file_package.cpp src/engine/content/resources/service.cpp src/engine/content/formats/common.cpp src/engine/content/formats/resource_archive.cpp src/engine/content/formats/resource_catalog.cpp
   src/engine/content/resources/catalog.cpp src/engine/content/resources/access.cpp src/engine/content/formats/model.cpp src/engine/content/formats/section_table.cpp src/engine/content/formats/text_table.cpp src/engine/content/formats/audio_bank.cpp src/engine/content/formats/animation_definition.cpp src/engine/content/formats/motion_events.cpp src/engine/content/formats/control_points.cpp src/engine/content/formats/stage_definitions.cpp src/engine/content/formats/background_placement.cpp src/engine/content/formats/customization.cpp)
 target_sources(bw_resources PRIVATE src/engine/content/formats/model_shapes.cpp)
+target_sources(bw_resources PRIVATE src/engine/content/formats/behavior_tree.cpp
+  src/engine/content/formats/navigation_archive.cpp)
+target_sources(bw_resources PRIVATE src/engine/content/formats/effect_pack.cpp)
 target_include_directories(bw_resources PUBLIC include)
 target_compile_features(bw_resources PUBLIC cxx_std_20)
 function(bw_strict target)
@@ -49,6 +52,15 @@ target_include_directories(bw_memory PUBLIC include)
 target_compile_features(bw_memory PUBLIC cxx_std_20)
 bw_strict(bw_memory)
 target_link_libraries(bw_resources PUBLIC bw_memory bw_math)
+include(cmake/Jolt.cmake)
+add_library(bw_effects src/engine/effects/particle_sampling.cpp)
+target_sources(bw_effects PRIVATE src/engine/effects/sprite_program.cpp src/engine/effects/sprite_world.cpp)
+target_link_libraries(bw_effects PUBLIC bw_resources bw_math bw_timing)
+target_compile_features(bw_effects PUBLIC cxx_std_20)
+if(NOT MSVC)
+  target_compile_options(bw_effects PRIVATE -ffp-contract=off)
+endif()
+bw_strict(bw_effects)
 add_library(bw_render src/engine/render/scene/render_scene.cpp src/engine/render/materials/world_material.cpp src/engine/render/postprocess/world_output.cpp src/engine/render/scene/view.cpp src/engine/render/shadows/shadow.cpp src/engine/render/materials/material_animation.cpp)
 target_include_directories(bw_render PUBLIC include)
 target_link_libraries(bw_render PUBLIC bw_math)
@@ -102,19 +114,63 @@ if(UNIX)
   target_link_libraries(bw_save_storage_posix PUBLIC bw_resources)
   bw_strict(bw_save_storage_posix)
 endif()
-add_library(bw_game src/game/mission/mission_control.cpp src/game/player/camera/initial_camera.cpp src/game/player/camera/player_camera.cpp src/game/world/placed_collision.cpp src/game/world/presentation/placed_lighting.cpp src/game/world/world_runtime.cpp src/game/world/mission_simulation.cpp src/game/world/presentation/stage_presentation.cpp src/game/world/presentation/stage_shadow.cpp src/game/mission/mission_driver.cpp src/game/mission/mission_script_bindings.cpp src/game/mission/mission_script_runtime.cpp
-  src/game/mission/mission_callbacks.cpp src/game/ui/mission/mission_message.cpp src/game/world/mission_population.cpp src/game/world/world_population.cpp src/game/actors/npc/npc_actor.cpp src/game/actors/npc/npc_initial_motion.cpp src/game/actors/npc/npc_appearance.cpp src/game/actors/animation/shared_motion_pose.cpp src/game/mission/loading/mission_loading.cpp src/game/mission/loading/mission_package_inputs.cpp src/game/content/original/npc_palette.cpp src/game/session/root_driver.cpp src/game/ui/startup/startup_flows.cpp src/game/session/session_services.cpp src/game/ui/startup/advertise_flow.cpp src/game/ui/frontend/title_flows.cpp src/game/ui/frontend/menu_flow.cpp src/game/ui/frontend/frontend.cpp src/game/ui/frontend/ranking_flow.cpp)
+add_library(bw_game src/game/mission/mission_control.cpp src/game/player/camera/initial_camera.cpp src/game/player/camera/player_camera.cpp src/game/world/placed_collision.cpp src/game/world/presentation/placed_lighting.cpp src/game/world/world_runtime.cpp
+  src/game/world/world_combat.cpp src/game/world/mission_simulation.cpp src/game/world/world_collision.cpp src/game/world/presentation/stage_presentation.cpp src/game/world/presentation/stage_shadow.cpp src/game/mission/mission_driver.cpp src/game/mission/mission_script_bindings.cpp src/game/mission/mission_script_runtime.cpp
+  src/game/combat/damage_feedback.cpp
+  src/game/ui/hud/damage_direction_hud.cpp
+  src/game/mission/mission_ancillary_state.cpp
+  src/game/mission/mission_callbacks.cpp src/game/ui/mission/mission_message.cpp
+    src/game/ui/mission/mission_game_over.cpp src/game/world/mission_population.cpp src/game/world/world_population.cpp src/game/actors/npc/npc_actor.cpp
+    src/game/actors/npc/npc_motion_events.cpp
+    src/game/actors/npc/scene_navigation.cpp
+    src/game/actors/npc/collision_route_search.cpp
+    src/game/actors/npc/collision_route_pair.cpp
+    src/game/actors/npc/locomotion_policy.cpp
+    src/game/actors/npc/npc_combat_metadata.cpp
+    src/game/actors/npc/npc_combat_controller.cpp
+    src/game/actors/animation/root_motion.cpp
+    src/game/actors/animation/combat_pose.cpp
+    src/game/actors/npc/npc_pose_semantics.cpp src/game/actors/npc/npc_initial_motion.cpp src/game/actors/npc/npc_appearance.cpp src/game/actors/animation/shared_motion_pose.cpp src/game/mission/loading/mission_loading.cpp src/game/mission/loading/mission_package_inputs.cpp src/game/content/original/npc_palette.cpp src/game/session/root_driver.cpp src/game/ui/startup/startup_flows.cpp src/game/session/session_services.cpp src/game/ui/startup/advertise_flow.cpp src/game/ui/frontend/title_flows.cpp src/game/ui/frontend/menu_flow.cpp src/game/ui/frontend/frontend.cpp src/game/ui/frontend/ranking_flow.cpp)
 target_sources(bw_game PRIVATE src/game/player/input/controller_input.cpp src/game/ui/options/controller_options.cpp)
+target_sources(bw_game PRIVATE src/game/actors/animation/character_reaction_policy.cpp src/game/actors/animation/action_motion_request.cpp src/game/actors/animation/weapon_motion_policy.cpp)
+target_sources(bw_game PRIVATE src/game/actors/npc/behavior_selection.cpp
+    src/game/actors/npc/perception.cpp src/game/actors/npc/behavior_lua.cpp
+    src/game/actors/npc/behavior_runtime.cpp src/game/actors/npc/behavior_observations.cpp)
+target_sources(bw_game PRIVATE src/game/actors/npc/native_actions.cpp
+  src/game/actors/npc/reaction_admission.cpp
+  src/game/actors/npc/steering.cpp
+  src/game/content/original/motion_symbols.cpp src/game/actors/sound_stimuli.cpp src/game/actors/npc/target_requests.cpp src/game/actors/npc/navigation_projection.cpp
+  src/game/actors/alicia/combat/player_weapon_combat.cpp
+  src/game/actors/npc/npc_brain.cpp
+  src/game/actors/npc/ai_settings.cpp
+  src/game/actors/npc/navigation_controller.cpp)
+target_sources(bw_game PRIVATE src/game/combat/weapon_definition.cpp)
+target_sources(bw_game PRIVATE src/game/combat/ordinary_hit_response.cpp)
+target_sources(bw_game PRIVATE src/game/actors/death_lifetime.cpp)
+target_sources(bw_game PRIVATE src/game/combat/projectile_world.cpp)
+target_sources(bw_game PRIVATE src/game/combat/actor_hit_geometry.cpp)
+target_sources(bw_game PRIVATE src/game/combat/weapon_emitter.cpp src/game/combat/weapon_presentation.cpp)
+target_sources(bw_game PRIVATE src/game/combat/weapon_audio.cpp src/game/combat/health_damage.cpp
+    src/game/combat/weapon_resources.cpp
+    src/game/combat/damage_definition.cpp src/game/combat/shot_geometry.cpp
+  src/game/combat/shot_target.cpp src/game/combat/combat_world.cpp src/game/combat/melee_events.cpp src/game/combat/melee_damage.cpp src/game/actors/npc/contact_action_policy.cpp
+  src/game/actors/animation/melee_blast.cpp)
+target_sources(bw_game PRIVATE src/game/combat/combat_effects.cpp src/game/world/world_physics.cpp)
+target_sources(bw_game PRIVATE src/game/mission/loading/combat_effect_assets.cpp)
+target_sources(bw_game PRIVATE src/game/mission/loading/mission_behavior_assets.cpp)
+target_sources(bw_game PRIVATE src/game/content/original/character_physics_recipe.cpp src/game/actors/character_physics.cpp)
+target_link_libraries(bw_game PRIVATE bw_physics bw_effects)
 target_sources(bw_game PRIVATE src/game/world/presentation/stage_environment.cpp src/game/actors/alicia/player_actor.cpp src/game/actors/alicia/player_controller.cpp src/game/actors/alicia/animation/alicia_secondary_motion.cpp src/game/actors/alicia/animation/alicia_support_arm.cpp
-  src/game/actors/animation/character_animations.cpp src/game/actors/alicia/animation/alicia_motion_bindings.cpp src/game/actors/animation/motion_presentation.cpp
-  src/game/actors/alicia/animation/facial_animation.cpp src/game/actors/alicia/audio/character_audio.cpp src/game/session/audio/game_audio.cpp src/game/session/audio/music_playback.cpp src/game/ui/audio/frontend_audio.cpp
+  src/game/actors/animation/character_animations.cpp
+    src/game/actors/animation/source_motion_bindings.cpp src/game/actors/alicia/animation/alicia_motion_bindings.cpp src/game/actors/animation/motion_presentation.cpp
+  src/game/actors/animation/facial_animation.cpp src/game/actors/animation/model_visibility.cpp src/game/actors/audio/character_audio.cpp src/game/actors/audio/npc_audio.cpp src/game/session/audio/game_audio.cpp src/game/session/audio/music_playback.cpp src/game/ui/audio/frontend_audio.cpp
   src/game/actors/animation/character_motion_player.cpp)
 target_sources(bw_game PRIVATE src/game/ui/hud/ammunition_hud.cpp src/game/ui/hud/gameplay_hud.cpp src/game/ui/hud/mission_system_message.cpp src/game/ui/hud/mission_goal_hud.cpp src/game/ui/hud/spell_selection.cpp src/game/actors/alicia/player_resources.cpp src/game/actors/alicia/actions/alicia_action_policy.cpp
   src/game/actors/alicia/actions/alicia_reaction_policy.cpp
-  src/game/actors/alicia/actions/scripted_jump_policy.cpp
+  src/game/actors/animation/scripted_jump_policy.cpp
   src/game/actors/alicia/actions/spell_presentation_policy.cpp
   src/game/actors/alicia/player_targeting.cpp
-  src/game/actors/alicia/animation/aim_posture.cpp
+  src/game/actors/animation/aim_posture.cpp
   src/game/actors/alicia/actions/alicia_action_owner.cpp)
 target_link_libraries(bw_game PUBLIC bw_runtime bw_profiles bw_timing PUBLIC bw_game_content PRIVATE bw_images bw_render bw_spatial bw_lighting bw_animation bw_audio_decode bw_host_files bw_input)
 target_compile_definitions(bw_game PUBLIC BW_DEVELOPER_VIEWS=$<BOOL:${BW_DEVELOPER_VIEWS}>)
@@ -187,7 +243,7 @@ if(APPLE)
   target_compile_options(bw_texture_allocation_macos PRIVATE -fobjc-arc)
   target_link_libraries(bw_texture_allocation_macos PUBLIC bw_memory PRIVATE "-framework Metal" objc)
   bw_strict(bw_texture_allocation_macos)
-  add_library(bw_world_renderer_macos src/platform/macos/render/buffer_allocation.mm src/platform/macos/render/world_renderer.mm src/platform/macos/render/world_postprocess.mm)
+  add_library(bw_world_renderer_macos src/platform/macos/render/buffer_allocation.mm src/platform/macos/render/world_renderer.mm src/platform/macos/render/world_postprocess.mm src/platform/macos/render/effect_sprite_pass.mm)
   set_target_properties(bw_world_renderer_macos PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
   target_include_directories(bw_world_renderer_macos PRIVATE src)
   target_compile_options(bw_world_renderer_macos PRIVATE -fobjc-arc)
@@ -229,6 +285,8 @@ bw_strict(bw-resource)
 include(CTest)
 if(BUILD_TESTING)
   add_executable(memory-tests tests/unit/engine/memory/memory_test.cpp tests/unit/engine/memory/device_budget_test.cpp)
+  target_sources(memory-tests PRIVATE tests/unit/engine/physics/world_test.cpp)
+  target_link_libraries(memory-tests PRIVATE bw_physics)
   target_link_libraries(memory-tests PRIVATE bw_memory)
   if(APPLE)
     target_sources(memory-tests PRIVATE tests/unit/platform/macos/macos_cpu_backing_test.cpp tests/unit/platform/macos/macos_texture_allocation_test.mm tests/unit/platform/macos/macos_final_edge_test.mm tests/unit/platform/macos/macos_texture_mips_test.mm tests/unit/platform/macos/macos_scene_replay_test.mm tests/unit/platform/macos/macos_output_compositor_test.mm tests/unit/platform/macos/media_audio_memory_test.cpp)
@@ -256,7 +314,8 @@ if(BUILD_TESTING)
   tests/unit/engine/runtime/script_coroutine_test.cpp tests/unit/engine/runtime/task_memory_test.cpp tests/unit/engine/runtime/lua_memory_test.cpp tests/unit/game/ui/startup/startup_flows_test.cpp
     tests/unit/game/session/startup_services_test.cpp tests/unit/game/ui/startup/startup_playback_test.cpp tests/unit/engine/video/pcm_buffer_test.cpp tests/unit/game/ui/startup/advertise_flow_test.cpp tests/unit/game/ui/frontend/title_flow_test.cpp tests/unit/game/ui/frontend/menu_flow_test.cpp tests/unit/game/player/camera/initial_camera_test.cpp tests/unit/game/player/camera/player_camera_test.cpp tests/unit/game/world/placed_collision_test.cpp tests/unit/game/application/startup_options_test.cpp tests/unit/game/world/presentation/stage_shadow_test.cpp)
   target_sources(runtime-tests PRIVATE tests/unit/game/world/mission_population_test.cpp
-  tests/unit/game/mission/mission_callbacks_test.cpp tests/unit/game/actors/shared_motion_pose_test.cpp tests/unit/game/actors/npc_appearance_test.cpp tests/unit/game/ui/mission/mission_message_test.cpp tests/unit/game/ui/mission/mission_system_message_test.cpp tests/unit/game/ui/hud/ammunition_hud_test.cpp tests/unit/game/ui/hud/gameplay_hud_test.cpp tests/unit/game/mission/gameplay_integration_test.cpp tests/unit/game/actors/animation/motion_presentation_test.cpp tests/unit/game/mission/world_timing_test.cpp)
+  tests/unit/game/mission/mission_callbacks_test.cpp tests/unit/game/mission/mission_ancillary_state_test.cpp tests/unit/game/actors/shared_motion_pose_test.cpp tests/unit/game/actors/npc_appearance_test.cpp tests/unit/game/ui/mission/mission_message_test.cpp tests/unit/game/ui/mission/mission_game_over_test.cpp tests/unit/game/ui/hud/damage_direction_hud_test.cpp tests/unit/game/ui/mission/mission_system_message_test.cpp tests/unit/game/ui/hud/ammunition_hud_test.cpp tests/unit/game/ui/hud/gameplay_hud_test.cpp tests/unit/game/mission/gameplay_integration_test.cpp tests/unit/game/actors/animation/motion_presentation_test.cpp
+    tests/unit/game/actors/model_visibility_test.cpp tests/unit/game/mission/world_timing_test.cpp)
   target_sources(runtime-tests PRIVATE tests/unit/game/ui/options/controller_options_test.cpp tests/unit/game/ui/pause/pause_menu_test.cpp tests/unit/game/ui/frontend/ranking_test.cpp tests/unit/game/ui/pause/pause_help_test.cpp tests/unit/game/ui/audio/menu_audio_test.cpp
   tests/unit/game/ui/common/menu_prompt_test.cpp)
   target_sources(runtime-tests PRIVATE tests/unit/game/actors/alicia/alicia_action_policy_test.cpp
@@ -266,6 +325,33 @@ if(BUILD_TESTING)
     tests/unit/game/actors/alicia/spell_presentation_policy_test.cpp
     tests/unit/game/actors/alicia/aim_posture_test.cpp)
   target_link_libraries(runtime-tests PRIVATE bw_game_playback bw_game_application bw_input)
+  target_sources(runtime-tests PRIVATE tests/unit/game/actors/npc/behavior_selection_test.cpp
+    tests/unit/game/actors/npc/perception_test.cpp
+    tests/unit/game/actors/npc/native_actions_test.cpp
+    tests/unit/game/actors/npc/target_requests_test.cpp
+    tests/unit/game/actors/npc/navigation_projection_test.cpp
+    tests/unit/game/actors/sound_stimuli_test.cpp
+    tests/unit/game/actors/npc/npc_brain_test.cpp
+    tests/unit/game/actors/npc/ai_settings_test.cpp
+    tests/unit/game/actors/npc/navigation_controller_test.cpp
+    tests/unit/game/actors/npc/scene_navigation_test.cpp
+    tests/unit/game/actors/npc/collision_route_search_test.cpp
+    tests/unit/game/actors/npc/collision_route_pair_test.cpp
+    tests/unit/game/actors/npc/locomotion_policy_test.cpp
+    tests/unit/game/actors/npc/npc_combat_metadata_test.cpp
+    tests/unit/game/actors/npc/combat_pose_test.cpp
+    tests/unit/game/actors/npc/contact_action_policy_test.cpp
+    tests/unit/game/actors/npc/behavior_runtime_test.cpp
+    tests/unit/game/actors/npc/behavior_observations_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/combat/projectile_world_test.cpp tests/unit/game/content/character_physics_recipe_test.cpp tests/unit/game/actors/character_physics_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/combat/actor_hit_geometry_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/world/world_physics_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/combat/combat_effects_test.cpp
+    tests/unit/game/combat/melee_events_test.cpp tests/unit/game/combat/melee_damage_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/game/combat/weapon_audio_test.cpp tests/unit/game/combat/health_damage_test.cpp tests/unit/game/combat/weapon_resources_test.cpp tests/unit/game/combat/shot_geometry_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/engine/runtime/particle_sampling_test.cpp)
+  target_sources(runtime-tests PRIVATE tests/unit/engine/runtime/sprite_world_test.cpp)
+  target_link_libraries(runtime-tests PRIVATE bw_effects)
   if(APPLE)
     target_sources(runtime-tests PRIVATE tests/unit/platform/macos/gamepad_targeting_test.mm)
     set_source_files_properties(tests/unit/platform/macos/gamepad_targeting_test.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
@@ -286,6 +372,9 @@ if(BUILD_TESTING)
   bw_strict(startup-corpus)
   add_executable(resource-tests tests/unit/engine/render/render_scene_test.cpp tests/unit/engine/content/resources/resources_test.cpp tests/unit/engine/content/formats/model_test.cpp tests/unit/engine/content/formats/audio_bank_test.cpp tests/unit/engine/content/formats/stage_definitions_test.cpp tests/unit/engine/content/formats/animation_definition_test.cpp tests/unit/engine/render/world_output_test.cpp tests/unit/engine/render/world_material_test.cpp tests/unit/engine/render/view_test.cpp tests/unit/engine/render/shadow_test.cpp tests/unit/engine/render/material_animation_test.cpp tests/unit/engine/content/formats/customization_test.cpp tests/unit/engine/spatial/static_collision_test.cpp tests/unit/engine/lighting/irradiance_field_test.cpp)
   target_sources(resource-tests PRIVATE tests/unit/engine/animation/skeletal_pose_test.cpp tests/unit/engine/math/math_test.cpp tests/unit/engine/animation/secondary_motion_test.cpp tests/unit/engine/animation/motion_events_test.cpp tests/unit/engine/animation/shape_pose_test.cpp)
+  target_sources(resource-tests PRIVATE tests/unit/engine/content/formats/behavior_tree_test.cpp
+  tests/unit/engine/content/navigation_archive_test.cpp)
+  target_sources(resource-tests PRIVATE tests/unit/engine/content/formats/effect_pack_test.cpp)
   target_sources(resource-tests PRIVATE tests/unit/engine/lighting/local_light_view_test.cpp tests/unit/engine/lighting/local_lights_test.cpp tests/unit/engine/lighting/reflection_field_test.cpp tests/unit/engine/render/shadows/shadow_casters_test.cpp tests/unit/engine/spatial/scalar_area_test.cpp)
   target_link_libraries(resource-tests PRIVATE bw_resources bw_render bw_spatial bw_lighting bw_animation bw_game_content bw_host_files)
   bw_strict(resource-tests)

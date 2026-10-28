@@ -37,12 +37,16 @@ struct SoundMotionCommand {
 struct VoiceMotionCommand {
   std::uint32_t identifier{};
 };
+struct MeleeMotionCommand {
+  std::int32_t joint{}, effect{-1};
+  float radius{}, damage{}, far_damage{};
+};
 struct CancellationMotionCommand {};
 struct UnsupportedMotionCommand {};
 using MotionPresentationCommand =
     std::variant<UnsupportedMotionCommand, CancellationMotionCommand,
                  VisibilityMotionCommand, FacialMotionCommand,
-                 VoiceMotionCommand, SoundMotionCommand>;
+                 VoiceMotionCommand, SoundMotionCommand, MeleeMotionCommand>;
 class PreparedMotionPresentation {
  public:
   PreparedMotionPresentation(const formats::MotionEvents& events,
@@ -71,6 +75,12 @@ class MotionPresentationSink {
   virtual void sound(SoundMotionCommand command,
                      animation::MotionEventPhase phase,
                      const animation::MotionEventContext& context) noexcept = 0;
+  // An unbound gameplay receiver retains the existing explicit unsupported
+  // diagnostic. Concrete actors override this when their combat owner exists.
+  virtual void melee(MeleeMotionCommand, animation::MotionEventPhase phase,
+                     const animation::MotionEventContext& context) noexcept {
+    unsupported(phase, context);
+  }
   virtual void unsupported(
       animation::MotionEventPhase phase,
       const animation::MotionEventContext& context) noexcept = 0;

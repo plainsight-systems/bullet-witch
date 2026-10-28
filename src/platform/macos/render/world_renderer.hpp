@@ -111,6 +111,9 @@ class WorldRenderer final : public render::WorldOutput {
   void update_world_visibility(
       std::span<const render::WorldVisibilityUpdate> updates) override;
   void update_world_view(const render::WorldViewUpdate& update) override;
+  void configure_world_sprites(
+      const render::WorldSpriteCapacity& capacity) override;
+  void update_world_sprites(const render::WorldSpriteUpdate& update) override;
   void clear_world_draws() noexcept override;
   bool has_color_draws() const noexcept;
   // Borrowed encoder uses selected BGRA8 or RGBA16Float color and Depth32. The

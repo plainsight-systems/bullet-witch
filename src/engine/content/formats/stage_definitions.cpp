@@ -93,6 +93,8 @@ CollisionDefinition CollisionDefinition::parse(
     record.vertex_count = reader.u32(offset + kPartCountOffset);
     record.triangle_count = reader.u32(offset + kPartTriangleCountOffset);
     record.flags = reader.u32(offset + kPartFlagsOffset);
+    constexpr std::size_t kPartBoneOffset = 60;
+    record.bone = reader.u32(offset + kPartBoneOffset);
     record.vertices =
         span(reader, {offset + reader.u32(offset + kPartTableOffset),
                       record.vertex_count * kVectorBytes});

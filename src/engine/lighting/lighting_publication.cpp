@@ -10,6 +10,12 @@
 #include <utility>
 
 namespace bw::scene {
+void LightingPublication::prepare_emitters(std::size_t capacity) {
+  scene_.prepare_emitters(capacity);
+}
+LocalLightEmitter LightingPublication::acquire_emitter() {
+  return scene_.acquire_emitter();
+}
 namespace {
 // Preserve destination identity while replacing the independently sampled
 // coefficients, reflected texture and direct-light packet as one observation.
@@ -39,6 +45,9 @@ void LightingPublication::set_field_intensity(LightingFieldId field,
 }
 void LightingPublication::set_view(const LocalLightViewQuery& view) {
   scene_.set_view(view);
+}
+void LightingPublication::clear_static_emitters() {
+  scene_.clear_static_emitters();
 }
 void LightingPublication::replace_local_lights(
     std::span<const LocalLight> lights) {

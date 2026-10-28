@@ -9,6 +9,7 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <thread>
 #include <type_traits>
 
 #include "../../../fixtures/camera_fixture.hpp"
@@ -171,6 +172,144 @@ void local_light_tests(const std::shared_ptr<bw::memory::Domain>& domain) {
 }
 // Exercise the scene publication boundary with independent field identities,
 // model observations and transactional updates, not private sampler structure.
+void dynamic_light_contract(const std::shared_ptr<bw::memory::Domain>& domain) {
+  namespace scene = bw::scene;
+  static_assert(!std::is_copy_constructible_v<scene::LocalLightEmitter>);
+  static_assert(std::is_nothrow_move_constructible_v<scene::LocalLightEmitter>);
+  const std::array<scene::LocalLight, 1> fixed{
+      {{{0, 0, 3}, {1, 1, 1}, {2, 2, 2}, {1, 1, 0}}}};
+  const scene::LocalLightViewQuery view{
+      {},
+      bw::math::make_perspective_frustum(
+          {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}}},
+          {-1, 1, -1, 1, 1, 100})};
+  const scene::LightingReceiver receiver{
+      .policy = scene::ReceiverLightingPolicy::stage_ambient};
+  const auto field = field_bytes();
+  const std::array<scene::SceneLightFieldSource, 1> fields{{{field, 1}}};
+  const scene::LightingReceiver spatial{
+      .policy = scene::ReceiverLightingPolicy::spatial, .field = {0}};
+  scene::LocalLightEmitter expired;
+  {
+    scene::SceneLighting owner({fields, fixed, {.05F, .15F, 4, false}, {}},
+                               domain);
+    owner.prepare_emitters(1);
+    auto emitter = owner.acquire_emitter();
+    const auto allocated = domain->snapshot().live_bytes;
+    bool full = false;
+    try {
+      (void)owner.acquire_emitter();
+    } catch (const std::length_error&) {
+      full = true;
+    }
+    require(full, "Scene emitter capacity must fail explicitly");
+    auto dynamic = fixed[0];
+    dynamic.diffuse = {3, 3, 3};
+    owner.set_view(view);
+    emitter.update(dynamic);
+    scene::RetainedLightingReceiver delayed(owner, {0});
+    require(
+        owner.evaluate(receiver).local_lights.count == 1 &&
+            owner.evaluate(spatial).local_lights.count == 1 &&
+            delayed.evaluate({}, 0).local_lights.count == 1,
+        "Emitter update preserves the completed view for delayed admission");
+    auto invalid_view = view;
+    invalid_view.frustum.depth_range = 0;
+    bool rejected_view = false;
+    try {
+      owner.set_view(invalid_view);
+    } catch (const std::invalid_argument&) {
+      rejected_view = true;
+    }
+    require(rejected_view && owner.evaluate(spatial).local_lights.count == 1,
+            "Rejected view cannot partially publish pending emitters");
+    owner.set_view(view);
+    require(owner.evaluate(receiver).local_lights.count == 2,
+            "Dynamic publication preserves static emitter");
+    dynamic.diffuse = {4, 4, 4};
+    emitter.update(dynamic);
+    const auto old_color =
+        owner.evaluate(spatial).local_lights.lights[0].diffuse;
+    auto invalid = dynamic;
+    invalid.position[0] = std::numeric_limits<float>::infinity();
+    bool rejected = false;
+    try {
+      emitter.update(invalid);
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    require(rejected && owner.evaluate(receiver).local_lights.count == 2,
+            "Rejected dynamic publication preserves prepared view");
+    owner.set_view(view);
+    require(owner.evaluate(spatial).local_lights.lights[0].diffuse != old_color,
+            "Invalid update preserves the preceding accepted pending value");
+    bool wrong_thread = false;
+    {
+      std::jthread worker([&] {
+        try {
+          emitter.update(dynamic);
+        } catch (const std::logic_error&) {
+          wrong_thread = true;
+        }
+      });
+    }
+    require(wrong_thread,
+            "Emitter mutation must retain scene thread ownership");
+    auto moved = std::move(emitter);
+    require(moved.valid(), "Move transfers sole emitter capability");
+    moved.clear();
+    require(owner.evaluate(spatial).local_lights.count == 2 &&
+                delayed.evaluate({}, 0).local_lights.count == 2,
+            "Clear stages retirement without revoking the published view");
+    owner.set_view(view);
+    require(owner.evaluate(receiver).local_lights.count == 1,
+            "Clearing dynamic emitter cannot clear static lights");
+    moved = {};
+    owner.set_view(view);
+    auto reused = owner.acquire_emitter();
+    reused.update(dynamic);
+    owner.set_view(view);
+    require(owner.evaluate(receiver).local_lights.count == 2 &&
+                domain->snapshot().live_bytes == allocated,
+            "Slot reuse is generation checked and allocation free");
+    const auto before_reuse =
+        owner.evaluate(spatial).local_lights.lights[0].diffuse;
+    reused = {};
+    require(owner.evaluate(spatial).local_lights.count == 2,
+            "Release retains the completed snapshot until publication");
+    reused = owner.acquire_emitter();
+    dynamic.diffuse = {6, 6, 6};
+    reused.update(dynamic);
+    require(
+        owner.evaluate(spatial).local_lights.lights[0].diffuse == before_reuse,
+        "Reused generation cannot overwrite the prior snapshot");
+    owner.set_view(view);
+    require(owner.evaluate(spatial).local_lights.count == 2 &&
+                owner.evaluate(spatial).local_lights.lights[0].diffuse !=
+                    before_reuse,
+            "Next publication installs only the replacement generation");
+    reused = {};
+    owner.set_view(view);
+    require(owner.evaluate(spatial).local_lights.count == 1,
+            "Release before publication leaves no ghost emitter");
+    reused = owner.acquire_emitter();
+    reused.update(dynamic);
+    owner.set_view(view);
+    owner.clear_static_emitters();
+    require(owner.evaluate(receiver).local_lights.count == 1 &&
+                reused.valid() && domain->snapshot().live_bytes == allocated,
+            "Static retirement preserves dynamic identity and fixed storage");
+    reused.update(dynamic);
+    owner.set_view(view);
+    require(owner.evaluate(receiver).local_lights.count == 1,
+            "Dynamic updates remain valid after static retirement");
+    expired = std::move(reused);
+  }
+  require(!expired.valid(),
+          "Scene retirement expires borrowed light capability");
+  expired.clear();
+  expired = {};
+}
 void scene_lighting_tests(const std::shared_ptr<bw::memory::Domain>& domain) {
   auto character = field_bytes();
   auto enemy = field_bytes();
@@ -370,6 +509,7 @@ void irradiance_field_tests() {
   residual_publication_contract(domain);
   local_light_tests(domain);
   scene_lighting_tests(domain);
+  dynamic_light_contract(domain);
   auto bytes = field_bytes();
   bw::scene::IrradianceField field(bytes, domain);
   require(field.zone_count() == 1 && field.sample_count() == 2,
@@ -391,7 +531,9 @@ void irradiance_field_tests() {
   near(field.sample({-2, 0, 0}, 1, IrradianceSampling::first_containing)[0][0],
        10);
   const auto live = domain->snapshot().live_bytes;
-  for (int i = 0; i < 100; ++i) (void)field.sample({1, 0, 0});
+  for (int i = 0; i < 100; ++i) {
+    (void)field.sample({1, 0, 0});
+  }
   require(domain->snapshot().live_bytes == live,
           "Sampling retains prepared allocation");
   scalar(bytes, kGrid + 16 + 8, std::numbers::pi_v<float> / 2);

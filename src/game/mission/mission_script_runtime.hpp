@@ -14,11 +14,13 @@
 
 #include "game/session/audio/music_playback.hpp"
 #include "game/ui/hud/mission_system_message.hpp"
+#include "game/ui/mission/mission_game_over.hpp"
 #include "game/ui/mission/mission_message.hpp"
 #include "mission_driver.hpp"
 #include "mission_gameplay.hpp"
 
 namespace bw::game {
+struct MissionCallbackDefinition;
 struct MissionWorldActivation {
   ScriptWorldControl world;
   std::reference_wrapper<MissionGameplay> gameplay;
@@ -86,6 +88,17 @@ class MissionScriptRuntime final : public MissionScriptServices {
   MissionScriptInterval control_interval() const override;
   void play_music(std::uint32_t) override;
   void stop_music(float) override;
+  // Bind prepared original defeat assets and copied callback names before
+  // start. The surface and session audio outlive this stable script owner.
+  void bind_defeat(MissionGameOverSurface&, audio::CueOutput&,
+                   std::span<const MissionCallbackDefinition>);
+  void remove_population(PopulationFamily) override;
+  void remove_background() override;
+  void cancel_realtime_event_actors() override;
+  void set_environment_sound(std::uint32_t) override;
+  void stop_magic() override;
+  void begin_game_over() override;
+  bool game_over_pending() const override;
 
  private:
   MissionWorldActivation& world();
@@ -104,5 +117,8 @@ class MissionScriptRuntime final : public MissionScriptServices {
   bool background_requested_{}, cockpit_visible_{}, player_visible_{};
   float opacity_{}, fade_remaining_{}, fade_rate_{};
   bool fading_{};
+  MissionGameOverFlow game_over_;
+  MissionGameOverSurface* game_over_surface_{};
+  std::optional<MenuAudio> game_over_audio_;
 };
 }  // namespace bw::game

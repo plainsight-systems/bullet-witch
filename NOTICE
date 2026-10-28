@@ -56,6 +56,17 @@ cmake/PngDecoder.cmake fetches checksum-pinned, unmodified upstream sources
 and builds static libraries under the ignored build directory. Include their
 notices when distributing linked binaries.
 
+Rigid-body physics
+==================
+
+Jolt Physics — Copyright 2021 Jorrit Rouwe.
+MIT license; full notice: docs/licenses/JoltPhysics-LICENSE.
+Source: https://github.com/jrouwe/JoltPhysics/tree/5d5275c38074c44b14f38b85bc9c73573078c808
+
+cmake/Jolt.cmake fetches checksum-pinned upstream source and builds the CPU
+provider in the ignored build directory. The engine adapter keeps upstream
+types private. Include its notice when distributing linked binaries.
+
 Research tools and references
 ============================
 

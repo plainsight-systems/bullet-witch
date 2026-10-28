@@ -28,7 +28,7 @@ namespace bw::game {
 // owns this small value and applies live health/radius policy; no tree borrow
 // survives parsing. Missing or invalid authored dimensions throw.
 struct NpcInitialBodySettings {
-  float radius{}, standing_height{}, alternate_height{};
+  float radius{}, standing_height{}, alternate_height{}, dodge_threshold{};
   static NpcInitialBodySettings parse(
       const formats::CustomizationDefinition& customization,
       std::string_view model_family);

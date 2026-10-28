@@ -1,6 +1,6 @@
 // Runner source phase/velocity witnesses in process; no hardware or fabricated
 // collision solver. E.4 tests rejected/ordered transitions; MEM.9 fixed values.
-#include "game/actors/alicia/actions/scripted_jump_policy.hpp"
+#include "game/actors/animation/scripted_jump_policy.hpp"
 
 #include <cmath>
 #include <stdexcept>

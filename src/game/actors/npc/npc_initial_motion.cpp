@@ -97,14 +97,16 @@ NpcInitialBodySettings NpcInitialBodySettings::parse(
                         model_family, std::string_view("body")};
   const resources::detail::Reader reader{customization.lookup(path)};
   constexpr std::uint64_t kStandingHeight = 0x24, kAlternateHeight = 0x28,
-                          kRadius = 0x2c;
+                          kRadius = 0x2c, kDodgeThreshold = 0x4c;
   // The native body lookup preserves EA/HM/HW family identity; sharing the
   // animation bank does not alias the physical dimensions.
   NpcInitialBodySettings result{
       .radius = std::bit_cast<float>(reader.u32(kRadius)),
       .standing_height = std::bit_cast<float>(reader.u32(kStandingHeight)),
-      .alternate_height = std::bit_cast<float>(reader.u32(kAlternateHeight))};
-  if (!std::isfinite(result.radius) || !std::isfinite(result.standing_height) ||
+      .alternate_height = std::bit_cast<float>(reader.u32(kAlternateHeight)),
+      .dodge_threshold = std::bit_cast<float>(reader.u32(kDodgeThreshold))};
+  if (!std::isfinite(result.dodge_threshold) || !std::isfinite(result.radius) ||
+      !std::isfinite(result.standing_height) ||
       !std::isfinite(result.alternate_height) || result.radius <= 0 ||
       result.standing_height < 2 * result.radius ||
       result.alternate_height < 2 * result.radius) {

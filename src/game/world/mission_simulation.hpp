@@ -21,10 +21,13 @@
 // remains explicit. No mutable actor/collision borrow escapes. Single game
 // thread.
 #pragma once
+#include "game/actors/alicia/combat/player_weapon_combat.hpp"
 #include "game/actors/alicia/player_actor.hpp"
 #include "game/actors/alicia/player_controller.hpp"
 #include "game/actors/alicia/player_resources.hpp"
 #include "game/actors/alicia/player_targeting.hpp"
+#include "game/combat/melee_damage.hpp"
+#include "game/combat/ordinary_hit_response.hpp"
 #include "game/mission/mission_control.hpp"
 #include "game/player/camera/player_camera.hpp"
 #include "stage_source.hpp"
@@ -49,9 +52,8 @@ class MissionSimulation {
  public:
   ~MissionSimulation() = default;
   MissionSimulation(const world::WorldClock&, const MissionControl&,
-                    const content::StageDefinition&,
+                    const scene::StaticCollision&,
                     const formats::CustomizationDefinition&,
-                    StageBackgroundSource,
                     const std::optional<PlayerActorSource>&,
                     const std::shared_ptr<memory::Domain>&,
                     const content::LoadProgress&,
@@ -61,6 +63,11 @@ class MissionSimulation {
                render::ActorPublisher&);
   const PlayerActor* actor() const { return player_ ? &*player_ : nullptr; }
   const PlayerTargeting& targeting_state() const { return targeting_; }
+  // Copy the resource owner's emissions for this admitted frame. A terminal
+  // empty status can still contain shots; combat consumes count independently.
+  std::optional<ShotResourceResult> shot_receipt() const {
+    return shot_receipt_;
+  }
   const PlayerMovementState* player_state() const {
     return controller_ ? &controller_->state() : nullptr;
   }
@@ -85,7 +92,7 @@ class MissionSimulation {
   }
   void set_camera_far(float distance);
   // Read-only world scenery capability for source placement projection.
-  // The collision owner and registration remain private to simulation.
+  // World owns immutable geometry; simulation cannot register or retire it.
   scene::SegmentClearanceResult clip_scenery(
       const scene::SegmentClearance& value) const {
     return collision_.clip_segment(value);
@@ -94,8 +101,30 @@ class MissionSimulation {
   std::string_view action_notice() const { return action_notice_; }
   void synchronize_pause();
   void bind_action_resources(PlayerActionResources);
+  // World owns the receiver and retires it before this simulation. Admission
+  // precedes live input; only synchronous copied shot/recharge events escape.
+  void bind_weapon_receiver(PlayerWeaponReceiver&);
+  // Receiver owner revokes its borrow before destroying retained weapon state.
+  void unbind_weapon_receiver(const PlayerWeaponReceiver&) noexcept;
+  void bind_player_combat(PlayerActorCombatSource);
+  // Live health remains mission-owned. This narrow transaction handle and
+  // immutable response definition cannot reset progression or advance time.
+  void bind_player_damage(PlayerDamageResources, const ActorDamageDefinition&,
+                          SourceRandom&);
+  bool receive_player_hit(const CombatImpact&);
+  bool receive_player_melee(const MeleeImpact&);
+  bool player_dead() const noexcept { return player_dead_; }
+  // Copied source direction channels for this frame; same-channel hits
+  // coalesce. No UI owner, callback lifetime, or mutation capability crosses
+  // this boundary.
+  std::uint8_t damage_direction_mask() const noexcept {
+    return damage_direction_mask_;
+  }
+  void finish_physics(render::ActorPublisher&);
+  PlayerWeaponPose weapon_pose() const;
   void bind_audio(const PreparedCharacterAudio&, audio::CueOutput&,
-                  SourceRandom&);
+                  SourceRandom&, CharacterVoicePool&);
+  void bind_sound_events(std::weak_ptr<ActorSoundEvents>);
   void change_costume(MissionLoading&, unsigned, StagePresentation&);
   void replace_weapon(MissionLoading&, unsigned, bool animate_switch,
                       StagePresentation&);
@@ -114,20 +143,28 @@ class MissionSimulation {
   const MissionControl& control_;
   std::uint64_t last_frame_{};
   std::shared_ptr<memory::Domain> memory_;
-  scene::StaticCollision collision_;
+  const scene::StaticCollision& collision_;
   PlayerTargeting targeting_;
   std::optional<PlayerActor> player_;
   std::optional<PlayerController> controller_;
   std::optional<PlayerCamera> camera_;
   InitialPlayerCamera fixed_view_;
+  std::uint8_t damage_direction_mask_{};
   bool audio_paused_{};
   audio::CueOutput* audio_output_{};
   audio::Listener audio_listener_;
   bool automatic_targeting_camera_{};
   std::array<WeaponPresentationSettings, 4> weapon_settings_{};
   std::optional<PlayerActionResources> action_resources_;
+  std::optional<ShotResourceResult> shot_receipt_;
   unsigned weapon_class_{};
-  void present_input(PlayerPresentationInput, PlayerMovementInput);
+  PlayerWeaponReceiver* weapon_receiver_{};
+  std::optional<PlayerDamageResources> damage_resources_;
+  const ActorDamageDefinition* damage_definition_{};
+  SourceRandom* combat_random_{};
+  bool player_dead_{};
+  void present_input(const world::WorldFrame&, PlayerPresentationInput,
+                     PlayerMovementInput);
   std::string_view action_notice_;
 };
 }  // namespace bw::game

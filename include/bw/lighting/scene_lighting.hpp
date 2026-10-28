@@ -38,6 +38,8 @@
 // Both redesign phases: I.1 makes sampling/authority explicit, R.20 owns domain
 // storage, MEM.9 retains allocation-free observations; CDSA.32 shares prepared
 // field data between blended and strict sampling. See lighting.md.
+// Publication design: Core I.1 names the pending/committed ownership boundary;
+// MEM.9 reserves one pending value per emitter during scene preparation.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -102,6 +104,41 @@ struct ReceiverLighting {
   SelectedLocalLights local_lights;
   std::optional<std::uint32_t> reflection_slot{};
 };
+// A move-only registration owns one prepared scene slot. Updates affect only
+// that light in a pending scene-owned slot; clear stages disabling without
+// releasing registration. Destruction releases the slot and stages retirement.
+// Changes become visible together at the next successful set_view(). Receiver
+// queries retain the previous complete publication in between, including when
+// a new actor is admitted. Invalid updates/views preserve both pending and
+// published data. Reusing a registration starts new view-depth history. Scene
+// destruction expires outstanding capabilities safely. All live
+// operations/destruction use the scene thread; wrong-thread release terminates,
+// while wrong-thread updates throw. Stale/moved handles reject. Pool generation
+// never wraps. Setup allocates; acquire/update/clear/release are
+// allocation-free. I.11 (#ri-raw) expresses ownership by value; MEM.2
+// (guidelines/memory/MEM.2-pool-allocator-for-fixed-size-objects.md) reserves
+// fixed slots and fails explicitly on exhaustion. Both design corpora read.
+class LocalLightEmitter {
+ public:
+  LocalLightEmitter() = default;
+  ~LocalLightEmitter();
+  LocalLightEmitter(const LocalLightEmitter&) = delete;
+  LocalLightEmitter& operator=(const LocalLightEmitter&) = delete;
+  LocalLightEmitter(LocalLightEmitter&&) noexcept;
+  LocalLightEmitter& operator=(LocalLightEmitter&&) noexcept;
+  void update(const LocalLight& light);
+  void clear();
+  bool valid() const noexcept;
+
+ private:
+  friend class SceneLighting;
+  struct State;
+  LocalLightEmitter(const std::shared_ptr<State>&, std::size_t, std::uint64_t);
+  void release() noexcept;
+  std::weak_ptr<State> state_;
+  std::size_t slot_{};
+  std::uint64_t generation_{};
+};
 class RetainedLightingReceiver;
 class SceneLighting {
  public:
@@ -111,20 +148,32 @@ class SceneLighting {
   SceneLighting& operator=(const SceneLighting&) = delete;
   SceneLighting(SceneLighting&&) = delete;
   SceneLighting& operator=(SceneLighting&&) = delete;
-  ~SceneLighting() = default;
+  ~SceneLighting();
 
   // Resolve a complete independent model observation; no cached receiver state
   // can leak between body, attachment or other entity queries.
   ReceiverLighting evaluate(const LightingReceiver& receiver);
   [[nodiscard]] DirectionalLighting directional_lighting() const noexcept;
   // Explicit source publication boundaries, serialized against evaluate().
+  // set_view validates first, commits pending emitter values, then builds both
+  // source candidate lists once. It never runs implicitly during evaluation.
   void set_parameters(const SceneLightingParameters& parameters);
   void set_field_intensity(LightingFieldId field, float intensity);
   void set_view(const LocalLightViewQuery& view);
   void replace_local_lights(std::span<const LocalLight> lights);
+  // Retire preparation-time emitters without invalidating dynamic handles.
+  // Owner-thread, allocation-free; the next view refreshes selected packets.
+  void clear_static_emitters();
+  // Setup once before acquiring emitters. Fixed immutable lights retain their
+  // indices/history; dynamic additions cannot replace that authored set.
+  void prepare_emitters(std::size_t capacity);
+  LocalLightEmitter acquire_emitter();
 
  private:
   friend class RetainedLightingReceiver;
+  friend class LocalLightEmitter;
+  void update_emitter(std::size_t, const std::optional<LocalLight>&);
+  std::shared_ptr<LocalLightEmitter::State> emitter_state_;
   const ReflectionField* reflections_{};
   std::shared_ptr<memory::Domain> domain_;
   struct Field {

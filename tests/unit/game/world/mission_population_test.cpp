@@ -201,7 +201,100 @@ void mission_population_tests() {
                 population.fired_count() == 2,
             "Readmission preserves identity/life and never refires traps");
   }
+  {
+    PopulationFixture receiver;
+    bw::game::MissionPopulation population(definition, domain);
+    bw::game::PopulationObservation view{{10, 0, 20}, {10, 0, 20}, false};
+    population.advance(view, random, receiver);
+    for (unsigned i = 0; i < 6; ++i) {
+      population.advance(view, random, receiver);
+    }
+    require(population.active_identities().size() == 6 &&
+                population.active_identities().front().value == 1,
+            "Active identities preserve admission order");
+    for (std::size_t i = 2; i <= 6; ++i) {
+      receiver.states.at(i).retirement_eligible = false;
+    }
+    view.camera = {1000, 0, 0};
+    population.advance(view, random, receiver);
+    require(population.active_identities().size() == 5 &&
+                population.active_identities().front().value == 2,
+            "Retirement preserves remaining traversal order");
+    view.camera = {10, 0, 20};
+    population.advance(view, random, receiver);
+    population.advance(view, random, receiver);
+    require(population.active_identities().size() == 6 &&
+                population.active_identities().front().value == 2 &&
+                population.active_identities().back().value == 1,
+            "Readmission appends identity instead of reusing traversal slot");
+  }
+  {
+    using bw::game::PopulationFamily;
+    require(bw::game::population_family_flags("PW0") == 1 &&
+                bw::game::population_family_flags("hM0") == 8 &&
+                bw::game::population_family_flags("HW1") == 8 &&
+                bw::game::population_family_flags("HR0") == 4 &&
+                bw::game::population_family_flags("eb0") == 2,
+            "Deferred source family classification changed");
+    for (const auto family :
+         {PopulationFamily::enemy, PopulationFamily::resistance,
+          PopulationFamily::citizen}) {
+      auto removal_bytes = fixture();
+      name(removal_bytes, kStrings,
+           family == PopulationFamily::enemy        ? "ea0\0"
+           : family == PopulationFamily::resistance ? "hr0\0"
+                                                    : "hm0\0");
+      removal_bytes[kStrings + 3] = 0;
+      const auto removal_definition =
+          bw::content::MissionPlacementDefinition::decode(removal_bytes,
+                                                          domain);
+      bw::game::MissionPopulation population(removal_definition, domain);
+      PopulationFixture receiver;
+      const bw::game::PopulationObservation view{
+          {10, 0, 20}, {10, 0, 20}, false};
+      population.advance(view, random, receiver);
+      population.advance(view, random, receiver);
+      population.remove_family(family == PopulationFamily::enemy
+                                   ? PopulationFamily::citizen
+                                   : PopulationFamily::enemy,
+                               receiver);
+      require(population.active_count() == 1 && population.pending_count() == 5,
+              "Family removal touched an unrelated active or pending actor");
+      population.remove_family(family, receiver);
+      require(population.active_count() == 0 &&
+                  population.pending_count() == 0 &&
+                  receiver.retirements == 1 && population.fired_count() == 2,
+              "Removal must retire matching live and pending without resetting "
+              "triggers");
+      population.remove_family(family, receiver);
+      population.advance(view, random, receiver);
+      require(
+          receiver.retirements == 1 && population.pending_count() == 0,
+          "Repeated family removal replayed retirement or triggered respawn");
+    }
+  }
   random.value = std::numeric_limits<std::uint16_t>::max();
+  {
+    PopulationFixture receiver;
+    bw::game::MissionPopulation population(definition, domain);
+    bw::game::PopulationObservation view{{10, 0, 20}, {10, 0, 20}, false};
+    random.value = 0;
+    population.advance(view, random, receiver);
+    for (unsigned i = 0; i < 6; ++i) population.advance(view, random, receiver);
+    const auto identity = population.active_identities()[2];
+    receiver.states.at(identity.value).life = 0;
+    require(
+        population.retire_dead(identity, receiver) &&
+            population.active_count() == 5 && population.pending_count() == 0 &&
+            population.fired_count() == 2,
+        "Death removes one identity without deferred residency or refiring");
+    require(!population.retire_dead(identity, receiver),
+            "Repeated corpse retirement cannot remove another actor");
+    population.advance(view, random, receiver);
+    require(population.active_count() == 5 && !receiver.live.at(identity.value),
+            "Dead actor does not return through admission on the next frame");
+    random.value = std::numeric_limits<std::uint16_t>::max();
+  }
   rejects([&] { (void)expansion.prepare(definition, 10, random); });
   require(expansion.candidates().empty(),
           "Failed expansion publishes no partial population");

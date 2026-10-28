@@ -22,9 +22,9 @@ namespace {
 constexpr resources::ResourceTag kHudTag = 18;
 constexpr std::array<std::string_view, 4> kGroups{
     "sprite.cockpit", "sprite.magicring", "sprite.font", "sprite.text.sys"};
-constexpr std::array<unsigned, 27> kCockpitImages{
-    6,   9,   14,  17,  18,  19,  20,  21, 37, 38, 39, 40,  41, 42,
-    425, 426, 427, 428, 429, 430, 434, 25, 26, 27, 28, 432, 433};
+constexpr std::array<unsigned, 29> kCockpitImages{
+    6,   9,   14,  17,  18,  19,  20, 21, 37, 38, 39,  40,  41, 42, 425,
+    426, 427, 428, 429, 430, 434, 25, 26, 27, 28, 432, 433, 22, 23};
 constexpr std::array<unsigned, 26> kRingImages{
     101, 102, 106, 107, 111, 112, 113, 114, 118, 119, 120, 121, 123,
     124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 435, 436};
@@ -214,6 +214,33 @@ void GameplayHudSurface::show(const GameplayHud& hud,
     position.y = pivot_y + (position.y - pivot_y) * command.scale;
     position.width *= command.scale;
     position.height *= command.scale;
+    if (command.transform) {
+      const auto& transform = *command.transform;
+      const std::array<float, 2> center{position.x + position.width * kHalf,
+                                        position.y + position.height * kHalf};
+      const auto scaling = transform.scale_center.value_or(center);
+      const auto rotation = transform.rotation_center.value_or(center);
+      position.x = scaling[0] + (position.x - scaling[0]) * transform.scale_x;
+      position.y = scaling[1] + (position.y - scaling[1]) * transform.scale_y;
+      position.width *= transform.scale_x;
+      position.height *= transform.scale_y;
+      const float rotation_x = rotation[0] - position.x;
+      const float rotation_y = rotation[1] - position.y;
+      position.x += transform.translation[0];
+      position.y += transform.translation[1];
+      state.commands.at(count++) = {image.texture,
+                                    position,
+                                    uv,
+                                    command.color,
+                                    render::TextureChannel::rgba,
+                                    command.rotation_radians,
+                                    rotation_x,
+                                    rotation_y,
+                                    command.additive
+                                        ? render::SpriteBlend::additive
+                                        : render::SpriteBlend::alpha};
+      continue;
+    }
     state.commands.at(count++) = {
         image.texture,
         position,

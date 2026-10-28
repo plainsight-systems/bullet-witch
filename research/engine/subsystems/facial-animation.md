@@ -98,9 +98,14 @@ appearance setup. Callback admission reports missing geometry/resources,
 suppression, exhaustion and invalid commands explicitly. Its bank-state transfer
 preserves clocks across the intentionally improved in-mission costume change;
 costumes without shape streams retain logical clocks while producing no geometry
-updates. Source culling admission is an explicit caller decision. A positive
-expression with zero duration is rejected instead of propagating the source's
-nonfinite reciprocal into rendering; no such input has been established as valid.
+updates. Source culling admission is an explicit caller decision. The original EA0 corpus establishes positive FAC records with zero duration
+(e.g. its firing locomotion clips). Those are valid nonrepeating requests: the
+source reciprocal becomes positive infinity and its next positive model step
+clamps to the final frame. The shared owner represents that result explicitly
+without retaining infinity; a zero-delta publication keeps the existing frame.
+A zero-duration repeating request remains rejected because the original repeated
+subtraction cannot converge. No admitted player or ordinary soldier producer
+requests that combination.
 
 ### Native close-up witness
 
@@ -127,3 +132,21 @@ original event-to-bank-to-shape publication path and next-model-update ordering.
 Source, commands, logs and captures are under ignored
 `reconstruction/actor/native-event-*`. It does not establish original Windows
 screenshot parity or implement unrelated sound/event effects.
+
+
+### Shared ordinary NPC consumer
+
+Ordinary mission actor preparation `4806e0` builds eight **nonrepeating** names
+`@<owner>_1` through `@<owner>_8`; the `ea` family uses `ea0` publications.
+Missing resources retain their authored index. This is distinct from realtime
+event actor preparation `48af90`, whose unprefixed names repeat; that producer
+must not be used as evidence for ordinary enemy policy. The already recovered
+`5e2620` strips `@` and writes the repeat flag before controller admission.
+
+Prepared expression keys and model shape deltas are shared immutable resident
+state. Each NPC owns its own three facial banks, weights and deformed position
+buffers. The existing per-instance shape upload reaches the same Metal skinning
+path as Alicia; no second morph algorithm or per-frame archive lookup is added.
+Motion reset retires only the source motion banks. This implementation still
+requires the full original-content encounter and native acceptance; isolated
+facial tests are not evidence of rendered combat fidelity.

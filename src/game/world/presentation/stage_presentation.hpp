@@ -26,6 +26,7 @@
 #include "bw/render/shadows/shadow_casters.hpp"
 #include "game/actors/alicia/player_actor.hpp"
 #include "game/actors/npc/npc_actor.hpp"
+#include "game/combat/combat_effects.hpp"
 #include "game/player/camera/initial_camera.hpp"
 #include "game/world/stage_source.hpp"
 #include "stage_environment.hpp"
@@ -48,6 +49,15 @@ class StagePresentation {
   render::ActorPublisher& actor_publisher() {
     return output_.actor_publisher();
   }
+  // Scene alone sizes native sprite storage; effects borrow publication only.
+  // Camera/environment observations are copied with no timing authority.
+  // Both-phase I.11/MEM.9 retain the existing view and AREA ownership.
+  void configure_effects(const render::WorldSpriteCapacity& capacity);
+  render::EffectsPublisher& effects_publisher();
+  void configure_dynamic_lights(std::size_t capacity);
+  scene::LocalLightEmitter acquire_local_light();
+  math::Vector3<float> local_light_color() const;
+  CombatEffectView effect_view(const InitialPlayerCamera& camera) const;
   std::optional<float> update_environment(const InitialPlayerCamera&);
   float initial_far_distance() const { return initial_far_distance_; }
   void present(const InitialPlayerCamera& camera, bool force_player_visibility,
@@ -61,6 +71,8 @@ class StagePresentation {
   // World owns actor lifetime; no actor mutation or clock capability escapes.
   void admit_npc(const NpcActor&, const InitialPlayerCamera&);
   void retire_npc(PopulationIdentity);
+  // Original background manager retirement preserves terrain and live actors.
+  void retire_background();
   std::size_t selected_draws() const { return selected_draws_; }
   std::size_t omitted_draws() const { return omitted_draws_; }
   std::size_t sky_draws() const { return sky_draws_; }
@@ -111,6 +123,11 @@ class StagePresentation {
   // They retire before the scene sampler, which retires before RenderScene.
   std::optional<scene::ReceiverPublication> static_lighting_;
   memory::Vector<scene::ReceiverPublication> placed_lighting_;
+  struct PlacedDrawOwner {
+    render::WorldModelHandle model;
+    std::uint64_t instance{};
+  };
+  memory::Vector<PlacedDrawOwner> placed_owners_;
   std::array<std::optional<scene::ReceiverPublication>, 2> player_lighting_;
   memory::Vector<render::WorldVisibilityUpdate> static_shadow_updates_;
   scene::LightingReceiver model_receiver(
@@ -127,6 +144,7 @@ class StagePresentation {
   std::optional<render::ShadowProjection> shadow_projection_;
   struct AnimatedMaterial {
     std::array<std::optional<std::size_t>, 2> curves;
+    bool placed{};
   };
   struct AnimatedCurve {
     std::string_view name;

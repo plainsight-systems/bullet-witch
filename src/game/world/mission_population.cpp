@@ -1,3 +1,6 @@
+// Family retirement preserves source live/pending ordering with bounded
+// compaction. Core I.30 and MEM.9 were consulted in both phases; no copied
+// callback registry or secondary lifetime owner is introduced.
 // Math boundary: both-phase Core F.4 / performance MEM.9 keep generic
 // fixed-value operations in bw::math; source policy remains with this owner.
 // Expand source groups into retained authored placement candidates. Definitions
@@ -217,8 +220,79 @@ std::size_t MissionPopulation::pending_count() const {
   return static_cast<std::size_t>(std::ranges::count_if(
       pending_, [](const Pending& record) { return record.occupied; }));
 }
+// The source deferred-family classifier is distinct from authored row flags.
+// Keep compatibility bits here; consumers request a typed removal family.
+std::uint32_t population_family_flags(std::string_view model) {
+  constexpr std::size_t kPrefixLength = 2;
+  if (model.size() < kPrefixLength) return 2;
+  const auto lower = [](char character) {
+    return character >= 'A' && character <= 'Z'
+               ? static_cast<char>(character + ('a' - 'A'))
+               : character;
+  };
+  const auto first = lower(model[0]), second = lower(model[1]);
+  if (first == 'p' && second == 'w') return 1;
+  if (first == 'h') {
+    if (second == 'm' || second == 'w') {
+      return static_cast<std::uint32_t>(PopulationFamily::citizen);
+    }
+    if (second == 'r') {
+      return static_cast<std::uint32_t>(PopulationFamily::resistance);
+    }
+  }
+  return static_cast<std::uint32_t>(PopulationFamily::enemy);
+}
+void MissionPopulation::remove_family(PopulationFamily family,
+                                      PopulationReceivers& receivers) {
+  if (family != PopulationFamily::enemy &&
+      family != PopulationFamily::resistance &&
+      family != PopulationFamily::citizen) {
+    throw std::invalid_argument("Invalid population removal family");
+  }
+  const auto matches = [&](const PopulationActorState& state) {
+    const auto index = state.placement.archetype;
+    if (index >= definition_.archetypes().size()) {
+      throw std::logic_error("Population identity lost its archetype");
+    }
+    return (population_family_flags(definition_.archetypes()[index].model) &
+            static_cast<std::uint32_t>(family)) != 0;
+  };
+  // Retire before compacting: an exception keeps the failing actor
+  // discoverable. Earlier successful retirements remain committed and cannot be
+  // replayed.
+  for (std::size_t index = 0; index < active_count_;) {
+    if (!matches(receivers.observe(active_.at(index)))) {
+      ++index;
+      continue;
+    }
+    receivers.retire(active_.at(index));
+    const auto active = std::span(active_).first(active_count_);
+    std::ranges::move(active.subspan(index + 1), active.subspan(index).begin());
+    --active_count_;
+  }
+  for (auto& pending : pending_) {
+    if (pending.occupied && matches(pending.state)) pending = {};
+  }
+}
+
 std::size_t MissionPopulation::fired_count() const {
   return static_cast<std::size_t>(std::ranges::count(fired_, 1));
+}
+// Death permanently removes residency. Preserve identity and fired history;
+// callback failure leaves the record live. Both-phase I.11/E.4 and MEM.9 keep
+// this bounded owner transaction distinct from storing a distant living actor.
+bool MissionPopulation::retire_dead(PopulationIdentity identity,
+                                    PopulationReceivers& receivers) {
+  const auto active = std::span(active_).first(active_count_);
+  const auto found = std::ranges::find(active, identity);
+  if (found == active.end()) return false;
+  if (receivers.observe(identity).life > 0) {
+    throw std::logic_error("Corpse retirement cannot remove a living actor");
+  }
+  receivers.retire(identity);
+  std::move(found + 1, active.end(), found);
+  --active_count_;
+  return true;
 }
 
 void MissionPopulation::retire_distant(const PopulationObservation& view,

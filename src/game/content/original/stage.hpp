@@ -124,6 +124,14 @@ StageDefinition load_stage_definition(
 StageDefinition load_model_definition(
     const platform::Files& files, const resources::CatalogSet& catalogs,
     std::string_view model, const std::shared_ptr<memory::Domain>& domain);
+// Exact original collision publication, independent of visual model residency.
+// Retains its archive before decoded views; no texture/model uploads. Missing
+// required constructor data throws. Core I.11/CDSA.32 in both phases preserve
+// immutable shared geometry and setup-only decode.
+StageDefinition load_collision_definition(
+    const platform::Files& files, const resources::CatalogSet& catalogs,
+    std::string_view publication,
+    const std::shared_ptr<memory::Domain>& domain);
 // Exact texture-only set; exposes original table order through texture_table.
 // Used by the original NPC palette registry; no dummy model is constructed.
 StageDefinition load_texture_definition(

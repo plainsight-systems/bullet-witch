@@ -42,6 +42,14 @@ void queries(const std::shared_ptr<bw::memory::Domain>& domain) {
   require(coplanar.clipped && std::abs(coplanar.position[0] + 5.05F) < .00001F,
           "Coplanar edge contact preserves earliest boundary");
   query.prepare_character_queries();
+  const auto edge_face =
+      query.capsule_face({-5.1F, 0, .9F}, {-5.1F, .02F, .9F}, .3F, 0);
+  require(
+      edge_face && std::abs((*edge_face)[0]) < .000001F &&
+          std::abs((*edge_face)[1]) < .000001F && (*edge_face)[2] == -1,
+      "Capsule edge contact publishes authored face, not separation normal");
+  require(!query.capsule_face({0, 0, 0}, {0, .02F, 0}, .3F, 0),
+          "Capsule miss has no invented face observation");
   require(
       query.clip_segment({{0, 0, 0}, {0, 0, 2}, .05F, kCameraMask}).position ==
               front.position &&
@@ -54,13 +62,34 @@ void queries(const std::shared_ptr<bw::memory::Domain>& domain) {
           "Prepared hierarchy preserves source face metadata");
   const std::array generated{bw::scene::CollisionTriangle{
       .vertices = {{{-10, -10, .5F}, {0, 10, .5F}, {10, -10, .5F}}}}};
-  query.add_triangles(generated);
+  constexpr bw::scene::CollisionGroup selected_group{1};
+  query.add_triangles(generated, selected_group);
   query.prepare_character_queries();
   const auto prop =
       query.clip_segment({{0, 0, 0}, {0, 0, 2}, .05F, kCameraMask});
   require(prop.clipped && !prop.surface &&
               std::abs(prop.position[2] - .45F) < .00001F,
           "Closer generated shape does not inherit farther authored surface");
+  const auto prepared_count = query.geometry_count();
+  query.set_group_enabled(selected_group, false);
+  const auto restored =
+      query.clip_segment({{0, 0, 0}, {0, 0, 2}, .05F, kCameraMask});
+  require(restored.position == front.position &&
+              restored.surface == front.surface &&
+              query.geometry_count() == prepared_count,
+          "Disabling generated group preserves authored terrain and storage");
+  query.set_group_enabled(selected_group, true);
+  require(
+      query.clip_segment({{0, 0, 0}, {0, 0, 2}, .05F, kCameraMask}).position ==
+          prop.position,
+      "Group reenabling restores queries without rebuilding");
+  bool invalid_group = false;
+  try {
+    query.set_group_enabled(bw::scene::CollisionGroup{64}, false);
+  } catch (const std::out_of_range&) {
+    invalid_group = true;
+  }
+  require(invalid_group, "Invalid group must reject before changing mask");
   bool invalid = false;
   try {
     (void)query.clip_segment({{0, 0, 0},
@@ -237,7 +266,8 @@ void placed_primitive_contacts(
   const std::array capsules{
       bw::scene::CollisionCapsule{{0, 0, 0}, {0, 2, 0}, .5F},
       bw::scene::CollisionCapsule{{5, 0, 0}, {5, 0, 0}, 1}};
-  query.add_capsules(capsules);
+  constexpr bw::scene::CollisionGroup selected_group{1};
+  query.add_capsules(capsules, selected_group);
   query.prepare_character_queries();
   const auto wall = query.move_character(
       {{1, .4F, 0}, {.7F, .4F, 0}, .4F, .9F, 1.0F / 60, 0, false});
@@ -282,6 +312,16 @@ void placed_primitive_contacts(
   following.mode = bw::scene::CharacterContactMode::airborne;
   require(!query.move_character(following).grounded,
           "Player floor extension does not capture an ascending jump");
+  query.set_group_enabled(selected_group, false);
+  const auto removed_wall = query.move_character(
+      {{1, .4F, 0}, {.7F, .4F, 0}, .4F, .9F, 1.0F / 60, 0, false});
+  require(!removed_wall.hit_wall &&
+              !query.clip_segment({{2, 1, 0}, {0, 1, 0}, .05F, 0}).clipped,
+          "Disabled group leaves neither capsule body nor camera contacts");
+  const auto retained_floor = query.move_character(
+      {{-2, .41F, 0}, {-2, .41F, 0}, .4F, .9F, 1.0F / 60, 0, true});
+  require(retained_floor.grounded,
+          "Disabling capsule group preserves default-group floor support");
   bw::scene::StaticCollision filtered(domain);
   auto excluded = capsules.front();
   excluded.object_flags |=

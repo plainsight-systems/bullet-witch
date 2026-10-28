@@ -30,7 +30,12 @@ struct MissionTimerEvent {
   float seconds{};
 };
 struct MissionCallbackRecord {
-  enum class Cause : std::int8_t { unused = -1, timer = 0, trap = 3 };
+  enum class Cause : std::int16_t {
+    unused = -1,
+    timer = 0,
+    trap = 3,
+    player_defeated = 1000
+  };
   Cause cause{Cause::unused};
   MissionCallbackName function{};
   std::int32_t mode{}, event{};
@@ -47,9 +52,13 @@ class MissionCallbacks {
   MissionCallbacks& operator=(MissionCallbacks&&) = delete;
   void add_trap(std::string_view function, MissionTrapEvent event);
   void add_timer(std::string_view function, MissionTimerEvent timer);
+  // The original default death event shares ordering/storage with realtime
+  // conditions. It is one-shot and becomes ready from copied player life.
+  void add_player_defeated(std::string_view function);
+  void cancel_all() noexcept;
   void tick(float seconds);
   void scan(const std::array<float, 3>& position,
-            const MissionTrapContains& contains);
+            const MissionTrapContains& contains, bool player_defeated = false);
   std::optional<MissionCallbackName> take();
   std::span<const MissionCallbackRecord> records() const noexcept {
     return records_;

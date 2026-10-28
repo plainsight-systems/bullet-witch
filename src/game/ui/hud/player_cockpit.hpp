@@ -31,6 +31,9 @@ class PlayerCockpit {
                const SpellRingPresentation& ring,
                const MissionGoalObservation* goal_observation = nullptr);
   void show(std::string_view diagnostic = {});
+  bool notify_damage(DamageDirection direction) {
+    return hud_.notify_damage(direction);
+  }
   void set_script_visible(bool visible) noexcept {
     activation_ =
         visible ? CockpitActivation::script : CockpitActivation::hidden;

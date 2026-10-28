@@ -36,6 +36,15 @@ constexpr Vector<T, 4> quaternion_product(const QuaternionProduct<T>& factors) {
   return {w * a + x * d + y * c - z * b, w * b - x * c + y * d + z * a,
           w * c + x * b - y * a + z * d, w * d - x * a - y * b - z * c};
 }
+// Axis-angle quaternion with explicit nonzero finite axis precondition. The
+// axis is normalized; its magnitude does not encode rotation strength.
+// Fixed arithmetic; I.4/MEM.9 apply in both design and implementation.
+template <std::floating_point T>
+Vector<T, 4> quaternion_axis_angle(const Vector3<T>& axis, T radians) {
+  const T half = radians / 2;
+  const auto vector = scale(axis, std::sin(half) / length(axis));
+  return {vector[0], vector[1], vector[2], std::cos(half)};
+}
 // Shortest-path spherical interpolation with an explicit near-parallel
 // threshold. Preserve authored magnitudes and component precision; no implicit
 // normalization. Finite unit inputs give a unit result outside the linear

@@ -20,20 +20,15 @@ animation::Matrix rotated_frame(const animation::Matrix& original,
   math::set_translation(result, origin);
   return result;
 }
-std::size_t skeleton_size(const formats::ModelDefinition& model) {
-  if (!model.skeleton()) {
-    throw std::invalid_argument("Support arm requires an authored skeleton");
-  }
-  return model.skeleton()->bones().size();
-}
 }  // namespace
 AliciaSupportArm::AliciaSupportArm(
     SupportArmSource source, const std::shared_ptr<memory::Domain>& domain)
-    : control_points_(formats::ControlPointDefinition::parse(
-          source.weapon_control_points, skeleton_size(source.weapon.get()),
-          domain)),
-      frames_(control_points_.frames().size(), animation::kIdentityMatrix,
-              memory::Allocator<animation::Matrix>(domain)) {
+    : control_points_(std::move(source.weapon_control_points)),
+      frames_(memory::Allocator<animation::Matrix>(domain)) {
+  if (!control_points_) {
+    throw std::invalid_argument("Support arm requires prepared weapon targets");
+  }
+  frames_.resize(control_points_->frames().size(), animation::kIdentityMatrix);
   const auto& body = source.body.get();
   const auto& body_skeleton = body.skeleton();
   if (!body_skeleton) {
@@ -64,7 +59,7 @@ AliciaSupportArm::AliciaSupportArm(
     throw std::invalid_argument("Support hand is not below the forearm");
   }
   for (const auto slot : {kHandTarget, kElbowPole}) {
-    if (slot >= frames_.size() || !control_points_.frames().at(slot).present) {
+    if (slot >= frames_.size() || !control_points_->frames().at(slot).present) {
       throw std::invalid_argument("Weapon lacks authored support-arm targets");
     }
   }
@@ -77,7 +72,7 @@ AliciaSupportArm::evaluate(SupportArmPoses poses, float weight) {
     throw std::invalid_argument("Invalid support-arm presentation weight");
   }
   if (weight == 0) return std::nullopt;
-  animation::evaluate_control_points(control_points_, weapon.skin_transforms(),
+  animation::evaluate_control_points(*control_points_, weapon.skin_transforms(),
                                      frames_);
   const auto pose = body.bone_transforms();
   const auto& upper = pose[bones_[0]];

@@ -107,6 +107,9 @@ class Output final : public WorldPresentation {
   }
   void update_world_texture_offsets(
       std::span<const WorldTextureOffsetUpdate>) override {}
+  void configure_world_sprites(
+      const bw::render::WorldSpriteCapacity&) override {}
+  void update_world_sprites(const bw::render::WorldSpriteUpdate&) override {}
   void update_world_lighting(
       std::span<const WorldLightingUpdate> updates) override {
     if (reject_lighting) {

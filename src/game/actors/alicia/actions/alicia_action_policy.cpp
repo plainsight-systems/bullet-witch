@@ -10,6 +10,7 @@
 
 #include "bw/content/formats/binary_reader.hpp"
 #include "bw/math/matrix.hpp"
+#include "game/actors/animation/weapon_motion_policy.hpp"
 
 namespace bw::game {
 ActionMotionPlan ordinary_shooter_exit(ActionMotionPlan entry) noexcept {
@@ -22,14 +23,8 @@ constexpr std::uint32_t kNibbleMask = 0xf;
 constexpr std::uint32_t kFamilyStride = 0x10;
 constexpr std::uint32_t kCrouchFamily = 0x90;
 constexpr std::uint32_t kFirstUpperFamily = 0x130;
-constexpr std::uint32_t kFirstReloadFamily = 0x150;
 constexpr std::uint32_t kUpperFamilyEnd = 0x2c0;
 constexpr std::uint32_t kFirstDischargeFamily = 0x1d0;
-constexpr std::uint32_t kRaiseFamily = 0x250;
-constexpr std::uint32_t kLowerFamily = 0x270;
-constexpr std::uint32_t kAirRecoil = 0x2c1;
-constexpr std::array<std::uint32_t, 6> kRecoilFamilies{0xd0,  0xe0,  0xf0,
-                                                       0x100, 0x110, 0x120};
 constexpr std::uint32_t kRaisedBack = 8;
 constexpr std::uint32_t kRaisedForward = 9;
 constexpr std::uint32_t kRaisedLeft = 10;
@@ -37,8 +32,6 @@ constexpr std::uint32_t kRaisedRight = 11;
 constexpr std::uint32_t kRaisedIdle = 12;
 constexpr std::uint32_t kRaisedTurnLeft = 13;
 constexpr std::uint32_t kRaisedTurnRight = 14;
-constexpr std::uint32_t kWeaponLower = 5;
-constexpr std::uint32_t kWeaponDischarge = 6;
 constexpr float kDashThreshold = .9F;
 constexpr float kRateSanityLimit = 1000;
 constexpr float kIdleDelaySeconds = 60;
@@ -238,61 +231,25 @@ ActionMotionPlan change_weapon_raised(AliciaStance stance,
                                       std::uint32_t body_slot, bool was_raised,
                                       bool raised) {
   validate_action(stance, body_slot);
-  ActionMotionPlan plan;
-  if (was_raised == raised) return plan;
-  const auto family =
-      (raised ? kRaiseFamily : kLowerFamily) + stance_offset(stance);
-  plan.requests[0] =
-      request(ActionMotionBank::upper_body, family | (body_slot & kNibbleMask));
-  plan.requests[1] =
-      request(ActionMotionBank::weapon, raised ? 2 : kWeaponLower, true);
-  plan.count = 2;
-  plan.clear_upper = raised;
-  plan.weapon_rest_slot = raised ? 2 : 1;
-  return plan;
+  if (was_raised == raised) return {};
+  return accepted_weapon_ready_motion(
+      {body_slot, stance == AliciaStance::crouched, raised});
 }
 
 ActionMotionPlan accepted_reload(const AcceptedWeaponAction& action) {
   validate_action(action.stance, action.body_slot);
   validate_weapon(action.weapon_class);
-  ActionMotionPlan plan;
-  const bool raised_variant =
-      action.body_slot < kUpperFamilyEnd && (action.body_slot & 8) != 0;
-  plan.requests[0] =
-      request(ActionMotionBank::weapon, raised_variant ? 4 : 3, true);
-  plan.requests[1] =
-      request(ActionMotionBank::upper_body,
-              (kFirstReloadFamily + action.weapon_class * 2 * kFamilyStride +
-               stance_offset(action.stance)) |
-                  (action.body_slot & kNibbleMask));
-  plan.count = 2;
-  return plan;
+  return accepted_weapon_reload_motion(
+      {action.body_slot, action.weapon_class,
+       action.stance == AliciaStance::crouched});
 }
 
 ActionMotionPlan accepted_shot(const AcceptedWeaponAction& action) {
   validate_action(action.stance, action.body_slot);
   validate_weapon(action.weapon_class);
-  ActionMotionPlan plan;
-  const auto direction = action.body_slot & kNibbleMask;
-  plan.requests[0] =
-      request(ActionMotionBank::upper_body,
-              (kFirstDischargeFamily + action.weapon_class * 2 * kFamilyStride +
-               stance_offset(action.stance)) |
-                  direction,
-              true);
-  plan.requests[1] = request(ActionMotionBank::weapon, kWeaponDischarge, true);
-  auto recoil = kAirRecoil;
-  if (action.grounded) {
-    const auto body_family = action.body_slot & ~kNibbleMask;
-    const std::size_t movement = body_family == 0               ? 0
-                                 : body_family == kFamilyStride ? 1
-                                                                : 2;
-    const std::size_t class_offset = action.weapon_class == 2 ? 3 : 0;
-    recoil = kRecoilFamilies.at(movement + class_offset) | direction;
-  }
-  plan.requests[2] = request(ActionMotionBank::additive, recoil, true);
-  plan.count = 3;
-  return plan;
+  return accepted_weapon_shot_motion({action.body_slot, action.weapon_class,
+                                      action.stance == AliciaStance::crouched,
+                                      action.player_camera});
 }
 
 ActionMotionPlan accepted_weapon_change(AliciaStance stance,

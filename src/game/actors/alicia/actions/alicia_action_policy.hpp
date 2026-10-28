@@ -24,40 +24,10 @@
 
 #include "bw/content/formats/customization.hpp"
 #include "bw/math/vector.hpp"
+#include "game/actors/animation/action_motion_plan.hpp"
 
 namespace bw::game {
-enum class ActionMotionBank : std::uint8_t {
-  body,
-  upper_body,
-  additive,
-  weapon
-};
-enum class ActionMotionStart : std::uint8_t { seconds, frames, preserve_phase };
 enum class AliciaStance : std::uint8_t { standing, crouched };
-
-inline constexpr double kSourceActionBlendSeconds = .3;
-struct ActionMotionRequest {
-  ActionMotionBank bank{ActionMotionBank::body};
-  std::uint32_t slot{}, channel{};
-  ActionMotionStart start{ActionMotionStart::seconds};
-  double start_seconds{}, start_frames{};
-  double blend_seconds{kSourceActionBlendSeconds};
-  float rate{1};
-  bool fresh{};
-};
-
-struct ActionMotionPlan {
-  // An accepted shot submits upper, weapon and additive, the largest covered
-  // receiver. Clear-upper represents source bank retirement before requests,
-  // including raise admission and source ordinary-state exit.
-  std::array<ActionMotionRequest, 3> requests{};
-  std::size_t count{};
-  bool clear_upper{};
-  std::optional<std::uint32_t> weapon_rest_slot;
-  std::span<const ActionMotionRequest> motions() const {
-    return std::span(requests).first(count);
-  }
-};
 
 // Caller has identified an outgoing ordinary state and a destination outside
 // its standing/crouch and generic-jump exceptions. Retire upper before
@@ -123,7 +93,8 @@ ActionMotionPlan change_weapon_raised(AliciaStance stance,
 struct AcceptedWeaponAction {
   AliciaStance stance{AliciaStance::standing};
   std::uint32_t body_slot{}, weapon_class{};
-  bool grounded{true};
+  // Source actor camera ownership, independent from physical ground contact.
+  bool player_camera{true};
 };
 ActionMotionPlan accepted_reload(const AcceptedWeaponAction& action);
 ActionMotionPlan accepted_shot(const AcceptedWeaponAction& action);

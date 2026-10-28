@@ -13,21 +13,11 @@
 #include <stdexcept>
 namespace bw::game {
 namespace {
-using Vec = math::Vector3<float>;
-constexpr float kUnitTolerance = .001F;
-constexpr float kTurnSpeed = 15.707963943481445F;
-constexpr float kCollinear = .9990000128746033F;
 constexpr float kOrdinaryLifetime = 6, kHeavyLifetime = .75F;
 constexpr std::uint32_t kHeavyWeapon = 3;
 void validate_seconds(float value) {
   if (!std::isfinite(value) || value < 0) {
     throw std::invalid_argument("Invalid aim timestep");
-  }
-}
-void validate_unit(const Vec& value) {
-  if (!math::all_finite(value) ||
-      std::abs(math::dot(value, value) - 1) > kUnitTolerance) {
-    throw std::invalid_argument("Nonunit aim direction");
   }
 }
 }  // namespace
@@ -58,63 +48,5 @@ bool RaisedWeaponLifetime::advance(float seconds, bool upper_present,
         weapon_class == kHeavyWeapon ? kHeavyLifetime : kOrdinaryLifetime;
   }
   return active();
-}
-Vec raised_facing_step(const RaisedFacingInput& input) {
-  validate_seconds(input.seconds);
-  if (!math::all_finite(input.current) || !(math::length(input.current) > 0)) {
-    throw std::invalid_argument("Degenerate current facing");
-  }
-  validate_unit(input.requested);
-  validate_unit(input.camera_forward);
-  if (!math::all_finite(input.authored_reference)) {
-    throw std::invalid_argument("Invalid facing reference");
-  }
-  const auto target = math::transform_direction<float>(
-      input.requested, input.authored_reference);
-  const float target_length = math::length(target);
-  if (!math::all_finite(target) || !std::isfinite(target_length) ||
-      !(target_length > 0)) {
-    throw std::invalid_argument("Degenerate facing target");
-  }
-  const Vec horizontal{input.camera_forward[0], 0, input.camera_forward[2]};
-  if (math::length(horizontal) == 0) {
-    throw std::invalid_argument("Vertical facing camera");
-  }
-  const auto camera = math::divide(horizontal, math::length(horizontal));
-  const float angle = input.seconds * kTurnSpeed;
-  const float alignment = math::dot(input.current, target);
-  // The source compares raw authored directions, including root scale. Its
-  // final basis construction normalizes the chosen forward only afterward.
-  if (alignment >= std::cos(angle)) {
-    return math::divide(target, target_length);
-  }
-  Vec axis{};
-  if (alignment >= -kCollinear) {
-    const auto crossed = math::cross(input.current, target);
-    axis = math::divide(crossed, math::length(crossed));
-    const auto negative_camera = math::scale(camera, -1.0F);
-    if (input.posture_enabled &&
-        crossed[1] * math::cross(input.current, negative_camera)[1] >= 0 &&
-        -crossed[1] * math::cross(target, negative_camera)[1] >= 0) {
-      axis = math::scale(axis, -1.0F);
-    }
-  } else if (std::abs(math::dot(camera, input.current)) <= kCollinear) {
-    const auto crossed = math::cross(input.current, camera);
-    axis = math::divide(crossed, math::length(crossed));
-  } else {
-    axis = {0, -1, 0};
-  }
-  const float half = angle / 2;
-  const auto vector = math::scale(axis, std::sin(half));
-  const auto rotation =
-      math::homogeneous_transform(math::TransformComponents<float>{
-          {vector[0], vector[1], vector[2], std::cos(half)}, {}, {1, 1, 1}});
-  const auto result = math::transform_direction<float>(input.current, rotation);
-  const float result_length = math::length(result);
-  if (!math::all_finite(result) || !std::isfinite(result_length) ||
-      !(result_length > 0)) {
-    throw std::invalid_argument("Unrepresentable facing step");
-  }
-  return math::divide(result, result_length);
 }
 }  // namespace bw::game

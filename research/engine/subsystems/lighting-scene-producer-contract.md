@@ -314,3 +314,41 @@ pinned formatting and `git diff --check` passed. The final integrated
 clang-tidy, policy tests and repository content checks. Actual first-visible PW5
 and PW0 captures no longer show the initial flash; physical acceptance remains
 open.
+
+
+## Dynamic emitter publication and delayed actor admission
+
+The first ordinary combat route exposed a publication-lifetime defect: a muzzle
+light update invalidated the scene view, then delayed Lua population admission
+created a spatial lighting receiver before the next presentation pass. The
+failure was in lighting publication ownership, not missing authored light data.
+The stack reached `SceneLighting::evaluate` through actor draw admission while
+`WorldPopulation` admitted a pending actor.
+
+A scene-owned fixed pending slot now receives emitter updates, clears and
+retirements. Those operations validate immediately but leave the last completed
+view, its global packet and its active actor candidate set intact. The next
+explicit `set_view` validates the camera first, applies all pending values, and
+runs the original candidate/depth-order preparation once. Delayed receivers can
+therefore query the previous completed publication; normal presentation
+re-evaluates them after the next publication. Releasing and reusing one pool slot
+before that boundary does not mutate the old snapshot, and starts new
+view-depth history when committed. Updates and publication allocate nothing.
+
+This staging structure is a reconstruction adaptation, not a claim about the
+original container layout. It preserves the recovered `457490` → `5f70f0`
+publication-before-draw sequence and previous-depth ordering described above.
+Reculling lazily for each new receiver would instead advance that history based
+on receiver arrival. The production reference is pinned Unreal commit
+`f45729c0b6f097038e72b52d366a62baeca3275b`,
+`Renderer/Private/RendererScene.cpp`: `FScene::UpdateLightInternal` and
+`UpdateLightInternal_RenderThread` enqueue copied update payloads, and the scene
+light change-set processing later applies removals and updates at its own
+publication phase. This project retains its existing single-threaded scene
+owner and fixed pool; it does not introduce Unreal's render-thread scheduling.
+
+Focused tests cover valid updates followed by invalid updates, rejected views
+with pending changes, delayed spatial/retained/static queries, clear/release,
+and generation reuse before publication. The ordinary authored-route rerun is
+separate integration evidence; these fixtures alone do not establish gameplay
+or visual parity.

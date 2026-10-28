@@ -76,7 +76,18 @@ class Context {
   void bind(std::string name, Native native);
   void load_binary(std::span<const std::uint8_t> bytes);
   void load_source(std::string_view source);
-  void start(const std::string& function);
+  // Arguments are copied into the protected Lua stack before returning; none
+  // is borrowed across a yield. Results are copied only after completion and
+  // before another start. No result (or Lua nil) returns monostate; unsupported
+  // object types throw. Native evaluator callers may take the first return
+  // exactly as the source scalar-scoring path does. Core SL.C.1 keeps Lua
+  // allocation jumps inside the protected C boundary; MEM.9 reuses the fixed
+  // task metadata. Lua stack/string allocations remain in its bounded heap.
+  void start(std::string_view function, std::span<const Value> arguments = {});
+  Value result() const;
+  // Strict first-return inspection: no Lua string coercion and no object
+  // conversion/allocation. Any non-number (including a table) yields nullopt.
+  std::optional<double> numeric_result() const;
   // Poll pending native work, then resume within the per-call safety budget.
   RunResult pump();
   // Configure fixed domain-backed callback slots before any start. All child

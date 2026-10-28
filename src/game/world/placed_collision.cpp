@@ -351,7 +351,9 @@ void PreparedPropCollision::register_instance(
     world.start = transform(world.start, body_world[local.body]);
     world.end = transform(world.end, body_world[local.body]);
   }
-  collision.add_triangles(world_triangles_);
-  collision.add_capsules(world_capsules_);
+  collision.add_triangles(world_triangles_, placed_background_collision_group,
+                          true);
+  collision.add_capsules(world_capsules_, placed_background_collision_group,
+                         true);
 }
 }  // namespace bw::game

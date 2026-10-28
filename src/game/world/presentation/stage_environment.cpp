@@ -49,6 +49,8 @@ constexpr std::size_t kSkyHeightRangeEnd = 49;
 constexpr std::size_t kSkyHeightOpacity = 50;
 constexpr std::size_t kCharacterLightIntensity = 61;
 constexpr std::size_t kEnemyLightIntensity = 62;
+constexpr std::size_t kEffectFogNear = 70, kEffectFogFar = 71;
+constexpr std::size_t kEffectAlphaRgb = 141, kEffectAdditiveRgb = 144;
 constexpr std::size_t kSkyYawDegrees = 72;
 constexpr std::size_t kSkyHeight = 73;
 constexpr std::size_t kShadowCullSelector = 76;
@@ -128,6 +130,8 @@ void fields(formats::StageEnvironment& value, std::uint32_t version,
   }
   visit(kCharacterLightIntensity, value.character_light_intensity);
   visit(kEnemyLightIntensity, value.enemy_light_intensity);
+  visit(kEffectFogNear, value.effects.fog_near);
+  visit(kEffectFogFar, value.effects.fog_far);
   visit(kSkyYawDegrees, value.sky_yaw_degrees);
   visit(kSkyHeight, value.sky_height);
   auto& shadow = value.shadow;
@@ -147,6 +151,12 @@ void fields(formats::StageEnvironment& value, std::uint32_t version,
   }
   if (version >= kCasterVersion) {
     visit(kShadowCastersEnabled, shadow.casters_enabled);
+    for (std::size_t component = 0; component < 3; ++component) {
+      visit(kEffectAlphaRgb + component,
+            value.effects.alpha_color_rate.at(component));
+      visit(kEffectAdditiveRgb + component,
+            value.effects.additive_color_rate.at(component));
+    }
   }
 }
 std::span<const std::uint8_t> input_bytes(const content::StageDefinition& stage,

@@ -71,7 +71,45 @@ float harmonic(float phase) {
   return weighted / total;
 }
 }  // namespace
-// Weight three source points, then orthonormalize their two basis directions.
+// Weight the authored locator with completed skin matrices, then build its
+// orthonormal frame. The unweighted branch still belongs to the model space.
+// Both-phase I.4/MEM.9 keep the borrowed prepared input and fixed scratch.
+Matrix evaluate_control_point(const formats::ControlPointDefinition& definition,
+                              const formats::ControlPointFrame& source,
+                              std::span<const Matrix> skin_world,
+                              const Matrix& model) {
+  if (!source.present) throw std::invalid_argument("Control point is absent");
+  auto result = kIdentityMatrix;
+  std::array<V, 3> points{};
+  if (source.influence_count == 0) points = source.points;
+  const auto inverse = math::inverse_affine(model);
+  if (!inverse) throw std::invalid_argument("Singular control-point model");
+  for (const auto& influence : definition.influences(source)) {
+    if (influence.bone >= skin_world.size()) {
+      throw std::invalid_argument("Control-point skin index exceeds pose");
+    }
+    const auto local_skin =
+        math::multiply(skin_world[influence.bone], *inverse);
+    for (std::size_t point = 0; point < points.size(); ++point) {
+      points.at(point) =
+          add(points.at(point), scale(math::transform_point<float>(
+                                          source.points.at(point), local_skin),
+                                      influence.weight));
+    }
+  }
+  const auto forward = subtract(points[1], points[0]),
+             up = subtract(points[2], points[0]);
+  if (length(forward) == 0 || length(cross(up, forward)) == 0) {
+    throw std::invalid_argument("Degenerate control-point frame");
+  }
+  const auto right = math::normalize_or(cross(up, forward), {1, 0, 0}),
+             z = math::normalize_or(forward, kForward), y = cross(z, right);
+  std::ranges::copy(right, result[0].begin());
+  std::ranges::copy(y, result[1].begin());
+  std::ranges::copy(z, result[2].begin());
+  math::set_translation(result, points[0]);
+  return math::multiply(result, model);
+}
 void evaluate_control_points(const formats::ControlPointDefinition& definition,
                              std::span<const Matrix> skin_world,
                              std::span<Matrix> frames) {
@@ -80,33 +118,9 @@ void evaluate_control_points(const formats::ControlPointDefinition& definition,
   }
   for (std::size_t index = 0; index < frames.size(); ++index) {
     const auto& source = definition.frames().at(index);
-    frames[index] = kIdentityMatrix;
-    if (!source.present) continue;
-    std::array<V, 3> points{};
-    if (source.influence_count == 0) points = source.points;
-    for (const auto& influence : definition.influences(source)) {
-      if (influence.bone >= skin_world.size()) {
-        throw std::invalid_argument("Control-point skin index exceeds pose");
-      }
-      for (std::size_t point = 0; point < points.size(); ++point) {
-        points.at(point) =
-            add(points.at(point),
-                scale(math::transform_point<float>(source.points.at(point),
-                                                   skin_world[influence.bone]),
-                      influence.weight));
-      }
-    }
-    const auto forward = subtract(points[1], points[0]),
-               up = subtract(points[2], points[0]);
-    if (length(forward) == 0 || length(cross(up, forward)) == 0) {
-      throw std::invalid_argument("Degenerate control-point frame");
-    }
-    const auto right = math::normalize_or(cross(up, forward), {1, 0, 0}),
-               z = math::normalize_or(forward, kForward), y = cross(z, right);
-    std::ranges::copy(right, frames[index][0].begin());
-    std::ranges::copy(y, frames[index][1].begin());
-    std::ranges::copy(z, frames[index][2].begin());
-    math::set_translation(frames[index], points[0]);
+    frames[index] = source.present
+                        ? evaluate_control_point(definition, source, skin_world)
+                        : kIdentityMatrix;
   }
 }
 SecondaryMotion::SecondaryMotion(

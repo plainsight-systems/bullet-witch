@@ -69,6 +69,13 @@ void MissionGameplay::advance() {
                         .attack_pressed = actions_.attack_pressed,
                         .aim_mode_pressed = actions_.aim_mode_pressed}});
   resources_.finish_frame();
+  const auto damage_channels = stage_.damage_direction_mask();
+  constexpr unsigned kDamageDirectionCount = 4;
+  for (unsigned channel = 0; channel < kDamageDirectionCount; ++channel) {
+    if ((damage_channels & (1U << channel)) != 0) {
+      cockpit_.notify_damage(static_cast<DamageDirection>(channel));
+    }
+  }
   std::optional<MissionGoalObservation> goal_observation;
   if (const auto* camera = stage_.camera_state()) {
     if (const auto* player = stage_.player_state()) {

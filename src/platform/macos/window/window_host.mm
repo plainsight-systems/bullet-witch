@@ -363,6 +363,14 @@ void WindowHost::update_world_texture_offsets(
   state_->world->update_world_texture_offsets(updates);
 }
 // Copy completed actor palettes into the retained scene before native encoding.
+void WindowHost::configure_world_sprites(const render::WorldSpriteCapacity& capacity) {
+  require_main_thread();
+  state_->world->configure_world_sprites(capacity);
+}
+void WindowHost::update_world_sprites(const render::WorldSpriteUpdate& update) {
+  require_main_thread();
+  state_->world->update_world_sprites(update);
+}
 void WindowHost::update_world_lighting(std::span<const render::WorldLightingUpdate> updates) {
   require_main_thread();
   state_->world->update_world_lighting(updates);

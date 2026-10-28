@@ -6,12 +6,21 @@
 // performance MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md)
 // consulted in both phases: bounded owner arrays publish const command spans.
 #pragma once
+#include <array>
 #include <optional>
 
 #include "bw/render/output/sprites.hpp"
 namespace bw::game {
 struct HudAtlasTile {
   unsigned index{}, width{}, height{};
+};
+// Explicit native nonuniform scaling and independent rotation center.
+// A missing center selects the unscaled rectangle center; translation follows
+// rotation. These copied values are resolved after resident image dimensions.
+struct HudSpriteTransform {
+  float scale_x{1}, scale_y{1};
+  std::optional<std::array<float, 2>> scale_center{}, rotation_center{};
+  std::array<float, 2> translation{};
 };
 struct HudSprite {
   unsigned image{};
@@ -26,5 +35,6 @@ struct HudSprite {
   bool top_left_pivot{};
   // Original horizontal tile selector resolves UVs from resident atlas size.
   std::optional<HudAtlasTile> tile{};
+  std::optional<HudSpriteTransform> transform{};
 };
 }  // namespace bw::game

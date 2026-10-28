@@ -1,6 +1,6 @@
 // In-process source target/lifetime witnesses, not hardware acceptance.
 // E.4 exercises rejection and MEM.9 fixed-state update without asset loading.
-#include "game/actors/alicia/animation/aim_posture.hpp"
+#include "game/actors/animation/aim_posture.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -29,6 +29,40 @@ void aim_posture_tests() {
           "Posture quarter-second fade preserves a zero-time preview");
   constexpr bw::math::Matrix4<float> identity{
       {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}}};
+  for (const float side : {-1.F, 1.F}) {
+    const auto step =
+        bw::game::advance_shooter_anchor(identity, {side, 0, 0}, 1.F / 60);
+    require(
+        !step.completed && std::abs(step.turn_rate - 2) < 1e-6F &&
+            std::abs(step.anchor[2][0] - side * .0523359589278698F) < 1e-6F &&
+            std::abs(step.anchor[2][2] - .9986295700073242F) < 1e-6F,
+        "Original Shooter witness turns opposite headings but emits positive "
+        "rate for both");
+  }
+  const auto back =
+      bw::game::advance_shooter_anchor(identity, {0, 0, -1}, 1.F / 60);
+  require(back.anchor[2][0] < 0 && std::abs(back.turn_rate - 2) < 1e-6F,
+          "Original antipodal Shooter witness selects negative Y rotation");
+  const auto up = bw::game::advance_shooter_anchor(
+      identity, {0, std::sin(.4F), std::cos(.4F)}, 1.F / 60);
+  require(std::abs(up.anchor[2][1] - .0523359589278698F) < 1e-6F &&
+              up.turn_rate == 0,
+          "Shooter pitch has independent bounded movement and no yaw rate");
+  const auto compound_anchor = bw::math::orthonormal_basis(
+      bw::math::Vector3<float>{std::sin(.5F) * std::cos(.2F), std::sin(.2F),
+                               std::cos(.5F) * std::cos(.2F)},
+      bw::math::Vector3<float>{0, 1, 0});
+  const auto compound =
+      bw::game::advance_shooter_anchor(compound_anchor, {1, 0, 0}, 1.F / 60);
+  require(std::abs(compound.anchor[2][0] - .5189894437789917F) < 1e-6F &&
+              std::abs(compound.anchor[2][1] - .14710433781147003F) < 1e-6F &&
+              std::abs(compound.anchor[2][2] - .8420275449752808F) < 1e-6F,
+          "Original compound yaw/pitch witness preserves quaternion order");
+  const auto settled =
+      bw::game::advance_shooter_anchor(identity, {0, 0, 1}, 1.F / 60);
+  require(
+      settled.completed && settled.turn_rate == 0 && settled.anchor == identity,
+      "Settled Shooter request completes without perturbing orientation");
   bw::game::AimPostureTarget target{
       identity, identity, {0, 0, 1}, {65, -90, 90, -45}};
   auto direction = bw::game::aim_posture_target(target);

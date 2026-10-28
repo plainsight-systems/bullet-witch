@@ -132,6 +132,16 @@ struct PopulationCheckpoint {
   std::array<std::uint8_t, kTriggers> fired{};
   std::size_t count{}, trigger_count{};
 };
+// Explicit script removal targets only the original deferred family class.
+// Fired trigger history remains unchanged; pending records are discarded only
+// after matching live receivers retire successfully. No callbacks are cleared.
+// Core I.30 isolates source bit masks; MEM.9 keeps bounded in-place storage.
+enum class PopulationFamily : std::uint8_t {
+  enemy = 2,
+  resistance = 4,
+  citizen = 8
+};
+std::uint32_t population_family_flags(std::string_view model);
 class MissionPopulation {
  public:
   explicit MissionPopulation(const content::MissionPlacementDefinition&,
@@ -143,7 +153,20 @@ class MissionPopulation {
   ~MissionPopulation() = default;
   void advance(const PopulationObservation&, PlacementRandom&,
                PopulationReceivers&);
+  void remove_family(PopulationFamily, PopulationReceivers&);
+  // Permanently forget one dead active identity after its receiver retires.
+  // No deferred record is created and fired triggers stay fired. A stale
+  // identity rejects; a callback failure preserves the live record. This
+  // bounded owner mutation is separate from distance-based residency.
+  // Core I.11 and performance CDSA.3/MEM.9 preserve lifetime authority and
+  // identity checks without reusing a retired identity for another actor.
+  bool retire_dead(PopulationIdentity, PopulationReceivers&);
   std::size_t active_count() const { return active_count_; }
+  // Admission-order identities; borrow expires at the next population mutation.
+  // Read-only, bounded view: no actor or lifecycle authority escapes.
+  std::span<const PopulationIdentity> active_identities() const {
+    return std::span(active_).first(active_count_);
+  }
   std::size_t pending_count() const;
   std::size_t fired_count() const;
   PopulationCheckpoint checkpoint(const PopulationReceivers&) const;

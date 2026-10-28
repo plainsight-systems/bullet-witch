@@ -142,15 +142,21 @@ PlayerResources::PlayerResources(const PlayerResourceSettings& settings,
                                  const MissionPlayerState& mission,
                                  const world::WorldClock& clock,
                                  std::optional<CheckpointPlayer> checkpoint)
-    : settings_(settings), mission_(mission), clock_(clock) {
+    : settings_(settings),
+      mission_(mission),
+      clock_(clock),
+      weapons_{WeaponResources(settings.weapons.at(0).capacity,
+                               settings.weapons.at(0).rate_per_second),
+               WeaponResources(settings.weapons.at(1).capacity,
+                               settings.weapons.at(1).rate_per_second),
+               WeaponResources(settings.weapons.at(2).capacity,
+                               settings.weapons.at(2).rate_per_second),
+               WeaponResources(settings.weapons.at(3).capacity,
+                               settings.weapons.at(3).rate_per_second)} {
   validate(settings_);
   health_ = health_ceiling_ = settings_.maximum_health;
   magic_ = magic_ceiling_ = magic_floor_ =
       settings_.weapons.front().recharge_cost;
-  for (std::size_t i = 0; i < weapons_.size(); ++i) {
-    weapons_.at(i) = {settings_.weapons.at(i).capacity,
-                      settings_.weapons.at(i).capacity, 0};
-  }
   // Concept entry discarded checkpoint authority already. Positive restored
   // lanes preserve the constructor maximum/floor; zero means no restore.
   if (mission_.origin() == ProgressionOrigin::checkpoint) {
@@ -168,9 +174,13 @@ PlayerResources::PlayerResources(const PlayerResourceSettings& settings,
   }
 }
 PlayerResourceSnapshot PlayerResources::snapshot() const {
+  std::array<WeaponResourceSnapshot, player_weapon_count> weapons{};
+  for (std::size_t i = 0; i < weapons.size(); ++i) {
+    weapons.at(i) = weapons_.at(i).snapshot();
+  }
   return {
       health_,           health_ceiling_, settings_.maximum_health,   magic_,
-      magic_ceiling_,    kMaximumMagic,   mission_.selected_weapon(), weapons_,
+      magic_ceiling_,    kMaximumMagic,   mission_.selected_weapon(), weapons,
       recharged_weapons_};
 }
 SpellResourceCost PlayerResources::spell_cost(PlayerSpell spell) const {
@@ -195,17 +205,12 @@ void PlayerResources::begin_frame(const world::WorldFrame& frame) {
   recharged_weapons_ = 0;
 }
 bool PlayerResources::actions_admitted() const noexcept {
-  return frame_open_ && simulation_admitted_;
+  return frame_open_ && simulation_admitted_ && health_ > 0;
 }
 void PlayerResources::finish_frame() {
   if (!frame_open_) throw std::logic_error("No player resource frame is open");
   if (simulation_admitted_) {
-    // Child weapon updates keep one negative overshoot but discard idle debt.
-    for (auto& weapon : weapons_) {
-      weapon.cooldown_seconds = weapon.cooldown_seconds > 0
-                                    ? weapon.cooldown_seconds - frame_delta_
-                                    : 0;
-    }
+    for (auto& weapon : weapons_) weapon.advance(frame_delta_);
     const auto magic_level = mission_.levels().stats.at(1);
     magic_ = recover(
         magic_, magic_ceiling_,
@@ -214,7 +219,9 @@ void PlayerResources::finish_frame() {
     // Constructor installs health stat zero before progression application.
     // Later level publication does not reinstall this source owner policy.
     const auto& health = settings_.health_recovery.front();
-    if (settings_.health_recovery_enabled) {
+    // Death replaces the original Damager timed update; ordinary recovery is
+    // no longer dispatched once its health transaction enters death.
+    if (health_recovery_active_ && settings_.health_recovery_enabled) {
       if (health.ceiling_seconds > 0 &&
           health_ceiling_ < settings_.maximum_health) {
         health_ceiling_delay_ -= frame_delta_;
@@ -238,39 +245,30 @@ void PlayerResources::finish_frame() {
 }
 ShotResourceResult PlayerResources::fire() {
   if (!actions_admitted()) return {};
-  auto& weapon = weapons_.at(mission_.selected_weapon());
-  if (weapon.cooldown_seconds > 0) return {ShotStatus::cooling_down, 0};
-  const float interval =
-      1 / settings_.weapons.at(mission_.selected_weapon()).rate_per_second;
-  ShotResourceResult result{ShotStatus::accepted, 0};
-  // Native acceptance may consume several rounds before returning empty.
-  // Return both observations; animation admission must follow source status.
-  while (weapon.cooldown_seconds <= 0) {
-    if (weapon.ammunition == 0) {
-      result.status = ShotStatus::empty;
-      break;
-    }
-    --weapon.ammunition;
-    ++result.shot_count;
-    weapon.cooldown_seconds += interval;
-  }
-  return result;
+  const auto selected = mission_.selected_weapon();
+  const auto receipt = weapons_.at(selected).try_fire();
+  return {receipt.status,
+          receipt.shot_count,
+          selected,
+          receipt.first_shot_age_seconds,
+          receipt.interval_seconds,
+          mission_.levels().weapons.at(selected)};
 }
 ResourceActionResult PlayerResources::reload() {
   if (!actions_admitted()) return ResourceActionResult::inactive;
   auto& weapon = weapons_.at(mission_.selected_weapon());
-  if (weapon.ammunition == weapon.capacity) {
+  const auto state = weapon.snapshot();
+  if (state.ammunition == state.capacity) {
     return ResourceActionResult::magazine_full;
   }
-  const float missing = 1 - static_cast<float>(weapon.ammunition) /
-                                static_cast<float>(weapon.capacity);
+  const float missing = 1 - static_cast<float>(state.ammunition) /
+                                static_cast<float>(state.capacity);
   const float cost =
       missing * settings_.weapons.at(mission_.selected_weapon()).recharge_cost;
   if (magic_ < cost) return ResourceActionResult::insufficient_magic;
   // Recharge receivers debit current magic and refill before body animation.
   magic_ = std::max(0.0F, magic_ - cost);
-  weapon.ammunition = weapon.capacity;
-  weapon.cooldown_seconds = 0;
+  weapon.recharge();
   recharged_weapons_ |=
       static_cast<std::uint8_t>(1U << mission_.selected_weapon());
   return ResourceActionResult::committed;
@@ -285,6 +283,44 @@ ResourceActionResult PlayerResources::spend_spell(PlayerSpell spell) {
   magic_ = std::max(0.0F, magic_ - cost.current);
   magic_ceiling_ = std::max(magic_floor_, magic_ceiling_ - cost.recoverable);
   return ResourceActionResult::committed;
+}
+HealthDamageResult PlayerResources::receive_damage(float magnitude) {
+  finite_nonnegative(magnitude);
+  if (!actions_admitted()) {
+    return {health_, health_ceiling_, false, health_ > 0};
+  }
+  const auto result =
+      apply_health_damage({health_, health_ceiling_, settings_.maximum_health,
+                           magnitude, 1, HealthDamageMode::player_camera});
+  if (result.accepted) {
+    health_ = result.current;
+    if (!result.alive) health_recovery_active_ = false;
+    health_ceiling_ = result.recoverable;
+    const auto& recovery = settings_.health_recovery.front();
+    health_delay_ = recovery.current_delay;
+    health_ceiling_delay_ = recovery.ceiling_delay;
+  }
+  return result;
+}
+// Source death messages restore only the recoverable ceiling. The constructor
+// multiplier is one; no admitted producer changes it. I.1/E.4 and MEM.9 were
+// reread: validate before writes, accept only the coordinator's live frame.
+ResourceActionResult PlayerResources::receive_defeat(float authored_amount) {
+  finite_nonnegative(authored_amount);
+  if (!frame_open_ || !simulation_admitted_) {
+    return ResourceActionResult::inactive;
+  }
+  magic_ceiling_ = std::min(kMaximumMagic, magic_ceiling_ + authored_amount);
+  return ResourceActionResult::committed;
+}
+ResourceActionResult PlayerDefeatResources::receive(float authored_amount) {
+  return owner_->receive_defeat(authored_amount);
+}
+HealthDamageResult PlayerDamageResources::receive(float magnitude) {
+  return owner_->receive_damage(magnitude);
+}
+PlayerResourceSnapshot PlayerDamageResources::snapshot() const {
+  return owner_->snapshot();
 }
 ShotResourceResult PlayerActionResources::try_fire() { return owner_->fire(); }
 ResourceActionResult PlayerActionResources::try_reload() {

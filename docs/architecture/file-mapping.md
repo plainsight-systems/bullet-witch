@@ -726,3 +726,29 @@ and forwards copied input. All policies consume the existing presentation delta.
 The independent review checks connected child return and persistence ownership,
 not just isolated flow fixtures. Detailed evidence is in the frontend subsystem
 reports. These names reconstruct responsibilities, not original C++ class names.
+
+### First two-way combat encounter (implementation in progress)
+
+| Owner | Responsibility |
+| --- | --- |
+| `include/bw/physics/world.hpp`, `src/engine/physics/jolt/` | Portable copied geometry/body/query contracts and private pinned Jolt provider; world alone advances and retires resources |
+| `src/game/world/world_physics.*` | Original scene bank/material admission; narrow query, mutation and resource capabilities |
+| `src/game/world/world_combat.*` | Mission-scoped shared AI observations, projectile/contact routing, original receiver eligibility and presentation requests |
+| `src/game/combat/projectile_world.*`, `combat_world.*` | Persistent original straight-shot stepping, ordered query receipts, retained projectile presentation and damage dispatch |
+| `src/game/combat/melee_events.*`, `melee_damage.*` | Four joint-owned source contact slots and distinct radial receiver policy; engine collision remains separate |
+| `src/game/actors/npc/` | Source behavior selection/evaluation, authored action requests and each actor's decision/motion state |
+| `src/game/actors/character_body_radius.hpp` | Shared source life-dependent contact radius and model-offset policy; immutable skeletal recipe dimensions remain separate |
+| `src/game/actors/character_physics.*` | Original skeletal body/constraint admission and explicit animation-to-physics pose transfer |
+| `src/game/actors/animation/source_motion_bindings.*` | Composed original common and family-specific slot publications; immutable shared consumer tables |
+| `src/game/actors/audio/npc_audio.*` | Per-admitted-EA0 voice/motion sound owner independent of AI admission; selected controller borrows source voice request identity |
+| `src/game/actors/animation/melee_blast.*`, `scripted_jump_policy.*` | Shared original root/flight/landing policies consuming world delta and shared collision; no private solver |
+| `src/game/actors/animation/facial_animation.*` | Shared immutable expression preparation and independent per-instance facial lifetimes |
+| `include/bw/effects/`, `src/engine/effects/` | Prepared original sprite programs and world-owned retained simulation; no actor damage or clock authority |
+| `src/game/combat/combat_effects.*`, `weapon_presentation.*`, `weapon_audio.*` | Original game effect/cue/light policy and retained emission lifetimes through engine capabilities |
+| `src/game/ui/mission/mission_game_over.*` | Original defeat presentation and copied restart/return outcome; mission application owns transition |
+
+The detailed source/reference contracts and validation boundaries are retained
+in `research/engine/subsystems/first-combat-exchange.md`,
+`first-combat-ai.md`, `first-combat-effects.md` and
+`first-combat-physics-boundary.md`. This mapping records current ownership;
+it does not declare the encounter accepted or every AI family implemented.

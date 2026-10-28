@@ -184,6 +184,44 @@ void failed_start_unwinds(const std::shared_ptr<bw::memory::Domain>& domain) {
           "Failed child creation releases its capacity");
   context.retire_coroutine(replacement);
 }
+void argument_and_result_ownership(
+    const std::shared_ptr<bw::memory::Domain>& domain) {
+  Context context(domain);
+  bool waiting = true;
+  context.bind("wait",
+               [&](auto) { return Reply{{}, [&] { return waiting; }}; });
+  context.load_source(
+      "function evaluate(owner, text) wait(); return owner+2, text end "
+      "function empty() end function object() return {} end");
+  rejects([&] { static_cast<void>(context.result()); });
+  {
+    const std::array<bw::script::Value, 2> args{40.0, std::string("owned")};
+    context.start("evaluate", args);
+  }
+  require(context.pump().state == RunState::pending,
+          "Arguments copied before their caller storage expires");
+  rejects([&] { static_cast<void>(context.result()); });
+  waiting = false;
+  require(context.pump().state == RunState::complete &&
+              std::get<double>(context.result()) == 42,
+          "Resume after wait preserves arguments and publishes first return");
+  context.start("empty");
+  require(context.pump().state == RunState::complete &&
+              std::holds_alternative<std::monostate>(context.result()),
+          "Empty return does not expose a stale evaluation value");
+  context.start("object");
+  require(context.pump().state == RunState::complete,
+          "Object producer finishes");
+  rejects([&] { static_cast<void>(context.result()); });
+  Context bounded(domain);
+  bounded.load_source("function identity(value) return value end");
+  const std::array<bw::script::Value, 1> oversized{
+      std::string(bw::script::kRootHeapBytes, 'x')};
+  rejects([&] { bounded.start("identity", oversized); });
+  require(
+      bounded.memory_snapshot().rejected_requests != 0,
+      "Child argument allocation failure returns through protected boundary");
+}
 }  // namespace
 void script_coroutine_tests() {
   const auto domain = bw::memory::Domain::create(std::make_shared<Backing>());
@@ -191,6 +229,7 @@ void script_coroutine_tests() {
   failure_isolation(domain);
   cancellation_and_reuse(domain);
   failed_start_unwinds(domain);
+  argument_and_result_ownership(domain);
   require(domain->snapshot().live_bytes == 0,
           "No retained task storage after VM close");
 }

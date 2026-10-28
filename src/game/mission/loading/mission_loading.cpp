@@ -37,9 +37,11 @@
 #include "mission_loading.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <stdexcept>
 #include <utility>
 
+#include "bw/content/formats/binary_reader.hpp"
 #include "bw/content/formats/section_table.hpp"
 #include "bw/content/formats/texture_mips.hpp"
 #include "bw/content/formats/world_texture.hpp"
@@ -163,6 +165,118 @@ void MissionLoading::prepare_player(unsigned costume, unsigned weapon_class) {
     throw;
   }
 }
+void MissionLoading::prepare_physics() {
+  if (physics_recipes_) return;
+  const auto executable =
+      files_.read(options_.game_directory / "witch.exe", memory_);
+  const auto player = read_character_physics_recipe(executable, "PW");
+  const auto soldier = read_character_physics_recipe(executable, "EA0");
+  if (!player || !soldier) {
+    throw std::runtime_error("Original encounter physics recipes are missing");
+  }
+  physics_recipes_.emplace(MissionPhysicsRecipes{
+      read_scene_physics_recipe(executable), *player, *soldier});
+}
+const MissionPhysicsRecipes& MissionLoading::physics_recipes() const {
+  if (!physics_recipes_) {
+    throw std::logic_error("Mission physics is unprepared");
+  }
+  return *physics_recipes_;
+}
+void MissionLoading::prepare_combat() {
+  if (combat_definitions_) return;
+  if (!stage_ || !renderer_) {
+    throw std::logic_error("Combat admission requires a resident mission");
+  }
+  const auto& resident_stage = *stage_;
+  prepare_physics();
+  const auto customization = formats::CustomizationDefinition::parse(
+      resident_stage.customization_bytes(), memory_);
+  const MissionCombatDefinitions definitions{
+      StraightWeaponDefinition::parse(customization, "wa0"),
+      StraightWeaponDefinition::parse(customization, "wg1"),
+      ActorDamageDefinition::parse(customization, "pw0"),
+      ActorDamageDefinition::parse(customization, "ea0"),
+      WeaponSoundProfile::original("wa0"),
+      WeaponSoundProfile::original("wg1"),
+      WeaponPresentationDefinition::parse(customization, "wa0"),
+      WeaponPresentationDefinition::parse(customization, "wg1"),
+      static_cast<std::size_t>(std::max(
+          0, std::bit_cast<std::int32_t>(resources::detail::Reader{
+                 customization.lookup(std::array{std::string_view("witch"),
+                                                 std::string_view("general"),
+                                                 std::string_view("setup")})}
+                                             .u32(0xb4))))};
+  constexpr std::array<std::string_view, 6> behavior_closure{
+      "no_ea_m_000",     "sub_ea_magic_no", "sub_ea_pursue_m",
+      "sub_ea_escape_m", "sub_ea_lv01_no",  "sub_ea_lv01_follow"};
+  combat_behaviors_.emplace(files_, catalogs_, memory_, behavior_closure);
+  player_hit_definition_.emplace(content::load_collision_definition(
+      files_, catalogs_, "model.pw0.ehit", memory_));
+  std::size_t count = 0;
+  const auto retain = [&](std::int32_t identity) {
+    if (identity < 0) return;
+    const auto id = static_cast<std::uint32_t>(identity);
+    const auto selected = std::span(combat_effect_ids_).first(count);
+    if (std::ranges::find(selected, id) == selected.end()) {
+      combat_effect_ids_.at(count++) = id;
+    }
+  };
+  for (const auto* weapon : {&definitions.player, &definitions.soldier}) {
+    retain(weapon->effects.retained_flash);
+    retain(weapon->effects.projectile);
+    retain(weapon->effects.muzzle);
+    for (const auto impact : weapon->effects.surface_impact) retain(impact);
+  }
+  for (const auto* presentation :
+       {&definitions.player_presentation, &definitions.soldier_presentation}) {
+    for (const auto identity : presentation->retained_flash) retain(identity);
+  }
+  // Original actor melee receiver emits this generic contact sprite before
+  // applying health damage, independently of its contextual sound action.
+  constexpr std::int32_t kMeleeContactEffect = 800;
+  retain(kMeleeContactEffect);
+  combat_effect_assets_.emplace(files_, catalogs_, *renderer_, memory_,
+                                std::span(combat_effect_ids_).first(count),
+                                options_.texture_mips, options_.progress);
+  combat_effect_count_ = count;
+  combat_definitions_.emplace(definitions);
+}
+const MissionCombatDefinitions& MissionLoading::combat_definitions() const {
+  if (!combat_definitions_) {
+    throw std::logic_error("Mission combat is unprepared");
+  }
+  return *combat_definitions_;
+}
+const MissionBehaviorAssets& MissionLoading::combat_behaviors() const {
+  if (!combat_behaviors_) {
+    throw std::logic_error("Mission behaviors are unprepared");
+  }
+  return *combat_behaviors_;
+}
+const formats::CollisionDefinition& MissionLoading::player_hit_definition()
+    const {
+  if (!player_hit_definition_) {
+    throw std::logic_error("Player collision is unprepared");
+  }
+  const auto& collision = player_hit_definition_->inputs.front().collision;
+  if (!collision) {
+    throw std::logic_error("Prepared player collision has no definition");
+  }
+  return *collision;
+}
+std::span<const CombatEffectPack> MissionLoading::combat_effect_packs() const {
+  if (!combat_effect_assets_) {
+    throw std::logic_error("Mission combat effects are unprepared");
+  }
+  return combat_effect_assets_->packs();
+}
+std::span<const std::uint32_t> MissionLoading::combat_effect_ids() const {
+  if (!combat_definitions_) {
+    throw std::logic_error("Mission combat is unprepared");
+  }
+  return std::span(combat_effect_ids_).first(combat_effect_count_);
+}
 ResidentModelView MissionLoading::PlayerBody::view() const {
   if (!residency) throw std::logic_error("Player residency is not available");
   const auto& model = definition.models.front();
@@ -172,8 +286,15 @@ ResidentModelView MissionLoading::PlayerBody::view() const {
     control_points =
         definition.archives.at(location.archive).payload(location.record);
   }
+  const formats::CollisionDefinition* actor_hit = nullptr;
+  for (const auto& input : definition.inputs) {
+    if (input.collision && input.name.ends_with(".ehit")) {
+      actor_hit = &*input.collision;
+    }
+  }
   return {model.name, model.definition, residency->models.front(),
-          {},         nullptr,          control_points};
+          {},         nullptr,          control_points,
+          actor_hit};
 }
 ResidentModelView MissionLoading::resident_player() const {
   if (!player_body_) throw std::logic_error("Player assets are not admitted");
@@ -534,6 +655,12 @@ MissionLoadReport MissionLoading::poll() {
   return report_;
 }
 void MissionLoading::cancel() noexcept {
+  player_hit_definition_.reset();
+  combat_behaviors_.reset();
+  combat_effect_assets_.reset();
+  combat_definitions_.reset();
+  combat_effect_count_ = 0;
+  physics_recipes_.reset();
   pending_ = false;
   request_kind_.reset();
   loading_scene_ = {};

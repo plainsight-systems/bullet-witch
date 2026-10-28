@@ -53,6 +53,7 @@ void validate(const HudResourceMeter& meter) {
 void GameplayHud::reset() noexcept {
   count_ = 0;
   ammunition_.reset();
+  damage_.reset();
   goal_.reset();
   health_ = {};
   magic_ = {};
@@ -377,6 +378,8 @@ void GameplayHud::advance(const GameplayHudSnapshot& observed, float seconds,
     goal_.advance(*observed.goal_observation, seconds);
     for (const auto& command : goal_.commands()) append(command);
   }
+  damage_.advance(seconds);
+  for (const auto& command : damage_.commands()) append(command);
   append({kBackgroundImage, kBackgroundPosition});
   auto health_color = kHealth;
   constexpr float kWarningThreshold = .2F, kWarningPeriod = 1.5F;

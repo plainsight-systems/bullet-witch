@@ -491,6 +491,18 @@ StageDefinition load_texture_definition(
   builder.texture_set(model);
   return builder.finish();
 }
+StageDefinition load_collision_definition(
+    const platform::Files& files, const resources::CatalogSet& catalogs,
+    std::string_view name, const std::shared_ptr<memory::Domain>& domain) {
+  Builder builder(files, catalogs, domain);
+  (void)builder.input({name, "Required actor collision definition"});
+  auto result = builder.finish();
+  if (result.inputs.size() != 1 || !result.inputs.front().collision) {
+    throw Error(ErrorCode::not_found,
+                "Required actor collision is unavailable");
+  }
+  return result;
+}
 StageDefinition load_stage_definition(
     const platform::Files& files, const resources::CatalogSet& catalogs,
     std::string_view stage, const std::shared_ptr<memory::Domain>& domain,

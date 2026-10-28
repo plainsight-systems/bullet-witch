@@ -8,6 +8,7 @@
 #include "motion_presentation.hpp"
 
 #include <bit>
+#include <cmath>
 #include <limits>
 
 #include "bw/content/formats/binary_reader.hpp"
@@ -16,7 +17,8 @@ namespace bw::game {
 namespace {
 constexpr std::size_t kSoundChannel = 0, kVoiceChannel = 1, kFaceChannel = 3,
                       kCancelChannel = 4, kInterruptChannel = 5,
-                      kCarryChannel = 6, kVisibilityChannel = 8;
+                      kCarryChannel = 6, kHitChannel = 7,
+                      kVisibilityChannel = 8;
 constexpr std::uint64_t kPayloadValue = 32, kVisibilityValue = 36;
 constexpr std::int32_t kExpressionDivisor = 10000000, kWeightDivisor = 10000,
                        kFaceBank = 1, kEyeBank = 2;
@@ -29,6 +31,25 @@ MotionPresentationCommand prepare(std::size_t channel,
       return SoundMotionCommand{
           reader.u32(kPayloadValue),
           std::bit_cast<std::int32_t>(reader.u32(kVisibilityValue))};
+    case kHitChannel: {
+      constexpr std::int32_t kDamageDivisor = 10000,
+                             kFarDamageDivisor = 100000000;
+      constexpr float kFarDamageScale = 10;
+      const auto packed =
+          std::bit_cast<std::int32_t>(reader.u32(kPayloadValue));
+      const auto radius = std::bit_cast<float>(reader.u32(kVisibilityValue));
+      if (!std::isfinite(radius) || radius < 0 || packed < 0) {
+        resources::detail::malformed("Invalid original melee event");
+      }
+      const auto effect = packed % kDamageDivisor;
+      const auto damage =
+          static_cast<float>((packed / kDamageDivisor) % kDamageDivisor);
+      const auto far_damage_tenths = packed / kFarDamageDivisor;
+      return MeleeMotionCommand{
+          std::bit_cast<std::int32_t>(reader.u32(kVisibilityValue + 4)),
+          effect == 0 ? -1 : effect, radius, damage,
+          (static_cast<float>(far_damage_tenths) / kFarDamageScale) * damage};
+    }
     case kCancelChannel:
       return CancellationMotionCommand{};
     case kVisibilityChannel: {
@@ -107,6 +128,10 @@ void MotionPresentationReceiver::receive(
       }
     }
     sink_.sound(*sound, phase, context);
+    return;
+  }
+  if (const auto* hit = std::get_if<MeleeMotionCommand>(&command)) {
+    sink_.melee(*hit, phase, context);
     return;
   }
   if (phase != animation::MotionEventPhase::enter) return;

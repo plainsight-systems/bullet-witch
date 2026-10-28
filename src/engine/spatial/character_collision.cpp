@@ -1,3 +1,9 @@
+// Lifetime gating: Core E.4 validates group IDs before publication; MEM.9
+// keeps immutable BVH storage while the exclusive owner toggles a fixed mask.
+// Retain bank/category metadata beside the already decoded geometry for
+// provider admission. E.6 (#re-raii) preserves owned immutable preparation;
+// MEM.9 (guidelines/memory/MEM.9-embedded-allocate-at-init.md) keeps this setup
+// work out of queries. Both phases consulted; contact algorithms unchanged.
 // Contact-mode implementation E.4 validates state policy before geometry;
 // MEM.9 keeps grounded/airborne selection allocation-free. Both corpora read
 // for design and implementation; source paths are in the collision research.
@@ -141,20 +147,18 @@ Pair closest_segments(const std::array<Vec, 2>& first,
            math::add(a, math::scale(v, t)));
   return result;
 }
-Pair closest_capsule_axis(const Vec& lower, float height,
+Pair closest_capsule_axis(const Vec& lower, const Vec& upper,
                           const Triangle& triangle, const Vec& normal) {
-  auto upper = lower;
-  upper[1] += height;
+  const auto axis = math::subtract(upper, lower);
   Pair pair;
   consider(pair, lower, closest_triangle(lower, triangle, normal));
   consider(pair, upper, closest_triangle(upper, triangle, normal));
   const auto lower_plane =
       math::dot(math::subtract(lower, triangle[0]), normal);
-  const auto difference = height * normal[1];
+  const auto difference = math::dot(axis, normal);
   if (std::abs(difference) > kTolerance) {
     const auto t = -lower_plane / difference;
-    auto intersection = lower;
-    intersection[1] += t * height;
+    const auto intersection = math::add(lower, math::scale(axis, t));
     if (t >= 0 && t <= 1 && inside(intersection, triangle, normal)) {
       return {intersection, intersection, 0};
     }
@@ -240,25 +244,42 @@ Triangle decode_triangle(const formats::CollisionPart& part, std::size_t face) {
 }  // namespace
 
 void StaticCollision::add_triangles(
-    std::span<const CollisionTriangle> triangles) {
+    std::span<const CollisionTriangle> triangles, CollisionGroup group,
+    bool actor_owned) {
+  (void)group_bit(group);
   for (const auto& triangle : triangles) {
     if (!std::all_of(triangle.vertices.begin(), triangle.vertices.end(),
                      math::all_finite<float, 3>)) {
       throw std::invalid_argument("Nonfinite collision triangle");
     }
   }
-  additional_triangles_.insert(additional_triangles_.end(), triangles.begin(),
-                               triangles.end());
+  if (triangles.size() >
+      additional_triangles_.max_size() - additional_triangles_.size()) {
+    throw std::length_error("Collision triangle capacity exceeded");
+  }
+  additional_triangles_.reserve(additional_triangles_.size() +
+                                triangles.size());
+  for (const auto& triangle : triangles) {
+    additional_triangles_.push_back({triangle, group, actor_owned});
+  }
   character_ready_ = false;
 }
-void StaticCollision::add_capsules(std::span<const CollisionCapsule> capsules) {
+void StaticCollision::add_capsules(std::span<const CollisionCapsule> capsules,
+                                   CollisionGroup group, bool actor_owned) {
+  (void)group_bit(group);
   for (const auto& capsule : capsules) {
     if (!math::all_finite(capsule.start) || !math::all_finite(capsule.end) ||
         !std::isfinite(capsule.radius) || capsule.radius <= 0) {
       throw std::invalid_argument("Invalid collision capsule");
     }
   }
-  capsules_.insert(capsules_.end(), capsules.begin(), capsules.end());
+  if (capsules.size() > capsules_.max_size() - capsules_.size()) {
+    throw std::length_error("Collision capsule capacity exceeded");
+  }
+  capsules_.reserve(capsules_.size() + capsules.size());
+  for (const auto& capsule : capsules) {
+    capsules_.push_back({capsule, group, actor_owned});
+  }
   character_ready_ = false;
 }
 
@@ -279,49 +300,67 @@ void StaticCollision::prepare_character_queries() {
   }
   triangles.reserve(count);
   std::size_t ordinal = 0;
-  const auto append_triangle = [&](const Triangle& vertices,
-                                   std::uint32_t flags,
-                                   std::optional<std::uint8_t> surface) {
-    CharacterPrimitive triangle;
-    triangle.vertices = vertices;
-    triangle.ordinal = ordinal++;
-    const auto normal = math::cross(math::subtract(vertices[1], vertices[0]),
-                                    math::subtract(vertices[2], vertices[0]));
-    const auto length = math::length(normal);
-    if (!std::isfinite(length)) {
-      throw std::invalid_argument("Unrepresentable character collision face");
-    }
-    if (length <= kTolerance) {
-      return;
-    }
-    triangle.normal = math::scale(normal, 1.0F / length);
-    triangle.minimum = vertices[0];
-    triangle.maximum = vertices[0];
-    for (const auto& vertex : vertices) {
-      for (std::size_t axis = 0; axis < 3; ++axis) {
-        triangle.minimum.at(axis) =
-            std::min(triangle.minimum.at(axis), vertex.at(axis));
-        triangle.maximum.at(axis) =
-            std::max(triangle.maximum.at(axis), vertex.at(axis));
-      }
-    }
-    triangle.flags = flags;
-    triangle.surface = surface;
-    triangles.push_back(triangle);
-  };
+  const auto append_triangle =
+      [&](const Triangle& vertices, std::uint32_t flags,
+          std::optional<std::uint8_t> surface, CollisionSourceMode source,
+          std::optional<std::uint32_t> category,
+          std::optional<std::uint8_t> physical_material, CollisionGroup group,
+          bool actor_owned) {
+        CharacterPrimitive triangle;
+        triangle.vertices = vertices;
+        triangle.ordinal = ordinal++;
+        const auto normal =
+            math::cross(math::subtract(vertices[1], vertices[0]),
+                        math::subtract(vertices[2], vertices[0]));
+        const auto length = math::length(normal);
+        if (!std::isfinite(length)) {
+          throw std::invalid_argument(
+              "Unrepresentable character collision face");
+        }
+        if (length <= kTolerance) {
+          return;
+        }
+        triangle.normal = math::scale(normal, 1.0F / length);
+        triangle.minimum = vertices[0];
+        triangle.maximum = vertices[0];
+        for (const auto& vertex : vertices) {
+          for (std::size_t axis = 0; axis < 3; ++axis) {
+            triangle.minimum.at(axis) =
+                std::min(triangle.minimum.at(axis), vertex.at(axis));
+            triangle.maximum.at(axis) =
+                std::max(triangle.maximum.at(axis), vertex.at(axis));
+          }
+        }
+        triangle.flags = flags;
+        triangle.surface = surface;
+        triangle.source = source;
+        triangle.category = category;
+        triangle.physics_material = physical_material;
+        triangle.group = group;
+        triangle.actor_owned = actor_owned;
+        triangles.push_back(triangle);
+      };
   for (const auto& part : parts_) {
     const auto& definition = part.definition.get();
     for (std::uint32_t face = 0; face < definition.triangle_count; ++face) {
       constexpr std::size_t kFaceBytes = 8, kSurfaceByte = 7;
       append_triangle(decode_triangle(definition, face), part.object_flags,
-                      definition.triangles[face * kFaceBytes + kSurfaceByte]);
+                      definition.triangles[face * kFaceBytes + kSurfaceByte],
+                      part.source, definition.flags, part.physics_material, {},
+                      false);
     }
   }
-  for (const auto& triangle : additional_triangles_) {
-    append_triangle(triangle.vertices, triangle.object_flags, std::nullopt);
+  for (const auto& registered : additional_triangles_) {
+    const auto& triangle = registered.geometry;
+    append_triangle(triangle.vertices, triangle.object_flags, std::nullopt,
+                    CollisionSourceMode::combined, std::nullopt, std::nullopt,
+                    registered.group, registered.actor_owned);
   }
-  for (const auto& capsule : capsules_) {
+  for (const auto& registered : capsules_) {
+    const auto& capsule = registered.geometry;
     CharacterPrimitive primitive;
+    primitive.group = registered.group;
+    primitive.actor_owned = registered.actor_owned;
     primitive.vertices[0] = capsule.start;
     primitive.vertices[1] = capsule.end;
     primitive.radius = capsule.radius;
@@ -388,21 +427,48 @@ void StaticCollision::prepare_character_queries() {
   if (!triangles.empty()) {
     build(build, 0, triangles.size());
   }
+  // Physics-only parts retain the same raw triangle decoder without entering
+  // accepted player/camera query traversal. Their admission differs by source.
+  auto physical = memory::Vector<PreparedCollisionGeometry>(
+      physics_only_geometry_.get_allocator());
+  std::size_t physical_count = 0;
+  for (const auto& part : physics_only_parts_) {
+    if (part.definition.get().triangle_count >
+        physical.max_size() - physical_count) {
+      throw std::length_error("Static physics geometry exceeds capacity");
+    }
+    physical_count += part.definition.get().triangle_count;
+  }
+  physical.reserve(physical_count);
+  for (const auto& part : physics_only_parts_) {
+    const auto& definition = part.definition.get();
+    for (std::uint32_t face = 0; face < definition.triangle_count; ++face) {
+      constexpr std::size_t kFaceBytes = 8, kSurfaceByte = 7;
+      const auto surface =
+          definition.triangles[face * kFaceBytes + kSurfaceByte];
+      physical.push_back({decode_triangle(definition, face), part.object_flags,
+                          ordinal++, 0, false, surface, part.source,
+                          definition.flags, false, part.physics_material});
+    }
+  }
+  physics_only_geometry_.swap(physical);
   character_primitives_.swap(triangles);
   character_nodes_.swap(nodes);
   character_ready_ = true;
 }
 
 StaticCollision::CharacterContact StaticCollision::body_contact(
-    const BodyQuery& query) const {
+    const BodyQuery& query, bool sum_translations) const {
   const auto& [position, radius, cylinder_height, excluded_flags,
-               minimum_normal_y] = query;
+               minimum_normal_y, endpoint, rank_support_separation] = query;
   CharacterContact contact;
-  const Vec minimum{position[0] - radius, position[1] - radius,
-                    position[2] - radius};
-  const Vec maximum{position[0] + radius,
-                    position[1] + cylinder_height + radius,
-                    position[2] + radius};
+  const Vec upper = endpoint.value_or(
+      Vec{position[0], position[1] + cylinder_height, position[2]});
+  Vec minimum{}, maximum{};
+  for (std::size_t axis = 0; axis < 3; ++axis) {
+    minimum.at(axis) = std::min(position.at(axis), upper.at(axis)) - radius;
+    maximum.at(axis) = std::max(position.at(axis), upper.at(axis)) + radius;
+  }
   std::array<std::size_t, std::numeric_limits<std::size_t>::digits> stack{};
   std::size_t pending = character_nodes_.empty() ? 0 : 1;
   while (pending != 0) {
@@ -417,17 +483,16 @@ StaticCollision::CharacterContact StaticCollision::body_contact(
     }
     for (std::size_t i = node.first; i < node.first + node.count; ++i) {
       const auto& triangle = character_primitives_.at(i);
-      if ((triangle.flags & (excluded_flags | kDisabled)) != 0) {
+      if (!group_enabled(triangle.group) ||
+          (triangle.flags & (excluded_flags | kDisabled)) != 0) {
         continue;
       }
-      auto upper = position;
-      upper[1] += cylinder_height;
       const auto pair =
           triangle.capsule
               ? closest_segments({position, upper},
                                  {triangle.vertices[0], triangle.vertices[1]})
-              : closest_capsule_axis(position, cylinder_height,
-                                     triangle.vertices, triangle.normal);
+              : closest_capsule_axis(position, upper, triangle.vertices,
+                                     triangle.normal);
       const auto combined_radius = radius + triangle.radius;
       if (pair.squared >= combined_radius * combined_radius) {
         continue;
@@ -442,20 +507,81 @@ StaticCollision::CharacterContact StaticCollision::body_contact(
       if (normal[1] < minimum_normal_y) {
         continue;
       }
-      if (contact.found &&
-          (depth < contact.depth ||
-           (depth == contact.depth && triangle.ordinal > contact.ordinal))) {
+      if (sum_translations) {
+        contact.summed_translation =
+            math::add(contact.summed_translation, math::scale(normal, depth));
+      }
+      // Source capsule face observations rank the whole axis support, not
+      // merely the closest-point gap. Physical resolution retains its existing
+      // closest-distance depth; this query policy does not alter that solver.
+      const auto ranked_depth =
+          rank_support_separation
+              ? combined_radius -
+                    std::min(
+                        math::dot(math::subtract(position, pair.surface),
+                                  normal),
+                        math::dot(math::subtract(upper, pair.surface), normal))
+              : depth;
+      if (contact.found && (ranked_depth < contact.depth ||
+                            (ranked_depth == contact.depth &&
+                             triangle.ordinal > contact.ordinal))) {
         continue;
       }
       contact = {math::add(pair.surface, math::scale(normal, triangle.radius)),
                  normal,
-                 depth,
+                 ranked_depth,
                  triangle.ordinal,
                  true,
-                 triangle.surface};
+                 triangle.surface,
+                 contact.summed_translation,
+                 triangle.actor_owned,
+                 triangle.capsule ? std::nullopt
+                                  : std::optional<Vec>{triangle.normal}};
     }
   }
   return contact;
+}
+
+SpherePenetrationResult StaticCollision::sphere_penetration(
+    const Vec& center, float radius,
+    std::uint32_t excluded_object_flags) const {
+  if (!character_ready_) {
+    throw std::logic_error("Sphere query requires prepared collision");
+  }
+  if (!math::all_finite(center) || !std::isfinite(radius) || radius <= 0) {
+    throw std::invalid_argument("Invalid sphere penetration query");
+  }
+  // Reuse the same prepared geometry and contact features as character motion,
+  // but reduce all contacts from one fixed sphere instead of iterating a body.
+  const auto contact =
+      body_contact({center, radius, 0, excluded_object_flags}, true);
+  return {contact.summed_translation, contact.found};
+}
+bool StaticCollision::overlaps_capsule(
+    const Vec& start, const Vec& end, float radius,
+    std::uint32_t excluded_object_flags) const {
+  if (!character_ready_) {
+    throw std::logic_error("Capsule query requires prepared collision");
+  }
+  if (!math::all_finite(start) || !math::all_finite(end) ||
+      !std::isfinite(radius) || radius <= 0) {
+    throw std::invalid_argument("Invalid capsule overlap query");
+  }
+  return body_contact({start, radius, 0, excluded_object_flags, -1, end}).found;
+}
+
+std::optional<Vec> StaticCollision::capsule_face(
+    const Vec& start, const Vec& end, float radius,
+    std::uint32_t excluded_object_flags) const {
+  if (!character_ready_) {
+    throw std::logic_error("Capsule query requires prepared collision");
+  }
+  if (!math::all_finite(start) || !math::all_finite(end) ||
+      !std::isfinite(radius) || radius <= 0) {
+    throw std::invalid_argument("Invalid capsule face query");
+  }
+  return body_contact({start, radius, 0, excluded_object_flags, -1, end, true})
+      .face_normal;
 }
 
 StaticCollision::CharacterContact StaticCollision::segment_contact(
@@ -482,7 +608,8 @@ StaticCollision::CharacterContact StaticCollision::segment_contact(
     }
     for (std::size_t i = node.first; i < node.first + node.count; ++i) {
       const auto& triangle = character_primitives_.at(i);
-      if ((triangle.flags & (excluded_flags | kDisabled)) != 0) {
+      if (!group_enabled(triangle.group) ||
+          (triangle.flags & (excluded_flags | kDisabled)) != 0) {
         continue;
       }
       if (triangle.capsule) {
@@ -498,7 +625,8 @@ StaticCollision::CharacterContact StaticCollision::segment_contact(
               closest_edge(point, capsule.start, capsule.end);
           const auto normal = math::scale(math::subtract(point, axis_point),
                                           1.0F / capsule.radius);
-          contact = {point, normal, fraction, triangle.ordinal, true};
+          contact = {point, normal, fraction, triangle.ordinal,
+                     true,  {},     {},       triangle.actor_owned};
         }
         continue;
       }
@@ -519,8 +647,8 @@ StaticCollision::CharacterContact StaticCollision::segment_contact(
            triangle.ordinal > contact.ordinal)) {
         continue;
       }
-      contact = {point, triangle.normal, fraction, triangle.ordinal,
-                 true,  triangle.surface};
+      contact = {point, triangle.normal,  fraction, triangle.ordinal,
+                 true,  triangle.surface, {},       triangle.actor_owned};
     }
   }
   return contact;

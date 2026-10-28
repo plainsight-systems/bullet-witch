@@ -28,6 +28,7 @@ static_assert(!std::is_copy_constructible_v<PlayerResources> &&
 template <class T>
 concept HasFrameControl = requires(T& value) { value.finish_frame(); };
 static_assert(!HasFrameControl<PlayerActionResources>);
+static_assert(!HasFrameControl<bw::game::PlayerDefeatResources>);
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
@@ -120,6 +121,10 @@ void persistent_magazines_and_source_overshoot() {
   const auto exhausted = actions.try_fire();
   require(exhausted.shot_count == 1 && exhausted.status == ShotStatus::empty,
           "source can return empty after earlier accepted catch-up shot");
+  require(exhausted.weapon == 0 && exhausted.first_shot_age_seconds > 0 &&
+              exhausted.interval_seconds ==
+                  1 / config.weapons.front().rate_per_second,
+          "accepted shot retains weapon and cooldown debt on terminal empty");
   require(resources.snapshot().weapons.at(1).ammunition == 15,
           "weapon selection preserves every magazine");
   resources.finish_frame();
@@ -229,8 +234,80 @@ void exhausted_pool_and_ceiling_floor() {
               resources.snapshot().recoverable_magic == 20,
           "time cannot regenerate the spent ceiling without a pickup");
 }
+void incoming_damage_authority_and_delay() {
+  const MissionPlayerState mission(all_learned());
+  WorldClock clock;
+  PlayerResources resources(settings(), mission, clock);
+  auto damage = resources.damage_receiver();
+  static_assert(!HasFrameControl<decltype(damage)>);
+  require(!damage.receive(100).accepted && resources.snapshot().health == 5000,
+          "Damage capability cannot admit its own frame");
+  resources.begin_frame(clock.publish(.1F, {}));
+  const auto hit = damage.receive(100);
+  require(hit.accepted && hit.current == 4600 && hit.recoverable == 4900,
+          "Player damage transaction preserves source two-pool debit");
+  resources.finish_frame();
+  require(resources.snapshot().health == 4600,
+          "Damage resets recovery delay before child update");
+  resources.begin_frame(clock.publish(10.F, {false, false}));
+  require(!damage.receive(100).accepted,
+          "Paused frame cannot accept an incoming damage transaction");
+  resources.finish_frame();
+  require(resources.snapshot().health == 4600,
+          "Pause neither damages nor advances recovery delays");
+  resources.begin_frame(clock.publish(2.F, {}));
+  resources.finish_frame();
+  require(resources.snapshot().health == 4900 &&
+              resources.snapshot().recoverable_health == 4900,
+          "Current recovery resumes at source delay while ceiling still waits");
+  resources.begin_frame(clock.publish(.1F, {}));
+  require(!damage.receive(2000).alive,
+          "Lethal hit enters death resource policy");
+  resources.finish_frame();
+  resources.begin_frame(clock.publish(60.F, {}));
+  require(resources.actions().try_fire().status == ShotStatus::inactive,
+          "Dead actor cannot spend magazine resources");
+  resources.finish_frame();
+  require(resources.snapshot().health == 0,
+          "Death state replaces ordinary timed health recovery");
+}
+
+void defeat_notifications_restore_only_ceiling() {
+  const MissionPlayerState mission(all_learned());
+  WorldClock clock;
+  PlayerResources resources(settings(), mission, clock);
+  auto defeat = resources.defeat_receiver();
+  require(defeat.receive(30) == ResourceActionResult::inactive,
+          "World outcome cannot mutate resources outside an admitted frame");
+  resources.begin_frame(clock.publish(0, {false, false}));
+  require(defeat.receive(30) == ResourceActionResult::inactive,
+          "Paused world cannot deliver a defeat notification");
+  resources.finish_frame();
+  resources.begin_frame(clock.publish(0, {}));
+  require(
+      defeat.receive(30) == ResourceActionResult::committed &&
+          resources.snapshot().recoverable_magic == 50 &&
+          resources.snapshot().magic == 20,
+      "Original defeat increases ceiling without instantly refilling magic");
+  rejected([&] { (void)defeat.receive(-1); });
+  rejected(
+      [&] { (void)defeat.receive(std::numeric_limits<float>::quiet_NaN()); });
+  require(resources.snapshot().recoverable_magic == 50,
+          "Malformed outcome cannot partially mutate magic");
+  require(defeat.receive(100) == ResourceActionResult::committed &&
+              resources.snapshot().recoverable_magic == 100,
+          "Source ceiling saturates at one hundred");
+  resources.finish_frame();
+  resources.begin_frame(clock.publish(1, {}));
+  resources.finish_frame();
+  require(resources.snapshot().magic > 20 && resources.snapshot().magic < 100,
+          "Ordinary world recovery fills the expanded ceiling over time");
+}
+
 }  // namespace
 void player_resource_contracts() {
+  defeat_notifications_restore_only_ceiling();
+  incoming_damage_authority_and_delay();
   initial_and_reload_lanes();
   persistent_magazines_and_source_overshoot();
   spells_checkpoint_and_recovery();

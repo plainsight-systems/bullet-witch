@@ -26,5 +26,6 @@ struct ResidentModelView {
   std::span<const std::int32_t> body_joints;
   const formats::PhysicsCollisionDefinition* physics_collision{};
   std::span<const std::uint8_t> control_points{};
+  const formats::CollisionDefinition* actor_hit{};
 };
 }  // namespace bw::game

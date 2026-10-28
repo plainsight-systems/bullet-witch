@@ -26,7 +26,7 @@ struct SupportArmPoses {
 struct SupportArmSource {
   std::reference_wrapper<const formats::ModelDefinition> body;
   std::reference_wrapper<const formats::ModelDefinition> weapon;
-  std::span<const std::uint8_t> weapon_control_points;
+  std::shared_ptr<const formats::ControlPointDefinition> weapon_control_points;
 };
 class AliciaSupportArm {
  public:
@@ -40,7 +40,7 @@ class AliciaSupportArm {
       SupportArmPoses poses, float raised_weight);
 
  private:
-  formats::ControlPointDefinition control_points_;
+  std::shared_ptr<const formats::ControlPointDefinition> control_points_;
   memory::Vector<animation::Matrix> frames_;
   std::array<std::size_t, 3> bones_{};
 };

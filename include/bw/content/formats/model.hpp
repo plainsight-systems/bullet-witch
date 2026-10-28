@@ -117,6 +117,9 @@ class ModelDefinition {
  public:
   static ModelDefinition parse(resources::ResourceArchive archive,
                                std::shared_ptr<memory::Domain> domain);
+  // Original root GROUP0 sphere radius; immutable authored units, not a
+  // transformed extent or an inferred mesh bound.
+  float bounding_radius() const { return bounding_radius_; }
   const auto& declarations() const { return declarations_; }
   const auto& vertex_buffers() const { return vertex_buffers_; }
   const auto& index_buffers() const { return index_buffers_; }
@@ -148,6 +151,7 @@ class ModelDefinition {
   resources::ResourceArchive archive_;
   memory::Allocator<std::byte> allocator_;
   std::size_t header_record_{};
+  float bounding_radius_{};
   memory::Vector<ModelDeclaration> declarations_;
   memory::Vector<ModelBuffer> vertex_buffers_, index_buffers_, shape_buffers_,
       shape_offsets_;

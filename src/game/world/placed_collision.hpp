@@ -17,6 +17,7 @@
 #include "bw/content/formats/stage_definitions.hpp"
 #include "bw/spatial/static_collision.hpp"
 namespace bw::game {
+inline constexpr scene::CollisionGroup placed_background_collision_group{1};
 class PreparedPropCollision {
  public:
   PreparedPropCollision(const formats::PhysicsCollisionDefinition& definition,

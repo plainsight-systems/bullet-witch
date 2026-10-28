@@ -60,6 +60,22 @@ class ActorPublisher {
   explicit ActorPublisher(RenderScene& scene) : scene_(scene) {}
   RenderScene& scene_;
 };
+// Effects publication cannot admit resources or mutate scene actors/lights.
+// The stable scene owns this capability and rejects use after retirement.
+class EffectsPublisher {
+ public:
+  ~EffectsPublisher() = default;
+  EffectsPublisher(const EffectsPublisher&) = delete;
+  EffectsPublisher& operator=(const EffectsPublisher&) = delete;
+  EffectsPublisher(EffectsPublisher&&) = delete;
+  EffectsPublisher& operator=(EffectsPublisher&&) = delete;
+  void publish(const WorldSpriteUpdate& update);
+
+ private:
+  friend class RenderScene;
+  explicit EffectsPublisher(RenderScene& scene) : scene_(scene) {}
+  RenderScene& scene_;
+};
 class RenderScene {
  public:
   // Empty output is a caller precondition (legacy direct submissions are not
@@ -71,6 +87,8 @@ class RenderScene {
   RenderScene(RenderScene&&) = delete;
   RenderScene& operator=(RenderScene&&) = delete;
   ActorPublisher& actor_publisher() { return actor_; }
+  EffectsPublisher& effects_publisher() { return effects_; }
+  void configure_sprites(const WorldSpriteCapacity& capacity);
   LightingPublisher& lighting_publisher() { return lighting_; }
   WorldGeometryStatus geometry_status(WorldModelHandle model) const;
   // Preparing or active; initial authored output configuration precedes draws.
@@ -98,6 +116,7 @@ class RenderScene {
  private:
   friend class ActorPublisher;
   friend class LightingPublisher;
+  friend class EffectsPublisher;
   enum class State : std::uint8_t { preparing, active, retired };
   void require_active() const;
   void require_live() const;
@@ -105,5 +124,6 @@ class RenderScene {
   State state_{State::preparing};
   ActorPublisher actor_{*this};
   LightingPublisher lighting_{*this};
+  EffectsPublisher effects_{*this};
 };
 }  // namespace bw::render

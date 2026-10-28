@@ -79,6 +79,7 @@
 // validate the supplied filter, build retained sampler state during submission,
 // and preserve resident texture levels without hidden generation or frame work.
 #include "world_renderer.hpp"
+#include "effect_sprite_pass.hpp"
 
 #include <cstring>
 #include "bw/math/matrix.hpp"
@@ -328,7 +329,9 @@ struct WorldRenderer::State {
         texture_destinations(memory::Allocator<TextureDestination>(cpu_domain)),
         color_order(memory::Allocator<std::size_t>(cpu_domain)),
         shape_storage(memory::Allocator<std::shared_ptr<ShapeStorage>>(cpu_domain)),
-        output(native_device, cpu_domain, device_budget) {}
+        output(native_device, cpu_domain, device_budget),
+        effects(native_device, cpu_domain, device_budget),
+        effect_textures(memory::Allocator<id<MTLTexture>>(cpu_domain)) {}
   id<MTLDevice> device;
   id<MTLCommandQueue> queue;
   id<MTLRenderPipelineState> depth_pipeline{};
@@ -354,6 +357,8 @@ struct WorldRenderer::State {
   std::array<std::array<id<MTLRenderPipelineState>, 2>, 2> color_pipelines{};
   std::array<id<MTLRenderPipelineState>, 2> preparation_pipelines{};
   WorldPostprocess output;
+  EffectSpritePass effects;
+  memory::Vector<id<MTLTexture>> effect_textures;
   std::uint64_t next_identity{1};
   // Merge camera-dependent constants without changing retained material state.
   render::WorldColorParameters parameters(const render::WorldColorDraw& draw) const {
@@ -1302,7 +1307,33 @@ void WorldRenderer::update_world_view(const render::WorldViewUpdate& update) {
   state_->shadow_guard = shadow_guard;
   state_->shadows_prepared = false;
 }
+// Resolve only resource identities here; the dedicated sprite pass owns copied
+// packets and native buffers. I.11/GPU.1 were read in both phases.
+void WorldRenderer::configure_world_sprites(const render::WorldSpriteCapacity& capacity) {
+  auto& state = *state_;
+  memory::Vector<id<MTLTexture>> textures(memory::Allocator<id<MTLTexture>>(state.cpu_domain));
+  textures.reserve(capacity.batches);
+  state.effects.configure(capacity);
+  state.effect_textures.swap(textures);
+}
+void WorldRenderer::update_world_sprites(const render::WorldSpriteUpdate& update) {
+  auto& state = *state_;
+  if (update.batches.size() > state.effect_textures.capacity()) {
+    throw std::invalid_argument("Sprite bindings exceed configured capacity");
+  }
+  state.effect_textures.clear();
+  for (const auto& batch : update.batches) {
+    const auto found = std::ranges::find(state.textures, batch.texture, &State::Texture::handle);
+    if (found == state.textures.end() || found->native.get().textureType != MTLTextureType2D) {
+      throw std::invalid_argument("Sprite texture is not resident 2D content");
+    }
+    state.effect_textures.push_back(found->native.get());
+  }
+  state.effects.publish(update, state.effect_textures);
+}
 void WorldRenderer::clear_world_draws() noexcept {
+  state_->effects.clear();
+  state_->effect_textures.clear();
   state_->view.reset();
   state_->world_receiver.reset();
   state_->sky_receiver.reset();
@@ -1346,6 +1377,8 @@ void WorldRenderer::prepare_presentation(id<MTLCommandBuffer> command, id<MTLLib
                                 static_cast<double>(width), static_cast<double>(height), 0, 1}];
   }
   encode_color(encoder, library, 1.0F, MTLPixelFormatRGBA16Float);
+  // Original sprite command2 is main list45, before output list66.
+  state_->effects.encode(encoder, library, MTLPixelFormatRGBA16Float);
   [encoder endEncoding];
   state_->output.prepare_output(command, library, frame);
 }

@@ -20,6 +20,7 @@
 #include "mission_control.hpp"
 
 namespace bw::game {
+enum class PopulationFamily : std::uint8_t;
 struct MissionScriptInterval {
   std::uint64_t sequence{};
   float delta_seconds{};
@@ -57,5 +58,12 @@ class MissionScriptServices {
   virtual MissionScriptInterval control_interval() const = 0;
   virtual void play_music(std::uint32_t index) = 0;
   virtual void stop_music(float seconds) = 0;
+  virtual void remove_population(PopulationFamily) = 0;
+  virtual void remove_background() = 0;
+  virtual void cancel_realtime_event_actors() = 0;
+  virtual void set_environment_sound(std::uint32_t) = 0;
+  virtual void stop_magic() = 0;
+  virtual void begin_game_over() = 0;
+  virtual bool game_over_pending() const = 0;
 };
 }  // namespace bw::game

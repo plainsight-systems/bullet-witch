@@ -40,6 +40,8 @@ constexpr std::uint64_t kShadowSetup = 0x111, kShadowCasters = 0x113;
 constexpr std::uint64_t kShadowDepthBias = 0x12c, kShadowSlopeBias = 0x130;
 constexpr std::uint64_t kSurfaceFog = 0x24, kSkyFog = 0x50;
 constexpr std::uint64_t kFogColor = 0x7c;
+constexpr std::uint64_t kEffectAlpha = 0xa0, kEffectAdditive = 0xac;
+constexpr std::uint64_t kEffectFogNear = 0xb8, kEffectFogFar = 0xbc;
 constexpr std::uint64_t kToneEnabled = 0x134, kExposure = 0x138, kGamma = 0x13c;
 constexpr std::uint64_t kBloomEnabled = 0x140, kBloomExposure = 0x144;
 constexpr std::uint64_t kBloomThreshold = 0x148, kBloomSoftKnee = 0x14c;
@@ -91,6 +93,15 @@ StageEnvironment StageEnvironment::parse(
   reader.range(0, kEnvironmentBytes);
   const auto value = [&](std::uint64_t field) { return scalar(reader, field); };
   StageEnvironment result;
+  const std::array light_path{std::string_view("witch"),
+                              std::string_view("light"), stage};
+  const Reader light{tree.lookup(light_path)};
+  for (std::size_t channel = 0; channel < result.local_light_color.size();
+       ++channel) {
+    const auto color = scalar(light, channel * sizeof(float));
+    if (color < 0) malformed("Negative stage local light multiplier");
+    result.local_light_color.at(channel) = color;
+  }
   // Original stage activation publishes these to the two SHLT owners after
   // loading. Preserve the authored values rather than their constructor one.
   result.character_light_intensity = value(kCharacterLightIntensity);
@@ -127,6 +138,16 @@ StageEnvironment StageEnvironment::parse(
   for (std::size_t i = 0; i < result.fog_color.size(); ++i) {
     result.fog_color.at(i) = value(kFogColor + i * kWordBytes);
   }
+  // Blend-specific rates are authored stage channels, never a guessed lighting
+  // multiplier. The renderer composes the distance reciprocal after admission.
+  for (std::size_t i = 0; i < 3; ++i) {
+    result.effects.alpha_color_rate.at(i) =
+        value(kEffectAlpha + i * kWordBytes);
+    result.effects.additive_color_rate.at(i) =
+        value(kEffectAdditive + i * kWordBytes);
+  }
+  result.effects.fog_near = value(kEffectFogNear);
+  result.effects.fog_far = value(kEffectFogFar);
   auto& tone = result.tone_mapping;
   tone.enabled = payload[static_cast<std::size_t>(kToneEnabled)] != 0;
   tone.bloom_enabled = payload[static_cast<std::size_t>(kBloomEnabled)] != 0;

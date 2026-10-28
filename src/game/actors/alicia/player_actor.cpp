@@ -42,9 +42,12 @@
 #include "bw/content/formats/binary_reader.hpp"
 #include "bw/math/vector.hpp"
 #include "bw/spatial/static_collision.hpp"
-#include "game/actors/alicia/animation/aim_posture.hpp"
-#include "game/actors/alicia/animation/facial_animation.hpp"
-#include "game/actors/alicia/audio/character_audio.hpp"
+#include "game/actors/animation/action_motion_request.hpp"
+#include "game/actors/animation/aim_posture.hpp"
+#include "game/actors/animation/combat_pose.hpp"
+#include "game/actors/animation/facial_animation.hpp"
+#include "game/actors/animation/root_motion.hpp"
+#include "game/actors/audio/character_audio.hpp"
 #include "game/session/compatibility/source_random.hpp"
 
 namespace bw::game {
@@ -73,30 +76,7 @@ animation::Matrix model_world(
   return animation::multiply(animation::transform_matrix(basis),
                              animation::transform_matrix(transform));
 }
-animation::Matrix root_basis(const formats::SkeletonTransform& transform) {
-  const auto reference = animation::transform_matrix(transform);
-  const math::Vector3<float> authored_up{reference[1][0], reference[1][1],
-                                         reference[1][2]};
-  auto forward =
-      math::Vector3<float>{reference[2][0], reference[2][1], -reference[2][2]};
-  auto right = math::cross(authored_up, forward);
-  const auto right_length = math::length(right),
-             forward_length = math::length(forward);
-  if (!std::isfinite(right_length) || !std::isfinite(forward_length) ||
-      right_length <= 0 || forward_length <= 0) {
-    throw std::runtime_error("Invalid player root reference basis");
-  }
-  right = math::divide(right, right_length);
-  forward = math::divide(forward, forward_length);
-  const auto up = math::cross(forward, right);
-  auto result = animation::kIdentityMatrix;
-  for (std::size_t axis = 0; axis < right.size(); ++axis) {
-    result[0].at(axis) = right.at(axis);
-    result[1].at(axis) = up.at(axis);
-    result[2].at(axis) = forward.at(axis);
-  }
-  return result;
-}
+
 // Traversal actions bind native slots; the catalog owns all publication data.
 constexpr std::array<std::size_t, 17> kMotionSlots{1,   0,   16,  721, 704, 709,
                                                    710, 711, 712, 713, 714, 718,
@@ -128,11 +108,14 @@ void validate_appearance(const PlayerActorSource& source,
 // Stable appearance storage keeps the prepared-name/pose borrowing valid when
 // a paused candidate is adopted into the persistent actor address.
 struct PlayerActor::ShapeState {
+  static constexpr std::array<std::string_view, 7> kExpressions{
+      "@pw0_1", "@pw0_2", "@pw0_3", "@pw0_4", "@pw0_5", "@pw0_6", "@pw0_7"};
   ShapeState(const PlayerActorSource& source,
              const std::shared_ptr<memory::Domain>& domain)
       : prepared(source.body.definition.get(), domain),
         pose(prepared, domain),
-        face(source.support.get(), prepared, domain),
+        expressions(source.support.get(), prepared, kExpressions, domain),
+        face(expressions, domain),
         updates(memory::Allocator<render::WorldShapePositionUpdate>(domain)) {
     updates.reserve(prepared.buffers().size());
     for (std::size_t buffer = 0; buffer < prepared.buffers().size(); ++buffer) {
@@ -148,8 +131,30 @@ struct PlayerActor::ShapeState {
   }
   animation::PreparedModelShapes prepared;
   animation::ShapePose pose;
+  PreparedFacialExpressions expressions;
   FacialAnimation face;
   memory::Vector<render::WorldShapePositionUpdate> updates;
+};
+// Appearance-local provider objects borrow only this appearance's skeleton.
+// Replacing a costume prepares a separate state before atomic adoption. Core
+// I.11 and MEM.9 retain bounded borrowing and admission-only allocation.
+struct PlayerActor::PhysicsState {
+  PhysicsState(PlayerActorCombatSource admission, const PlayerActor& actor,
+               const std::shared_ptr<memory::Domain>& domain)
+      : source(std::move(admission)),
+        body(source.resources, source.queries, source.mutations, source.recipe,
+             skeleton(actor.source_.body),
+             actor.source_.body.definition.get().bone_names(), actor.body_pose_,
+             source.collision, domain) {
+    std::array<std::uint32_t, ActorHitInstance::kGroupWordCount> groups{};
+    groups.fill(std::numeric_limits<std::uint32_t>::max());
+    hit.emplace(source.resources, source.mutations, source.geometry, groups,
+                actor.body_pose_, source.collision.user_data, source.hit_layer,
+                domain);
+  }
+  PlayerActorCombatSource source;
+  CharacterPhysics body;
+  std::optional<ActorHitInstance> hit;
 };
 // Source sound emission queries use current evaluated bones and authored
 // support metadata. The manager's query override starts false; ordinary
@@ -161,7 +166,8 @@ struct PlayerActor::AudioState final : CharacterAudioEnvironment {
              const std::shared_ptr<memory::Domain>& domain)
       : actor(player),
         sources(source),
-        owner(source.prepared, source.output),
+        owner(source.prepared, source.output, source.voices,
+              CharacterVoiceRole::player),
         body(owner, CharacterAudioBank::body, kRetainedSounds, domain),
         upper(owner, CharacterAudioBank::upper, kRetainedSounds, domain) {}
   AudioState(const AudioState&) = delete;
@@ -174,17 +180,19 @@ struct PlayerActor::AudioState final : CharacterAudioEnvironment {
     (void)owner.stop_voice();
   }
   math::Vector3<float> bone_position(std::int32_t bone) const override {
-    const auto bones = actor.body_bones();
-    if (bone > 0 && static_cast<std::size_t>(bone) < bones.size()) {
-      return math::translation(bones[static_cast<std::size_t>(bone)]);
-    }
-    return math::translation(actor.model_world_);
+    return actor.motion_attachment_position(bone);
   }
   math::Vector3<float> voice_position() const override {
     return actor.source_.placement.position;
   }
   std::uint32_t random_below(std::uint32_t upper_bound) override {
     return sources.random.get().next(upper_bound);
+  }
+  void emit_actor_sound(std::uint32_t action,
+                        math::Vector3<float> position) override {
+    if (const auto sink = sound_events.lock()) {
+      sink->emit({action, position, 1});
+    }
   }
   CharacterSoundEmission sound_emission(
       SoundMotionCommand command) const override {
@@ -216,6 +224,7 @@ struct PlayerActor::AudioState final : CharacterAudioEnvironment {
   }
   PlayerActor& actor;
   PlayerActorAudioSource sources;
+  std::weak_ptr<ActorSoundEvents> sound_events;
   CharacterAudio owner;
   CharacterAudioChannel body, upper;
   audio::Listener listener;
@@ -367,10 +376,10 @@ PlayerActor::PlayerActor(PlayerActorSource source,
   const auto& body = source.body.definition.get();
   // Source geometry extent controls the support-sound ray, independently from
   // capsule dimensions. Cache each appearance's own authored value once.
-  constexpr std::uint64_t kGeometryHeight = 0x40;
+  constexpr std::uint64_t kGeometryGroupRadius = 0x40;
   const resources::detail::Reader geometry_reader{body.header()};
   sound_probe_half_extent_ =
-      std::bit_cast<float>(geometry_reader.u32(kGeometryHeight)) / 2;
+      std::bit_cast<float>(geometry_reader.u32(kGeometryGroupRadius)) / 2;
   if (!std::isfinite(sound_probe_half_extent_) ||
       sound_probe_half_extent_ <= 0) {
     throw std::runtime_error("Invalid authored audio support probe extent");
@@ -514,10 +523,23 @@ PlayerActor::PlayerActor(PlayerActorSource source,
     }
   }
   secondary_motion_.emplace(body, source.body.control_points, domain);
+  body_attachments_ = std::allocate_shared<formats::ControlPointDefinition>(
+      memory::Allocator<formats::ControlPointDefinition>(domain),
+      formats::ControlPointDefinition::parse(
+          source.body.control_points, skeleton(source.body).bones().size(),
+          domain));
+  weapon_attachments_ =
+      retain_weapon
+          ? shared_appearance->weapon_attachments_
+          : std::allocate_shared<formats::ControlPointDefinition>(
+                memory::Allocator<formats::ControlPointDefinition>(domain),
+                formats::ControlPointDefinition::parse(
+                    source.weapon.control_points,
+                    skeleton(source.weapon).bones().size(), domain));
   support_arm_.emplace(
       SupportArmSource{.body = body,
                        .weapon = source.weapon.definition,
-                       .weapon_control_points = source.weapon.control_points},
+                       .weapon_control_points = weapon_attachments_},
       domain);
   modifier_overrides_.reserve(skeleton(source.body).bones().size());
   body_pose_.bind_pose(model_world_);
@@ -536,6 +558,10 @@ PlayerActor::PlayerActor(PlayerActorSource source, const PlayerActor& current,
                          const std::shared_ptr<memory::Domain>& domain,
                          PlayerAppearanceChange change, bool weapon_raised)
     : PlayerActor(source, domain, &current, {}, change, weapon_raised) {
+  if (current.physical()) {
+    throw std::logic_error(
+        "Cannot replace a dynamically owned player appearance");
+  }
   model_world_ = current.model_world_;
   source_.placement = current.source_.placement;
   if (!secondary_motion_) {
@@ -554,6 +580,7 @@ PlayerActor::PlayerActor(PlayerActorSource source, const PlayerActor& current,
       evaluate_body();
       secondary.reset(body_pose_);
       evaluate();
+      if (current.physics_) bind_combat(current.physics_->source, domain);
       return;
     }
   }
@@ -567,6 +594,41 @@ PlayerActor::PlayerActor(PlayerActorSource source, const PlayerActor& current,
   body_pose_.apply_world_overrides(frozen);
   secondary.reset(body_pose_);
   evaluate_attachment_palettes();
+  if (current.physics_) bind_combat(current.physics_->source, domain);
+}
+void PlayerActor::bind_combat(PlayerActorCombatSource source,
+                              const std::shared_ptr<memory::Domain>& domain) {
+  if (physics_ || !source_.body.definition.get().skeleton()) {
+    throw std::logic_error("Player physics requires an unbound skeleton");
+  }
+  physics_ = std::allocate_shared<PhysicsState>(
+      memory::Allocator<PhysicsState>(domain), std::move(source), *this,
+      domain);
+}
+bool PlayerActor::physical() const noexcept {
+  return physics_ && physics_->body.physical();
+}
+bool PlayerActor::receive_corpse_melee(math::Vector3<float> center,
+                                       math::Vector3<float> point,
+                                       float radius) {
+  return physics_ && physics_->body.receive_corpse_melee(center, point, radius);
+}
+bool PlayerActor::receive_corpse_shot(math::Vector3<float> direction,
+                                      math::Vector3<float> point) {
+  return physics_ && physics_->body.receive_corpse_shot(direction, point);
+}
+void PlayerActor::handoff_physics(std::optional<CharacterImpulse> impulse) {
+  if (!physics_) throw std::logic_error("Player physics is not admitted");
+  if (impulse) (void)physics_->body.request_impulse(*impulse);
+  physics_->body.handoff();
+}
+void PlayerActor::finish_physics(render::ActorPublisher& output) {
+  if (!physical()) return;
+  model_world_ = physics_->body.publish(body_pose_);
+  evaluate_attachment_palettes();
+  if (!physics_->hit) throw std::logic_error("Player hit proxy is absent");
+  physics_->hit->publish(body_pose_);
+  publish_completed_pose(output);
 }
 void PlayerActor::bind_audio(PlayerActorAudioSource source,
                              const std::shared_ptr<memory::Domain>& domain) {
@@ -579,12 +641,34 @@ void PlayerActor::bind_audio(PlayerActorAudioSource source,
   playback_->body_sink.audio_environment = playback_->audio.get();
   playback_->upper_sink.audio_environment = playback_->audio.get();
 }
+void PlayerActor::bind_sound_events(std::weak_ptr<ActorSoundEvents> events) {
+  if (!playback_->audio) {
+    throw std::logic_error("Actor sound events require bound audio");
+  }
+  playback_->audio->sound_events = std::move(events);
+}
 void PlayerActor::set_audio_listener(const audio::Listener& listener) {
   if (!math::all_finite(listener.position) ||
       !math::all_finite(listener.forward) || !math::all_finite(listener.up)) {
     throw std::invalid_argument("Invalid player audio listener");
   }
   if (playback_->audio) playback_->audio->listener = listener;
+}
+void PlayerActor::play_damage_voice(std::uint32_t action) {
+  // The damage receiver selects the source request; the existing voice owner
+  // retains priority, variation, delay and device lifetime. I.1/MEM.9 apply.
+  if (!playback_->audio) {
+    throw std::logic_error("Player damage voice requires bound actor audio");
+  }
+  auto& audio = *playback_->audio;
+  if (audio.owner.stop_voice() == CharacterAudioResult::backend_failure) {
+    throw std::runtime_error("Player prior damage voice could not stop");
+  }
+  const auto result = audio.owner.voice(action, audio);
+  if (result == CharacterAudioResult::capacity ||
+      result == CharacterAudioResult::backend_failure) {
+    throw std::runtime_error("Player damage voice could not be admitted");
+  }
 }
 void PlayerActor::adopt_appearance(PlayerActor&& candidate) noexcept {
   // Keep old catalogs alive until their playback borrowers have retired.
@@ -728,7 +812,6 @@ ActionPresentationAdmission PlayerActor::apply_action_plan(
   };
   std::array<Resolved, 3> resolved{};
   std::size_t index = 0;
-  constexpr std::uint32_t kMotionChannels = 32;
   // Resolve and validate all public request values before side effects. Missing
   // source slots are ordinary unavailable results, not invented substitutions.
   for (const auto& request : plan.motions()) {
@@ -749,50 +832,16 @@ ActionPresentationAdmission PlayerActor::apply_action_plan(
       default:
         throw std::invalid_argument("Unknown source action bank");
     }
-    if (!std::isfinite(request.rate) || request.rate < 0 ||
-        !std::isfinite(request.blend_seconds) || request.blend_seconds < 0 ||
-        !std::isfinite(request.start_seconds) || request.start_seconds < 0 ||
-        !std::isfinite(request.start_frames) || request.start_frames < 0 ||
-        request.channel >= kMotionChannels ||
-        (request.start != ActionMotionStart::seconds &&
-         request.start != ActionMotionStart::frames &&
-         request.start != ActionMotionStart::preserve_phase)) {
-      throw std::invalid_argument("Invalid source action timing/channel");
-    }
     const bool weapon = item.bank == CharacterMotionBank::weapon;
     const auto clip_index =
         weapon ? weapon_slots_.at(request.slot)
                : body_catalog_->motions().alias(request.slot).clip;
-    if (!clip_index) continue;
     const auto& catalog = weapon ? *weapon_catalog_ : *body_catalog_;
-    auto start =
-        request.start == ActionMotionStart::frames
-            ? request.start_frames /
-                  catalog.motions().clip(*clip_index).frames_per_second()
-            : request.start_seconds;
-    if (request.start == ActionMotionStart::preserve_phase) {
-      const auto* current = motion_bank(item.bank).current();
-      const auto duration =
-          catalog.motions().clip(*clip_index).duration_seconds();
-      start =
-          current != nullptr && current->clip->duration_seconds() > 0
-              ? current->seconds / current->clip->duration_seconds() * duration
-              : 0;
-    }
-    const auto parameter = item.bank == CharacterMotionBank::body ||
-                                   item.bank == CharacterMotionBank::upper_body
-                               ? body_catalog_->parameter_for_clip(*clip_index)
-                               : std::nullopt;
-    item.request = CharacterMotionRequest{
-        .clip = *clip_index,
-        .binding = request.slot,
-        .parameter = parameter,
-        .channel = request.channel,
-        .start_seconds = start,
-        .blend_seconds = request.blend_seconds,
-        .rate = request.rate,
-        .fresh = request.fresh,
-        .preserve_phase = request.start == ActionMotionStart::preserve_phase};
+    const bool parameters = item.bank == CharacterMotionBank::body ||
+                            item.bank == CharacterMotionBank::upper_body;
+    item.request =
+        resolve_action_motion(catalog, clip_index, request,
+                              motion_bank(item.bank).current(), parameters);
   }
   if (plan.clear_upper) playback_->upper.clear();
   if (plan.weapon_rest_slot) {
@@ -926,6 +975,27 @@ void PlayerActor::evaluate() {
   body_pose_.apply_world_overrides(modifier_overrides_);
   fill_draw_palettes();
 }
+math::Vector3<float> PlayerActor::attachment_position(std::int32_t slot) const {
+  const auto frame = original_attachment_pose(
+      body_attachments_.get(), body_pose_.skin_transforms(),
+      math::affine_part(model_world_), slot);
+  return frame ? (*frame)[3] : source_.placement.position;
+}
+math::Vector3<float> PlayerActor::motion_attachment_position(
+    std::int32_t slot) const {
+  const auto model = math::affine_part(model_world_);
+  const auto frame = slot > 0 ? original_attachment_pose(
+                                    body_attachments_.get(),
+                                    body_pose_.skin_transforms(), model, slot)
+                              : std::nullopt;
+  return frame ? (*frame)[3] : model[3];
+}
+math::Vector3<float> PlayerActor::aim_position() const {
+  constexpr std::int32_t eye_attachment = 54;
+  return original_actor_aim_point(source_.placement.position,
+                                  attachment_position(eye_attachment)[1],
+                                  sound_probe_half_extent_ * 2);
+}
 animation::Matrix PlayerActor::model_transform(bool weapon) const {
   if (!weapon) return model_world_;
   formats::SkeletonTransform local;
@@ -992,7 +1062,7 @@ float PlayerActor::aim_posture_weight() const {
 animation::Matrix PlayerActor::movement_reference() const {
   const auto* selected = playback_->body.current();
   return selected != nullptr
-             ? root_basis(selected->clip->local_transform(
+             ? original_root_motion_basis(selected->clip->local_transform(
                    direction_reference_.bone, selected->seconds))
              : animation::kIdentityMatrix;
 }
@@ -1103,6 +1173,11 @@ void PlayerActor::finish_model_step() {
   // Every source child update completes pose and event latches before the next
   // parent observes them. Retained renderer submission has no simulation role.
   evaluate();
+  if (physics_ && !physics_->body.physical()) {
+    physics_->body.follow_animation(body_pose_);
+    if (!physics_->hit) throw std::logic_error("Player hit proxy is absent");
+    physics_->hit->publish(body_pose_);
+  }
   secondary_delta_ = 0;
   playback_->body.dispatch_events();
   playback_->upper.dispatch_events();

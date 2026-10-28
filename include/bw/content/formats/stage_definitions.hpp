@@ -33,6 +33,9 @@ struct CollisionPart {
   std::array<float, 3> center{}, extent{};
   float radius{};
   std::uint32_t flags{}, vertex_count{}, triangle_count{};
+  // Rigid EHIT parts bind to this unskinned bone transform. Static SHIT
+  // consumers do not use it. The visibility group remains flags bits 8..15.
+  std::uint32_t bone{};
   // Float3 vertices and three uint16 indices plus one uint16 flag per face.
   std::span<const std::uint8_t> vertices, triangles;
 };
