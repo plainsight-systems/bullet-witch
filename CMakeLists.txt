@@ -15,6 +15,21 @@ target_compile_options(bw_contracts INTERFACE
 # Compile each public header independently, including during the header-first
 # stage. Generated files are build products, not a runtime implementation.
 set(BW_PUBLIC_HEADERS
+  core/concurrency/word_mutex.hpp
+  core/memory/allocator_checks.hpp
+  core/memory/crash_allocator.hpp
+  platform/task_dispatch.hpp
+  core/tasks/task_queue.hpp
+  core/tasks/task_storage.hpp
+  core/tasks/named_thread_dispatch.hpp
+  core/memory/allocator.hpp
+  core/memory/binned_allocator.hpp
+  core/memory/binned_bit_tree.hpp
+  core/memory/binned_size_classes.hpp
+  core/memory/binned_thread_cache.hpp
+  platform/allocator_platform.hpp
+  platform/allocator_sync.hpp
+  platform/macos/allocator_sync.hpp
   core/memory/memory_failure.hpp
   platform/memory_failure.hpp
   platform/platform_time.hpp
@@ -34,11 +49,12 @@ target_link_libraries(header_contracts PRIVATE bw_contracts)
 
 find_package(Threads REQUIRED)
 include(CTest)
+add_library(bw_platform_time src/platform/macos/platform_time.cpp)
+target_link_libraries(bw_platform_time PUBLIC bw_contracts PRIVATE Threads::Threads)
 add_library(bw_runtime
-  src/platform/macos/platform_time.cpp
   src/engine/runtime/engine.cpp
   src/engine/runtime/engine_loop.cpp)
-target_link_libraries(bw_runtime PUBLIC bw_contracts PRIVATE Threads::Threads)
+target_link_libraries(bw_runtime PUBLIC bw_contracts bw_platform_time PRIVATE Threads::Threads)
 add_executable(engine_loop_tests tests/engine_loop_tests.cpp)
 target_link_libraries(engine_loop_tests PRIVATE bw_runtime)
 set(BW_SCENARIOS
@@ -68,7 +84,7 @@ target_link_libraries(engine_host PRIVATE bw_runtime)
 add_executable(engine_loop_probe tools/engine_loop_probe.cpp)
 target_link_libraries(engine_loop_probe PRIVATE bw_runtime)
 
-# Native VM foundation; no Binned3 allocator or global-new override exists yet.
+# Accepted native VM/fatal foundation remains independent of the general allocator.
 add_library(bw_memory
   src/core/memory/memory_failure.cpp
   src/platform/macos/memory_failure.cpp
@@ -82,3 +98,27 @@ add_executable(memory_tests tests/memory_tests.cpp)
 target_link_libraries(memory_tests PRIVATE bw_memory Threads::Threads)
 add_test(NAME memory_native_and_failure_semantics COMMAND memory_tests)
 set_tests_properties(memory_native_and_failure_semantics PROPERTIES TIMEOUT 60)
+
+# Selected Mac Binned3, its synchronization, crash reserve and required named-
+# thread dispatch dependency. Existing host does not override global new/delete.
+add_library(bw_allocator
+  src/core/concurrency/word_mutex.cpp
+  src/core/memory/allocator.cpp
+  src/core/memory/binned_allocator.cpp
+  src/core/memory/binned_bit_tree.cpp
+  src/core/memory/binned_size_classes.cpp
+  src/core/memory/binned_thread_cache.cpp
+  src/core/memory/crash_allocator.cpp
+  src/core/tasks/task_queue.cpp
+  src/core/tasks/task_storage.cpp
+  src/core/tasks/named_thread_dispatch.cpp
+  src/platform/macos/allocator_platform.cpp
+  src/platform/macos/allocator_sync.cpp
+  src/platform/macos/task_dispatch.cpp)
+target_link_libraries(bw_allocator PUBLIC bw_memory PRIVATE bw_platform_time Threads::Threads)
+foreach(allocator_case IN ITEMS allocator allocator_structure allocator_sync named_thread_dispatch crash_allocator)
+  add_executable(${allocator_case}_tests tests/${allocator_case}_tests.cpp)
+  target_link_libraries(${allocator_case}_tests PRIVATE bw_allocator Threads::Threads)
+  add_test(NAME ${allocator_case}_contracts COMMAND ${allocator_case}_tests)
+  set_tests_properties(${allocator_case}_contracts PROPERTIES TIMEOUT 60)
+endforeach()

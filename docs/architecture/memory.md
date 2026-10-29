@@ -1,7 +1,8 @@
 # Memory
 
 The first memory foundation implements native Mac virtual-memory blocks and their
-fatal failure path. Binned3 allocation, bootstrap and thread caches remain next.
+fatal failure path. Binned3 allocation, bootstrap and thread caches are mapped in the next
+[general allocator](binned-allocator.md).
 The accepted [game loop](game-loop.md) remains unchanged. This document describes
 our subsystem using Unreal commit
 `f45729c0b6f097038e72b52d366a62baeca3275b` as the algorithm reference. None of the

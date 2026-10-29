@@ -4,7 +4,9 @@ This is the design for a new engine and game implementation. The first
 [game-loop slice](game-loop.md) implements the headless lifecycle and native Mac
 timing path. All 17 contract scenarios pass; native measurements are recorded
 there. The [memory foundation](memory.md) implements native virtual-memory
-blocks and their fatal failure path. World, rendering, input and other systems
+blocks and their fatal failure path. The [general allocator](binned-allocator.md)
+adds selected Binned3, pooled crash reserves and the required named-thread trim
+dispatch leaf. World, rendering, input and other systems
 remain proposed.
 No existing Bullet Witch project code is an implementation dependency. Original purchased assets and Lua are inputs
 through newly written readers and bindings.
@@ -49,6 +51,9 @@ mutate world state. Loading and activation have distinct owners.
 | Document | Boundary |
 |---|---|
 | [Game loop](game-loop.md) | Authoritative host lifecycle, frame timing and pacing |
+| [General allocator](binned-allocator.md) | Implemented Binned3, TLS/recycler, dynamic registry and bootstrap |
+| [Crash memory](crash-memory.md) | Source pooled reserves, crash activation and owner-thread allocation |
+| [Named-thread dispatch](named-thread-dispatch.md) | Source owner queues, task storage and asynchronous desktop trim broadcast |
 | [Memory](memory.md) | Selected Mac allocator path; implemented virtual-memory blocks and native fatal handling |
 | [Future world scheduling](engine-loop.md) | World time, tick phases and jobs; not implemented |
 | [World lifecycle](world-lifecycle.md) | Prepared resources, actor activation, registration and retirement |

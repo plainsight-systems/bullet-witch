@@ -1,20 +1,19 @@
 # Next work
 
-The first headless game-loop implementation is committed as `d20097a`. Its 17
-scenarios remain unchanged and pass; native measurements and source/ownership
-boundaries are in [Game loop](../architecture/game-loop.md#verification).
+Accepted headless game loop: `d20097a`. Accepted Mac VM/fatal foundation: `99456b2`.
+No push or game launch is authorized.
 
-The user authorized implementation of the first memory dependency after
-architecture, headers, comments-only units and tests. The Mac virtual-memory
-blocks and native fatal failure path are implemented and accepted for commit.
-See [Memory](../architecture/memory.md) for source correspondence, ownership,
-headless reporting extraction and verification. All 18 CTest entries pass:
-17 existing game-loop tests and one memory executable containing six native
-success scenarios and seven child-process failure cases. Build, fatal lint,
-independent header checks, formatting and whitespace checks pass.
+Accepted slice: [General allocator](../architecture/binned-allocator.md).
+Selected Mac Binned3 allocation, metadata, thread caches and dynamic registry are
+implemented. Its real pooled crash bootstrap and desktop named-thread trim
+dependencies are implemented. Debug and Release builds, fatal clang-tidy, 23 standalone headers,
+all 23 CTest entries in each configuration, formatting and whitespace checks pass.
+User acceptance authorizes this slice's commit.
 
-The user authorized moving next to preparation of the selected Binned3 allocator,
-bootstrap and thread-cache contracts: source mapping, architecture, headers,
-comments-only implementation plans, then tests. Review before implementation.
-The current VM leaf is not a complete allocator. No push or game launch is
-authorized, and existing game-loop source is unchanged.
+Next, plan consumer/lifecycle integration: explicit engine
+allocator initialization, owner-thread cache setup/idle/resume/teardown and named
+thread dispatch pumps as those threads exist. The current engine host/game loop
+remain unchanged and do not route global C++ `new/delete` through this facade.
+Do not claim engine-wide adoption or a complete memory subsystem from this leaf.
+Any next slice follows architecture → headers → implementation comments → tests
+→ implementation and needs user direction before expanding its scope.

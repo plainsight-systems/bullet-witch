@@ -23,7 +23,7 @@
 - Memory followed architecture → headers → comments-only units → tests →
   implementation after user authorization. [Memory](../architecture/memory.md)
   maps the Mac game target's Binned3 path; its native virtual-memory dependency
-  and fatal failure path are implemented and accepted for commit.
+  and fatal failure path are committed as `99456b2`.
 - The inherited emergency reserve size is zero. The current unguarded headless
   host reports real native memory/error fields and exits critical failures with
   code 3. Full engine logging, crash reporting and allocator observers are not
@@ -35,4 +35,27 @@
 - Full build, eight independent header units, fatal clang-tidy, pinned format
   and whitespace checks pass. Root independently ran all 18 CTest entries:
   17 unchanged game-loop tests plus one memory executable. General allocation,
-  bootstrap and thread caches are not implemented. Game-loop code is unchanged.
+  bootstrap and thread caches were not part of that accepted foundation.
+  Game-loop code is unchanged.
+
+- User authorized selected Binned3 implementation and bringing its real named-
+  thread dispatch dependency forward. Architecture, headers, comment plans and
+  red-link tests preceded implementation. New `bw_allocator` owns the selected
+  small/large paths, TLS/recycler, source dynamic registry, bootstrap and pooled
+  crash reserve. No default-heap stand-ins or old-project reuse.
+- Desktop global trim follows source epoch/game-local/async render-RHI behavior;
+  named owners execute their queued callbacks. No synchronous barrier, invented
+  worker scheduler or local-only substitute. Main-loop/accepted VM unchanged.
+- New allocator, structural, synchronization, dispatch and crash native suites
+  pass in Debug and Release: 23 CTest entries per configuration, comprising the
+  accepted 18 plus five new suites. Both full builds, 23 standalone header units,
+  fatal clang-tidy, formatting and whitespace checks pass. Root independently
+  repeated Debug 23/23, format and diff checks. User accepted the slice and
+  authorized committing it; no push or game launch is authorized.
+- Source exactness review corrected FreeExternal entry/realloc and forced-flush
+  epoch ordering before final validation. Own-code extraction and native platform
+  adaptations are identified next to methods, not presented as unchanged Unreal.
+- Current host does not globally replace C++ new/delete or initialize allocator
+  thread lifecycle. That consumer integration is next review work, not silently
+  claimed by these test consumers. Full jobs/GPU/GC/transient systems remain out
+  of this bounded allocation leaf.
