@@ -1,8 +1,10 @@
 # Game loop
 
-Status: headless game-loop implementation complete and uncommitted. The 17
+Status: headless game-loop implementation accepted in `d20097a`. The 17
 prepared behavioral scenarios pass without assertion changes. Native timing,
 formatting, fatal lint and independent root review are recorded below.
+The subsequent [allocator lifecycle](allocator-lifecycle.md) adds source PreInit
+cache/dispatch startup and Exit shutdown; Tick and timing algorithms are unchanged.
 This is not a game/window/world implementation.
 
 Reference commit: `f45729c0b6f097038e72b52d366a62baeca3275b`.

@@ -5,7 +5,8 @@
 #include <string_view>
 
 // E.6/MEM.9: platform, engine and loop lifetimes are lexical; startup parsing and
-// reporting precede frame dispatch. No general allocator or world is introduced.
+// reporting precede frame dispatch. Executable global operators route C++ storage
+// through the process allocator; no world is introduced.
 // Unreal reference: f45729c0b6f097038e72b52d366a62baeca3275b.
 namespace {
 // Future engine work seam: Engine/Source/Runtime/Launch/Private/

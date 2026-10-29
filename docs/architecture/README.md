@@ -51,6 +51,7 @@ mutate world state. Loading and activation have distinct owners.
 | Document | Boundary |
 |---|---|
 | [Game loop](game-loop.md) | Authoritative host lifecycle, frame timing and pacing |
+| [Allocator lifecycle](allocator-lifecycle.md) | Implemented executable allocation routing and game-thread ownership integration |
 | [General allocator](binned-allocator.md) | Implemented Binned3, TLS/recycler, dynamic registry and bootstrap |
 | [Crash memory](crash-memory.md) | Source pooled reserves, crash activation and owner-thread allocation |
 | [Named-thread dispatch](named-thread-dispatch.md) | Source owner queues, task storage and asynchronous desktop trim broadcast |

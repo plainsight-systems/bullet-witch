@@ -55,7 +55,30 @@
 - Source exactness review corrected FreeExternal entry/realloc and forced-flush
   epoch ordering before final validation. Own-code extraction and native platform
   adaptations are identified next to methods, not presented as unchanged Unreal.
-- Current host does not globally replace C++ new/delete or initialize allocator
-  thread lifecycle. That consumer integration is next review work, not silently
-  claimed by these test consumers. Full jobs/GPU/GC/transient systems remain out
+- At allocator-leaf acceptance, the host did not globally replace C++ new/delete
+  or initialize allocator thread lifecycle; adoption is the next slice below. Full jobs/GPU/GC/transient systems remain out
   of this bounded allocation leaf.
+
+- Allocator adoption preparation follows accepted `76c8b03`: architecture,
+  executable operator declarations, four facade lifecycle declarations,
+  implementation comments and real native test consumers are written. Source
+  PreInit sets up game cache before dispatch; Exit stops dispatch after engine
+  PreExit while retaining process allocator/game-cache lifetime. No arbitrary
+  Tick pump, frame-wait cache hook or game-cache clear was added.
+- Preparation changes no production bodies. The default Debug build, 24 headers,
+  fatal clang-tidy and existing 23 tests pass. Explicit new targets compile then
+  link-red for four source-extra delete forms and four lifecycle forwarders.
+  Runtime assertions are not yet executed. No test doubles or sentinel symbols
+  conceal missing behavior. Implementation awaits review/authorization.
+
+- User authorized allocator lifecycle implementation. The prepared four facade
+  forwards, complete global operator family and source PreInit/Exit integration
+  now execute. Game cache/heap retain process lifetime; Tick/timing are unchanged.
+  The global operator test completes real native engine startup/Exit before its
+  late static destructor validates ownership and frees through global delete.
+- Both Debug/Release builds and 25/25 CTest entries pass, with fatal clang-tidy,
+  24 headers, format and whitespace checks. All 24 global operators are strong
+  symbols in the actual host. Bounded headless startup/shutdown exits0. Mermaid
+  reserved participant ID was renamed and parser-verified outside repo tooling.
+  User accepted this slice and authorized its commit and moving to the next
+  item. No push or graphical launch is authorized.

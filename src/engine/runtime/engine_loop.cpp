@@ -1,4 +1,6 @@
 #include "engine/runtime/engine_loop.hpp"
+#include "core/memory/allocator.hpp"
+#include "core/tasks/named_thread_dispatch.hpp"
 #include <cstdio>
 
 // E.6: scope cleanup corresponds to GuardedMain's cleanup guard. MEM.9: loop
@@ -16,9 +18,16 @@ EngineLoop::EngineLoop(Engine& engine, double maximum_tick_time)
 // EngineLoop::pre_init
 // Reference: Engine/Source/Runtime/Launch/Private/Launch.cpp:146-151;
 // Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:2769-2890.
-// Preserve PreInit lifecycle/result slot. Modules/config/input are not implemented
-// yet; no such work is claimed. Host establishes native clock/thread before entry.
-int EngineLoop::pre_init() { return 0; }
+// Modules/config/input remain absent. Native platform time/thread precede entry.
+int EngineLoop::pre_init() {
+  // LaunchEngineLoop.cpp:1790: establish the game owner's allocator cache before
+  // task startup; setup itself performs any required process-heap bootstrap.
+  memory::setup_current_thread_cache();
+  // LaunchEngineLoop.cpp:2592-2593: start task dispatch and attach game owner.
+  // This starts only the accepted named-thread dependency, not worker pools.
+  tasks::NamedThreadDispatch::instance().startup();
+  return 0;
+}
 
 // EngineLoop::init
 // Reference: Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:
@@ -66,6 +75,14 @@ void EngineLoop::exit() {
   if (initialized_) {
     engine_.pre_exit();
   }
+  // LaunchEngineLoop.cpp:5215: shut down task dispatch after dependent engine
+  // owners have stopped. None of the future render/worker owners exists yet.
+  // The running guard covers callers that never reached task startup.
+  auto& dispatch = tasks::NamedThreadDispatch::instance();
+  if (dispatch.running()) {
+    dispatch.shutdown();
+  }
+  // Game cache and allocator retain source process lifetime; no clear/destruction.
 }
 
 // EngineLoop::request_exit

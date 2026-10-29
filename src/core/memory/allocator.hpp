@@ -50,6 +50,14 @@ void replace_general_allocator_for_crash(Allocator& allocator);
 [[nodiscard]] void* reallocate(void* pointer, std::size_t bytes, std::uint32_t alignment = 0);
 void release(void* pointer);
 [[nodiscard]] std::size_t allocation_size(void* pointer);
+// UnrealMemory.cpp:576-608. Setup bootstraps the process allocator if absent.
+// The other three operations only forward to an already-published allocator;
+// clearing/marking an uninitialized thread must not initialize the heap.
+// Core R.1 and Performance MEM.6: explicit owner-thread lifecycle via one facade.
+void setup_current_thread_cache();
+void clear_current_thread_cache();
+void mark_current_thread_cache_used();
+void mark_current_thread_cache_unused();
 } // namespace bw::memory
 
 #endif

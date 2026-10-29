@@ -22,6 +22,7 @@ set(BW_PUBLIC_HEADERS
   core/tasks/task_queue.hpp
   core/tasks/task_storage.hpp
   core/tasks/named_thread_dispatch.hpp
+  core/memory/global_allocation.hpp
   core/memory/allocator.hpp
   core/memory/binned_allocator.hpp
   core/memory/binned_bit_tree.hpp
@@ -80,7 +81,8 @@ foreach(scenario IN LISTS BW_SCENARIOS)
   set_tests_properties(${scenario} PROPERTIES TIMEOUT 10)
 endforeach()
 add_executable(engine_host src/hosts/macos/engine_host.cpp)
-target_link_libraries(engine_host PRIVATE bw_runtime)
+target_sources(engine_host PRIVATE src/core/memory/global_allocation.cpp)
+target_link_libraries(engine_host PRIVATE bw_runtime bw_allocator)
 add_executable(engine_loop_probe tools/engine_loop_probe.cpp)
 target_link_libraries(engine_loop_probe PRIVATE bw_runtime)
 
@@ -100,7 +102,7 @@ add_test(NAME memory_native_and_failure_semantics COMMAND memory_tests)
 set_tests_properties(memory_native_and_failure_semantics PROPERTIES TIMEOUT 60)
 
 # Selected Mac Binned3, its synchronization, crash reserve and required named-
-# thread dispatch dependency. Existing host does not override global new/delete.
+# thread dispatch dependency. Global operators are an executable-local choice.
 add_library(bw_allocator
   src/core/concurrency/word_mutex.cpp
   src/core/memory/allocator.cpp
@@ -121,4 +123,18 @@ foreach(allocator_case IN ITEMS allocator allocator_structure allocator_sync nam
   target_link_libraries(${allocator_case}_tests PRIVATE bw_allocator Threads::Threads)
   add_test(NAME ${allocator_case}_contracts COMMAND ${allocator_case}_tests)
   set_tests_properties(${allocator_case}_contracts PROPERTIES TIMEOUT 60)
+endforeach()
+
+# Engine startup owns allocator cache setup and accepted named dispatch lifecycle.
+target_link_libraries(bw_runtime PRIVATE bw_allocator)
+# Link the same replacement unit directly into host and operator test, never
+# transitively into all allocator consumers through the library.
+add_executable(global_allocation_tests
+  tests/global_allocation_tests.cpp src/core/memory/global_allocation.cpp)
+target_link_libraries(global_allocation_tests PRIVATE bw_runtime)
+add_executable(allocator_lifecycle_tests tests/allocator_lifecycle_tests.cpp)
+target_link_libraries(allocator_lifecycle_tests PRIVATE bw_runtime bw_allocator)
+foreach(integration_case IN ITEMS global_allocation allocator_lifecycle)
+  add_test(NAME ${integration_case}_contracts COMMAND ${integration_case}_tests)
+  set_tests_properties(${integration_case}_contracts PROPERTIES TIMEOUT 15)
 endforeach()

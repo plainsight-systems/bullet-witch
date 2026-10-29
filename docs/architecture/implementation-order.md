@@ -5,7 +5,10 @@ lifecycle, native Mac time/process primitives and engine timing. Its 17 contract
 tests pass; native results and remaining scope are in [Game loop](game-loop.md).
 The foundations slice has begun: [Memory](memory.md) maps the selected Mac
 Binned3 path and implements its virtual-memory dependency and native fatal
-handling. General allocation, math, jobs and content preparation remain ahead.
+handling. [General allocation](binned-allocator.md), crash reserves and its named-dispatch
+trim dependency are accepted. [Allocator lifecycle](allocator-lifecycle.md)
+implements executable adoption and source-owned game-thread startup/shutdown.
+Math, general jobs and content preparation remain ahead.
 
 ## Start at the lowest dependency
 

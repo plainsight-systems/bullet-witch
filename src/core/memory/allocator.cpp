@@ -68,4 +68,31 @@ std::size_t allocation_size(void* pointer) {
   (void)general_allocator().allocation_size(pointer, bytes);
   return bytes;
 }
+// UnrealMemory.cpp:576-583 SetupTLSCachesOnCurrentThread: initialize the heap
+// if necessary, then let its owner create/acquire the calling thread's cache.
+void setup_current_thread_cache() { general_allocator().setup_current_thread_cache(); }
+
+// UnrealMemory.cpp:585-591 ClearAndDisableTLSCachesOnCurrentThread: teardown
+// only forwards when the heap exists. It must not bootstrap merely to clear.
+void clear_current_thread_cache() {
+  if (auto* allocator = current_allocator.load(std::memory_order_acquire)) {
+    allocator->clear_current_thread_cache();
+  }
+}
+
+// UnrealMemory.cpp:593-599 MarkTLSCachesAsUsedOnCurrentThread: reacquire the
+// existing owner's cache when the heap is present; never initialize it here.
+void mark_current_thread_cache_used() {
+  if (auto* allocator = current_allocator.load(std::memory_order_acquire)) {
+    allocator->mark_current_thread_cache_used();
+  }
+}
+
+// UnrealMemory.cpp:601-608 MarkTLSCachesAsUnusedOnCurrentThread: relinquish
+// existing cache ownership. Actual worker wait sites own calls to this facade.
+void mark_current_thread_cache_unused() {
+  if (auto* allocator = current_allocator.load(std::memory_order_acquire)) {
+    allocator->mark_current_thread_cache_unused();
+  }
+}
 } // namespace bw::memory

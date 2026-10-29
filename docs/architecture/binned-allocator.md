@@ -3,8 +3,9 @@
 Accepted selected Mac general-allocation leaf. The
 accepted virtual-memory/fatal foundation is committed as `99456b2`; the new
 allocator consumes it without changing its behavior. Algorithms follow Unreal
-`f45729c0b6f097038e72b52d366a62baeca3275b`. Engine-loop/host code remains unchanged;
-this is not engine-wide allocation adoption or the full memory subsystem.
+`f45729c0b6f097038e72b52d366a62baeca3275b`. The leaf was accepted independently of the engine host. The subsequent
+[allocator lifecycle](allocator-lifecycle.md) integrates host C++ allocation and
+game-owner startup/shutdown; this remains short of the full memory subsystem.
 
 ## Selected configuration
 

@@ -13,8 +13,9 @@ namespace bw::engine {
 class EngineLoop final {
 public:
   explicit EngineLoop(Engine& engine, double maximum_tick_time = 0.0);
-  // PreInit's future module/config/input work is absent. Success is explicit;
-  // native platform time/thread initialization occurs before this lifecycle.
+  // Lifecycle: LaunchEngineLoop.cpp:1790,
+  // 2592-2593 sets up this game owner's cache, starts named dispatch/attachment.
+  // Module/config/input work remains absent; native time/thread precedes PreInit.
   [[nodiscard]] int pre_init();
   // Same pin, Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:4818-4998.
   // Initialize application time -> engine.init(*this) -> engine.start -> running.
@@ -26,6 +27,8 @@ public:
   void tick();
   // Same pin, Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:5010-5065.
   // Clear running and call the created engine's PreExit; host requests exit first.
+  // Source:5215 shuts dispatch down after dependent owners stop.
+  // Game cache/allocator remain process-lived; Exit does not clear or destroy them.
   void exit();
   // Same pin, Engine/Source/Runtime/Core/Private/Misc/CoreGlobals.cpp:325-341.
   // Request exit on this game thread; finish the current tick before leaving
