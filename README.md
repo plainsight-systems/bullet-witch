@@ -2,14 +2,15 @@
 
 A new implementation of Bullet Witch's engine and game runtime, using Unreal
 Engine's architecture and established algorithms as the reference. Purchased
-original game data is required. This branch contains architecture and the first headless game-loop slice.
+original game data is required. This branch contains architecture, the first
+headless game-loop slice and the native virtual-memory foundation.
 It does not contain a runnable game.
 
 ## Get it locally
 
 The `codex/unreal-rebuild` branch is being prepared in a separate worktree.
-Its architecture baseline and first game-loop slice are accepted for local
-commit; the branch has not been published. There is no remote checkout
+Its architecture baseline and first game-loop slice are committed locally;
+the memory foundation is accepted. The branch has not been published. There is no remote checkout
 command for this branch yet.
 
 ## Run
@@ -33,7 +34,9 @@ maximum-FPS setting defaults to the source value **zero**; `--seconds` bounds
 the headless run. Without that argument the host has no time limit. The probe
 requires an explicit cap as a measurement input; it does not change the default.
 
-All 17 contract scenarios pass. Compilation uses fatal clang-tidy; formatting
+All 18 CTest entries pass: 17 game-loop tests and one native memory suite. See
+[Memory](docs/architecture/memory.md) for its virtual-memory and fatal-failure
+scenarios and current boundaries. Compilation uses fatal clang-tidy; formatting
 is pinned to LLVM 21.1.8. The native 60 FPS probe measured 59.44 FPS, with a
 25.71 ms maximum interval in that sample. See [Game loop](docs/architecture/game-loop.md)
 for source correspondence, ownership, scope and the full measurements. There is

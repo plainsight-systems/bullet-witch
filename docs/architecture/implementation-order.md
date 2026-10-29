@@ -3,7 +3,9 @@
 This is the proposed sequence. The first slice implements the headless host
 lifecycle, native Mac time/process primitives and engine timing. Its 17 contract
 tests pass; native results and remaining scope are in [Game loop](game-loop.md).
-No later slice is implemented.
+The foundations slice has begun: [Memory](memory.md) maps the selected Mac
+Binned3 path and implements its virtual-memory dependency and native fatal
+handling. General allocation, math, jobs and content preparation remain ahead.
 
 ## Start at the lowest dependency
 

@@ -15,8 +15,12 @@ target_compile_options(bw_contracts INTERFACE
 # Compile each public header independently, including during the header-first
 # stage. Generated files are build products, not a runtime implementation.
 set(BW_PUBLIC_HEADERS
+  core/memory/memory_failure.hpp
+  platform/memory_failure.hpp
   platform/platform_time.hpp
   platform/macos/platform_time.hpp
+  platform/platform_memory.hpp
+  platform/macos/platform_memory.hpp
   engine/runtime/engine.hpp
   engine/runtime/engine_loop.hpp)
 foreach(header IN LISTS BW_PUBLIC_HEADERS)
@@ -63,3 +67,18 @@ add_executable(engine_host src/hosts/macos/engine_host.cpp)
 target_link_libraries(engine_host PRIVATE bw_runtime)
 add_executable(engine_loop_probe tools/engine_loop_probe.cpp)
 target_link_libraries(engine_loop_probe PRIVATE bw_runtime)
+
+# Native VM foundation; no Binned3 allocator or global-new override exists yet.
+add_library(bw_memory
+  src/core/memory/memory_failure.cpp
+  src/platform/macos/memory_failure.cpp
+  src/platform/platform_memory.cpp
+  src/platform/macos/platform_memory.cpp)
+target_link_libraries(bw_memory PUBLIC bw_contracts)
+# Current target is headless: select the reference stdout output device alongside
+# Mac native diagnostics. Future graphical hosts choose their output devices.
+target_compile_definitions(bw_memory PRIVATE BW_HEADLESS_DIAGNOSTICS=1)
+add_executable(memory_tests tests/memory_tests.cpp)
+target_link_libraries(memory_tests PRIVATE bw_memory Threads::Threads)
+add_test(NAME memory_native_and_failure_semantics COMMAND memory_tests)
+set_tests_properties(memory_native_and_failure_semantics PROPERTIES TIMEOUT 60)
