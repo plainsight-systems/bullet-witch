@@ -9,6 +9,14 @@ contract, not as a reason to retain an old interpreter or controller. Third-part
 libraries require an explicit selection and version/license record; a prior
 project dependency does not select one for this build.
 
+Reference correspondence is visible in implementation comments. Each method and
+significant call/block identifies the pinned source function and lines and its
+algorithm step, in our own words. Write concise reference pseudocode beside the
+implementation. Label platform substitutions, extra safety/lifecycle contracts
+and extracted helpers as ours; do not attribute them to Unreal or rely on a
+blanket file-level claim. Do not invent a different policy under a reference
+label. Report a necessary algorithm departure before implementing it.
+
 Design headers before implementation. During both activities query the
 `cpp_guidelines` and `cpp_performance` MCP servers, retrieve applicable full
 rules, and explain their application concisely in opening file comments. If a

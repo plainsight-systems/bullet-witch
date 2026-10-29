@@ -14,6 +14,11 @@ Read `docs/process/MEMORY.md`, `docs/process/QUEUE.md`, and
   before implementing the corresponding system. Record the selected algorithm
   and any adaptation in the architecture docs. Original engine structure and
   timing are not constraints on the replacement architecture.
+- Put the inspected reference algorithm in comments beside each implementing
+  method and each significant call/block. Include pinned commit, function and
+  source lines, with concise own-word pseudocode that supports side-by-side
+  review. Explicitly label our extra contracts, platform substitutions and
+  extracted helpers; a file-level "source-backed" claim is insufficient.
 - A diagram or a compiled class does not establish an implemented subsystem.
   Keep proposed design, implemented behavior, and verified behavior distinct.
 - Write header contracts first. For both header design and implementation,

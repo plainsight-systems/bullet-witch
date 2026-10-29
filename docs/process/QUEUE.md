@@ -1,10 +1,14 @@
 # Next work
 
-1. Review the connected architecture and the first slice's concrete contracts.
-2. Implement fresh monotonic time/waiting and paced EngineLoop after authorization,
-   establishing new build, formatting, fatal clang-tidy and test tools alongside it.
-3. Follow the dependency order in
-   [implementation-order](../architecture/implementation-order.md).
+The first headless game-loop implementation is accepted for commit. All 17 prepared
+scenarios pass; native measurements and source/ownership boundaries are in
+[Game loop](../architecture/game-loop.md#verification).
 
-No gameplay, renderer, importer, AI, or animation implementation is present.
-The separate prior worktree is preserved and is not an implementation source.
+The user authorized committing this slice after the editor configuration fix,
+then beginning memory preparation. No push or game launch is authorized.
+
+Next: inspect the pinned Unreal memory implementation, write the memory
+architecture, then headers, comments-only implementation units, and tests.
+Present that preparation for review before writing implementation bodies.
+
+The file manifest is in [Game loop](../architecture/game-loop.md#file-manifest).

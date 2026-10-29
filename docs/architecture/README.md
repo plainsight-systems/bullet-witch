@@ -1,8 +1,10 @@
 # Runtime architecture
 
-This is the seed design for a new engine and game implementation. None of the
-systems below exists in this branch yet. No existing Bullet Witch project code
-is an implementation dependency. Original purchased assets and Lua are inputs
+This is the design for a new engine and game implementation. The first
+[game-loop slice](game-loop.md) implements the headless lifecycle and native Mac
+timing path. All 17 contract scenarios pass; native measurements are recorded
+there. World, rendering, input and other systems remain proposed.
+No existing Bullet Witch project code is an implementation dependency. Original purchased assets and Lua are inputs
 through newly written readers and bindings.
 
 Unreal Engine source at `f45729c0b6f097038e72b52d366a62baeca3275b` supplies the
@@ -44,7 +46,8 @@ mutate world state. Loading and activation have distinct owners.
 
 | Document | Boundary |
 |---|---|
-| [Engine loop](engine-loop.md) | Host frame, pacing, world time, tick phases and jobs |
+| [Game loop](game-loop.md) | Authoritative host lifecycle, frame timing and pacing |
+| [Future world scheduling](engine-loop.md) | World time, tick phases and jobs; not implemented |
 | [World lifecycle](world-lifecycle.md) | Prepared resources, actor activation, registration and retirement |
 | [Characters and AI](characters-ai.md) | Player/NPC decisions, task lifetime, movement and animation |
 | [Rendering and assets](rendering-assets.md) | New import, resource preparation, scene and GPU pipeline |

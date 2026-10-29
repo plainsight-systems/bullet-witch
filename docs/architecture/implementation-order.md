@@ -1,22 +1,22 @@
 # Implementation order
 
-This is the proposed sequence for new code. Documentation does not mark any
-stage complete. The current authorized step creates the worktree and design;
-production implementation has not started.
+This is the proposed sequence. The first slice implements the headless host
+lifecycle, native Mac time/process primitives and engine timing. Its 17 contract
+tests pass; native results and remaining scope are in [Game loop](game-loop.md).
+No later slice is implemented.
 
 ## Start at the lowest dependency
 
-**Slice 1: platform monotonic time and waiting → typed frame context → EngineLoop
-pacing with a configurable 60 fps default.** See [the concrete
-contracts](engine-loop.md#first-proposed-slice). OS/standard facilities suffice;
-custom math and memory are not prerequisites. This slice also establishes fresh
-C++ build, pinned formatting, fatal clang-tidy and behavioral test tooling.
-There is no gameplay, renderer or asset loading in this slice.
+**Slice 1: native platform time/process primitives → Engine timing → EngineLoop
+lifecycle → Mac host.** [Game loop](game-loop.md) is authoritative. The selected
+Unreal flow has no policy changes; maximum FPS defaults to the source value zero.
+Custom math and memory are not prerequisites. The slice includes fresh build,
+pinned formatting, fatal clang-tidy, header checks and behavioral tests.
 
 ```mermaid
 flowchart TD
-    OS[OS and standard facilities] --> Time[Monotonic time and deadline wait]
-    Time --> Loop[Typed frame context and EngineLoop pacing]
+    OS[OS and standard facilities] --> Time[Native platform time and process sleep]
+    Time --> Loop[Engine timing and EngineLoop lifecycle]
     OS --> Memory[Memory and ownership primitives]
     OS --> Math[Shared math and transforms]
     OS --> Jobs[Job dependencies and completion]

@@ -1,60 +1,8 @@
-# Engine loop and time
+# Future world scheduling
 
-Status: proposed contracts and inspected reference behavior; no implementation.
-
-## Unreal reference
-
-- [LaunchEngineLoop.cpp](https://github.com/EpicGames/UnrealEngine/blob/f45729c0b6f097038e72b52d366a62baeca3275b/Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp#L4747):
-  `FEngineLoop::Init` creates and initializes the engine, then starts it;
-  `FEngineLoop::Tick` owns the outer host frame and frame-end synchronization.
-- [GameEngine.cpp](https://github.com/EpicGames/UnrealEngine/blob/f45729c0b6f097038e72b52d366a62baeca3275b/Engine/Source/Runtime/Engine/Private/GameEngine.cpp#L1768):
-  `UGameEngine::Tick` handles travel/world updates, streaming, viewports and audio.
-- [UnrealEngine.cpp](https://github.com/EpicGames/UnrealEngine/blob/f45729c0b6f097038e72b52d366a62baeca3275b/Engine/Source/Runtime/Engine/Private/UnrealEngine.cpp#L2980):
-  `UEngine::UpdateTimeAndHandleMaxTickRate` measures real elapsed time, computes
-  the remaining interval for a maximum rate, waits, then measures again. Fixed
-  timestep and fixed frame-rate modes are explicit alternatives.
-- [ApplePlatformTime.cpp](https://github.com/EpicGames/UnrealEngine/blob/f45729c0b6f097038e72b52d366a62baeca3275b/Engine/Source/Runtime/Core/Private/Apple/ApplePlatformTime.cpp#L29):
-  `FApplePlatformTime::InitTiming` obtains the Mach timebase;
-  `Seconds` converts `mach_absolute_time` ticks.
-- [GenericPlatformProcess.cpp](https://github.com/EpicGames/UnrealEngine/blob/f45729c0b6f097038e72b52d366a62baeca3275b/Engine/Source/Runtime/Core/Private/GenericPlatform/GenericPlatformProcess.cpp#L414):
-  `FGenericPlatformProcess::SleepNoStats` uses BSD sleep for a positive interval
-  and yields for zero. Apple inherits this path through its platform process
-  classes. Unreal's host pacing uses coarse sleep followed by yielding near its
-  deadline; its historical constants are not universal OS accuracy guarantees.
-
-## First proposed slice
-
-The lowest dependency is a monotonic clock and deadline waiting, using OS or
-standard-library facilities directly. It does not require custom math,
-allocators, a renderer, a world, or an asset reader. Its small fixed runtime state
-can live in stack values; this does not select the general engine allocation
-policy.
-
-| New owner | Contract |
-|---|---|
-| Platform time | Monotonic timestamp, elapsed duration, and deadline wait; no game state |
-| Frame types | Distinct timestamp/duration/frame-index values; explicit unit conversion |
-| EngineLoop | Sole host frame driver; configurable maximum fps, default 60 |
-| Frame context | Immutable measured start, elapsed interval, frame index and pacing observations |
-
-Proposed pacing algorithm: record the previous frame start, compute the next
-allowed start from that point and the configured period, wait only for the
-remaining interval, sample the actual start after waiting, then deliver the
-measured elapsed interval once to the frame callback. If already late, do not
-wait or run a burst of compensating host frames. Rebase to the actual start.
-This follows Unreal's measured elapsed-time/cap separation; exact wait mechanics
-are selected in the new platform implementation, not inherited from old code.
-
-A 60 fps cap means a target minimum frame interval, not a guarantee of 60 fps
-under load. It does not mean `delta = 1/60` for animation or gameplay. Vsync/GPU
-backpressure later participates in pacing without adding a second full-period
-sleep. Stop, pause, configuration changes and suspend/resume have explicit
-contracts; system sleep must not silently become gameplay catch-up work.
-
-Fresh build, formatting, fatal clang-tidy and tests accompany this slice.
-Checks cover early/late waits, oversleep, cap changes, stop behavior and elapsed
-intervals. Native cadence checks report observed timing and CPU idle behavior;
-a fake clock alone cannot validate OS waits. No game or window is needed yet.
+The authoritative host lifecycle and timing architecture is [Game loop](game-loop.md).
+The rejected custom-loop design and verification have been removed. Material
+below concerns future world, jobs and memory work only; none is implemented.
 
 ## World scheduling, later
 

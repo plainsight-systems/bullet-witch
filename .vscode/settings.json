@@ -1,0 +1,6 @@
+{
+  "C_Cpp.default.compileCommands": [
+    "${workspaceFolder}/build-game-loop/compile_commands.json"
+  ],
+  "cmake.buildDirectory": "${workspaceFolder}/build-game-loop"
+}
