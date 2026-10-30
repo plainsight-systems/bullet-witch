@@ -17,8 +17,10 @@ Debug/Release tests and code-generation checks. The next
 source grouping and exact XYZ accesses verified in Debug/Release and is accepted.
 The agreed [source-layout migration](source-layout.md) now groups existing
 foundations and enforces scoped module visibility; Debug/Release validation
-passes and the migration is accepted. Rotations/matrices/transforms,
-general jobs and content preparation remain ahead.
+passes and the migration is accepted as `f383fbb`. The next
+[quaternion register algebra](engine/core/math/quaternion-registers.md) is implemented
+with unchanged prepared tests passing Debug/Release and is accepted.
+Quaternion value classes, matrices/transforms, general jobs and content remain ahead.
 
 ## Start at the lowest dependency
 

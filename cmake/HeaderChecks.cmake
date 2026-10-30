@@ -1,6 +1,7 @@
-# SF.11 self-contained header checks, preserving all 31 accepted units.
+# SF.11 self-contained header checks, preserving 31 accepted units plus the rotation contract.
 # Public API and compiler-required/private detail are intentionally separate.
 set(BW_PUBLIC_HEADERS
+  bw/math/rotation/quaternion_register.hpp
   bw/math/simd/register.hpp
   bw/platform/math/register_types.hpp
   bw/math/vector/vector3.hpp

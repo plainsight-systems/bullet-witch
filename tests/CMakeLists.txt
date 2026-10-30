@@ -64,3 +64,10 @@ foreach(math_case IN ITEMS math_vector math_register math_register_composition)
   add_test(NAME ${math_case}_contracts COMMAND ${math_case}_tests)
   set_tests_properties(${math_case}_contracts PROPERTIES TIMEOUT 15)
 endforeach()
+
+# Source quaternion register algebra contracts.
+add_executable(quaternion_register_tests
+  engine/core/math/quaternion_register_tests.cpp)
+target_link_libraries(quaternion_register_tests PRIVATE bw_math)
+add_test(NAME quaternion_register_contracts COMMAND quaternion_register_tests)
+set_tests_properties(quaternion_register_contracts PROPERTIES TIMEOUT 15)

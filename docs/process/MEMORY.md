@@ -252,3 +252,47 @@
   acceptance changes only documentation status. Next is separate
   quaternion/matrix/transform dependency preparation. No new implementation,
   push or graphical game launch is authorized by this commit task.
+
+- Accepted organization committed as `f383fbb`; user authorized the next math
+  dependency preparation. Root reviewed the bounded quaternion-register scope.
+  Pinned Common normalization/inverse/rotation, Neon product, exact constants and
+  Quat/Transform callers inspected; both C++ corpora queried, full F.8/F.20/GEN.6
+  read before headers. Architecture first, contracts second, comments-only plans
+  third, tests fourth. Shared composites belong in engine math and target product
+  in platform CPU/arm64 through platform-only selection. No numeric bodies added.
+- Prepared tests cover order, independent Hamilton products, rotations/inverses,
+  precision, signed zeros, normalization thresholds and fallback bit transport.
+  Float/double source literals remain distinct, including a regression between
+  promoted float and double thresholds. Test error budgets are fixture choices,
+  not source accuracy guarantees. Debug/Release fatal-lint default builds pass;
+  prepared tests compile then fail linking on absent operations as intended.
+  Debug accepted suites remain 28/28. Evidence under
+  research/evidence/quaternion-registers/. Await review/implementation approval;
+  no commit/push/game launch or future tooling implementation.
+- Root independently reviewed preparation and confirmed Debug 28/28 plus Release
+  genuine linker-red. Formatting, whitespace and DOM-backed Mermaid parsing pass.
+  Preparation is ready for user review; implementation remains unapproved.
+
+- User authorized quaternion-register implementation. Both C++ corpora queried
+  again and full F.8/F.20/GEN.6 read; pinned Common/Neon functions and constants
+  reinspected. Source comments moved beside methods/significant operations.
+  Shared composites stay engine math, product stays platform CPU/arm64. Four
+  narrow signature lint suppressions retain approved source operand roles;
+  no extra numerical policies, validation, implicit normalization or dispatch.
+- Prepared test assertions remain unchanged and target now participates in the
+  default build/CTest. Debug/Release full fatal-lint builds, 32 headers, 11
+  include-boundary probes and 29/29 tests each pass. Eight optimized native
+  consumers retain fused arithmetic/refinement/select, with no calls, heap or
+  initialization guards. Static constexpr constant storage removed observed
+  double paired-load stack copies without arithmetic changes. Evidence under
+  research/evidence/quaternion-registers/. Await user acceptance; no commit,
+  push, game launch or future math/tooling expansion.
+- Root independently reviewed final source correspondence, inspected all eight
+  optimized callers (no stack references/calls/guards/heap paths) and repeated
+  final Debug CTest with 29/29 passing. Formatting, whitespace and Mermaid pass.
+  Implementation is ready for user review, uncommitted.
+
+- User accepted quaternion-register algebra and authorized its commit. Existing
+  verification stands; acceptance edits only update documentation status. Next
+  dependency preparation is authorized separately, without numerical bodies.
+  No push or graphical game launch.

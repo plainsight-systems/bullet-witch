@@ -85,7 +85,22 @@ VS Code continues using the generated compilation database, now with scoped
 per-target flags. User accepted the migration and authorized its commit; no push
 or graphical game launch.
 
-Next: quaternion/matrix/transform dependency preparation, as a separate slice.
+Accepted source-layout migration commit: `f383fbb`.
+
+Accepted slice: [Quaternion register algebra](../architecture/engine/core/math/quaternion-registers.md).
+User authorized implementation after architecture, headers, comments-only plans
+and red tests. Shared safe/identity normalization, unit inverse/rotation and the
+native ARM64 product now execute through the accepted register primitives.
+Exact source thresholds, candidate+select and fused accumulation order remain;
+no class/interpolation/matrix/transform expansion or altered test assertions.
+
+Debug/Release full fatal-lint builds pass with 32 headers, 11 boundary probes and
+29/29 tests each. Eight optimized consumers use native instructions inline with
+no operation calls, heap, initialization guards or stack copies. Immutable static
+constexpr arrays preserve source constants without paired-load stack copies.
+Formatting, whitespace and the architecture Mermaid parse pass. User accepted
+the slice and authorized its commit; no push or game launch. Later quaternion/matrix/transform
+dependencies remain separate preparation.
 Future inspection protocol/types/transport and tool implementations remain designed
 slices; no empty game/world/rendering/tool modules were created by migration.
 
