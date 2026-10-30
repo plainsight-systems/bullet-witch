@@ -2,26 +2,28 @@
 
 This is the proposed sequence. The first slice implements the headless host
 lifecycle, native Mac time/process primitives and engine timing. Its 17 contract
-tests pass; native results and remaining scope are in [Game loop](game-loop.md).
-The foundations slice has begun: [Memory](memory.md) maps the selected Mac
+tests pass; native results and remaining scope are in [Game loop](engine/runtime/game-loop.md).
+The foundations slice has begun: [Memory](engine/core/memory/memory.md) maps the selected Mac
 Binned3 path and implements its virtual-memory dependency and native fatal
-handling. [General allocation](binned-allocator.md), crash reserves and its named-dispatch
-trim dependency are accepted. [Allocator lifecycle](allocator-lifecycle.md)
+handling. [General allocation](engine/core/memory/binned-allocator.md), crash reserves and its named-dispatch
+trim dependency are accepted. [Allocator lifecycle](engine/core/memory/allocator-lifecycle.md)
 implements executable adoption and source-owned game-thread startup/shutdown.
-The [shared math leaf](math.md) is accepted as `1d3e5d9`: vector values, the ARM
+The [shared math leaf](engine/core/math/math.md) is accepted as `1d3e5d9`: vector values, the ARM
 Mac scalar-primitive selection and source-default nonfinite diagnostics pass
-Debug/Release native checks. The next [native register foundation](math-registers.md)
+Debug/Release native checks. The next [native register foundation](engine/core/math/math-registers.md)
 is accepted: native ARM64 primitive algorithms pass
 Debug/Release tests and code-generation checks. The next
-[register composition leaf](math-register-composition.md) is implemented with
-source grouping and exact XYZ accesses verified in Debug/Release and is accepted. After that slice, review/propose folder structure and complete a separate
-organization slice before further math expansion. Rotations/matrices/transforms,
+[register composition leaf](engine/core/math/math-register-composition.md) is implemented with
+source grouping and exact XYZ accesses verified in Debug/Release and is accepted.
+The agreed [source-layout migration](source-layout.md) now groups existing
+foundations and enforces scoped module visibility; Debug/Release validation
+passes and the migration is accepted. Rotations/matrices/transforms,
 general jobs and content preparation remain ahead.
 
 ## Start at the lowest dependency
 
 **Slice 1: native platform time/process primitives → Engine timing → EngineLoop
-lifecycle → Mac host.** [Game loop](game-loop.md) is authoritative. The selected
+lifecycle → Mac host.** [Game loop](engine/runtime/game-loop.md) is authoritative. The selected
 Unreal flow has no policy changes; maximum FPS defaults to the source value zero.
 Custom math and memory are not prerequisites. The slice includes fresh build,
 pinned formatting, fatal clang-tidy, header checks and behavioral tests.

@@ -1,5 +1,5 @@
-#include "engine/runtime/engine_loop.hpp"
-#include "platform/macos/platform_time.hpp"
+#include "bw/platform/os/macos/platform_time.hpp"
+#include "bw/runtime/engine_loop.hpp"
 #include <charconv>
 #include <iostream>
 #include <string_view>

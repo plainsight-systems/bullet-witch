@@ -4,7 +4,7 @@
   slice and editor configuration are committed as `d20097a`. No push or game launch is authorized.
 - No prior Bullet Witch code, tests, tooling, configs or caches are reused,
   called, wrapped or imported. Original worktree and purchased data are untouched.
-- [Game loop](../architecture/game-loop.md) is authoritative. Unreal reference
+- [Game loop](../architecture/engine/runtime/game-loop.md) is authoritative. Unreal reference
   `f45729c0b6f097038e72b52d366a62baeca3275b` supplies the selected flow and algorithms.
 - User authorized implementation after architecture → headers → comments-only
   units → tests. Expected missing-definition link red was recorded before bodies.
@@ -21,7 +21,7 @@
 - Rejected custom-loop code and historical results remain ignored evidence only.
 - VS Code uses the current `build-game-loop` compilation database explicitly.
 - Memory followed architecture → headers → comments-only units → tests →
-  implementation after user authorization. [Memory](../architecture/memory.md)
+  implementation after user authorization. [Memory](../architecture/engine/core/memory/memory.md)
   maps the Mac game target's Binned3 path; its native virtual-memory dependency
   and fatal failure path are committed as `99456b2`.
 - The inherited emergency reserve size is zero. The current unguarded headless
@@ -224,3 +224,31 @@
 - Scenario source is distinct from external purchased/derived game content;
   original project-owned fixtures may be tracked, generated recordings/traces
   remain ignored. Documentation-only change; no migration/scaffolding/commit/push.
+
+- Accepted source-layout documentation committed as `e6d93b1`. User authorized
+  migrating existing foundations to that layout. Scoped real public/ roots and
+  bw/... includes were reviewed before broad edits. Both corpora queried; full
+  SF.11/SF.13/GEN.6 read. Pinned Core.Build.cs public/private dependencies and
+  VectorRegister.h native selection were inspected as organization guidance.
+- Existing core moved into engine/core; vector/SIMD, private binned, OS/CPU and
+  shared platform contracts grouped by owner. Tests, runtime probe and active
+  foundation drill-ins mirror owners; all local links updated. No copied/generated
+  public headers, pimpl changes or empty future modules. Accepted allocator/tasks/
+  concurrency definition cluster retained. Global new stays executable-local;
+  public math build definitions and root executable paths unchanged.
+- Module CMake files now own definitions and scoped dependencies. Public vs
+  compiler-required detail vs genuinely private internals are explicit. The same 31
+  header checks are classified as 21 public and 10 internal/detail. Eleven positive/negative
+  include probes use actual consumer target flags and require the requested
+  private header itself missing. Default Debug/Release builds and all 28 tests pass
+  fatal lint. Formatting/whitespace, links and 12 Mermaid diagrams pass; bounded
+  headless host runs. All 75 mapped C++ files unchanged except include lines,
+  independently confirmed by root along with Debug 28/28. Evidence/file/doc maps
+  under research/evidence/source-layout-migration/. No migration commit/push or
+  graphical game launch; await user review. MotionBricks backlog retained.
+
+- User accepted the source-layout migration and authorized committing the complete
+  organization slice. Existing Debug/Release verification remains applicable;
+  acceptance changes only documentation status. Next is separate
+  quaternion/matrix/transform dependency preparation. No new implementation,
+  push or graphical game launch is authorized by this commit task.

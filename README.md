@@ -2,15 +2,14 @@
 
 A new implementation of Bullet Witch's engine and game runtime, using Unreal
 Engine's architecture and established algorithms as the reference. Purchased
-original game data is required. This branch contains architecture, the first
-headless game-loop slice and the native virtual-memory foundation.
+original game data is required. This branch contains the headless game loop, memory/allocator foundations and
+shared vector/SIMD math.
 It does not contain a runnable game.
 
 ## Get it locally
 
 The `codex/unreal-rebuild` branch is being prepared in a separate worktree.
-Its architecture baseline and first game-loop slice are committed locally;
-the memory foundation is accepted. The branch has not been published. There is no remote checkout
+Its architecture and accepted foundation slices are committed locally. The branch has not been published. There is no remote checkout
 command for this branch yet.
 
 ## Run
@@ -34,11 +33,12 @@ maximum-FPS setting defaults to the source value **zero**; `--seconds` bounds
 the headless run. Without that argument the host has no time limit. The probe
 requires an explicit cap as a measurement input; it does not change the default.
 
-All 18 CTest entries pass: 17 game-loop tests and one native memory suite. See
-[Memory](docs/architecture/memory.md) for its virtual-memory and fatal-failure
+All 28 CTest entries cover timing, memory, allocator lifecycle, named dispatch
+and vector/SIMD contracts. See
+[Memory](docs/architecture/engine/core/memory/memory.md) for its virtual-memory and fatal-failure
 scenarios and current boundaries. Compilation uses fatal clang-tidy; formatting
 is pinned to LLVM 21.1.8. The native 60 FPS probe measured 59.44 FPS, with a
-25.71 ms maximum interval in that sample. See [Game loop](docs/architecture/game-loop.md)
+25.71 ms maximum interval in that sample. See [Game loop](docs/architecture/engine/runtime/game-loop.md)
 for source correspondence, ownership, scope and the full measurements. There is
 no rendering, input or simulation yet. `cmake --build build-game-loop --target format`
 applies the pinned style.
@@ -51,7 +51,9 @@ old diagnostics, run **C/C++: Reset IntelliSense Database** and reload the windo
 ## Architecture
 
 Start with [the runtime map](docs/architecture/README.md) and
-[implementation order](docs/architecture/implementation-order.md).
+[implementation order](docs/architecture/implementation-order.md), with the
+[source layout](docs/architecture/source-layout.md) covering module boundaries and
+planned runtime tools.
 Every code module in the rebuild will be written anew. Existing Bullet Witch
 project code is not a dependency, including its lower-level services, imports,
 shaders, and tests. Original assets and Lua remain external inputs. Third-party

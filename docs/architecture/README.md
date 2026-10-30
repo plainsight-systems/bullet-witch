@@ -1,13 +1,14 @@
 # Runtime architecture
 
 This is the design for a new engine and game implementation. The first
-[game-loop slice](game-loop.md) implements the headless lifecycle and native Mac
+[game-loop slice](engine/runtime/game-loop.md) implements the headless lifecycle and native Mac
 timing path. All 17 contract scenarios pass; native measurements are recorded
-there. The [memory foundation](memory.md) implements native virtual-memory
-blocks and their fatal failure path. The [general allocator](binned-allocator.md)
+there. The [memory foundation](engine/core/memory/memory.md) implements native virtual-memory
+blocks and their fatal failure path. The [general allocator](engine/core/memory/binned-allocator.md)
 adds selected Binned3, pooled crash reserves and the required named-thread trim
-dispatch leaf. World, rendering, input and other systems
-remain proposed.
+dispatch leaf. Shared vector/SIMD math is implemented and verified. Existing
+foundations now follow the scoped [source layout](source-layout.md). World,
+rendering, input and other systems remain proposed.
 No existing Bullet Witch project code is an implementation dependency. Original purchased assets and Lua are inputs
 through newly written readers and bindings.
 
@@ -50,16 +51,16 @@ mutate world state. Loading and activation have distinct owners.
 
 | Document | Boundary |
 |---|---|
-| [Source layout and runtime tools](source-layout.md) | Agreed project-wide destination ownership, tooling compositions and migration plan; not yet migrated |
-| [Register permutations and reductions](math-register-composition.md) | Implemented ARM64 permutations/reductions, source grouping and verified exact XYZ accesses |
-| [Native register foundation](math-registers.md) | Implemented ARM64 register primitives, source algorithms and native verification |
-| [Shared math](math.md) | Implemented vector/scalar/default-diagnostic leaf; later native SIMD and transforms mapped |
-| [Game loop](game-loop.md) | Authoritative host lifecycle, frame timing and pacing |
-| [Allocator lifecycle](allocator-lifecycle.md) | Implemented executable allocation routing and game-thread ownership integration |
-| [General allocator](binned-allocator.md) | Implemented Binned3, TLS/recycler, dynamic registry and bootstrap |
-| [Crash memory](crash-memory.md) | Source pooled reserves, crash activation and owner-thread allocation |
-| [Named-thread dispatch](named-thread-dispatch.md) | Source owner queues, task storage and asynchronous desktop trim broadcast |
-| [Memory](memory.md) | Selected Mac allocator path; implemented virtual-memory blocks and native fatal handling |
+| [Source layout and runtime tools](source-layout.md) | Migrated foundation modules and agreed future runtime/tool ownership |
+| [Register permutations and reductions](engine/core/math/math-register-composition.md) | Implemented ARM64 permutations/reductions, source grouping and verified exact XYZ accesses |
+| [Native register foundation](engine/core/math/math-registers.md) | Implemented ARM64 register primitives, source algorithms and native verification |
+| [Shared math](engine/core/math/math.md) | Implemented vector/scalar/default-diagnostic leaf; later native SIMD and transforms mapped |
+| [Game loop](engine/runtime/game-loop.md) | Authoritative host lifecycle, frame timing and pacing |
+| [Allocator lifecycle](engine/core/memory/allocator-lifecycle.md) | Implemented executable allocation routing and game-thread ownership integration |
+| [General allocator](engine/core/memory/binned-allocator.md) | Implemented Binned3, TLS/recycler, dynamic registry and bootstrap |
+| [Crash memory](engine/core/memory/crash-memory.md) | Source pooled reserves, crash activation and owner-thread allocation |
+| [Named-thread dispatch](engine/core/tasks/named-thread-dispatch.md) | Source owner queues, task storage and asynchronous desktop trim broadcast |
+| [Memory](engine/core/memory/memory.md) | Selected Mac allocator path; implemented virtual-memory blocks and native fatal handling |
 | [Future world scheduling](engine-loop.md) | World time, tick phases and jobs; not implemented |
 | [World lifecycle](world-lifecycle.md) | Prepared resources, actor activation, registration and retirement |
 | [Characters and AI](characters-ai.md) | Player/NPC decisions, task lifetime, movement and animation |
@@ -70,7 +71,7 @@ mutate world state. Loading and activation have distinct owners.
 ## Agreed source boundaries
 
 [Source layout and runtime tools](source-layout.md) records the destination tree
-and follow-on migration. `src/engine/core/` holds common math, memory, concurrency,
+and the migrated foundation modules. `src/engine/core/` holds common math, memory, concurrency,
 tasks and diagnostics. Engine modules own runtime/world/content, character and AI
 mechanisms, rendering and runtime services. `src/game/` owns Bullet Witch rules,
 actors, Lua meanings, missions, progression and frontend behavior.
@@ -82,7 +83,7 @@ for headless simulation, character/AI inspection and offscreen capture. A debug
 publication/control seam supports a 2D simulation inspector without giving tools
 writable access to controller or physics internals.
 
-This is the agreed destination, not a report of moved files or implemented tools.
-Current foundations still use `src/core/` and the existing platform paths. Tests,
-docs and build boundaries will follow actual module owners; no empty future
-scaffolding or old-project implementation is introduced.
+Existing foundations now use engine/core, scoped module public headers and the
+OS/CPU platform paths. Tests, foundation docs and build definitions follow their
+owners. Future systems/tools remain a destination map; no empty scaffolding or
+old-project implementation is introduced.

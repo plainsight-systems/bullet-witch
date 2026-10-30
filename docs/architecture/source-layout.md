@@ -1,10 +1,9 @@
 # Source layout and runtime tools
 
-Status: **agreed direction; migration and tools not implemented**. This document
-records the project-wide ownership layout, including the tooling the runtime must
-support. Existing accepted foundations remain at their current paths. The next
-organization slice moves existing files and updates build boundaries; this
-revision creates no empty modules or runtime behavior.
+Status: **existing foundation migration accepted**. The agreed
+project-wide ownership map and tooling direction remain below. Only existing
+source, tests and foundation documentation have moved. Future engine/game
+systems and tools remain unimplemented; no empty modules were created.
 
 The architecture follows the runtime ownership already described in
 [the overview](README.md), [world lifecycle](world-lifecycle.md),
@@ -23,9 +22,12 @@ src/
   engine/
     core/
       math/                 # value math and shared SIMD contracts/algorithms
-        vector/
-        simd/
+        public/bw/math/
+          vector/           # public vector contracts and inline definitions
+          simd/             # public register contracts
+        vector/             # out-of-line vector definitions
       memory/               # facade, allocation lifecycle and failure policy
+        public/bw/memory/   # facade/lifecycle/failure contracts
         binned/             # selected allocator and its private structures
       concurrency/
       tasks/
@@ -230,38 +232,90 @@ when they contain no proprietary data; references to external assets do not make
 those assets repository content. Recordings, captured images and generated state
 traces belong in ignored organized outputs, not among scenario source files.
 
-## Migration of existing foundations
+## Existing foundation modules
 
-This mapping plans a follow-on organization change. None of these moves happens
-in this documentation update. Keep existing algorithms and accepted tests intact.
+The migration retains every existing C++ body, class layout, constant and test
+assertion. Only include identifiers and source locations change. Header guards
+remain stable. The accepted implementation cluster for allocator, concurrency
+and named dispatch remains linked together; this organization change does not
+introduce a new algorithm or a cyclic library split.
 
-| Current files | Destination responsibility |
+| Owner | Physical organization |
 |---|---|
-| `src/core/math/vector3.*` | `src/engine/core/math/vector/` |
-| `src/core/math/register.hpp` | `src/engine/core/math/simd/` |
-| `src/core/memory/binned_*` | `src/engine/core/memory/binned/` |
-| Other `src/core/memory/*` | `src/engine/core/memory/`, keeping facade/lifecycle/failure contracts distinguishable from allocator internals |
-| `src/core/concurrency/*`, `tasks/*`, `diagnostics/*` | Corresponding `src/engine/core/` owner |
-| `src/engine/runtime/*` | Retains its runtime owner |
-| Shared `src/platform` math/register contracts/selectors | `src/platform/math/` |
-| Shared platform memory/allocator/sync/failure contracts | `src/platform/memory/` |
-| Shared platform time/task/diagnostic contracts | `src/platform/time/`, `tasks/`, `diagnostics/` |
-| `src/platform/macos/*` | `src/platform/os/macos/`, grouped by actual service |
-| `src/platform/arm64/*` | `src/platform/cpu/arm64/`, with SIMD implementation grouped together |
-| `src/platform/generic/math.inl` | Generic platform math owner, retained as source-selected fallback |
-| `src/hosts/macos/engine_host.cpp` | Host composition/target entry point; not an engine service |
-| Flat `tests/*` | Corresponding `tests/engine/core`, `engine/runtime` or platform/integration owner |
-| `tools/engine_loop_probe.cpp` | Runtime probe tool owner; no algorithm duplication |
+| Math | `src/engine/core/math/public/bw/math/{vector,simd}/`; out-of-line definitions in `math/vector/` |
+| Memory facade | `src/engine/core/memory/public/bw/memory/` |
+| Allocator internals | `src/engine/core/memory/binned/`, plus private checks/crash machinery at the memory owner |
+| Concurrency, tasks, diagnostics | `src/engine/core/<owner>/public/bw/<owner>/` and owner-local implementation files |
+| Runtime | `src/engine/runtime/public/bw/runtime/` and owner-local engine/loop definitions |
+| Shared platform contracts | `src/platform/<owner>/public/bw/platform/<owner>/` for math, memory, time, tasks and diagnostics |
+| Mac services | `src/platform/os/macos/{math,memory,time,tasks,diagnostics}/`; required native declarations have scoped public roots |
+| ARM64 SIMD | `src/platform/cpu/arm64/math/simd/` |
+| Selected generic math | `src/platform/generic/math/` |
+| Host and probe | `src/hosts/macos/engine_host.cpp`, `tools/runtime/engine_loop_probe.cpp` |
+| Tests | `tests/engine/core/{math,memory,tasks}/`, `tests/engine/runtime/`, `tests/integration/runtime/` |
+| Foundation drill-ins | `docs/architecture/engine/core/{math,memory,tasks}/` and `engine/runtime/` |
 
-Build targets must enforce ownership, not merely reflect folder labels. Each
-module declares its public headers/dependencies and internal implementation
-sources. Header checks distinguish public contracts from internal completeness
-checks. Engine consumers should not receive a universal include path granting
-access to all private modules. The exact include/export arrangement and CMake
-split belong to the organization slice, with no change to numeric behavior.
+### Public and internal boundaries
 
-Tests and architecture drill-ins follow the same owners as they grow. Keep
-project-wide overview/process documents at their entry points. Migrate existing
-files, includes, targets, IDE configuration and documentation links together;
-verify Debug/Release builds, fatal lint, header checks and all accepted tests.
-Do not create the rest of the destination tree until real slices need it.
+A module exports its real `public/` directory. A consumer includes, for example,
+`bw/memory/allocator.hpp` or `bw/math/simd/register.hpp`. There are no generated
+header copies, export symlinks or universal `src/` include directory. The build
+policy target supplies warning flags only. Source ownership defines modules;
+there is no target or directory per class.
+
+Public API and compiler-required detail are different. Named-thread dispatch
+requires its queue layout in `bw/tasks/detail/task_queue.hpp`. Native register
+layout and inline kernels must remain visible through platform selectors; those
+selectors use explicit relative includes into OS/CPU implementation directories.
+These details are not hidden with new heap indirection, runtime wrappers or class
+layout changes. Native Mac time/memory types are available through their scoped
+platform contracts. They do not export unrelated core allocator internals.
+
+Genuinely private headers remain outside exported roots: Binned internals, crash
+allocator/check helpers and task storage. Their owning implementation and specific
+internal tests receive private include access. A runtime or math consumer does
+not receive it transitively. Tests that inspect allocator structure state that
+access explicitly rather than making those internals public to the whole engine.
+
+The inspected Unreal pin `f45729c0b6f097038e72b52d366a62baeca3275b` provides the
+organization reference: `Engine/Source/Runtime/Core/Core.Build.cs` distinguishes
+public/private dependencies, and `Core/Public/Math/VectorRegister.h:11–19`
+selects required native inline definitions. Our CMake/public-directory spelling
+is an adaptation, not copied Unreal build machinery. Both C++ corpora were
+queried and full SF.11, SF.13 and GEN.6 read: self-contained scoped headers and
+preserved inline implementation visibility. No new inlining or numeric policy.
+
+### Build and verification
+
+Module CMake files own real targets and dependencies. The root composes existing
+modules; it does not list all source files. `cmake/HeaderChecks.cmake` retains the
+same 31 standalone checks, classified as 21 public contracts and 10 internal or
+compiler-required details. Debug/non-Debug math configuration and executable-local
+global allocation operators retain their accepted owners and values.
+
+`cmake/IncludeBoundaries.cmake` obtains include directories, definitions and options
+from actual target usage requirements. Positive probes compile the runtime/facade,
+vector/SIMD and owned allocator-internal headers. Negative probes require the
+requested private or unlinked header itself to be missing, not just an arbitrary
+compiler failure. These checks are part of the default build and add no runtime
+behavior or test double.
+
+Existing executable paths remain at the build root. VS Code still consumes
+`build-game-loop/compile_commands.json`; its generated per-target flags now carry
+the scoped includes. No manual IDE-wide include fallback is needed. Root README
+commands retain their paths. The old-to-new C++ and document maps and verification
+logs live in ignored `research/evidence/source-layout-migration/`.
+
+The remaining destination modules and inspection protocol/tools will be created
+only through their future design slices. No production algorithms were reused
+from the previous Bullet Witch project. No game launch or push is part of this
+migration.
+
+Validation completed for this organization slice: Debug and Release full builds
+pass fatal clang-tidy, all 31 classified header checks, all 11 consumer include
+boundary probes and all 28 existing CTest entries. Formatting/whitespace checks,
+local document links and 12 updated Mermaid diagrams pass. The documented bounded
+headless host command runs from its unchanged build-root path. An exact comparison
+of all 75 mapped C++/test/tool files finds no differences beyond include lines.
+Root independently confirmed that comparison and repeated Debug CTest 28/28.
+No graphical host, future runtime tool or new numerical behavior is claimed.

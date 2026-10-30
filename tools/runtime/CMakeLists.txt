@@ -1,0 +1,2 @@
+add_executable(engine_loop_probe engine_loop_probe.cpp)
+target_link_libraries(engine_loop_probe PRIVATE bw_runtime)

@@ -1,6 +1,6 @@
-#include "engine/runtime/engine_loop.hpp"
-#include "core/memory/allocator.hpp"
-#include "core/tasks/named_thread_dispatch.hpp"
+#include "bw/runtime/engine_loop.hpp"
+#include "bw/memory/allocator.hpp"
+#include "bw/tasks/named_thread_dispatch.hpp"
 #include <cstdio>
 
 // E.6: scope cleanup corresponds to GuardedMain's cleanup guard. MEM.9: loop

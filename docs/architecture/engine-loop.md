@@ -1,6 +1,6 @@
 # Future world scheduling
 
-The authoritative host lifecycle and timing architecture is [Game loop](game-loop.md).
+The authoritative host lifecycle and timing architecture is [Game loop](engine/runtime/game-loop.md).
 The rejected custom-loop design and verification have been removed. Material
 below concerns future world, jobs and memory work only; none is implemented.
 
