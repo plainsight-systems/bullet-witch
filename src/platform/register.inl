@@ -5,6 +5,7 @@
 // Select silicon definitions at compile time; shared callers never branch on ISA.
 #if defined(__aarch64__)
 #include "platform/arm64/register.inl"
+#include "platform/arm64/register_composition.inl"
 #else
 #error "Register implementation requires an inspected target backend."
 #endif

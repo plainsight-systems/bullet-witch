@@ -54,11 +54,22 @@ implementation reuse. Prepared assertions were retained unchanged.
 Debug/Release full builds, fatal clang-tidy, 31 headers and 27/27 tests each pass.
 Optimized native callers show expected vector instructions with no operation
 calls or scalar fallback. Formatting, whitespace and Mermaid parsing pass.
-User accepted this register leaf and authorized its commit. Next is preparation
-only for remaining register permutations, reductions and shared composites: source
-architecture, headers, implementation comments and tests before implementation
-review. These are prerequisites for quaternion, matrix and transform work. No
-push or game launch authorized.
+Accepted native register commit: `11fc535`.
+
+Accepted slice: [Register permutations and reductions](../architecture/math-register-composition.md).
+User authorized implementation after preparation. Native permutations, reductions,
+comparison/sign operations and exact XYZ/W operations now execute, with source
+comments beside the methods. Prepared assertions remain unchanged and now run
+in the default build/CTest. Debug/Release full fatal-lint builds, 31 headers and
+28/28 tests each pass. Optimized native callers preserve source grouping/fusion
+and three-element access extent with no per-operation calls. Formatting,
+whitespace and Mermaid checks pass. User accepted this slice and authorized its
+commit. No push, game launch or reorganization.
+
+Next: discuss the project-wide folder structure and its long-term ownership
+boundaries with the user before writing a proposal or reorganizing. A separate
+organization slice precedes further math expansion. Quaternion/matrix/transform composites and remaining source dependencies
+follow that organization work; no raw bitwise inventory was added here.
 
 ## Backlog
 

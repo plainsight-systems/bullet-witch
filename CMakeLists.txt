@@ -167,3 +167,9 @@ add_executable(math_register_tests tests/math_register_tests.cpp)
 target_link_libraries(math_register_tests PRIVATE bw_math)
 add_test(NAME math_register_contracts COMMAND math_register_tests)
 set_tests_properties(math_register_contracts PROPERTIES TIMEOUT 15)
+
+# Native composition contracts execute source grouping and exact memory extents.
+add_executable(math_register_composition_tests tests/math_register_composition_tests.cpp)
+target_link_libraries(math_register_composition_tests PRIVATE bw_math)
+add_test(NAME math_register_composition_contracts COMMAND math_register_composition_tests)
+set_tests_properties(math_register_composition_contracts PROPERTIES TIMEOUT 15)

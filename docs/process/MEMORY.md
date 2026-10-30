@@ -167,3 +167,44 @@
   bounded implementation, tests and documentation, including the MotionBricks
   backlog note. Next dependency work is preparation only, not new implementation.
   No push or game launch authorized.
+
+- Accepted native register leaf committed as `11fc535`. Next composition leaf
+  prepared in the required artifact order: architecture, shared declarations,
+  platform comments-only plans, meaningful tests. Both corpora queried and full
+  I.9/F.20/GEN.6 rules read. Source algorithms and actual callers bound the API;
+  raw bitwise operations and higher-level composites remain deferred.
+- Prepared tests distinguish source float/double reduction grouping and fused
+  double cancellation, lane routing, NaN payload/signed-zero preservation, GE
+  behavior, W setters and exact XYZ memory extent using a real guard page. The
+  cancellation fixture uses 2^(digits+1), avoiding asymmetric spacing at 2^digits.
+  Debug/Release consumers compile with fatal lint then fail at real absent-symbol
+  linking. No numeric bodies or runtime pass claimed. Default Debug build and
+  31 header checks pass, accepted CTest remains 27/27, formatting/whitespace and
+  DOM-backed Mermaid parse pass. Root independently reviewed source mapping and
+  repeated accepted tests. Evidence is ignored under
+  `research/evidence/math-register-composition/`; no commit/push/game launch.
+- User requested folder-structure review/proposal after this slice, followed by a
+  separate organization slice before further math expansion. Recorded in QUEUE;
+  no files reorganized now. NVIDIA MotionBricks backlog remains unchanged.
+
+- User authorized register composition implementation after preparation review.
+  Native lane routing, dot3/dot4, fused cross, GE/sign operations and exact XYZ/W
+  operations now implement the pinned source algorithms. Shared API/ownership
+  unchanged; silicon code remains under platform/arm64. Explicit low-pair
+  extraction replaces the source float store aliasing cast without changing
+  extent/layout. No old-project implementation, new policies or reorganization.
+- Both corpora re-queried for implementation; full Per.11/F.20/GEN.6/SIMD.1 read.
+  Prepared tests promoted to default build/CTest with every assertion unchanged.
+  Debug/Release full fatal-lint builds, 31 standalone headers, 28/28 tests each,
+  formatting/whitespace and DOM-backed Mermaid parsing pass. Twelve optimized
+  native callers show source fused/grouped arithmetic, exact XYZ accesses and no
+  per-operation calls; no broader performance claim. Root reviewed source/body
+  correspondence and all twelve optimized callers, then independently repeated
+  Debug CTest28/28. Evidence under research/evidence/math-register-composition/.
+  Await user acceptance; no commit/push/game launch. Folder review/proposal and
+  separate organization slice remain next; MotionBricks backlog preserved.
+
+- User accepted register composition and authorized committing its implementation,
+  tests and documentation. Next is a project-wide folder discussion covering the
+  full engine/game roadmap, not only current math files. No proposal documents or
+  reorganization until that discussion; no push or game launch.

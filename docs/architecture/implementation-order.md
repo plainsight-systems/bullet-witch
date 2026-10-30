@@ -12,8 +12,10 @@ The [shared math leaf](math.md) is accepted as `1d3e5d9`: vector values, the ARM
 Mac scalar-primitive selection and source-default nonfinite diagnostics pass
 Debug/Release native checks. The next [native register foundation](math-registers.md)
 is accepted: native ARM64 primitive algorithms pass
-Debug/Release tests and code-generation checks. Remaining register composition
-primitives, rotations/matrices/transforms,
+Debug/Release tests and code-generation checks. The next
+[register composition leaf](math-register-composition.md) is implemented with
+source grouping and exact XYZ accesses verified in Debug/Release and is accepted. After that slice, review/propose folder structure and complete a separate
+organization slice before further math expansion. Rotations/matrices/transforms,
 general jobs and content preparation remain ahead.
 
 ## Start at the lowest dependency
