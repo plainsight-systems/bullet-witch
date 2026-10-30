@@ -25,6 +25,9 @@ target_compile_definitions(bw_math PUBLIC
 # Compile each public header independently, including during the header-first
 # stage. Generated files are build products, not a runtime implementation.
 set(BW_PUBLIC_HEADERS
+  core/math/register.hpp
+  platform/register_types.hpp
+  platform/arm64/register_types.hpp
   core/math/vector3.hpp
   core/diagnostics/math_diagnostic.hpp
   platform/math.hpp
@@ -158,3 +161,9 @@ add_executable(math_vector_tests tests/math_vector_tests.cpp)
 target_link_libraries(math_vector_tests PRIVATE bw_math)
 add_test(NAME math_vector_contracts COMMAND math_vector_tests)
 set_tests_properties(math_vector_contracts PROPERTIES TIMEOUT 15)
+
+# Native register contracts execute the actual selected ARM64 operations.
+add_executable(math_register_tests tests/math_register_tests.cpp)
+target_link_libraries(math_register_tests PRIVATE bw_math)
+add_test(NAME math_register_contracts COMMAND math_register_tests)
+set_tests_properties(math_register_contracts PROPERTIES TIMEOUT 15)

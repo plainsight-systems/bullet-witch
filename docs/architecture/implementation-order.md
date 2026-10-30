@@ -8,9 +8,12 @@ Binned3 path and implements its virtual-memory dependency and native fatal
 handling. [General allocation](binned-allocator.md), crash reserves and its named-dispatch
 trim dependency are accepted. [Allocator lifecycle](allocator-lifecycle.md)
 implements executable adoption and source-owned game-thread startup/shutdown.
-The [shared math leaf](math.md) is implemented and awaits user review: vector
-values, the ARM Mac scalar-primitive selection and source-default nonfinite
-diagnostics pass Debug/Release native checks. Native SIMD, rotations/matrices/transforms,
+The [shared math leaf](math.md) is accepted as `1d3e5d9`: vector values, the ARM
+Mac scalar-primitive selection and source-default nonfinite diagnostics pass
+Debug/Release native checks. The next [native register foundation](math-registers.md)
+is accepted: native ARM64 primitive algorithms pass
+Debug/Release tests and code-generation checks. Remaining register composition
+primitives, rotations/matrices/transforms,
 general jobs and content preparation remain ahead.
 
 ## Start at the lowest dependency

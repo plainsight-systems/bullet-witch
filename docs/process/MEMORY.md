@@ -130,3 +130,40 @@
 - User accepted the vector math implementation and requested the next slice.
   Acceptance authorizes committing this bounded math/diagnostics/build/docs/test
   unit; next native SIMD work starts with contracts/plans/tests only. No push.
+
+- Accepted shared vector math committed as `1d3e5d9`, no push. Began native SIMD
+  preparation only. Pinned ARM64 source has one float4 and paired XY/ZW double4;
+  shared API names and platform-only compile-time selection avoid runtime wrappers.
+- Register leaf scope is load/store, broadcast/conversion, arithmetic/fused ops,
+  EQ/GT masks/bit-select and reciprocal/sqrt estimate/refinement. Float reciprocal
+  uses two polynomial refinements; double uses direct divide. Both rsqrt paths
+  use two hardware correction steps, not an invented full-precision scalar path.
+  Remaining permutations/reductions/composites are explicit later dependencies.
+- Architecture/header/comment-plan/test artifacts are prepared, without numeric
+  bodies. The source map was reviewed first, but the concrete architecture file
+  landed after declarations/tests; this missed the required artifact order and
+  must not recur. Silicon selection was moved wholly into platform selectors
+  during root review. Both corpora queried/full applicable rules read.
+- Default Debug build/fatal lint/31 independent headers pass; prepared Debug and
+  Release consumers compile then link-red on actual absent register definitions.
+  Existing Debug CTest26/26, format, whitespace and Mermaid parsing pass. Runtime
+  assertions await implementation. No commit/push/game launch for preparation.
+
+- User authorized native register implementation. The prepared ARM64 primitive
+  bodies now execute with source comments beside operations and significant
+  refinement steps. Source float reciprocal polynomial steps, direct double
+  reciprocal, two-correction rsqrt paths, fused rounding and bit masks retained.
+  Explicit native pair construction/extraction replaces source aliasing casts;
+  no arithmetic departure, scalar fallback or per-operation dispatch added.
+- Both corpora re-queried and applicable full rules read during implementation.
+  Prepared native tests promoted into default build/CTest with all assertions
+  unchanged. Debug/Release full fatal-lint builds, 31 headers and 27/27 tests each
+  pass. Optimized native consumers show expected vector instructions without
+  function calls. Formatting/whitespace/Mermaid pass. Remaining composition
+  primitives and quaternion/matrix/transform tiers remain unimplemented. Await
+  user acceptance; no commit/push/game launch. MotionBricks backlog preserved.
+
+- User accepted the native SIMD register leaf and authorized committing this
+  bounded implementation, tests and documentation, including the MotionBricks
+  backlog note. Next dependency work is preparation only, not new implementation.
+  No push or game launch authorized.

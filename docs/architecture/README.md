@@ -50,6 +50,7 @@ mutate world state. Loading and activation have distinct owners.
 
 | Document | Boundary |
 |---|---|
+| [Native register foundation](math-registers.md) | Implemented ARM64 register primitives, source algorithms and native verification |
 | [Shared math](math.md) | Implemented vector/scalar/default-diagnostic leaf; later native SIMD and transforms mapped |
 | [Game loop](game-loop.md) | Authoritative host lifecycle, frame timing and pacing |
 | [Allocator lifecycle](allocator-lifecycle.md) | Implemented executable allocation routing and game-thread ownership integration |

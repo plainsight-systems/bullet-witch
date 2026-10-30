@@ -42,7 +42,25 @@ ARM64 numeric consumers have direct arithmetic and no per-operation calls or
 runtime dispatch. Math Mermaid parses successfully. Root independently reviewed
 source correspondence and repeated Debug tests/format/whitespace checks.
 
-User accepted this math leaf and authorized its commit. Next preparation is native SIMD
-register operations, then rotations/matrices and selected vectorized transforms;
-do not silently substitute scalar transforms. No push, graphical host or
-old-project implementation reuse is authorized here.
+Accepted shared math commit: `1d3e5d9`. No push or graphical launch.
+
+Accepted slice: [Native register foundation](../architecture/math-registers.md).
+User authorized implementation of the prepared ARM64 register primitive leaf.
+Shared contracts retain platform-only silicon selection. Native kernels implement
+source float/double lane layout, fused arithmetic, masks, conversions and distinct
+reciprocal/refinement paths. No runtime dispatch, scalar fallback or old-project
+implementation reuse. Prepared assertions were retained unchanged.
+
+Debug/Release full builds, fatal clang-tidy, 31 headers and 27/27 tests each pass.
+Optimized native callers show expected vector instructions with no operation
+calls or scalar fallback. Formatting, whitespace and Mermaid parsing pass.
+User accepted this register leaf and authorized its commit. Next is preparation
+only for remaining register permutations, reductions and shared composites: source
+architecture, headers, implementation comments and tests before implementation
+review. These are prerequisites for quaternion, matrix and transform work. No
+push or game launch authorized.
+
+## Backlog
+
+- Review NVIDIA MotionBricks. User requested examining it later; research has not
+  started.
