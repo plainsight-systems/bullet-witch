@@ -104,6 +104,31 @@ dependencies remain separate preparation.
 Future inspection protocol/types/transport and tool implementations remain designed
 slices; no empty game/world/rendering/tool modules were created by migration.
 
+Accepted quaternion register commit: `95cba2a`.
+
+Accepted slice: [Quaternion values](../architecture/engine/core/math/quaternion.md).
+User authorized the prepared implementation. Aligned float/double values,
+constructors/diagnostics, native product and normalization, scalar dot/rotation
+and native any-greater now execute. Source algorithms and selected platform
+ownership remain as prepared; no new numerical policies. Prepared tests are
+unchanged and promoted to the normal build/CTest.
+
+Debug/Release full fatal-lint builds pass with 33 headers, 11 boundary checks and
+30/30 tests in each. Ten optimized callers have native inline arithmetic with no
+operation calls, heap or guards; scalar value paths remain scalar. The double
+product caller retains a 32-byte stack return temporary, recorded without changing
+the source return-value API.
+Root independently reviewed source correspondence and repeated Debug 30/30.
+Formatting, whitespace and Mermaid pass. User accepted this slice and authorized
+its commit; no push or graphical launch. Next is preparation of the source
+slow-assertion dependency, reviewed before new contracts or bodies.
+
+Value inverse is explicitly deferred until the source `checkSlow` assertion
+foundation exists. Do not skip that check or insert a math-local policy. The raw
+register inverse is already available. Matrix/rotator/axis-angle construction,
+interpolation and transforms are later slices. Tools and inspection remain future
+work; the current slice adds no runtime host integration.
+
 ## Backlog
 
 - Review NVIDIA MotionBricks. User requested examining it later; research has not

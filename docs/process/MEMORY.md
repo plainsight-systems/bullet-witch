@@ -296,3 +296,49 @@
   verification stands; acceptance edits only update documentation status. Next
   dependency preparation is authorized separately, without numerical bodies.
   No push or graphical game launch.
+
+
+- Accepted quaternion-register slice committed as `95cba2a`. Next quaternion value
+  preparation approved by root after source/dependency review. Both C++ corpora
+  queried; full C.49/F.20/GEN.6 read. Architecture was written before headers,
+  headers before comments-only implementation plans, then independent tests.
+- Values preserve source default initialization, explicit float/double conversion,
+  native product/normalization, scalar TVector rotation and scalar dot grouping.
+  Source value default tolerance is promoted float, distinct from raw double
+  register normalization. Ordered NaN is-normalized behavior remains distinct
+  from finite checks. Real constructor diagnostics use the selected stdout sink;
+  no callback substitutes or numeric bodies. Checked inverse is deferred until
+  the source slow-assertion dependency is implemented, not silently omitted.
+- Debug/Release full default builds pass fatal lint and 33 standalone headers.
+  New excluded quaternion tests compile and fail linking on actual absent bodies
+  in both configurations. Existing Debug tests pass 29/29, independently repeated
+  by root. Root reviewed architecture, contracts, plans and test oracles. Format,
+  whitespace and DOM-backed Mermaid checks pass. Evidence is ignored under
+  research/evidence/quaternion-values/. Test compile fixes only qualified POSIX
+  close and made fixture narrowing explicit; no assertions weakened. No commit,
+  push, game launch or numerical implementation beyond accepted register slice.
+
+
+- User authorized quaternion value implementation. Pinned Quat/Neon functions
+  reinspected; both C++ corpora re-queried and full C.49/F.20/GEN.6 read before
+  bodies. Source scalar dot/rotation, native product/tolerance selection and
+  per-template Debug diagnostics retained. No inverse assertion shortcut, new
+  finite repair, normalization policy or old-project reuse. Source comments now
+  accompany methods and significant calls. Static value identity follows source
+  construction; normalization uses immutable typed lane constants.
+- Prepared tests remained byte-for-byte unchanged and now run in default CTest.
+  Debug/Release full builds pass fatal clang-tidy, 33 header checks, 11 consumer
+  include boundaries and 30/30 tests. Source no-init/native-store paths have narrow
+  documented lint annotations instead of artificial initialization. Ten optimized
+  ARM64 callers show inline native math and the selected scalar value paths, no
+  operation calls, heap or guards. Double product retains a 32-byte stack return
+  temporary; no API/algorithm change was made to chase it. No benchmark claim. Evidence is
+  under research/evidence/quaternion-values/. Root independently reviewed source
+  correspondence and repeated Debug 30/30. Format, whitespace and Mermaid pass.
+  Await acceptance, uncommitted; no push, game launch or further math expansion.
+
+- User accepted quaternion values and authorized committing this complete slice.
+  Existing implementation verification stands; acceptance edits only change
+  documentation status. Next source slow-assertion dependency preparation is
+  separately authorized, with scope review before artifacts and no runtime bodies.
+  No push or graphical game launch.

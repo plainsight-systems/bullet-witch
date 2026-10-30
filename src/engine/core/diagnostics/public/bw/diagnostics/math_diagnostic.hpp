@@ -16,6 +16,11 @@ namespace bw::diagnostics {
 // Source keeps values and continues; this must not throw, clamp or terminate.
 void log_vector_non_finite(double x, double y, double z);
 
+// Quat.h:588–607,890–894 at the same pin: selected nonfatal headless report
+// includes XYZW with nine fractional digits. Report-once remains caller-owned;
+// this function preserves input and publishes to the existing real stdout sink.
+void log_quaternion_non_finite(double x, double y, double z, double w);
+
 } // namespace bw::diagnostics
 
 #endif // BW_CORE_DIAGNOSTICS_MATH_DIAGNOSTIC_HPP

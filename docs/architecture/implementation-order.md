@@ -19,8 +19,11 @@ The agreed [source-layout migration](source-layout.md) now groups existing
 foundations and enforces scoped module visibility; Debug/Release validation
 passes and the migration is accepted as `f383fbb`. The next
 [quaternion register algebra](engine/core/math/quaternion-registers.md) is implemented
-with unchanged prepared tests passing Debug/Release and is accepted.
-Quaternion value classes, matrices/transforms, general jobs and content remain ahead.
+with unchanged prepared tests passing Debug/Release and is accepted as `95cba2a`.
+The next [quaternion value layer](engine/core/math/quaternion.md) is implemented and
+verified in Debug/Release with unchanged prepared tests, and accepted.
+Its checked inverse needs the slow-assertion foundation first; matrix/transform,
+general jobs and content work remain ahead.
 
 ## Start at the lowest dependency
 

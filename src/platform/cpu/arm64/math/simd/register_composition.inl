@@ -188,5 +188,19 @@ inline Register4d set_w_one(Register4d value) {
   return {value.xy, vsetq_lane_f64(1.0, value.zw, 1)};
 }
 
+// Unreal f45729c0b6f097038e72b52d366a62baeca3275b,
+// UnrealMathNeon.h:2225–2235, VectorAnyGreaterThan.
+// Ordered masks reduce natively; bool preserves the source zero/nonzero meaning.
+inline bool any_greater(Register4f a, Register4f b) {
+  return vmaxvq_u32(vreinterpretq_u32_f32(compare_greater(a, b))) != 0;
+}
+
+// Neon:2231–2235: compare each double pair, OR their u32 masks, then reduce.
+// NaNs compare false; no scalar lane loop or added finite check.
+inline bool any_greater(Register4d a, Register4d b) {
+  const auto xy = vreinterpretq_u32_u64(vcgtq_f64(a.xy, b.xy));
+  const auto zw = vreinterpretq_u32_u64(vcgtq_f64(a.zw, b.zw));
+  return vmaxvq_u32(vorrq_u32(xy, zw)) != 0;
+}
 } // namespace bw::math::simd
 #endif // BW_PLATFORM_ARM64_REGISTER_COMPOSITION_INL

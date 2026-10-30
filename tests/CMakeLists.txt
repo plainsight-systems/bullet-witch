@@ -71,3 +71,9 @@ add_executable(quaternion_register_tests
 target_link_libraries(quaternion_register_tests PRIVATE bw_math)
 add_test(NAME quaternion_register_contracts COMMAND quaternion_register_tests)
 set_tests_properties(quaternion_register_contracts PROPERTIES TIMEOUT 15)
+
+# Source quaternion value contracts and real constructor diagnostics.
+add_executable(quaternion_tests engine/core/math/quaternion_tests.cpp)
+target_link_libraries(quaternion_tests PRIVATE bw_math)
+add_test(NAME quaternion_contracts COMMAND quaternion_tests)
+set_tests_properties(quaternion_contracts PROPERTIES TIMEOUT 15)

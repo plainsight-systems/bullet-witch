@@ -33,7 +33,7 @@ maximum-FPS setting defaults to the source value **zero**; `--seconds` bounds
 the headless run. Without that argument the host has no time limit. The probe
 requires an explicit cap as a measurement input; it does not change the default.
 
-All 29 CTest entries cover timing, memory, allocator lifecycle, named dispatch
+All 30 CTest entries cover timing, memory, allocator lifecycle, named dispatch
 and vector/SIMD contracts. See
 [Memory](docs/architecture/engine/core/memory/memory.md) for its virtual-memory and fatal-failure
 scenarios and current boundaries. Compilation uses fatal clang-tidy; formatting

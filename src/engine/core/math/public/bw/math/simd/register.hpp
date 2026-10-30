@@ -248,6 +248,13 @@ template <int X, int Y, int Z, int W>
   requires(X >= 0 && X < 4 && Y >= 0 && Y < 4 && Z >= 0 && Z < 4 && W >= 0 && W < 4)
 Register4d shuffle(Register4d a, Register4d b);
 
+// Unreal f45729c0b6f097038e72b52d366a62baeca3275b, UnrealMathNeon.h:2225–2235.
+// VectorAnyGreaterThan: ordered greater masks reduced across every lane.
+// bool spells the source nonzero/zero meaning; NaN comparisons contribute false.
+// Double checks both XY and ZW. No scalar extraction loop or runtime dispatch.
+bool any_greater(Register4f a, Register4f b);
+bool any_greater(Register4d a, Register4d b);
+
 } // namespace bw::math::simd
 #include "bw/platform/math/register.inl"
 #endif // BW_CORE_MATH_REGISTER_HPP
