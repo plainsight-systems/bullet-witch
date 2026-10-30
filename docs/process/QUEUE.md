@@ -66,10 +66,21 @@ and three-element access extent with no per-operation calls. Formatting,
 whitespace and Mermaid checks pass. User accepted this slice and authorized its
 commit. No push, game launch or reorganization.
 
-Next: discuss the project-wide folder structure and its long-term ownership
-boundaries with the user before writing a proposal or reorganizing. A separate
-organization slice precedes further math expansion. Quaternion/matrix/transform composites and remaining source dependencies
-follow that organization work; no raw bitwise inventory was added here.
+Accepted register composition commit: `37a1aa8`.
+
+Current documentation: [Source layout and runtime tools](../architecture/source-layout.md)
+records the agreed project-wide direction. Engine core is nested under engine;
+OS and CPU platform primitives remain distinct; backend, controller/animation,
+content and game boundaries are explicit. Tools and hosts compose the same
+production runtime, including a proposed debug-only 2D simulation inspector.
+No code moves, empty modules or tool implementations in this documentation step.
+
+Next organization slice: migrate existing foundations, includes, module build
+visibility, mirrored tests and documentation links together. Review concrete
+migration before changes; no numeric algorithm work or future scaffolding.
+After organization, resume quaternion/matrix/transform dependency preparation.
+Specific inspection protocol/types/transport and tool implementation remain
+future designed slices, not implied implementation from this layout.
 
 ## Backlog
 

@@ -50,6 +50,7 @@ mutate world state. Loading and activation have distinct owners.
 
 | Document | Boundary |
 |---|---|
+| [Source layout and runtime tools](source-layout.md) | Agreed project-wide destination ownership, tooling compositions and migration plan; not yet migrated |
 | [Register permutations and reductions](math-register-composition.md) | Implemented ARM64 permutations/reductions, source grouping and verified exact XYZ accesses |
 | [Native register foundation](math-registers.md) | Implemented ARM64 register primitives, source algorithms and native verification |
 | [Shared math](math.md) | Implemented vector/scalar/default-diagnostic leaf; later native SIMD and transforms mapped |
@@ -66,18 +67,22 @@ mutate world state. Loading and activation have distinct owners.
 | [Runtime services](runtime-services.md) | Input, combat, effects, audio, media, UI, save and session |
 | [Implementation order](implementation-order.md) | Dependency sequence and the first concrete build slice |
 
-## Proposed source boundaries
+## Agreed source boundaries
 
-`src/core/` holds common types, math, memory and jobs; `src/platform/` holds OS
-and silicon-specific implementations behind shared contracts. `src/engine/`
-owns runtime scheduling, actors/components, content, animation, physics, scene,
-rendering, audio, media and UI mechanisms. `src/game/` owns Bullet Witch rules,
-Lua binding semantics, actors, missions, progression and frontend behavior.
-`src/hosts/` contains target executable entry points. Tools and tests get their
-own new roots. These are planned directories, not empty placeholder modules.
+[Source layout and runtime tools](source-layout.md) records the destination tree
+and follow-on migration. `src/engine/core/` holds common math, memory, concurrency,
+tasks and diagnostics. Engine modules own runtime/world/content, character and AI
+mechanisms, rendering and runtime services. `src/game/` owns Bullet Witch rules,
+actors, Lua meanings, missions, progression and frontend behavior.
 
-A subsystem may contain a public contract, shared algorithms, and target
-implementations. Responsibility determines the boundary; filenames do not
-substitute for it. The engine provides mechanisms; game scripts and data select
-behavior. No old package, helper, shader, cache, adapter or test crosses into
-these directories.
+`src/platform/os/` and `src/platform/cpu/` separate OS services from silicon
+implementations; large rendering and physics backends stay with their subsystem.
+`src/hosts/` composes executable targets. Tools use the same production modules
+for headless simulation, character/AI inspection and offscreen capture. A debug
+publication/control seam supports a 2D simulation inspector without giving tools
+writable access to controller or physics internals.
+
+This is the agreed destination, not a report of moved files or implemented tools.
+Current foundations still use `src/core/` and the existing platform paths. Tests,
+docs and build boundaries will follow actual module owners; no empty future
+scaffolding or old-project implementation is introduced.

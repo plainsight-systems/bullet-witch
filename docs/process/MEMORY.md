@@ -208,3 +208,19 @@
   tests and documentation. Next is a project-wide folder discussion covering the
   full engine/game roadmap, not only current math files. No proposal documents or
   reorganization until that discussion; no push or game launch.
+
+- Accepted register composition committed as `37a1aa8`; clean tree afterward.
+- User agreed the full-project layout and tooling direction. Documentation now
+  records engine/core nesting, engine/game ownership, OS/CPU platform separation,
+  subsystem-local backends, mirrored tests/docs/build modules and explicit
+  public/internal dependencies. Existing source has not moved.
+- Hosts/tools must compose the same production systems: full game, headless
+  simulation, character viewer, AI scenarios and offscreen production capture.
+  New tools/simulation_inspector is a 2D client of debug runtime snapshots and
+  commands, with layered elevation display, unusual-placement scenario authoring,
+  stepping and image/state trace outputs. Collision/navigation remain 3D; tools
+  cannot mutate controller/physics memory. Protocol/types/transport remain future
+  design. No tool implementation or production behavior claimed.
+- Scenario source is distinct from external purchased/derived game content;
+  original project-owned fixtures may be tracked, generated recordings/traces
+  remain ignored. Documentation-only change; no migration/scaffolding/commit/push.
