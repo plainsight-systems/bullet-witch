@@ -15,6 +15,7 @@ endforeach()
 set(CMAKE_CXX_CLANG_TIDY "${BW_clang_tidy};--warnings-as-errors=*")
 file(GLOB_RECURSE BW_FORMAT_FILES CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/*.hpp" "${PROJECT_SOURCE_DIR}/src/*.cpp"
+  "${PROJECT_SOURCE_DIR}/src/*.inl"
   "${PROJECT_SOURCE_DIR}/tests/*.hpp" "${PROJECT_SOURCE_DIR}/tests/*.cpp"
   "${PROJECT_SOURCE_DIR}/tools/*.cpp")
 add_custom_target(format-check

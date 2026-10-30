@@ -12,9 +12,23 @@ target_include_directories(bw_contracts INTERFACE "${PROJECT_SOURCE_DIR}/src")
 target_compile_options(bw_contracts INTERFACE
   -Wall -Wextra -Wpedantic -Werror -Wconversion -Wsign-conversion)
 
+# Shared math consumers inherit one source Debug diagnostic configuration and
+# the real constant/report/output definitions required by inline vector methods.
+add_library(bw_math
+  src/core/math/vector3.cpp
+  src/core/diagnostics/math_diagnostic.cpp
+  src/platform/macos/diagnostic_output.cpp)
+target_link_libraries(bw_math PUBLIC bw_contracts)
+target_compile_definitions(bw_math PUBLIC
+  BW_ENABLE_MATH_DIAGNOSTICS=$<IF:$<CONFIG:Debug>,1,0>)
+
 # Compile each public header independently, including during the header-first
 # stage. Generated files are build products, not a runtime implementation.
 set(BW_PUBLIC_HEADERS
+  core/math/vector3.hpp
+  core/diagnostics/math_diagnostic.hpp
+  platform/math.hpp
+  platform/diagnostic_output.hpp
   core/concurrency/word_mutex.hpp
   core/memory/allocator_checks.hpp
   core/memory/crash_allocator.hpp
@@ -46,7 +60,7 @@ foreach(header IN LISTS BW_PUBLIC_HEADERS)
   list(APPEND BW_HEADER_UNITS "${CMAKE_CURRENT_BINARY_DIR}/contracts/${unit}.cpp")
 endforeach()
 add_library(header_contracts OBJECT ${BW_HEADER_UNITS})
-target_link_libraries(header_contracts PRIVATE bw_contracts)
+target_link_libraries(header_contracts PRIVATE bw_contracts bw_math)
 
 find_package(Threads REQUIRED)
 include(CTest)
@@ -138,3 +152,9 @@ foreach(integration_case IN ITEMS global_allocation allocator_lifecycle)
   add_test(NAME ${integration_case}_contracts COMMAND ${integration_case}_tests)
   set_tests_properties(${integration_case}_contracts PROPERTIES TIMEOUT 15)
 endforeach()
+
+# Native vector contracts include real child-process diagnostic output capture.
+add_executable(math_vector_tests tests/math_vector_tests.cpp)
+target_link_libraries(math_vector_tests PRIVATE bw_math)
+add_test(NAME math_vector_contracts COMMAND math_vector_tests)
+set_tests_properties(math_vector_contracts PROPERTIES TIMEOUT 15)

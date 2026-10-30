@@ -82,3 +82,51 @@
   reserved participant ID was renamed and parser-verified outside repo tooling.
   User accepted this slice and authorized its commit and moving to the next
   item. No push or graphical launch is authorized.
+
+
+- Accepted allocator lifecycle is committed as `117ca48`, not pushed. User
+  authorized next-item preparation through the established staged workflow.
+- Math begins at the inspected TVector leaf, which uses scalar expressions.
+  ARM Mac inherits generic scalar sqrt/reciprocal-sqrt/finite classification;
+  future vectorized transforms require separate native NEON register algorithms.
+  Shared contracts/core algorithms and platform/silicon implementations remain
+  separate with compile-time selection, no per-operation runtime dispatch.
+- Math architecture, declarations, comments-only implementation plans and native
+  tests are prepared. Float/double precision, explicit conversion, default
+  initialization and exact normalization branch/threshold behavior come from
+  the pinned source. Runtime math behavior is not yet implemented or validated.
+- Source default GEnsureOnNANDiagnostic is false. Debug checks nonfinite data,
+  reports once per templated diagnostic callsite, preserves values and continues.
+  Prepared concrete headless stdout reporting is an explicitly documented sink
+  adaptation, not fake callbacks/noops or a claim of complete logging/ensures.
+  Source optional console/ensure mode and concurrent first-error once-state
+  policy remain explicitly identified boundaries. No production bodies written.
+
+- Math preparation validation: default Debug build and 28 independent headers
+  pass with fatal clang-tidy; prepared Debug/Release test consumers compile
+  without warnings and fail linking on real missing production definitions.
+  Existing Debug tests pass 25/25; format and whitespace checks pass. Root
+  independently reviewed the source/header/plan/test mapping and repeated the
+  accepted tests/format/whitespace checks. Evidence is ignored under
+  `research/evidence/math-preparation/`. New runtime assertions have not run.
+
+- User authorized math implementation after preparation review. Vector arithmetic,
+  exact source normalization branches, mixed-scalar promotion, source precision
+  defaults, explicit zero constants and ARM Mac-selected scalar primitives now
+  execute. Inline definitions preserve the target boundary without runtime dispatch.
+- Source-default Debug once-only reporting and the documented real stdout sink
+  adaptation execute; non-Debug diagnostics compile out. Public `bw_math` owns
+  consistent build configuration and link dependencies. Optional ensure/logging
+  infrastructure and source exceptional concurrent-first-error limitations remain
+  explicit. No old implementation was used, and no future SIMD tier is claimed.
+- Math Debug/Release full builds, fatal clang-tidy, 28 headers and 26/26 tests each
+  pass. Existing assertions were retained; a mixed-precision division regression
+  was added to detect premature denominator narrowing. Optimized ARM64 numeric
+  consumers have no function calls/dispatch. Mermaid parses outside repo tooling;
+  format/whitespace checks pass. Root independently reviewed correspondence and
+  repeated Debug 26/26, format and whitespace checks. Await user acceptance; no
+  commit, push or game launch occurred.
+
+- User accepted the vector math implementation and requested the next slice.
+  Acceptance authorizes committing this bounded math/diagnostics/build/docs/test
+  unit; next native SIMD work starts with contracts/plans/tests only. No push.

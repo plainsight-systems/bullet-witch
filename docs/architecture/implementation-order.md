@@ -8,7 +8,10 @@ Binned3 path and implements its virtual-memory dependency and native fatal
 handling. [General allocation](binned-allocator.md), crash reserves and its named-dispatch
 trim dependency are accepted. [Allocator lifecycle](allocator-lifecycle.md)
 implements executable adoption and source-owned game-thread startup/shutdown.
-Math, general jobs and content preparation remain ahead.
+The [shared math leaf](math.md) is implemented and awaits user review: vector
+values, the ARM Mac scalar-primitive selection and source-default nonfinite
+diagnostics pass Debug/Release native checks. Native SIMD, rotations/matrices/transforms,
+general jobs and content preparation remain ahead.
 
 ## Start at the lowest dependency
 
