@@ -1,4 +1,4 @@
-# SF.11 self-contained header checks, covering 35 current public and internal/detail units.
+# SF.11 self-contained header checks, covering 36 current public and internal/detail units.
 # Public API and compiler-required/private detail are intentionally separate.
 set(BW_PUBLIC_HEADERS
   bw/platform/diagnostics/debugger.hpp
@@ -28,6 +28,7 @@ set(BW_PUBLIC_HEADERS
   bw/runtime/engine_loop.hpp
 )
 set(BW_INTERNAL_HEADERS
+  src/engine/core/diagnostics/error_history.hpp
   src/platform/cpu/arm64/math/simd/register_types.hpp
   src/engine/core/memory/allocator_checks.hpp
   src/engine/core/memory/crash_allocator.hpp

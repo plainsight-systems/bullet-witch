@@ -89,3 +89,12 @@ foreach(platform_case IN ITEMS debugger breakpoint assume)
   add_test(NAME ${platform_case}_contracts COMMAND ${platform_case}_tests)
   set_tests_properties(${platform_case}_contracts PROPERTIES TIMEOUT 15)
 endforeach()
+
+# Private source history contracts use the production diagnostics module.
+add_executable(error_history_tests engine/core/diagnostics/error_history_tests.cpp)
+target_include_directories(error_history_tests PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/engine/core/diagnostics")
+target_link_libraries(error_history_tests PRIVATE bw_diagnostics bw_contracts
+  bw_concurrency_headers Threads::Threads)
+add_test(NAME error_history_contracts COMMAND error_history_tests)
+set_tests_properties(error_history_contracts PROPERTIES TIMEOUT 15)

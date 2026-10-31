@@ -85,6 +85,12 @@ retry loop, exception, cached observation or synthetic query was added.
 
 ## Full assertion dependencies still ahead
 
+The bounded [error-history implementation](error-history.md) covers only
+serialized same-encoding plain text and termination. It does not implement a
+shared failure handler. Formatting/conversion, startup-safe mutex
+initialization, publication and installed error-device lifecycle remain explicit
+dependencies before general assertions or checked quaternion inverse.
+
 The complete failure path requires shared bounded error-history storage and its
 source lock, critical/asserted state, source-selected logger flush and error-device
 handling, debugger decisions and guarded/unguarded host composition. These are

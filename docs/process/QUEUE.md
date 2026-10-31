@@ -149,6 +149,27 @@ whitespace and Mermaid pass. User accepted the slice and authorized its commit;
 no push or game launch. Full assertion/history/error-device preparation remains
 next, without new bodies until separate authorization.
 
+Accepted assertion platform commit: `bbb4e82`.
+
+Accepted slice: [Assertion error history](../architecture/engine/core/diagnostics/error-history.md).
+User authorized the prepared implementation. Diagnostics-private process storage
+and RAII plain-text writer now execute the selected 16-bit TCHAR, truncation and
+suffix termination algorithms. The production diagnostics module owns definitions
+and its WordMutex dependency remains private. Prepared tests are unchanged and
+promoted into the default build/CTest. Debug/Release full fatal-lint builds, 36
+headers, 11 boundary probes and 34/34 tests each pass. Root source/ownership review
+and independent Debug repeat pass; prepared tests remain unchanged. Format,
+whitespace and Mermaid pass. User accepted and authorized its commit; no complete
+assertion-path claim or startup-mutex change. Next is preparation of the source
+static-initialization-safe mutex prerequisite, without new bodies until approval.
+
+Next prerequisites after this leaf: actual ANSI/UTF-8 conversion and formatted
+history operations; resolve accepted WordMutex dynamic initialization before
+static-startup assertions; source publication/stack/log services and installed Mac
+error-device lifecycle. The coordinator and checked quaternion inverse remain
+pending. Do not silently choose null services or reuse the memory-local fatal
+handler to claim the full path complete.
+
 ## Backlog
 
 - Review NVIDIA MotionBricks. User requested examining it later; research has not

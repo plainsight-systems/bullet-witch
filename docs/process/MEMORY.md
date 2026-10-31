@@ -411,3 +411,51 @@
   documentation. Next shared assertion/history/error-device preparation is
   authorized, with bounded source-scope review before contracts or bodies.
   No push or graphical game launch.
+
+
+- Accepted assertion platform primitives committed as `bbb4e82`; tree clean after
+  commit, no push. Root approved the next bounded plain-text history prerequisite
+  after tracing full source formatting, publication and error-device dependencies.
+- Prepared architecture first, then diagnostics-private char16_t storage/writer
+  declarations, comments-only implementation plans and tests. Pinned MacPlatform
+  explicitly selects 16-bit TCHAR despite native 32-bit wchar_t. Same-encoding
+  append truncates; cross-encoding append/formatting are absent, not stubbed.
+  Full CP.20/I.5/EMB.2 read from both queried C++ corpora before header design.
+- Root identified accepted WordMutex dynamic initialization as a genuine startup
+  dependency: resolve it before general assertions can run during static/library
+  startup. This slice does not alter accepted mutex behavior or promise startup
+  assertion readiness. Private globals are not exported to tools/game consumers.
+- Preparation checks: Debug/Release default fatal-lint builds pass, including 36
+  standalone headers and existing 11 boundaries. Accepted Debug suite remained
+  33/33. Both excluded history targets compiled and reached genuine absent-symbol
+  linker failures. Initial empty-catch test lint was fixed by checking the
+  expected fixture exception text. No production definitions or fake stubs.
+  Format/whitespace/DOM Mermaid passed; evidence under research/evidence/error-history/.
+- Root independently reviewed the completed preparation against pinned writer/Mac
+  type selection, confirmed true missing-definition failures and independently
+  repeated Debug 33/33 with no remaining bounded-scope findings.
+- User authorized history implementation. Requeried both C++ corpora and read full
+  CP.20/I.5/EMB.2; reinspected pinned writer, Mac char16 type and generic wide
+  Strlen/Strncpy. Implemented source plain-text append, suffix reservation,
+  process storage and RAII locking with algorithm comments beside methods and
+  significant blocks. Extracted only the used counted length/copy operations;
+  no formatting/encoding or general failure handling added.
+- Production bw_diagnostics owns the body and privately links the accepted
+  allocator/WordMutex cluster. Prepared tests remain byte-for-byte unchanged and
+  now run through that production library in default build/CTest. Accepted mutex
+  startup initialization is unchanged and explicitly remains a dependency before
+  general static-startup assertions.
+- Final Debug/Release full fatal-lint builds, 36 headers, 11 boundary probes and
+  34/34 CTest entries each pass. Tests cover exact truncation/suffix and code-unit
+  behavior, actual mutex lifetime/release and concurrent writer serialization.
+  Root independently reviewed source correspondence/ownership, confirmed unchanged
+  test SHA and repeated Debug 34/34. No source deviation or behavioral test change.
+  Format/whitespace/DOM Mermaid pass. Evidence remains ignored under
+  research/evidence/error-history/. Ready for user review; uncommitted, no push
+  or game launch. Final doc review caught an accidental MEMORY replacement by
+  QUEUE content; restored accepted history verbatim and appended only this slice.
+
+- User accepted the error-history implementation and authorized its commit.
+  Existing implementation verification stands; acceptance changes are documentation
+  only. Next preparation addresses source static-initialization-safe WordMutex,
+  without altering lock algorithms or introducing further assertion services.
