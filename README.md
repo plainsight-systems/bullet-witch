@@ -33,8 +33,8 @@ maximum-FPS setting defaults to the source value **zero**; `--seconds` bounds
 the headless run. Without that argument the host has no time limit. The probe
 requires an explicit cap as a measurement input; it does not change the default.
 
-All 34 CTest entries cover timing, memory, allocator lifecycle, named dispatch
-vector/SIMD contracts, native debugger primitives, compiler assumptions and serialized error history. See
+All 36 CTest entries cover timing, memory, allocator lifecycle, named dispatch
+vector/SIMD contracts, native debugger primitives, compiler assumptions, serialized error history and cross-unit mutex startup. See
 [Memory](docs/architecture/engine/core/memory/memory.md) for its virtual-memory and fatal-failure
 scenarios and current boundaries. Compilation uses fatal clang-tidy; formatting
 is pinned to LLVM 21.1.8. The native 60 FPS probe measured 59.44 FPS, with a

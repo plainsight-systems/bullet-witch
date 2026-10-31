@@ -48,19 +48,12 @@ is nonrecursive; serialization spans construction through destruction. Later
 error-device access must preserve its source shutdown and reentry protocol;
 this leaf does not advertise an independently thread-safe global read API.
 
-History is statically zero-initialized. The accepted WordMutex has an out-of-line
-constructor initializing its atomic word to zero; unlike Unreal's stated
-zero-initialization-only mutex, that existing implementation has a dynamic
-initialization step. This slice neither changes that accepted implementation
-nor promises cross-translation-unit use before its initialization. There is no
-new function-local singleton, initialization guard or heap-owned history. The
-source mutex has no destructor and the accepted mutex is trivially destructible.
-
-**Required next lifecycle dependency:** resolve the accepted mutex initialization
-difference before exposing general assertions during library/static startup. A
-source assertion can run before ordinary engine initialization; a history writer
-that depends on constructor order is not sufficient for that claim. This
-implementation does not alter the accepted mutex or declare startup assertions ready.
+History is statically zero-initialized. The [WordMutex lifecycle implementation](../concurrency/word-mutex-lifecycle.md)
+now restores the source in-class constexpr constructor, and the actual history
+mutex definition enforces static initialization with constinit. The mutex is
+trivially destructible. No function-local singleton, initialization guard or
+heap-owned history is introduced. This resolves the mutex initialization
+prerequisite; the full assertion handler still needs its other services.
 
 The current build keeps WordMutex implementation in the accepted `bw_allocator`
 cluster. The `bw_diagnostics` implementation target privately links that existing
@@ -143,5 +136,5 @@ Root independently reviewed source correspondence and module ownership, checked
 the unchanged test hash, and repeated Debug 34/34. Formatting, whitespace and
 DOM-backed Mermaid parsing pass. Historical red evidence and current green logs
 are ignored under `research/evidence/error-history/`. User accepted the implementation and authorized its commit; no push or graphical
-launch. The next preparation resolves source static-initialization-safe locking
-before further assertion integration.
+launch. Source static-initialization-safe locking is addressed by the separate linked
+lifecycle implementation before further assertion integration.

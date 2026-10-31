@@ -7,10 +7,12 @@
 // Unreal reference: f45729c0b6f097038e72b52d366a62baeca3275b, Runtime/Core.
 namespace bw::diagnostics::detail {
 // Private/Misc/CoreGlobals.cpp:70 and AssertionMacros.cpp:58-60: process storage
-// and mutex. The accepted mutex's dynamic initialization remains a separate
-// startup prerequisite; no function-local guard or allocation is introduced.
+// and mutex. Both are initialized before dynamic startup; no function-local
+// guard or allocation is introduced.
 std::array<char16_t, error_history_capacity> error_history{};
-concurrency::WordMutex error_history_mutex;
+// constinit is our compile-time enforcement of the source static-initialization
+// guarantee at AssertionMacros.cpp:58-60, not an extra runtime locking policy.
+constinit concurrency::WordMutex error_history_mutex;
 
 namespace {
 constexpr auto capacity = static_cast<std::int32_t>(error_history_capacity);

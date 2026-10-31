@@ -459,3 +459,59 @@
   Existing implementation verification stands; acceptance changes are documentation
   only. Next preparation addresses source static-initialization-safe WordMutex,
   without altering lock algorithms or introducing further assertion services.
+
+
+- Accepted error history committed as `abadd90`, tree clean after explicit staging;
+  no push. Root approved bounded source WordMutex static-initialization preparation.
+- Reinspected pinned WordMutex.h:23/77 and failure startup use. Queried both C++
+  corpora and read full I.22/C.48/LIFE.6 before contract comments. Standard static
+  initialization/constinit clauses establish why runtime lucky order is not proof.
+  Source constexpr defaulting is selected, not a first-use singleton/guard.
+- Architecture preceded header contract comments and comments-only exact edit
+  plans, then real production-type constinit and multi-TU startup tests. Current
+  constructor bodies and lock/allocator algorithms remain unchanged; adding the
+  inline constexpr default definition now would implement rather than prepare.
+  Two excluded executable compositions reverse storage/probe object order. Actual
+  history writes and mutex ownership cross pre-main/main, with constant-initialized
+  observation storage. No priority extensions or fake mutex/guard injection.
+
+- Preparation verification: Debug/Release default fatal-lint builds pass, 36
+  headers and existing11 boundaries; accepted Debug34/34 passes. Both excluded
+  startup compositions fail precisely on constinit production WordMutex due the
+  unchanged non-constexpr constructor. Direct selected compiler invocations confirm
+  the same error; companion main/probe units compile under fatal lint. No native
+  startup pass is claimed yet. Generated link orders are recorded as evidence.
+- All four touched production files match accepted HEAD after removing only
+  whole-line comments. Format/whitespace/DOM Mermaid pass. Evidence remains under
+  research/evidence/word-mutex-lifecycle/. Ready for user review, uncommitted
+  preparation; no new constructor/locking implementation, push or game launch.
+
+
+- Root completed lifecycle preparation review, independently repeated Debug34/34
+  and inspected genuine native/lint constinit errors; no findings.
+- User authorized lifecycle implementation and corrected excessive slice granularity.
+  Future slices must deliver coherent usable capability with predictable supporting
+  dependencies included up front; review total scope before proposing more, retain
+  approval gates. Workflow and queue now capture that direction. No broad code
+  expansion was added to this small correction.
+- Requeried both corpora/read full I.22/C.48/LIFE.6 and reinspected pinned constructor
+  and global use. Implemented source in-class constexpr defaulting, removed only
+  the out-of-line constructor and enforced constinit at the actual history mutex.
+  Lock bodies/allocator behavior and all prepared test sources remain unchanged.
+  Both native startup object-order tests are promoted into default build/CTest.
+
+- Final lifecycle verification: Debug/Release full fatal-lint builds, 36 headers,
+  11 boundary probes and 36/36 CTest entries each pass, including both native
+  pre-main/object-order fixtures. Prepared test hashes are unchanged. nm/otool
+  show no dynamic-init/guard symbols or module initializer section in actual
+  fixture-storage and production-history objects in either configuration.
+  Root source review confirms unchanged locking bodies and correct source ctor.
+  Format/whitespace/DOM Mermaid pass. Evidence under
+  research/evidence/word-mutex-lifecycle/. Ready for review, uncommitted; no push
+  or game launch. No complete assertion capability claim.
+
+- User accepted WordMutex lifecycle and authorized its commit. Root checked final
+  Debug/Release36/36 logs, real object initialization evidence, unchanged test hashes
+  and whitespace. Next preparation is one coherent usable source-selected shared
+  assertion capability with predictable dependencies and checked inverse consumer,
+  without subdividing conversion/formatting/output into separate approval slices.

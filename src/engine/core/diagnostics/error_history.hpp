@@ -16,7 +16,8 @@ namespace bw::diagnostics::detail {
 inline constexpr std::size_t error_history_capacity = 16384;
 extern std::array<char16_t, error_history_capacity> error_history;
 // AssertionMacros.cpp:58-60. Internal access only; not an unlocked read API.
-// Accepted WordMutex has dynamic initialization and trivial destruction.
+// Source constexpr WordMutex initializes statically and has trivial destruction.
+// The definition enforces that requirement with constinit.
 extern concurrency::WordMutex error_history_mutex;
 
 // Source FErrorHistWriter, AssertionMacros.cpp:194-281. Only same-encoding

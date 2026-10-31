@@ -22,9 +22,6 @@ struct Waiter {
 static_assert((alignof(Waiter) & queue_mask) == alignof(Waiter));
 } // namespace
 
-// Public/Async/WordMutex.h:23,76: zero initializes the unlocked, empty state.
-WordMutex::WordMutex() = default;
-
 // WordMutex.h:28-31, IsLocked: relaxed observation, not ownership acquisition.
 bool WordMutex::is_locked() const { return (state_.load(std::memory_order_relaxed) & locked) != 0; }
 

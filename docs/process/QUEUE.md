@@ -164,11 +164,30 @@ assertion-path claim or startup-mutex change. Next is preparation of the source
 static-initialization-safe mutex prerequisite, without new bodies until approval.
 
 Next prerequisites after this leaf: actual ANSI/UTF-8 conversion and formatted
-history operations; resolve accepted WordMutex dynamic initialization before
-static-startup assertions; source publication/stack/log services and installed Mac
+history operations; source publication/stack/log services and installed Mac
 error-device lifecycle. The coordinator and checked quaternion inverse remain
 pending. Do not silently choose null services or reuse the memory-local fatal
 handler to claim the full path complete.
+
+Accepted error-history commit: `abadd90`.
+
+Accepted slice: [WordMutex lifecycle](../architecture/engine/core/concurrency/word-mutex-lifecycle.md).
+User authorized implementation. Source constexpr default construction is in the
+header, the old out-of-line definition is removed, and the actual history mutex
+requires constinit. Lock algorithms and prepared test sources are unchanged.
+Both startup object-order compositions now run in the default build/CTest.
+Debug/Release full fatal-lint builds, 36 headers, 11 boundaries and 36/36 tests each
+pass. Object inspection confirms no mutex dynamic-initialization/guard code in
+fixture storage or production history; prepared tests remain unchanged. Source
+review/format/whitespace/Mermaid pass. User accepted and authorized its commit;
+no formatting/coordinator/inverse expansion in this accepted change.
+
+Next planning must cover a coherent usable assertion capability and its full
+predictable dependency set before proposing further implementation. Include
+encoding/formatting, publication and required error-device/lifecycle dependencies
+up front rather than separate one-function or constructor review cycles. Preserve
+architecture/header/plan/test/implementation approval gates; do not silently
+expand the current authorized work.
 
 ## Backlog
 

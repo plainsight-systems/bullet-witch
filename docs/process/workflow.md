@@ -9,6 +9,14 @@ contract, not as a reason to retain an old interpreter or controller. Third-part
 libraries require an explicit selection and version/license record; a prior
 project dependency does not select one for this build.
 
+Plan slices around a coherent, usable capability. Review its full dependency
+scope before proposing the slice, and include predictable supporting prerequisites
+up front instead of splitting individual functions or constructors into separate
+review cycles. Preserve architecture → headers → comments-only plans → tests →
+implementation approval gates; a larger coherent scope does not waive them. If an
+unexpected dependency changes the approved scope, explain the concrete change
+before expanding it.
+
 Reference correspondence is visible in implementation comments. Each method and
 significant call/block identifies the pinned source function and lines and its
 algorithm step, in our own words. Write concise reference pseudocode beside the

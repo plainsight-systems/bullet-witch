@@ -98,3 +98,22 @@ target_link_libraries(error_history_tests PRIVATE bw_diagnostics bw_contracts
   bw_concurrency_headers Threads::Threads)
 add_test(NAME error_history_contracts COMMAND error_history_tests)
 set_tests_properties(error_history_contracts PROPERTIES TIMEOUT 15)
+
+# Production constinit and pre-main history use in both object-order compositions.
+set(mutex_startup_root "${CMAKE_CURRENT_SOURCE_DIR}/engine/core/concurrency/startup")
+foreach(order IN ITEMS storage_first probe_first)
+  if(order STREQUAL "storage_first")
+    set(startup_units "${mutex_startup_root}/storage.cpp" "${mutex_startup_root}/probe.cpp")
+  else()
+    set(startup_units "${mutex_startup_root}/probe.cpp" "${mutex_startup_root}/storage.cpp")
+  endif()
+  add_executable(word_mutex_startup_${order}_tests
+    ${startup_units} "${mutex_startup_root}/main.cpp")
+  target_include_directories(word_mutex_startup_${order}_tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/engine/core/diagnostics")
+  target_link_libraries(word_mutex_startup_${order}_tests PRIVATE
+    bw_diagnostics bw_contracts bw_concurrency_headers)
+  add_test(NAME word_mutex_startup_${order}_contracts
+    COMMAND word_mutex_startup_${order}_tests)
+  set_tests_properties(word_mutex_startup_${order}_contracts PROPERTIES TIMEOUT 15)
+endforeach()
