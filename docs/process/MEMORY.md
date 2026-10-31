@@ -342,3 +342,72 @@
   documentation status. Next source slow-assertion dependency preparation is
   separately authorized, with scope review before artifacts and no runtime bodies.
   No push or graphical game launch.
+
+
+- Accepted quaternion values committed as `71717b4`, tree clean afterward. Root
+  caught an accidental prior-register verification wording change during commit;
+  restored that historical register paragraph before final acceptance handoff.
+  The documented 32-byte stack temporary applies only to the value product caller.
+- Root approved next bounded platform/compiler prerequisite preparation after
+  full pinned assertion-path tracing. Architecture maps slow-check selection,
+  critical history, log flush, debugger continuation, error device and guarded
+  versus unguarded native failure. Shared general assertions are not replaced by
+  private allocator fatal handling. Source ordinary CA_ASSUME is unevaluated
+  sizeof(bool(expr)), not compiler unreachable. Apple raw breakpoint is a
+  caller-site builtin, independent of debugger presence.
+- Both C++ corpora queried and full I.5/E.26/GEN.6 read before header design.
+  Architecture preceded headers, comments-only target/compiler plans and separate
+  tests. Both current Debug and Release select the non-shipping default
+  ignore-debugger=false path; configuration/Shipping and analyzer support remain
+  explicitly later. Native tests require real tracing success, with no injection
+  or silent skip. No runtime or macro implementation bodies were added.
+- Pinned Apple query ignores sysctl failure and can read uninitialized storage.
+  Proposed checked-call -> false is an explicitly NOT YET APPROVED departure
+  requiring user decision before implementation, not silently attributed to
+  Unreal. Source successful-call behavior is clear. Header, plan and architecture
+  all preserve this unresolved boundary.
+- Debug/Release default fatal-lint builds and 35 headers pass. Separate native
+  query tests reach missing-definition linker-red in both configurations. Macro
+  fixtures fail compilation specifically because their required macros remain
+  undefined; no fake test definitions were introduced. Accepted Debug tests stay
+  30/30. Format/whitespace/Mermaid pass. Evidence under
+  research/evidence/assertion-platform/. Preparation remains uncommitted; no push,
+  game launch, checked inverse or full assertion implementation.
+
+- Root independently reviewed the assertion prerequisite preparation, confirmed
+  real missing-query link failure versus missing-macro compilation failures, and
+  repeated Debug 30/30. No findings. Native breakpoint test intentionally stops
+  and reaps a child rather than claiming debugger resume; later codegen must
+  retain post-trap caller flow. No additional implementation authorized.
+
+
+- User approved the proposed syscall failure departure and authorized primitive
+  implementation. Reinspected Apple query, raw trap and ordinary CA_ASSUME;
+  queried both C++ corpora and read full I.5/E.28/GEN.6 before bodies. Native query
+  checks syscall result and returns false without reading failed output. Raw trap
+  remains caller-site builtin; assumption is unevaluated bool sizeof. Platform
+  library owns the query; no shared assertion/inverse/analyzer expansion.
+- Actual native query and assumption tests passed immediately. Breakpoint test
+  correctly observed SIGTRAP then hung during prepared plain-kill cleanup.
+  Ignored observation copy recorded wait status1407 then blocked reap; local
+  Darwin ptrace(2) specifies PT_KILL as continuation delivering SIGKILL. Reported
+  defect before changing test, root authorized cleanup correction. PT_KILL now
+  passes with original SIGTRAP/reaped-SIGKILL assertions. Production macro was
+  unchanged. No native debugger injection, denial skip or reduced timeout.
+- Final Debug/Release full fatal-lint builds, 35 headers, 11 boundaries and 33/33
+  tests pass. Codegen shows brk followed by caller add/ret; ordinary assumption
+  emits no runtime side effect, check or call. Native test kills the stopped
+  tracee; debugger resume is not claimed. Sysctl failure branch reviewed, no
+  injected failure coverage claim. Format/whitespace/Mermaid pass. Evidence under
+  research/evidence/assertion-platform/. Uncommitted pending acceptance; no push,
+  game launch or future subsystem bodies.
+
+- Root independently reviewed final native bodies and Darwin cleanup, inspected
+  both codegen callers and repeated Debug 33/33. Approved departure and verification
+  limits are recorded. Ready for user review, uncommitted.
+
+- User accepted assertion platform primitives and authorized committing this
+  complete slice. Existing verification stands; acceptance only changes status
+  documentation. Next shared assertion/history/error-device preparation is
+  authorized, with bounded source-scope review before contracts or bodies.
+  No push or graphical game launch.

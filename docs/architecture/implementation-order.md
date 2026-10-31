@@ -22,7 +22,12 @@ passes and the migration is accepted as `f383fbb`. The next
 with unchanged prepared tests passing Debug/Release and is accepted as `95cba2a`.
 The next [quaternion value layer](engine/core/math/quaternion.md) is implemented and
 verified in Debug/Release with unchanged prepared tests, and accepted.
-Its checked inverse needs the slow-assertion foundation first; matrix/transform,
+Quaternion values are accepted as `71717b4`. Their checked inverse needs the
+[slow-assertion foundation](engine/core/diagnostics/assertions.md) first. The full
+failure flow is mapped; debugger query, caller-site breakpoint and ordinary
+compiler-assumption prerequisites are implemented and verified. The native query
+failure fallback was explicitly approved. Shared failure/history/error-device
+handling remains later work. Matrix/transform,
 general jobs and content work remain ahead.
 
 ## Start at the lowest dependency

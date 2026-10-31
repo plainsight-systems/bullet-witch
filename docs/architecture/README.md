@@ -52,6 +52,7 @@ mutate world state. Loading and activation have distinct owners.
 | Document | Boundary |
 |---|---|
 | [Source layout and runtime tools](source-layout.md) | Migrated foundation modules and agreed future runtime/tool ownership |
+| [Assertions and debugger primitives](engine/core/diagnostics/assertions.md) | Full assertion flow mapped; platform/compiler primitives implemented with approved native failure fallback |
 | [Quaternion values](engine/core/math/quaternion.md) | Implemented quaternion values and diagnostics; checked inverse awaits assertion foundation |
 | [Quaternion register algebra](engine/core/math/quaternion-registers.md) | Implemented register normalization, unit rotation and native quaternion product |
 | [Register permutations and reductions](engine/core/math/math-register-composition.md) | Implemented ARM64 permutations/reductions, source grouping and verified exact XYZ accesses |

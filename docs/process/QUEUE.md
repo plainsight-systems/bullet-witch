@@ -129,6 +129,26 @@ register inverse is already available. Matrix/rotator/axis-angle construction,
 interpolation and transforms are later slices. Tools and inspection remain future
 work; the current slice adds no runtime host integration.
 
+Accepted quaternion value commit: `71717b4`.
+
+Accepted slice: [Assertion platform prerequisites](../architecture/engine/core/diagnostics/assertions.md).
+User approved implementation and the native-query failure departure. Current
+process debugger query, caller-site Apple breakpoint and ordinary Clang
+unevaluated analysis assumption now execute. On failed sysctl, return false
+without reading output; successful source P_TRACED behavior remains unchanged.
+Shared assertion coordinator/history/error device, configurable debugger policy,
+analyzer mode and checked quaternion inverse remain unimplemented dependencies.
+
+Debug/Release full fatal-lint builds pass with 35 headers, 11 boundary probes and
+33/33 tests each. Actual untraced/traced query and native SIGTRAP tests pass.
+The breakpoint fixture's Darwin cleanup was corrected to PT_KILL after evidence
+showed plain kill hung while reaping a stopped tracee; its assertions remain.
+Optimized callers preserve post-trap flow and omit assumption evaluation. No
+claim of debugger resume or injected sysctl failure coverage. Formatting,
+whitespace and Mermaid pass. User accepted the slice and authorized its commit;
+no push or game launch. Full assertion/history/error-device preparation remains
+next, without new bodies until separate authorization.
+
 ## Backlog
 
 - Review NVIDIA MotionBricks. User requested examining it later; research has not

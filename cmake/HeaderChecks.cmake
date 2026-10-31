@@ -1,6 +1,8 @@
-# SF.11 self-contained header checks, covering 33 current public and internal/detail units.
+# SF.11 self-contained header checks, covering 35 current public and internal/detail units.
 # Public API and compiler-required/private detail are intentionally separate.
 set(BW_PUBLIC_HEADERS
+  bw/platform/diagnostics/debugger.hpp
+  bw/platform/compiler/assume.hpp
   bw/math/rotation/quaternion.hpp
   bw/math/rotation/quaternion_register.hpp
   bw/math/simd/register.hpp
@@ -55,7 +57,7 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
   target_link_libraries(${check} PRIVATE bw_math bw_runtime_headers bw_memory_headers
     bw_tasks_headers bw_concurrency_headers bw_platform_memory_headers
     bw_platform_time_headers bw_macos_time_headers bw_platform_tasks_headers
-    bw_platform_diagnostics_headers)
+    bw_platform_diagnostics_headers bw_platform_compiler_headers)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE
   "${PROJECT_SOURCE_DIR}/src/engine/core/memory"
