@@ -1,4 +1,5 @@
 #include "bw/platform/os/macos/platform_memory.hpp"
+#include "bw/memory/alignment.hpp"
 #include "bw/memory/memory_failure.hpp"
 #include "bw/platform/memory/memory_failure.hpp"
 
@@ -51,8 +52,8 @@ std::size_t VirtualMemoryBlock::actual_size() const {
 VirtualMemoryBlock VirtualMemoryBlock::allocate_virtual(std::size_t size, std::size_t alignment) {
   // AllocateVirtual:748-751: page rounding, 32-bit page count, page-bounded alignment.
   const auto page_size = virtual_size_alignment();
-  const auto rounded_size = (size + page_size - 1) & ~(page_size - 1);
-  VirtualMemoryBlock result(nullptr, static_cast<std::uint32_t>(rounded_size / page_size));
+  VirtualMemoryBlock result(
+      nullptr, static_cast<std::uint32_t>(memory::align_up(size, page_size) / page_size));
   [[maybe_unused]] const auto required_alignment = std::max(alignment, page_size);
   BW_MEMORY_CHECK(required_alignment <= page_size);
 
@@ -73,18 +74,22 @@ VirtualMemoryBlock VirtualMemoryBlock::allocate_virtual(std::size_t size, std::s
   return result;
 }
 
+// Commit:780-785 and Decommit:787-796 share this range precondition.
+bool VirtualMemoryBlock::contains_page_range(std::size_t offset, std::size_t size) const {
+  return offset % commit_alignment() == 0 && size % commit_alignment() == 0 &&
+         offset + size <= actual_size();
+}
+
 // Commit:780-785 checks a valid aligned range, then issues reuse advice only.
 void VirtualMemoryBlock::commit(std::size_t offset, std::size_t size) {
-  BW_MEMORY_CHECK(offset % commit_alignment() == 0 && size % commit_alignment() == 0);
-  BW_MEMORY_CHECK(offset + size <= actual_size() && pointer_ != nullptr);
+  BW_MEMORY_CHECK(contains_page_range(offset, size) && pointer_ != nullptr);
   // Source deliberately ignores madvise's result on the reuse path.
   (void)madvise(static_cast<std::byte*>(pointer_) + offset, size, MADV_FREE_REUSE);
 }
 
 // Decommit:787-796 makes the range reclaimable without unmapping its address.
 void VirtualMemoryBlock::decommit(std::size_t offset, std::size_t size) {
-  BW_MEMORY_CHECK(offset % commit_alignment() == 0 && size % commit_alignment() == 0);
-  BW_MEMORY_CHECK(offset + size <= actual_size() && pointer_ != nullptr);
+  BW_MEMORY_CHECK(contains_page_range(offset, size) && pointer_ != nullptr);
   // Decommit:791-795: unlike reuse advice, reusable advice failure is fatal.
   if (madvise(static_cast<std::byte*>(pointer_) + offset, size, MADV_FREE_REUSABLE) != 0) {
     memory::out_of_memory(size, 0);

@@ -22,6 +22,13 @@ Engine::Engine(platform::PlatformTime& time, platform::PlatformProcess& process)
 // initializes its previous-real timestamp at the first timing update instead.
 void Engine::initialize_time() { application_time_.current_time = time_.seconds(); }
 
+// requested_frame_wait
+// Reference: Engine/Source/Runtime/Engine/Private/UnrealEngine.cpp:3058-3064,
+// GetMaxTickRate:12193-12250.
+float requested_frame_wait(float maximum_fps, float real_delta) noexcept {
+  return maximum_fps > 0.0F ? std::max(1.0F / maximum_fps - real_delta, 0.0F) : 0.0F;
+}
+
 // Engine::update_time_and_handle_max_tick_rate
 // Reference: Engine/Source/Runtime/Engine/Private/UnrealEngine.cpp:2980-3220.
 // Ordinary real-time runtime client; source-default smoothingfalse. Fixed-time,
@@ -48,8 +55,7 @@ void Engine::update_time_and_handle_max_tick_rate() {
 
   // Maximum rate and wait, same reference:3058-3064, GetMaxTickRate:12193-12250.
   // Positive configured maximum caps this unsmoothed mode; otherwise wait zero.
-  const float requested_wait =
-      maximum_fps_ > 0.0F ? std::max(1.0F / maximum_fps_ - real_delta, 0.0F) : 0.0F;
+  const float requested_wait = requested_frame_wait(maximum_fps_, real_delta);
   double actual_idle_time = 0.0;
   if (requested_wait > 0.0F) {
     // Same reference:3080-3087. Begin actual idle measurement and form the

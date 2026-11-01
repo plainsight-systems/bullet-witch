@@ -1,6 +1,7 @@
 #include "binned/binned_size_classes.hpp"
 
 #include "allocator_checks.hpp"
+#include "bw/memory/alignment.hpp"
 #include <algorithm>
 #include <initializer_list>
 
@@ -8,13 +9,8 @@
 // keep source size segregation; the reference, not illustrative rules, sets bins.
 // All references below: Unreal f45729c0b6f097038e72b52d366a62baeca3275b.
 namespace bw::memory {
-namespace {
-// Extracted Align helper used by MallocBinnedCommon.h:823-894: round to the
-// selected power-of-two boundary; alignment0 is handled by the callers first.
-std::size_t aligned(std::size_t value, std::size_t alignment) {
-  return (value + alignment - 1U) & ~(alignment - 1U);
-}
-} // namespace
+// Align helper used by MallocBinnedCommon.h:823-894: round to the selected
+// power-of-two boundary; alignment zero is handled by the callers first.
 
 // MallocBinnedCommon.cpp:27-165, FSizeTableEntry/FillSizeTable; Binned3.cpp:475-543.
 // Build native-page-compatible block multiples, sort original classes, then
@@ -77,7 +73,7 @@ std::size_t BinnedSizeClasses::quantize(std::size_t bytes, std::uint32_t alignme
     return classes_[index_for(bytes)].bytes;
   }
   alignment = std::max(alignment, 16U);
-  const auto requested = aligned(bytes, alignment);
+  const auto requested = align_up(bytes, alignment);
   if (requested <= binned_small_limit && alignment <= 256U) {
     auto pool = index_for(requested);
     while (classes_[pool].bytes % alignment != 0U) {
@@ -85,14 +81,14 @@ std::size_t BinnedSizeClasses::quantize(std::size_t bytes, std::uint32_t alignme
     }
     return classes_[pool].bytes;
   }
-  return aligned(bytes, std::max(alignment, page_size_));
+  return align_up(bytes, std::max(alignment, page_size_));
 }
 
 // MallocBinnedCommon.h:868-894, PromoteToLargerBin: mutate only on source success
 // except the initial minimum alignment adjustment, which also persists on failure.
 bool BinnedSizeClasses::promote(std::size_t& bytes, std::uint32_t& alignment) const {
   alignment = std::max(alignment, 16U);
-  const auto requested = aligned(bytes, alignment);
+  const auto requested = align_up(bytes, alignment);
   if (requested > binned_small_limit || alignment > 256U) {
     return false;
   }

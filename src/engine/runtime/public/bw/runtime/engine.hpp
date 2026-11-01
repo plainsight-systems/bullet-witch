@@ -16,6 +16,9 @@ struct ApplicationTime {
   double idle_time_overshoot{};
   double game_time{};
 };
+// Wait requested after a frame that took real_delta seconds under a positive
+// maximum frame rate; zero when uncapped or already over budget.
+[[nodiscard]] float requested_frame_wait(float maximum_fps, float real_delta) noexcept;
 class Engine {
 public:
   Engine(platform::PlatformTime& time, platform::PlatformProcess& process);

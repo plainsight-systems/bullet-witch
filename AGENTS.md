@@ -1,33 +1,39 @@
 # Working on the rebuild
 
-Read `docs/process/MEMORY.md`, `docs/process/QUEUE.md`, and
-`docs/process/workflow.md`, then the relevant architecture document.
+Read [docs/architecture/overview.md](docs/architecture/overview.md) and
+[docs/architecture/source-layout.md](docs/architecture/source-layout.md).
 
-- This is a new implementation. Do not copy, call, wrap, link, import, or reuse
-  any existing Bullet Witch project code. This includes math, allocators, clocks,
-  platform adapters, decoders, Lua bindings, controllers, rendering, shaders,
-  tests, scripts, configurations, caches, and generated runtime resources.
-- Original purchased game data and Lua are input data only. Keep the game
-  installation read-only; no original assets, scripts, raw decompiler output,
-  downloaded source, or generated evidence in Git.
-- Unreal is the design and algorithm reference. Inspect pinned source functions
-  before implementing the corresponding system. Record the selected algorithm
-  and any adaptation in the architecture docs. Original engine structure and
-  timing are not constraints on the replacement architecture.
-- Put the inspected reference algorithm in comments beside each implementing
-  method and each significant call/block. Include pinned commit, function and
-  source lines, with concise own-word pseudocode that supports side-by-side
-  review. Explicitly label our extra contracts, platform substitutions and
-  extracted helpers; a file-level "source-backed" claim is insufficient.
-- A diagram or a compiled class does not establish an implemented subsystem.
-  Keep proposed design, implemented behavior, and verified behavior distinct.
-- Write header contracts first. For both header design and implementation,
-  query the C++ Guidelines and C++ Performance MCP corpora and read applicable
-  full rules. Put concise rule applications in opening comments and algorithm
-  intent above implementation code. Do not cite unread guidance.
-- Establish fresh formatting, fatal clang-tidy, build, and meaningful test tools
-  with the first code slice. Never invoke or copy old repository tooling.
-- Use subagents for execution so the main conversation remains available.
-  Keep file ownership explicit when work proceeds in parallel.
-- Do not commit, push, launch a game, or expand an implementation slice beyond
-  the user's authorization. Preserve the old worktree unchanged.
+- This is new source. Do not copy, call, wrap, link or reuse code from the
+  earlier Bullet Witch reconstruction.
+- Purchased game data and the original Lua are read-only inputs. Nothing
+  purchased, generated or downloaded goes in Git.
+- Size every subsystem by what the game runtime needs. Inside that subset,
+  follow the Unreal reference's behavior, ordering and failure handling, and
+  write each omitted pinned step down beside the code. Do not reproduce
+  Unreal's build matrix, macro seams, hidden base members or unused overloads.
+- Keep proposed design, implemented behavior and verified behavior distinct in
+  what you write.
+- Do not commit, push, or launch the game without the user's word.
+
+## Testing
+
+Two kinds of test. A unit test needs nothing but the harness and the unit under
+test; it lives in `tests/unit/<owner>/`. An integration test may need the OS, a
+thread, a child process, a file or another module; it lives in
+`tests/integration/<owner>/`.
+
+Both kinds assert public contracts only: the invariants the public headers and
+the architecture documents state. The test of a test: if the implementation
+changes and no invariant changes, the test must not need to change.
+
+- Before writing or keeping a test, name the header line or architecture
+  statement it asserts.
+- No test target gets a private include directory.
+- Do not assert what a one-line wrapper forwards to: an intrinsic, a libc or
+  std function, an OS call. That tests the platform, not our code.
+- Do not assert internal structure, locking strategy or algorithm steps unless
+  the header promises them.
+- Logic that is only reachable through an OS-bound path belongs in its own
+  pure function with a unit test; the integration test then keeps one probe
+  that the path is wired.
+- Prefer one assertion per invariant over scenario sprawl.

@@ -1,7 +1,7 @@
 # Consumer flags come from real targets, including transitive usage requirements.
 # These checks exercise the build boundary, not a manually curated include list.
 set(boundary_dir "${CMAKE_BINARY_DIR}/contracts/boundaries")
-foreach(consumer IN ITEMS engine_host math_register_tests allocator_structure_tests)
+foreach(consumer IN ITEMS engine_host math_register_tests)
   file(GENERATE OUTPUT "${boundary_dir}/${consumer}.cmake" CONTENT
 "set(check_includes \"$<TARGET_PROPERTY:${consumer},INCLUDE_DIRECTORIES>\")
 set(check_definitions \"$<TARGET_PROPERTY:${consumer},COMPILE_DEFINITIONS>\")

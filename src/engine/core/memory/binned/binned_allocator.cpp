@@ -1,5 +1,6 @@
 #include "binned/binned_allocator.hpp"
 #include "allocator_checks.hpp"
+#include "bw/memory/alignment.hpp"
 #include "bw/tasks/named_thread_dispatch.hpp"
 
 #include <algorithm>
@@ -20,10 +21,6 @@ constexpr auto unavailable = std::numeric_limits<std::uint32_t>::max();
 constexpr std::uint32_t no_next = 4096U;
 constexpr std::uint32_t large_unassigned = 0x39431234U;
 constexpr std::uint32_t large_assigned = 0x17ea5678U;
-// Extracted source Align, used for metadata and committed page extents.
-std::size_t round_up(std::size_t bytes, std::size_t alignment) {
-  return (bytes + alignment - 1U) & ~(alignment - 1U);
-}
 // Binned3.cpp:103-163 FFreeBlock: an eight-byte header overlays a free run. Its
 // head is returned last; client data never shares a live allocation header.
 struct FreeRun {
@@ -62,24 +59,24 @@ BinnedAllocator::BinnedAllocator()
     pool.block_size = pool.pages_per_block * page_size_;
     const auto blocks = static_cast<std::uint32_t>(binned_reservation_per_class / pool.block_size);
     // Source pointer-table rounding includes the source's multiply-before-divide.
-    required += round_up(sizeof(SmallBlockInfo*) * (blocks + small_infos_per_page_ - 1U) /
+    required += align_up(sizeof(SmallBlockInfo*) * (blocks + small_infos_per_page_ - 1U) /
                              small_infos_per_page_,
                          platform::allocator_cache_line_size);
-    required += 2U * round_up(BinnedBitTree::memory_requirement(blocks),
+    required += 2U * align_up(std::size_t{BinnedBitTree::memory_requirement(blocks)},
                               platform::allocator_cache_line_size);
   }
-  required = round_up(required, page_size_);
+  required = align_up(required, page_size_);
   auto* metadata = static_cast<std::byte*>(allocate_metadata(required));
   std::memset(metadata, 0, required);
   for (auto& pool : pools_) {
     const auto blocks = static_cast<std::uint32_t>(binned_reservation_per_class / pool.block_size);
-    const auto pointers = round_up(sizeof(SmallBlockInfo*) * (blocks + small_infos_per_page_ - 1U) /
+    const auto pointers = align_up(sizeof(SmallBlockInfo*) * (blocks + small_infos_per_page_ - 1U) /
                                        small_infos_per_page_,
                                    platform::allocator_cache_line_size);
     pool.block_info_pages = reinterpret_cast<SmallBlockInfo**>(metadata);
     metadata += pointers;
     const auto tree_bytes = static_cast<std::uint32_t>(
-        round_up(BinnedBitTree::memory_requirement(blocks), platform::allocator_cache_line_size));
+        align_up(BinnedBitTree::memory_requirement(blocks), platform::allocator_cache_line_size));
     pool.allocated_blocks.initialize(blocks, metadata, tree_bytes, false);
     metadata += tree_bytes;
     pool.exhausted_blocks.initialize(blocks, metadata, tree_bytes, true);
@@ -109,11 +106,11 @@ std::byte* BinnedAllocator::block_address(std::uint32_t pool, std::uint32_t bloc
 // recursion. Descriptor aliases are rebuilt only by the explicit owner on release.
 void* BinnedAllocator::allocate_metadata(std::size_t bytes) {
   auto block = VM::allocate_virtual(bytes);
-  block.commit(0U, round_up(bytes, VM::commit_alignment()));
+  block.commit(0U, align_up(bytes, VM::commit_alignment()));
   return block.virtual_pointer();
 }
 void BinnedAllocator::release_metadata(void* pointer, std::size_t bytes) {
-  VM block(pointer, static_cast<std::uint32_t>(round_up(bytes, VM::virtual_size_alignment()) /
+  VM block(pointer, static_cast<std::uint32_t>(align_up(bytes, VM::virtual_size_alignment()) /
                                                VM::virtual_size_alignment()));
   block.free_virtual();
 }
@@ -389,7 +386,7 @@ void* BinnedAllocator::allocate_without_cache(std::size_t bytes, std::uint32_t a
     return result;
   }
   alignment = std::max(alignment, 16U);
-  const auto committed = round_up(bytes, page_size_);
+  const auto committed = align_up(bytes, page_size_);
   auto block = VM::allocate_virtual(committed, alignment);
   block.commit(0U, committed);
   void* result = block.virtual_pointer();
@@ -430,7 +427,7 @@ void* BinnedAllocator::reallocate(void* pointer, std::size_t bytes, std::uint32_
     old_bytes = info->requested_bytes;
     const bool move = bytes > info->committed_bytes ||
                       (bytes <= binned_small_limit && alignment <= 16U) ||
-                      round_up(bytes, page_size_) < info->committed_bytes;
+                      align_up(bytes, page_size_) < info->committed_bytes;
     if (!move) {
       info->requested_bytes = static_cast<std::uint32_t>(bytes);
       return pointer;

@@ -23,6 +23,9 @@ public:
   [[nodiscard]] static std::size_t commit_alignment();
   // Source ApplePlatformMemory.h:112-115. Page count multiplied by native size.
   [[nodiscard]] std::size_t actual_size() const;
+  // The commit/decommit range precondition: offset and size are multiples of
+  // commit_alignment() and the range ends within actual_size().
+  [[nodiscard]] bool contains_page_range(std::size_t offset, std::size_t size) const;
 
   // Source Commit:780-785. Page-aligned in-range offset/size on a live mapping.
   // MADV_FREE_REUSE; does not add protection, allocate eagerly or zero bytes.

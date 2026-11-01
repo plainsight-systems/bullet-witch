@@ -1,15 +1,8 @@
 # Source layout and runtime tools
 
-Status: **existing foundation migration accepted**. The agreed
-project-wide ownership map and tooling direction remain below. Only existing
-source, tests and foundation documentation have moved. Future engine/game
-systems and tools remain unimplemented; no empty modules were created.
-
-The architecture follows the runtime ownership already described in
-[the overview](README.md), [world lifecycle](world-lifecycle.md),
-[characters and AI](characters-ai.md), [rendering and assets](rendering-assets.md)
-and [runtime services](runtime-services.md). The directory choices below are our
-project organization, not a claim that Unreal uses these exact paths.
+The project-wide ownership map and tooling direction. The directory choices
+below are our project organization, not a claim that Unreal uses these exact
+paths. See [what we are building](overview.md) for the goal and the two rules.
 
 ## Destination tree
 
@@ -234,12 +227,6 @@ traces belong in ignored organized outputs, not among scenario source files.
 
 ## Existing foundation modules
 
-The migration retains every existing C++ body, class layout, constant and test
-assertion. Only include identifiers and source locations change. Header guards
-remain stable. The accepted implementation cluster for allocator, concurrency
-and named dispatch remains linked together; this organization change does not
-introduce a new algorithm or a cyclic library split.
-
 | Owner | Physical organization |
 |---|---|
 | Math | `src/engine/core/math/public/bw/math/{vector,simd}/`; out-of-line definitions in `math/vector/` |
@@ -252,8 +239,7 @@ introduce a new algorithm or a cyclic library split.
 | ARM64 SIMD | `src/platform/cpu/arm64/math/simd/` |
 | Selected generic math | `src/platform/generic/math/` |
 | Host and probe | `src/hosts/macos/engine_host.cpp`, `tools/runtime/engine_loop_probe.cpp` |
-| Tests | `tests/engine/core/{math,memory,tasks}/`, `tests/engine/runtime/`, `tests/integration/runtime/` |
-| Foundation drill-ins | `docs/architecture/engine/core/{math,memory,tasks}/` and `engine/runtime/` |
+| Tests | `tests/unit/<owner>/`, `tests/integration/<owner>/` |
 
 ### Public and internal boundaries
 
@@ -277,45 +263,14 @@ internal tests receive private include access. A runtime or math consumer does
 not receive it transitively. Tests that inspect allocator structure state that
 access explicitly rather than making those internals public to the whole engine.
 
-The inspected Unreal pin `f45729c0b6f097038e72b52d366a62baeca3275b` provides the
-organization reference: `Engine/Source/Runtime/Core/Core.Build.cs` distinguishes
-public/private dependencies, and `Core/Public/Math/VectorRegister.h:11–19`
-selects required native inline definitions. Our CMake/public-directory spelling
-is an adaptation, not copied Unreal build machinery. Both C++ corpora were
-queried and full SF.11, SF.13 and GEN.6 read: self-contained scoped headers and
-preserved inline implementation visibility. No new inlining or numeric policy.
-
-### Build and verification
+### Build
 
 Module CMake files own real targets and dependencies. The root composes existing
-modules; it does not list all source files. `cmake/HeaderChecks.cmake` retains the
-same 31 standalone checks, classified as 21 public contracts and 10 internal or
-compiler-required details. Debug/non-Debug math configuration and executable-local
-global allocation operators retain their accepted owners and values.
-
-`cmake/IncludeBoundaries.cmake` obtains include directories, definitions and options
-from actual target usage requirements. Positive probes compile the runtime/facade,
-vector/SIMD and owned allocator-internal headers. Negative probes require the
+modules; it does not list all source files. `cmake/HeaderChecks.cmake` compiles
+each public header standalone. `cmake/IncludeBoundaries.cmake` obtains include
+directories, definitions and options from actual target usage requirements:
+positive probes compile the public headers, negative probes require the
 requested private or unlinked header itself to be missing, not just an arbitrary
 compiler failure. These checks are part of the default build and add no runtime
-behavior or test double.
-
-Existing executable paths remain at the build root. VS Code still consumes
-`build-game-loop/compile_commands.json`; its generated per-target flags now carry
-the scoped includes. No manual IDE-wide include fallback is needed. Root README
-commands retain their paths. The old-to-new C++ and document maps and verification
-logs live in ignored `research/evidence/source-layout-migration/`.
-
-The remaining destination modules and inspection protocol/tools will be created
-only through their future design slices. No production algorithms were reused
-from the previous Bullet Witch project. No game launch or push is part of this
-migration.
-
-Validation completed for this organization slice: Debug and Release full builds
-pass fatal clang-tidy, all 31 classified header checks, all 11 consumer include
-boundary probes and all 28 existing CTest entries. Formatting/whitespace checks,
-local document links and 12 updated Mermaid diagrams pass. The documented bounded
-headless host command runs from its unchanged build-root path. An exact comparison
-of all 75 mapped C++/test/tool files finds no differences beyond include lines.
-Root independently confirmed that comparison and repeated Debug CTest 28/28.
-No graphical host, future runtime tool or new numerical behavior is claimed.
+behavior or test double. Executables build at the build root, and VS Code
+consumes `build-game-loop/compile_commands.json`.

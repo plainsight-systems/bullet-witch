@@ -2,6 +2,7 @@
 
 #include "allocator_checks.hpp"
 #include "binned/binned_allocator.hpp"
+#include "bw/memory/alignment.hpp"
 #include "bw/platform/memory/allocator_platform.hpp"
 #include "bw/platform/memory/memory_failure.hpp"
 #include <algorithm>
@@ -45,11 +46,6 @@ constexpr std::array<PoolDescription, 14> descriptions{{
 // singleton construction. Atomic adaptation permits concurrent observation.
 std::atomic<bool> active{false};
 
-// Extracted source Align operation used at lines 264,348,559,578. All call sites
-// supply the source power-of-two alignment and retain unsigned arithmetic.
-std::uint32_t align_up(std::uint32_t value, std::uint32_t alignment) {
-  return (value + alignment - 1) & ~(alignment - 1);
-}
 } // namespace
 
 // FMallocCrashPool constructor:120-144: carve two fixed regions and construct

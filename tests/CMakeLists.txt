@@ -1,119 +1,86 @@
-# Tests mirror owners; private access is explicitly local to internal tests.
-add_executable(engine_loop_tests engine/runtime/engine_loop_tests.cpp)
+# Tests assert public contracts only. Unit tests need nothing beyond the code
+# under test; integration tests may use the OS, threads or another module.
+# No test target receives a private include directory.
+
+# Unit: math.
+foreach(math_case IN ITEMS math_vector math_register quaternion_register quaternion)
+  add_executable(${math_case}_tests unit/math/${math_case}_tests.cpp)
+  target_link_libraries(${math_case}_tests PRIVATE bw_math)
+  add_test(NAME unit.${math_case} COMMAND ${math_case}_tests)
+  set_tests_properties(unit.${math_case} PROPERTIES TIMEOUT 15)
+endforeach()
+
+# Unit: memory policy and alignment arithmetic (header only).
+foreach(memory_case IN ITEMS alignment new_request)
+  add_executable(${memory_case}_tests unit/memory/${memory_case}_tests.cpp)
+  target_link_libraries(${memory_case}_tests PRIVATE bw_memory_headers)
+  add_test(NAME unit.${memory_case} COMMAND ${memory_case}_tests)
+  set_tests_properties(unit.${memory_case} PROPERTIES TIMEOUT 15)
+endforeach()
+
+# Unit: virtual memory block descriptor, no mapping made.
+add_executable(virtual_memory_block_tests unit/platform/virtual_memory_block_tests.cpp)
+target_link_libraries(virtual_memory_block_tests PRIVATE bw_memory bw_macos_memory_headers)
+add_test(NAME unit.virtual_memory_block COMMAND virtual_memory_block_tests)
+set_tests_properties(unit.virtual_memory_block PROPERTIES TIMEOUT 15)
+
+# Unit: word mutex uncontended protocol.
+add_executable(word_mutex_tests unit/concurrency/word_mutex_tests.cpp)
+target_link_libraries(word_mutex_tests PRIVATE bw_allocator bw_concurrency_headers)
+add_test(NAME unit.word_mutex COMMAND word_mutex_tests)
+set_tests_properties(unit.word_mutex PROPERTIES TIMEOUT 15)
+
+# Unit: engine loop on a recording clock, one scenario per entry.
+add_executable(engine_loop_tests unit/runtime/engine_loop_tests.cpp)
 target_link_libraries(engine_loop_tests PRIVATE bw_runtime)
-set(BW_SCENARIOS
-  source_defaults
+foreach(scenario IN ITEMS
+  defaults
   lifecycle_order
-  uncapped_first_delta
-  first_frame_is_paced
-  work_consumes_budget
-  late_frame_rebases
-  five_millisecond_threshold
-  coarse_oversleep_is_measured
-  rate_setting_changes_next_wait
-  nonpositive_setting_disables_cap
+  capped_frame_is_paced
+  late_frame_is_not_compensated
+  oversleep_is_measured
+  rate_setting_is_retained
   application_time_publication
-  negative_time_uses_source_fallback
   exit_request_does_not_interrupt_frame
   requested_exit_before_startup
   requested_exit_during_start
-  source_seconds_limit_accounting
-  native_clock_and_sleep)
-foreach(scenario IN LISTS BW_SCENARIOS)
-  add_test(NAME ${scenario} COMMAND engine_loop_tests ${scenario})
-  set_tests_properties(${scenario} PROPERTIES TIMEOUT 10)
+  seconds_limit_ends_the_run)
+  add_test(NAME unit.engine_loop.${scenario} COMMAND engine_loop_tests ${scenario})
+  set_tests_properties(unit.engine_loop.${scenario} PROPERTIES TIMEOUT 10)
 endforeach()
 
-add_executable(memory_tests engine/core/memory/memory_tests.cpp)
+# Unit: frame wait arithmetic.
+add_executable(frame_wait_tests unit/runtime/frame_wait_tests.cpp)
+target_link_libraries(frame_wait_tests PRIVATE bw_runtime)
+add_test(NAME unit.frame_wait COMMAND frame_wait_tests)
+set_tests_properties(unit.frame_wait PROPERTIES TIMEOUT 15)
+
+# Integration: memory.
+add_executable(memory_tests integration/memory/memory_tests.cpp)
 target_link_libraries(memory_tests PRIVATE bw_memory bw_macos_memory_headers Threads::Threads)
-add_test(NAME memory_native_and_failure_semantics COMMAND memory_tests)
-set_tests_properties(memory_native_and_failure_semantics PROPERTIES TIMEOUT 60)
+add_test(NAME integration.memory COMMAND memory_tests)
+set_tests_properties(integration.memory PROPERTIES TIMEOUT 60)
 
-foreach(allocator_case IN ITEMS allocator allocator_structure allocator_sync named_thread_dispatch crash_allocator)
-  if(allocator_case STREQUAL "named_thread_dispatch")
-    set(owner tasks)
-  else()
-    set(owner memory)
-  endif()
-  add_executable(${allocator_case}_tests engine/core/${owner}/${allocator_case}_tests.cpp)
-  target_link_libraries(${allocator_case}_tests PRIVATE bw_allocator bw_concurrency_headers
-    bw_tasks_headers bw_platform_memory_headers Threads::Threads)
-  target_include_directories(${allocator_case}_tests PRIVATE
-    "${PROJECT_SOURCE_DIR}/src/engine/core/memory"
-    "${PROJECT_SOURCE_DIR}/src/engine/core/tasks")
-  add_test(NAME ${allocator_case}_contracts COMMAND ${allocator_case}_tests)
-  set_tests_properties(${allocator_case}_contracts PROPERTIES TIMEOUT 60)
-endforeach()
+add_executable(allocator_tests integration/memory/allocator_tests.cpp)
+target_link_libraries(allocator_tests PRIVATE bw_allocator bw_platform_memory_headers Threads::Threads)
+add_test(NAME integration.allocator COMMAND allocator_tests)
+set_tests_properties(integration.allocator PROPERTIES TIMEOUT 60)
 
+add_executable(allocator_sync_tests integration/memory/allocator_sync_tests.cpp)
+target_link_libraries(allocator_sync_tests PRIVATE bw_allocator bw_concurrency_headers
+  bw_platform_memory_headers Threads::Threads)
+add_test(NAME integration.allocator_sync COMMAND allocator_sync_tests)
+set_tests_properties(integration.allocator_sync PROPERTIES TIMEOUT 60)
+
+# Integration: runtime.
 add_executable(global_allocation_tests integration/runtime/global_allocation_tests.cpp
   ${PROJECT_SOURCE_DIR}/src/engine/core/memory/global_allocation.cpp)
 target_link_libraries(global_allocation_tests PRIVATE bw_runtime bw_memory_headers)
-add_executable(allocator_lifecycle_tests integration/runtime/allocator_lifecycle_tests.cpp)
-target_link_libraries(allocator_lifecycle_tests PRIVATE bw_runtime bw_allocator
-  bw_tasks_headers bw_concurrency_headers bw_platform_memory_headers)
-target_include_directories(allocator_lifecycle_tests PRIVATE
-  "${PROJECT_SOURCE_DIR}/src/engine/core/memory")
-foreach(integration_case IN ITEMS global_allocation allocator_lifecycle)
-  add_test(NAME ${integration_case}_contracts COMMAND ${integration_case}_tests)
-  set_tests_properties(${integration_case}_contracts PROPERTIES TIMEOUT 15)
-endforeach()
+add_test(NAME integration.global_allocation COMMAND global_allocation_tests)
+set_tests_properties(integration.global_allocation PROPERTIES TIMEOUT 15)
 
-foreach(math_case IN ITEMS math_vector math_register math_register_composition)
-  add_executable(${math_case}_tests engine/core/math/${math_case}_tests.cpp)
-  target_link_libraries(${math_case}_tests PRIVATE bw_math)
-  add_test(NAME ${math_case}_contracts COMMAND ${math_case}_tests)
-  set_tests_properties(${math_case}_contracts PROPERTIES TIMEOUT 15)
-endforeach()
-
-# Source quaternion register algebra contracts.
-add_executable(quaternion_register_tests
-  engine/core/math/quaternion_register_tests.cpp)
-target_link_libraries(quaternion_register_tests PRIVATE bw_math)
-add_test(NAME quaternion_register_contracts COMMAND quaternion_register_tests)
-set_tests_properties(quaternion_register_contracts PROPERTIES TIMEOUT 15)
-
-# Source quaternion value contracts and real constructor diagnostics.
-add_executable(quaternion_tests engine/core/math/quaternion_tests.cpp)
-target_link_libraries(quaternion_tests PRIVATE bw_math)
-add_test(NAME quaternion_contracts COMMAND quaternion_tests)
-set_tests_properties(quaternion_contracts PROPERTIES TIMEOUT 15)
-
-# Actual platform debugger/trap and ordinary compiler-assumption contracts.
-add_executable(debugger_tests platform/diagnostics/debugger_tests.cpp)
-target_link_libraries(debugger_tests PRIVATE bw_platform_debugger)
-add_executable(breakpoint_tests platform/diagnostics/breakpoint_tests.cpp)
-target_link_libraries(breakpoint_tests PRIVATE bw_platform_diagnostics_headers)
-add_executable(assume_tests platform/compiler/assume_tests.cpp)
-target_link_libraries(assume_tests PRIVATE bw_platform_compiler_headers)
-foreach(platform_case IN ITEMS debugger breakpoint assume)
-  add_test(NAME ${platform_case}_contracts COMMAND ${platform_case}_tests)
-  set_tests_properties(${platform_case}_contracts PROPERTIES TIMEOUT 15)
-endforeach()
-
-# Private source history contracts use the production diagnostics module.
-add_executable(error_history_tests engine/core/diagnostics/error_history_tests.cpp)
-target_include_directories(error_history_tests PRIVATE
-  "${PROJECT_SOURCE_DIR}/src/engine/core/diagnostics")
-target_link_libraries(error_history_tests PRIVATE bw_diagnostics bw_contracts
-  bw_concurrency_headers Threads::Threads)
-add_test(NAME error_history_contracts COMMAND error_history_tests)
-set_tests_properties(error_history_contracts PROPERTIES TIMEOUT 15)
-
-# Production constinit and pre-main history use in both object-order compositions.
-set(mutex_startup_root "${CMAKE_CURRENT_SOURCE_DIR}/engine/core/concurrency/startup")
-foreach(order IN ITEMS storage_first probe_first)
-  if(order STREQUAL "storage_first")
-    set(startup_units "${mutex_startup_root}/storage.cpp" "${mutex_startup_root}/probe.cpp")
-  else()
-    set(startup_units "${mutex_startup_root}/probe.cpp" "${mutex_startup_root}/storage.cpp")
-  endif()
-  add_executable(word_mutex_startup_${order}_tests
-    ${startup_units} "${mutex_startup_root}/main.cpp")
-  target_include_directories(word_mutex_startup_${order}_tests PRIVATE
-    "${PROJECT_SOURCE_DIR}/src/engine/core/diagnostics")
-  target_link_libraries(word_mutex_startup_${order}_tests PRIVATE
-    bw_diagnostics bw_contracts bw_concurrency_headers)
-  add_test(NAME word_mutex_startup_${order}_contracts
-    COMMAND word_mutex_startup_${order}_tests)
-  set_tests_properties(word_mutex_startup_${order}_contracts PROPERTIES TIMEOUT 15)
-endforeach()
+# Integration: tasks.
+add_executable(named_thread_dispatch_tests integration/tasks/named_thread_dispatch_tests.cpp)
+target_link_libraries(named_thread_dispatch_tests PRIVATE bw_allocator bw_tasks_headers Threads::Threads)
+add_test(NAME integration.named_thread_dispatch COMMAND named_thread_dispatch_tests)
+set_tests_properties(integration.named_thread_dispatch PROPERTIES TIMEOUT 60)

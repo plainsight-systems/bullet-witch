@@ -12,52 +12,56 @@ static_assert(__STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 16);
 
 // ModuleBoilerplate.h:46: Choose alignment from original size; zero-byte requests become one.
 [[gnu::noinline]] void* operator new(std::size_t bytes) {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes,
-                              bytes <= 8 ? 8 : __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  const auto request = bw::memory::new_request(bytes);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:47: Choose alignment from original size; zero-byte requests become one.
 [[gnu::noinline]] void* operator new[](std::size_t bytes) {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes,
-                              bytes <= 8 ? 8 : __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  const auto request = bw::memory::new_request(bytes);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:48: Choose alignment from original size; zero-byte requests become one.
 // Nothrow retains the same source fatal allocation policy.
 [[gnu::noinline]] void* operator new(std::size_t bytes, const std::nothrow_t&) noexcept {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes,
-                              bytes <= 8 ? 8 : __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  const auto request = bw::memory::new_request(bytes);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:49: Choose alignment from original size; zero-byte requests become one.
 // Nothrow retains the same source fatal allocation policy.
 [[gnu::noinline]] void* operator new[](std::size_t bytes, const std::nothrow_t&) noexcept {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes,
-                              bytes <= 8 ? 8 : __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  const auto request = bw::memory::new_request(bytes);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:50: Preserve explicit alignment; zero-byte requests become one.
 [[gnu::noinline]] void* operator new(std::size_t bytes, std::align_val_t alignment) {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes, static_cast<std::uint32_t>(alignment));
+  const auto request = bw::memory::new_request(bytes, alignment);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:51: Preserve explicit alignment; zero-byte requests become one.
 [[gnu::noinline]] void* operator new[](std::size_t bytes, std::align_val_t alignment) {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes, static_cast<std::uint32_t>(alignment));
+  const auto request = bw::memory::new_request(bytes, alignment);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:52: Preserve explicit alignment; zero-byte requests become one.
 // Nothrow retains the same source fatal allocation policy.
 [[gnu::noinline]] void* operator new(std::size_t bytes, std::align_val_t alignment,
                                      const std::nothrow_t&) noexcept {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes, static_cast<std::uint32_t>(alignment));
+  const auto request = bw::memory::new_request(bytes, alignment);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:53: Preserve explicit alignment; zero-byte requests become one.
 // Nothrow retains the same source fatal allocation policy.
 [[gnu::noinline]] void* operator new[](std::size_t bytes, std::align_val_t alignment,
                                        const std::nothrow_t&) noexcept {
-  return bw::memory::allocate(bytes == 0 ? 1 : bytes, static_cast<std::uint32_t>(alignment));
+  const auto request = bw::memory::new_request(bytes, alignment);
+  return bw::memory::allocate(request.bytes, request.alignment);
 }
 
 // ModuleBoilerplate.h:54: release through the same facade; metadata tags

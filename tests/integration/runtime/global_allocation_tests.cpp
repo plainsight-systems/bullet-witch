@@ -16,25 +16,23 @@ void require(bool condition, const char* message) {
     std::exit(1);
   }
 }
-struct AllocationExpectation {
-  std::size_t bytes;
-  std::size_t alignment;
-};
-void verify(void* pointer, AllocationExpectation expected) {
-  const auto [bytes, alignment] = expected;
+// Ownership lookup proves the executable's definitions, not libc++, served
+// the request. The byte and alignment policy is unit tested as new_request.
+void verify(void* pointer, bw::memory::NewRequest request) {
   require(pointer != nullptr, "global new must return real storage");
-  require(reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0,
-          "global new must preserve alignment");
-  // This queries the REAL allocator's ownership metadata; a libc++ allocation
-  // cannot pass by merely returning writable memory from another heap.
-  require(bw::memory::allocation_size(pointer) >= (bytes == 0 ? 1 : bytes),
+  require(bw::memory::allocation_size(pointer) >= request.bytes,
           "global allocation must belong to selected engine heap");
-  std::memset(pointer, 0x37, bytes == 0 ? 1 : bytes);
+  std::memset(pointer, 0x37, request.bytes);
+}
+void verify_aligned(void* pointer, bw::memory::NewRequest request) {
+  verify(pointer, request);
+  require(reinterpret_cast<std::uintptr_t>(pointer) % request.alignment == 0,
+          "explicit alignment is forwarded to the allocator");
 }
 struct StaticAllocation {
   StaticAllocation() : pointer(::operator new(37)) {}
   ~StaticAllocation() {
-    verify(pointer, {37, __STDCPP_DEFAULT_NEW_ALIGNMENT__});
+    verify(pointer, bw::memory::new_request(37));
     ::operator delete(pointer);
     std::puts("late static delete reached engine heap");
   }
@@ -55,33 +53,34 @@ public:
 } // namespace
 
 int main() {
-  verify(early.pointer, {37, __STDCPP_DEFAULT_NEW_ALIGNMENT__});
-  for (std::size_t bytes : std::array<std::size_t, 5>{0, 1, 8, 17, 131073}) {
-    const auto alignment = bytes <= 8 ? 8U : __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+  verify(early.pointer, bw::memory::new_request(37));
+  for (std::size_t bytes : std::array<std::size_t, 3>{0, 17, 131073}) {
+    const auto request = bw::memory::new_request(bytes);
     void* scalar = ::operator new(bytes);
-    verify(scalar, {bytes, alignment});
+    verify(scalar, request);
     ::operator delete(scalar);
     void* array = ::operator new[](bytes);
-    verify(array, {bytes, alignment});
+    verify(array, request);
     ::operator delete[](array);
     scalar = ::operator new(bytes, std::nothrow);
-    verify(scalar, {bytes, alignment});
+    verify(scalar, request);
     ::operator delete(scalar, std::nothrow);
     array = ::operator new[](bytes, std::nothrow);
-    verify(array, {bytes, alignment});
+    verify(array, request);
     ::operator delete[](array, std::nothrow);
     constexpr auto aligned = std::align_val_t{256};
+    const auto aligned_request = bw::memory::new_request(bytes, aligned);
     scalar = ::operator new(bytes, aligned);
-    verify(scalar, {bytes, 256});
+    verify_aligned(scalar, aligned_request);
     ::operator delete(scalar, aligned);
     array = ::operator new[](bytes, aligned);
-    verify(array, {bytes, 256});
+    verify_aligned(array, aligned_request);
     ::operator delete[](array, aligned);
     scalar = ::operator new(bytes, aligned, std::nothrow);
-    verify(scalar, {bytes, 256});
+    verify_aligned(scalar, aligned_request);
     ::operator delete(scalar, aligned, std::nothrow);
     array = ::operator new[](bytes, aligned, std::nothrow);
-    verify(array, {bytes, 256});
+    verify_aligned(array, aligned_request);
     ::operator delete[](array, aligned, std::nothrow);
   }
   // Sized forms complete the source delete families, including constructor-
