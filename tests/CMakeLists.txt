@@ -55,6 +55,142 @@ target_link_libraries(frame_wait_tests PRIVATE bw_runtime)
 add_test(NAME unit.frame_wait COMMAND frame_wait_tests)
 set_tests_properties(unit.frame_wait PROPERTIES TIMEOUT 15)
 
+# Unit: shader system public contracts, one executable per header plus the
+# shader_compiler option parser, one CTest entry per scenario.
+set(shader_parameter_block_scenarios
+  dense_layout_offsets_equal_offsetof
+  hlsl_placement_matches_cpp_offsets
+  hash_stable_under_member_reordering
+  hash_changes_on_any_member_change
+  generated_struct_text_is_exact
+  hlsl_errors_named
+  binding_line_text)
+set(shader_permutation_scenarios
+  id_round_trip_and_count
+  defines_one_per_dimension_in_order
+  enumeration_ascending_excluded_absent
+  registry_names_unique)
+set(shader_root_layout_scenarios
+  hash_changes_when_slot_moves
+  find_static_slot
+  root_signature_text_is_exact
+  placement_table)
+set(shader_artifact_scenarios
+  write_then_load_round_trip
+  identical_bytes_for_equal_inputs
+  named_failures
+  write_errors_named
+  unknown_trailer_key_ignored
+  binding_use_same_for_same_reflection
+  file_name_convention)
+set(shader_compiler_options_scenarios
+  parse_enumerate_and_compile
+  parse_rejections
+  arguments_fixed_order_no_paths
+  enumerate_line_format)
+# Compile probes: the compile-time preconditions of parameter_block.hpp and
+# permutation.hpp, proven at configure time. Each source under
+# unit/rendering/shaders/compile_failures/ must fail to compile, and its
+# compiler output must name the precondition it breaks, with the same usage
+# requirements as bw_shaders_headers; the control must compile with them, so a
+# probe cannot pass on a broken setup. Configure fails by name otherwise.
+# try_compile cannot link a non-imported interface target, so its usage
+# requirements are read from the targets themselves, transitively, and a
+# generator expression among them fails configure by name rather than being
+# passed through unevaluated.
+function(bw_shader_compile_probes)
+  set(pending bw_shaders_headers)
+  set(visited)
+  set(probe_includes)
+  set(probe_options)
+  set(probe_definitions)
+  while(pending)
+    list(POP_FRONT pending current)
+    if(current IN_LIST visited OR NOT TARGET ${current})
+      continue()
+    endif()
+    list(APPEND visited ${current})
+    foreach(property IN ITEMS INTERFACE_INCLUDE_DIRECTORIES INTERFACE_COMPILE_OPTIONS
+                              INTERFACE_COMPILE_DEFINITIONS INTERFACE_LINK_LIBRARIES)
+      get_target_property(values ${current} ${property})
+      if(NOT values)
+        continue()
+      endif()
+      if(values MATCHES [[\$<]])
+        message(FATAL_ERROR "Shader compile probes: ${current} ${property} holds a generator "
+          "expression, which try_compile cannot evaluate at configure time: ${values}")
+      endif()
+      if(property STREQUAL "INTERFACE_INCLUDE_DIRECTORIES")
+        list(APPEND probe_includes ${values})
+      elseif(property STREQUAL "INTERFACE_COMPILE_OPTIONS")
+        list(APPEND probe_options ${values})
+      elseif(property STREQUAL "INTERFACE_COMPILE_DEFINITIONS")
+        foreach(definition IN LISTS values)
+          list(APPEND probe_definitions "-D${definition}")
+        endforeach()
+      else()
+        list(APPEND pending ${values})
+      endif()
+    endforeach()
+  endwhile()
+  # Compile only; a probe has no main.
+  set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+  set(probe_dir "${CMAKE_CURRENT_SOURCE_DIR}/unit/rendering/shaders/compile_failures")
+  # name | header line asserted | text the compiler output must contain
+  set(probes
+    "unlisted_member|parameter_block.hpp:28-31 every member listed|parameter block member is not dense"
+    "wrong_alignment|parameter_block.hpp:31-32 a type outside the value set|ParameterTraits<PlainFloat3>"
+    "size_not_multiple_of_16|parameter_block.hpp:27 alignof 16, sizeof a multiple of 16|a parameter block is a multiple of 16 bytes"
+    "nested_before_layout|parameter_block.hpp:576-578 nested layouts first|BlockLayoutOf<ProbeInner>"
+    "domain_over_max_permutations|permutation.hpp:74-76 domain within kMaxPermutations|permutation domain exceeds kMaxPermutations")
+  try_compile(control_compiled SOURCES "${probe_dir}/control.cpp"
+    CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${probe_includes}"
+    COMPILE_DEFINITIONS ${probe_options} ${probe_definitions}
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+    NO_CACHE OUTPUT_VARIABLE control_output)
+  if(NOT control_compiled)
+    message(FATAL_ERROR "Shader compile probe control must compile: ${control_output}")
+  endif()
+  foreach(probe IN LISTS probes)
+    string(REPLACE "|" ";" fields "${probe}")
+    list(GET fields 0 name)
+    list(GET fields 1 asserted)
+    list(GET fields 2 expected)
+    try_compile(probe_compiled SOURCES "${probe_dir}/${name}.cpp"
+      CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${probe_includes}"
+      COMPILE_DEFINITIONS ${probe_options} ${probe_definitions}
+      CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+      NO_CACHE OUTPUT_VARIABLE probe_output)
+    if(probe_compiled)
+      message(FATAL_ERROR "Shader compile probe ${name} (${asserted}) compiled; it must not")
+    endif()
+    string(FIND "${probe_output}" "${expected}" found)
+    if(found EQUAL -1)
+      message(FATAL_ERROR "Shader compile probe ${name} (${asserted}) failed without naming "
+        "'${expected}': ${probe_output}")
+    endif()
+    message(STATUS "Shader compile probe ${name}: rejected (${asserted})")
+  endforeach()
+endfunction()
+bw_shader_compile_probes()
+
+foreach(shader_case IN ITEMS parameter_block permutation root_layout artifact compiler_options)
+  add_executable(${shader_case}_tests unit/rendering/shaders/${shader_case}_tests.cpp)
+  target_link_libraries(${shader_case}_tests PRIVATE bw_shaders)
+  foreach(scenario IN LISTS shader_${shader_case}_scenarios)
+    add_test(NAME unit.${shader_case}.${scenario} COMMAND ${shader_case}_tests ${scenario})
+    set_tests_properties(unit.${shader_case}.${scenario} PROPERTIES TIMEOUT 10)
+  endforeach()
+endforeach()
+
+# Shader compiler tool: pure tool logic (unit) and the toolchain scenarios
+# (integration), each in its own directory and CMake file, built only with
+# the shader toolchain configured.
+if(BW_SHADER_TOOLCHAIN)
+  add_subdirectory(unit/tools/shader_compiler)
+  add_subdirectory(integration/rendering/shaders)
+endif()
+
 # Integration: memory.
 add_executable(memory_tests integration/memory/memory_tests.cpp)
 target_link_libraries(memory_tests PRIVATE bw_memory bw_macos_memory_headers Threads::Threads)

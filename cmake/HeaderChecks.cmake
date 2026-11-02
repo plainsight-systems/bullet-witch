@@ -25,7 +25,20 @@ set(BW_PUBLIC_HEADERS
   bw/platform/os/macos/platform_memory.hpp
   bw/runtime/engine.hpp
   bw/runtime/engine_loop.hpp
+  bw/rendering/shaders/parameter_block.hpp
+  bw/rendering/shaders/permutation.hpp
+  bw/rendering/shaders/root_layout.hpp
+  bw/rendering/shaders/artifact.hpp
+  bw/rendering/shaders/compiler_options.hpp
 )
+# The shader_compiler tool's headers exist as a target only with the shader
+# toolchain configured (tools/shader_compiler is added under it).
+if(BW_SHADER_TOOLCHAIN)
+  list(APPEND BW_PUBLIC_HEADERS
+    bw/shader_compiler/logic.hpp
+    bw/shader_compiler/enumeration.hpp
+    bw/shader_compiler/toolchain.hpp)
+endif()
 set(BW_INTERNAL_HEADERS
   src/platform/cpu/arm64/math/simd/register_types.hpp
   src/engine/core/memory/allocator_checks.hpp
@@ -56,7 +69,8 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
   target_link_libraries(${check} PRIVATE bw_math bw_runtime_headers bw_memory_headers
     bw_tasks_headers bw_concurrency_headers bw_platform_memory_headers
     bw_platform_time_headers bw_macos_time_headers bw_platform_tasks_headers
-    bw_platform_diagnostics_headers)
+    bw_platform_diagnostics_headers bw_shaders_headers
+    $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE
   "${PROJECT_SOURCE_DIR}/src/engine/core/memory"
