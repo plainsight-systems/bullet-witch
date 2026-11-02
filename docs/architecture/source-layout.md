@@ -44,6 +44,8 @@ src/
       postprocess/
       rhi/
         backends/           # e.g. Metal; owned by rendering, not general OS code
+      shaders/              # HLSL source, one root; generated includes land in the build dir
+        public/bw/rendering/shaders/  # parameter block, permutation and artifact contracts
     audio/
     media/
     ui/                     # widgets/layout/focus/render data; no mission rules
@@ -72,6 +74,7 @@ src/
   hosts/                    # target entry points and runtime composition
 
 tools/
+  shader_compiler/          # drives DXC and the Metal Shader Converter; the only shader build path
   import/                   # original-format readers and semantic conversion
   cook/                     # target preparation and dependency packaging
   character_viewer/
@@ -84,6 +87,9 @@ tests/                      # mirror owners: engine/, game/, platform/, tools/
 docs/                       # architecture/process; drill-ins grouped by owners as needed
 cmake/                      # common build/quality policies; modules declare own targets
 ```
+
+Compiled shader artifacts are build outputs under `<build>/shaders/<target>/`
+and are never committed; see [shaders](shaders.md).
 
 The importer can have a Bullet Witch-specific format layer. The engine content
 loader consumes prepared schemas and handles; it must not absorb game-specific

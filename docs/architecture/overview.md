@@ -25,7 +25,8 @@ game executes, it is recorded as an omission, not built.
 ## What the runtime is made of
 
 See [source layout](source-layout.md) for the destination tree, module
-ownership and dependency direction. In one line: platform adapters under
+ownership and dependency direction, and [shaders](shaders.md) for the
+shader system. In one line: platform adapters under
 `src/platform`, engine systems under `src/engine`, Bullet Witch's own rules
 under `src/game`, and development tools apart from all three.
 

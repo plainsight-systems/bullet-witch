@@ -1,0 +1,170 @@
+# Shaders
+
+The shader system takes HLSL and C++ parameter declarations in, and gives
+the RHI loadable artifacts, a backend-neutral description of each shader and
+a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
+
+## Invariants
+
+1. One HLSL source per shader. There is no per-target shader source; target
+   differences are confined to one bindless-access include.
+2. Compilation is offline. The game ships bytecode and never ships source or
+   a compiler.
+3. The same source revision, defines and compiler arguments produce
+   byte-identical artifacts on every build host. A difference fails the
+   build.
+4. C++ parameter block declarations are the single source of layout truth.
+   The HLSL declarations are generated from them, and offsets are equal by
+   construction and proven by test.
+5. Resources are reached by index into per-type heaps. Every pipeline on
+   every API binds against one fixed root layout, which is fixed before any
+   shader is compiled.
+6. The set of permutations is finite, enumerated at build time and fully
+   built. The game never discovers a shader variant at runtime.
+7. An artifact is self-describing and validated on its own header. Shaders
+   are identified by name and content hash, never by position in a table.
+8. Reflection is backend-neutral. Each backend derives its API binding
+   structure from it at load; nothing API-specific is stored in the artifact
+   beyond the code block.
+9. Failure is explicit and named: wrong version, truncated artifact, layout
+   hash mismatch, or a target without the required capability. There is no
+   fallback binding model and no silent degradation.
+10. Nothing from Apple's converter package enters the repository except its
+    Apache-licensed runtime shim. The converter is a build prerequisite.
+
+## Build-time flow
+
+```mermaid
+flowchart LR
+    Decl["C++ parameter block declarations"] --> Gen["HLSL generator"]
+    Gen --> Inc["Generated includes"]
+    Src["HLSL source"] --> Comp
+    Inc --> Comp
+    Dom["Permutation domains"] --> Enum["Enumerate permutations"]
+    Enum --> Comp["shader_compiler: DXC per shader, permutation, target"]
+    Layout["Root layout"] --> Comp
+    Comp --> DXIL["DXIL"]
+    Comp --> SPV["SPIR-V"]
+    DXIL --> D3D["Artifact: Direct3D 12"]
+    DXIL --> MSC["Metal Shader Converter"]
+    MSC --> MTL["Artifact: Metal"]
+    SPV --> Opt["SPIRV-Tools, SPIRV-Reflect"]
+    Opt --> VK["Artifact: Vulkan"]
+    Comp --> Dep["Dependency file per artifact"]
+    Dep --> CMake["CMake rebuilds only affected artifacts"]
+```
+
+The root layout enters compilation because two targets consume it there:
+the converter takes it as the root signature, and DXC fixes the Direct3D 12
+binding spaces. Debug symbols leave the tool as a separate file named by the
+source hash and never enter an artifact.
+
+## Load-time flow
+
+```mermaid
+sequenceDiagram
+    participant RHI
+    participant Loader as Artifact loader
+    participant Decl as Running parameter declarations
+    participant Backend as API backend
+    RHI->>Loader: load(name, permutation, target)
+    Loader->>Loader: validate magic, version, size
+    Loader->>Decl: layout hashes for referenced blocks
+    Decl-->>Loader: match or named mismatch
+    Loader-->>RHI: code, reflection, root layout
+    RHI->>Backend: derive binding structure from reflection and root layout
+    Backend-->>RHI: root signature, pipeline layout or argument buffer table
+    RHI->>RHI: create pipeline state, enter pipeline cache
+```
+
+The RHI owns pipeline state creation, precompilation at first launch or after
+a driver change, and the API pipeline caches. The permutation enumeration
+from this system is what makes the precompiled set complete.
+
+## Draw-time binding
+
+```mermaid
+flowchart LR
+    subgraph RL["Root layout, identical on every API"]
+        S["Static uniform buffers, up to eight"]
+        P["Per-draw uniform buffer"]
+        C["Root constants, fixed size"]
+    end
+    subgraph Heaps
+        T["Textures and buffers"]
+        Sm["Samplers"]
+    end
+    P -- 32-bit indices --> T
+    P -- 32-bit indices --> Sm
+    S -- 32-bit indices --> T
+```
+
+| Root layout element | Direct3D 12 | Vulkan | Metal |
+|---|---|---|---|
+| Static uniform buffers | root constant buffer views in a reserved space | push constants holding bindless indices | constant buffer view table in the argument buffer |
+| Per-draw uniform buffer | root constant buffer view | push constant index | argument buffer entry |
+| Root constants | root constants | push constants | argument buffer bytes |
+| Texture and buffer heap | descriptor heap, dynamic resources | descriptor set 1, runtime array | converter-managed descriptor table |
+| Sampler heap | sampler heap | descriptor set 0 | static sampler table |
+
+## Artifact
+
+```mermaid
+flowchart TB
+    H["Header: magic, format version, target, stage, entry point, permutation id, input hash"]
+    R["Reflection: parameter map, resource table, packed counts, layout hash per referenced block"]
+    K["Code: DXIL, SPIR-V or Metal library"]
+    T["Trailer: key, size, bytes entries, closed by trailer length"]
+    H --> R --> K --> T
+```
+
+One artifact per shader, permutation and target, uncompressed, in
+`<build>/shaders/<target>/`. The reflection block is identical across the
+three targets for the same shader and permutation, and that equality is a
+test.
+
+## Permutations
+
+A shader declares dimensions of three kinds: boolean, integer range,
+enumeration. The domain's size is the product of the dimension sizes. A dense
+permutation id maps to dimension values and back, each dimension sets one
+preprocessor define, and a shader excludes permutations through a pure
+predicate. The build compiles every permutation that remains.
+
+## Targets
+
+| Target | Bytecode | Back half | Floor |
+|---|---|---|---|
+| Direct3D 12 | DXIL | DXC, signed on a host with the validator | shader model 6.6, resource binding tier 3 |
+| Metal | Metal library | the same DXIL through the Metal Shader Converter, in process | macOS 15, Apple silicon, Metal 3 |
+| Vulkan | SPIR-V | DXC SPIR-V backend, SPIRV-Tools, SPIRV-Reflect | Vulkan 1.3 with descriptor indexing |
+| Xbox Series X, Dev Mode | DXIL | the Direct3D 12 backend | probed at startup; explicit failure if shader model 6.6 or heap access is absent |
+
+## Components and ownership
+
+| Component | Lives in | Consumed by |
+|---|---|---|
+| Parameter block declaration and HLSL generator | `src/engine/rendering/shaders/public` | shader_compiler, RHI, every renderer module |
+| Permutation domain | `src/engine/rendering/shaders/public` | shader_compiler, RHI precompilation |
+| Root layout | `src/engine/rendering/shaders/public` | shader_compiler, RHI backends |
+| Artifact format, writer and loader | `src/engine/rendering/shaders/public` | shader_compiler, RHI |
+| HLSL source and the bindless-access include | `src/engine/rendering/shaders` | shader_compiler |
+| shader_compiler | `tools/shader_compiler` | CMake, developers by hand |
+
+## Dependencies
+
+| Dependency | Role | In the repository |
+|---|---|---|
+| DirectXShaderCompiler, one pinned release tag | HLSL to DXIL and SPIR-V | built from source on every host |
+| SPIRV-Tools, SPIRV-Reflect | SPIR-V optimization and reflection | pinned |
+| BLAKE3 | artifact input hashing | pinned |
+| Metal Shader Converter | DXIL to Metal library | no; prerequisite under `/usr/local` |
+| Metal Shader Converter runtime shim | Metal RHI support for converter-built pipelines | yes, Apache 2.0, with its license |
+
+## Boundaries
+
+Above: the RHI, which receives artifacts, reflection and the root layout and
+owns everything from pipeline creation onward. Below: the compilers, which
+are build-time tools. Outside: material shaders and the lighting model, which
+belong to the scene renderer; a shipped compiler for user shaders, which the
+standalone tool and the self-describing artifact leave possible.

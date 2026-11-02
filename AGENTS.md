@@ -11,10 +11,26 @@ limits of 2006 console hardware and the shortcuts those limits forced.
 - Where the shipped implementation is a workaround for its hardware, such as
   a frame cap, a draw budget, a texture size or a simplified simulation, the
   remaster drops the workaround and keeps the intent.
-- Where the original's intent is unclear, Unreal Engine at the pinned commit
-  is the guide for how a subsystem should behave.
+- How a subsystem is built comes from modern engine practice: Unreal Engine
+  at the pinned commit first, and other current engines, talks and papers
+  where they do better. Where a design follows a source, cite it. The
+  original's engine is never that source: it tells us what the game contains
+  and does, not how to structure ours.
 - Scope is set by what the game needs, improved. Argue a cut by "the game
   never reaches this", never by "the 2006 game did not have this".
+
+Targets, in build order:
+
+- macOS, native, Apple silicon, Metal.
+- Linux, native, NVIDIA GPU, Vulkan.
+- Windows, native, NVIDIA GPU, Direct3D 12.
+- Xbox Series X, UWP sideloaded through Dev Mode, AMD silicon (Zen 2 CPU,
+  RDNA 2 GPU), Direct3D 12 inside the Dev Mode sandbox.
+
+Three rendering backends behind one RHI boundary, built in that order; the
+Windows backend is the Xbox backend. This is a community project for a game
+whose rights we do not hold: nothing is published to a store, and the Xbox
+target lives within what Dev Mode allows.
 
 Read [docs/architecture/overview.md](docs/architecture/overview.md) and
 [docs/architecture/source-layout.md](docs/architecture/source-layout.md).
@@ -30,6 +46,58 @@ Read [docs/architecture/overview.md](docs/architecture/overview.md) and
 - Keep proposed design, implemented behavior and verified behavior distinct in
   what you write.
 - Do not commit, push, or launch the game without the user's word.
+
+## Architecture documents
+
+`docs/architecture/` describes the system as it is. One document per
+system, named for the system it covers in full: `shaders.md` is the whole
+shader system, and a document called `rendering.md` would have to cover the
+whole renderer.
+
+- Content is invariants and flows: what is always true, what moves where,
+  who owns what. Diagrams over prose; tables over paragraphs; short.
+- No plans, phases, rollback, verification lists, alternatives considered or
+  decision records. Git history is the record. Slice plans live untracked
+  under `research/slices/`.
+- No pin citations or other implementation detail. Those live beside the
+  code.
+- No status words. A document that says what is done, pending or next is a
+  plan, not architecture.
+
+## Recurring mistakes
+
+Entries here are errors an agent or the user has caught more than once. Read
+them as rules. Add an entry when the same mistake comes back.
+
+- **Treating the shipped engine as the architecture input.** The original is
+  a 2007 in-house engine built for one game. Its render passes, memory layout,
+  threading and internals are not design input for the remaster, and tracing,
+  decompiling or mirroring them is not research we do. The original is read to
+  answer "what does the game contain or do": its assets and their formats, its
+  scripts, its behaviors, its look. How a subsystem is built comes from
+  modern engine practice, Unreal at the pin first, never from the shipped
+  engine.
+
+## Reference
+
+- Unreal pin: `f45729c0b6f097038e72b52d366a62baeca3275b`, labeled "5.8.4 release".
+- Pinned checkout: a blob-less fetch of the pin alone with no working tree,
+  at the `unreal_checkout` path in `research/local.md` in the main checkout.
+  That file is untracked and machine-local; no absolute path of this machine
+  goes in a tracked file. Read one file at a time with
+  `GIT_TERMINAL_PROMPT=0 git -C <unreal_checkout> show <pin>:Engine/Source/<path>`.
+  Never check it out, fetch another ref or widen it.
+- Citation in code: `// Unreal <pin> Engine/Source/<path>:<start>-<end>`,
+  the path from the Unreal repository root. For any other source:
+  `// Source: <title>, <author or venue>, <year>, <url or section>`.
+- Original game data: the `game_data` path in `research/local.md`,
+  read-only.
+- Slice records are not tracked. The plan for a slice is
+  `research/slices/<slice>/plan.md` in the main checkout, which is the first
+  entry of `git worktree list`; a worktree has no `research/`.
+- Roles: the project session writes the plan; a fresh session per slice runs
+  `/architect <slice>`, which uses the `researcher`, `implementer` and
+  `reviewer` agents under `.claude/agents/`.
 
 ## Testing
 
