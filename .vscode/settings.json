@@ -2,5 +2,11 @@
   "C_Cpp.default.compileCommands": [
     "${workspaceFolder}/build-game-loop/compile_commands.json"
   ],
-  "cmake.buildDirectory": "${workspaceFolder}/build-game-loop"
+  "C_Cpp.default.compilerPath": "/usr/bin/c++",
+  "C_Cpp.default.cppStandard": "c++20",
+  "C_Cpp.default.intelliSenseMode": "macos-clang-arm64",
+  "cmake.buildDirectory": "${workspaceFolder}/build-game-loop",
+  "cmake.configureSettings": {
+    "BW_DXC_PREFIX": "${workspaceFolder}/build-dxc"
+  }
 }
