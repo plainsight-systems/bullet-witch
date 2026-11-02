@@ -1,5 +1,21 @@
 # Working on the rebuild
 
+## Purpose
+
+We are remastering Bullet Witch, not porting it. The target is the game its
+makers were aiming at: its look, feel and systems realized without the
+limits of 2006 console hardware and the shortcuts those limits forced.
+
+- The original executable, scripts and assets tell us what the game is.
+  Shipped behavior is evidence of intent, not the specification.
+- Where the shipped implementation is a workaround for its hardware, such as
+  a frame cap, a draw budget, a texture size or a simplified simulation, the
+  remaster drops the workaround and keeps the intent.
+- Where the original's intent is unclear, Unreal Engine at the pinned commit
+  is the guide for how a subsystem should behave.
+- Scope is set by what the game needs, improved. Argue a cut by "the game
+  never reaches this", never by "the 2006 game did not have this".
+
 Read [docs/architecture/overview.md](docs/architecture/overview.md) and
 [docs/architecture/source-layout.md](docs/architecture/source-layout.md).
 

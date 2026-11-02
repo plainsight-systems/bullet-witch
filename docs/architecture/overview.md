@@ -1,10 +1,12 @@
 # What we are building
 
-A native port of Bullet Witch for modern platforms, macOS on ARM64 first, built
-as new source. The original game's executable, scripts and assets are the
-evidence for what the game does. Unreal Engine's source, at one pinned commit,
-is the guide for how an engine subsystem should behave when the original's
-behavior is unclear or when we need a design we know works.
+A remaster of Bullet Witch for modern platforms, macOS on ARM64 first, built
+as new source. The aim is the game its makers intended, free of the limits of
+its original hardware, not a reproduction of the shipped implementation. The
+original game's executable, scripts and assets are the evidence for what the
+game is. Unreal Engine's source, at one pinned commit, is the guide for how an
+engine subsystem should behave when the original's intent is unclear or when
+we need a design we know works.
 
 ## The two rules that matter
 

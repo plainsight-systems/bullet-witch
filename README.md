@@ -1,9 +1,9 @@
 # Bullet Witch
 
-A native port of Bullet Witch, written as new source, with Unreal Engine's
+A remaster of Bullet Witch, written as new source, with Unreal Engine's
 architecture as the guide. Purchased original game data is required and is
 never committed. There is no runnable game yet: the tree holds the headless
-engine loop, the memory and math foundations, and the assertion path.
+engine loop and the memory and math foundations.
 
 Start with [what we are building](docs/architecture/overview.md), then the
 [source layout](docs/architecture/source-layout.md).
