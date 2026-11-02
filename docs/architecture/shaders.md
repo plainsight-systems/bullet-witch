@@ -1,8 +1,8 @@
 # Shaders
 
 The shader system takes HLSL and C++ parameter declarations in, and gives
-the RHI loadable artifacts, a backend-neutral description of each shader and
-a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
+the [RHI](rhi.md) loadable artifacts, a backend-neutral description of each
+shader and a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
 
 ## Invariants
 
@@ -79,9 +79,11 @@ sequenceDiagram
     RHI->>RHI: create pipeline state, enter pipeline cache
 ```
 
-The RHI owns pipeline state creation, precompilation at first launch or after
-a driver change, and the API pipeline caches. The permutation enumeration
-from this system is what makes the precompiled set complete.
+The RHI builds each API's binding structure from the root layout once per
+device and binds every pipeline against it. It owns pipeline state creation,
+precompilation at first launch or after a driver change, and the API pipeline
+caches. The permutation enumeration from this system is what makes the
+precompiled set complete.
 
 ## Draw-time binding
 
