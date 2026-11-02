@@ -1,0 +1,10 @@
+[submodule "third_party/dxc"]
+	path = third_party/dxc
+	url = https://github.com/microsoft/DirectXShaderCompiler
+	shallow = true
+[submodule "third_party/spirv-reflect"]
+	path = third_party/spirv-reflect
+	url = https://github.com/KhronosGroup/SPIRV-Reflect
+[submodule "third_party/blake3"]
+	path = third_party/blake3
+	url = https://github.com/BLAKE3-team/BLAKE3

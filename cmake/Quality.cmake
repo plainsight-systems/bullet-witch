@@ -17,7 +17,10 @@ file(GLOB_RECURSE BW_FORMAT_FILES CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/*.hpp" "${PROJECT_SOURCE_DIR}/src/*.cpp"
   "${PROJECT_SOURCE_DIR}/src/*.inl"
   "${PROJECT_SOURCE_DIR}/tests/*.hpp" "${PROJECT_SOURCE_DIR}/tests/*.cpp"
-  "${PROJECT_SOURCE_DIR}/tools/*.cpp")
+  "${PROJECT_SOURCE_DIR}/tools/*.hpp" "${PROJECT_SOURCE_DIR}/tools/*.cpp"
+  "${PROJECT_SOURCE_DIR}/tests/*.mm"
+  "${PROJECT_SOURCE_DIR}/third_party/checks/*.cpp"
+  "${PROJECT_SOURCE_DIR}/third_party/checks/*.mm")
 add_custom_target(format-check
   COMMAND "${BW_clang_format}" --dry-run --Werror ${BW_FORMAT_FILES}
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" VERBATIM)
