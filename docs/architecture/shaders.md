@@ -7,7 +7,8 @@ a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
 ## Invariants
 
 1. One HLSL source per shader. There is no per-target shader source; target
-   differences are confined to one bindless-access include.
+   differences are confined to one include that places the descriptor arrays
+   in each API's register spaces or sets.
 2. Compilation is offline. The game ships bytecode and never ships source or
    a compiler.
 3. The same source revision, defines and compiler arguments produce
@@ -16,9 +17,10 @@ a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
 4. C++ parameter block declarations are the single source of layout truth.
    The HLSL declarations are generated from them, and offsets are equal by
    construction and proven by test.
-5. Resources are reached by index into per-type heaps. Every pipeline on
-   every API binds against one fixed root layout, which is fixed before any
-   shader is compiled.
+5. Resources are reached by index into typed unbounded descriptor arrays,
+   one per resource type. Every pipeline on every API binds against one fixed
+   root layout, which is fixed before any shader is compiled. There is one
+   binding model, and it is the one every target can run.
 6. The set of permutations is finite, enumerated at build time and fully
    built. The game never discovers a shader variant at runtime.
 7. An artifact is self-describing and validated on its own header. Shaders
@@ -90,8 +92,8 @@ flowchart LR
         P["Per-draw uniform buffer"]
         C["Root constants, fixed size"]
     end
-    subgraph Heaps
-        T["Textures and buffers"]
+    subgraph DA["Descriptor arrays"]
+        T["Textures and buffers, one array per type"]
         Sm["Samplers"]
     end
     P -- 32-bit indices --> T
@@ -104,8 +106,14 @@ flowchart LR
 | Static uniform buffers | root constant buffer views in a reserved space | push constants holding bindless indices | constant buffer view table in the argument buffer |
 | Per-draw uniform buffer | root constant buffer view | push constant index | argument buffer entry |
 | Root constants | root constants | push constants | argument buffer bytes |
-| Texture and buffer heap | descriptor heap, dynamic resources | descriptor set 1, runtime array | converter-managed descriptor table |
-| Sampler heap | sampler heap | descriptor set 0 | static sampler table |
+| Texture and buffer arrays | descriptor tables of unbounded typed arrays | descriptor set 1, runtime arrays per type | argument buffer tables in the converter's explicit layout |
+| Sampler array | sampler descriptor table | descriptor set 0 | sampler table in the argument buffer |
+
+Bindless access is typed unbounded descriptor arrays indexed with
+non-uniform indices, shader model 5.1 and later, not the shader model 6.6
+descriptor heap. That is what keeps the same shaders and the same layout
+running on every target, including the Xbox Dev Mode container, which stops
+at shader model 6.4.
 
 ## Artifact
 
@@ -135,10 +143,10 @@ predicate. The build compiles every permutation that remains.
 
 | Target | Bytecode | Back half | Floor |
 |---|---|---|---|
-| Direct3D 12 | DXIL | DXC, signed on a host with the validator | shader model 6.6, resource binding tier 3 |
+| Direct3D 12 | DXIL | DXC, signed on a host with the validator | shader model 6.4 or later, resource binding tier 2 |
 | Metal | Metal library | the same DXIL through the Metal Shader Converter, in process | macOS 15, Apple silicon, Metal 3 |
 | Vulkan | SPIR-V | DXC SPIR-V backend, SPIRV-Tools, SPIRV-Reflect | Vulkan 1.3 with descriptor indexing |
-| Xbox Series X, Dev Mode | DXIL | the Direct3D 12 backend | probed at startup; explicit failure if shader model 6.6 or heap access is absent |
+| Xbox Series X, Dev Mode | DXIL | the Direct3D 12 backend | shader model 6.4, feature level 11.0; probed at startup, explicit failure below shader model 6.4 or resource binding tier 2 |
 
 ## Components and ownership
 
