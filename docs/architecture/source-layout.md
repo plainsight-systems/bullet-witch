@@ -37,7 +37,8 @@ src/
       backends/
     rendering/
       scene/                # render-owned proxies, views and visibility
-      materials/
+      materials/            # material and instance types, attribute table; see materials.md
+        templates/          # authored material HLSL and parameter block declarations
       lighting/
       graph/
       passes/
