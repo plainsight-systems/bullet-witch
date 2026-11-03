@@ -1,6 +1,6 @@
 # Bullet Witch
 
-![Bullet Witch title screen](https://media.plainsight-systems.com/bullet-witch/title-screen-2026-10-24-0dbf54587d10.png)
+![Bullet Witch title screen](https://media.plainsight-systems.com/bullet-witch/title-screen-2026-10-24-1728.webp)
 
 Game imagery remains the property of its rights holders and is not covered by
 this repository's licenses.
