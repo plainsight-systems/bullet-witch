@@ -11,11 +11,11 @@ limits of 2006 console hardware and the shortcuts those limits forced.
 - Where the shipped implementation is a workaround for its hardware, such as
   a frame cap, a draw budget, a texture size or a simplified simulation, the
   remaster drops the workaround and keeps the intent.
-- How a subsystem is built comes from modern engine practice: Unreal Engine
-  at the pinned commit first, and other current engines, talks and papers
-  where they do better. Where a design follows a source, cite it. The
-  original's engine is never that source: it tells us what the game contains
-  and does, not how to structure ours.
+- How a subsystem is built comes from modern engine practice: engine source
+  we can read at a pinned revision, and current talks, papers and vendor
+  documents. Each is a source we learn from and depart from when the game
+  needs it, never a specification. The original's engine is never a source:
+  it tells us what the game contains and does, not how to structure ours.
 - Scope is set by what the game needs, improved. Argue a cut by "the game
   never reaches this", never by "the 2006 game did not have this".
 
@@ -39,10 +39,11 @@ Read [docs/architecture/overview.md](docs/architecture/overview.md) and
   earlier Bullet Witch reconstruction.
 - Purchased game data and the original Lua are read-only inputs. Nothing
   purchased, generated or downloaded goes in Git.
-- Size every subsystem by what the game runtime needs. Inside that subset,
-  follow the Unreal reference's behavior, ordering and failure handling, and
-  write each omitted pinned step down beside the code. Do not reproduce
-  Unreal's build matrix, macro seams, hidden base members or unused overloads.
+- Size every subsystem by what the game runtime needs. Inside that subset, a
+  slice follows its sources' behavior, ordering and failure handling and
+  records each step it leaves out; see Sources and citations. Do not
+  reproduce a source's build matrix, macro seams, hidden base members or
+  unused overloads.
 - Keep proposed design, implemented behavior and verified behavior distinct in
   what you write.
 - Do not commit, push, or launch the game without the user's word.
@@ -59,8 +60,8 @@ whole renderer.
 - No plans, phases, rollback, verification lists, alternatives considered or
   decision records. Git history is the record. Slice plans live untracked
   under `research/slices/`.
-- No pin citations or other implementation detail. Those live beside the
-  code.
+- No source citations or other implementation detail. Sources live in the
+  slice records.
 - No status words. A document that says what is done, pending or next is a
   plan, not architecture.
 
@@ -75,21 +76,48 @@ them as rules. Add an entry when the same mistake comes back.
   decompiling or mirroring them is not research we do. The original is read to
   answer "what does the game contain or do": its assets and their formats, its
   scripts, its behaviors, its look. How a subsystem is built comes from
-  modern engine practice, Unreal at the pin first, never from the shipped
-  engine.
+  modern engine practice, never from the shipped engine.
 
-## Reference
+## Sources and citations
 
-- Unreal pin: `f45729c0b6f097038e72b52d366a62baeca3275b`, labeled "5.8.4 release".
-- Pinned checkout: a blob-less fetch of the pin alone with no working tree,
-  at the `unreal_checkout` path in `research/local.md` in the main checkout.
-  That file is untracked and machine-local; no absolute path of this machine
-  goes in a tracked file. Read one file at a time with
-  `GIT_TERMINAL_PROMPT=0 git -C <unreal_checkout> show <pin>:Engine/Source/<path>`.
-  Never check it out, fetch another ref or widen it.
-- Citation in code: `// Unreal <pin> Engine/Source/<path>:<start>-<end>`,
-  the path from the Unreal repository root. For any other source:
-  `// Source: <title>, <author or venue>, <year>, <url or section>`.
+A source is anything a design follows: engine source at a pinned revision, a
+paper, a talk, a vendor document. Every source is treated the same way.
+Citations exist for review and do not ship in the tree.
+
+- A slice plan names each source it follows: a source tree with its revision,
+  or a paper, talk or document with its year and location. No other file
+  lists sources.
+- A pinned source tree is read from a blob-less fetch of that revision alone,
+  with no working tree, at the path under the tree's key in
+  `research/local.md` in the main checkout. That file is untracked and
+  machine-local; no absolute path of this machine goes in a tracked file.
+  Read one file at a time with
+  `GIT_TERMINAL_PROMPT=0 git -C <checkout> show <revision>:<path>`. Never
+  check it out, fetch another ref or widen it.
+- Citation form, the same for every source:
+  `// Source: <source>, <revision or year>, <path or section>:<lines>`.
+- In a slice worktree, every type and function that follows a source carries
+  a citation in that form, and every step of a source left out has a note
+  beside the declaration saying why the game does not reach it. The reviewer
+  reads the cited source, not the citation.
+- When the user accepts the slice, and before it is committed, every citation
+  and omission note leaves headers, sources, tests and build files, whatever
+  the source. A comment that explains what the code does or why stays, in
+  our words, naming no source: a platform fact is stated as the fact, not as
+  where it was read.
+- The citations and the omission list survive in the slice's plan under
+  `research/slices/<slice>/`, untracked, with the research.
+- Committed code, build files and `docs/` name no source. Before every
+  commit, `git grep -n -P '\bSource:' -- src tests tools cmake docs third_party`
+  is empty, and so is a case-insensitive grep over the same paths for the
+  name of each source the slice plan lists, like the machine-path grep.
+
+Why: an agent reading the tree designs from this project's code and its
+architecture documents. A source named beside the code pulls the next change
+toward that source where we would depart.
+
+## Slices
+
 - Original game data: the `game_data` path in `research/local.md`,
   read-only.
 - Slice records are not tracked. The plan for a slice is
@@ -110,8 +138,9 @@ Both kinds assert public contracts only: the invariants the public headers and
 the architecture documents state. The test of a test: if the implementation
 changes and no invariant changes, the test must not need to change.
 
-- Before writing or keeping a test, name the header line or architecture
-  statement it asserts.
+- Before writing or keeping a test, name what it asserts: a header
+  declaration, written `(<header>, <identifier or invariant number>)`, or an
+  architecture statement. Never a line number; lines move.
 - No test target gets a private include directory.
 - Do not assert what a one-line wrapper forwards to: an intrinsic, a libc or
   std function, an OS call. That tests the platform, not our code.
