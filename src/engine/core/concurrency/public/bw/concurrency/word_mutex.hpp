@@ -4,18 +4,15 @@
 #include <atomic>
 #include <cstdint>
 
-// Core CP.2: lock state and waiter ownership use the source atomic protocol.
-// Core I.22/C.48: source constant initialization and shared zero member state;
+// Core CP.2: lock state and waiter ownership use one atomic protocol.
+// Core I.22/C.48: constant initialization and shared zero member state;
 // Performance LIFE.6's first-use singleton alternative is not selected.
 namespace bw::concurrency {
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// Async/WordMutex.h:20-77; Private/Async/WordMutex.cpp:12-164.
 // Nonrecursive and unfair; contention queues stack waiters, without heap nodes.
 class WordMutex final {
 public:
-  // Unreal f45729c0b6f097038e72b52d366a62baeca3275b,
-  // Public/Async/WordMutex.h:23,77: first-declaration constexpr defaulting uses
-  // the atomic zero member initializer before other units' dynamic startup.
+  // First-declaration constexpr defaulting uses the atomic zero member
+  // initializer before other units' dynamic startup.
   constexpr WordMutex() = default;
   WordMutex(const WordMutex&) = delete;
   WordMutex& operator=(const WordMutex&) = delete;

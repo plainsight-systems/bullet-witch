@@ -1,5 +1,5 @@
 // Integration test: the validation layer's default reporter
-// (backend.hpp:383-385, report_validation_failure_and_abort: one diagnostic
+// (backend.hpp, report_validation_failure_and_abort: one diagnostic
 // line naming the code, the resource and the command, then abort). It needs
 // a child process, which is why it is an integration test: the reporter runs
 // in a forked child whose stderr is a pipe, and the parent asserts the child

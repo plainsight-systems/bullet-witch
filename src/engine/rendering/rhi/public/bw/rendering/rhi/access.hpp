@@ -24,12 +24,6 @@
 // citing an unrelated rule.
 namespace bw::rhi {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIAccess.h:10-86: ERHIAccess, the read
-// states, the read-write states, Discard and the masks. Followed, with the
-// bit values of this enum its own. Omitted: BVHRead and BVHWrite (ray tracing
-// is reported as an absent capability) and ShadingRateSource (the game has
-// no variable rate shading pass).
 enum class Access : std::uint32_t {
   Unknown = 0,
   // Read states.
@@ -76,10 +70,8 @@ enum class Access : std::uint32_t {
   return (value & bits) == bits;
 }
 
-// Masks. RHIAccess.h:57-86 defines SRVMask, UAVMask, ReadOnlyExclusiveMask,
-// ReadOnlyMask, ReadableMask, WriteOnlyExclusiveMask, WriteOnlyMask,
-// WritableMask; :125-132 and Engine/Source/Runtime/RHI/Private/RHI.cpp:1168-1174
-// define GRHIMergeableAccessMask as ReadOnlyMask | UAVMask.
+// Masks. The mergeable mask is the read-only mask with the unordered access
+// bits.
 inline constexpr Access kShaderResourceMask =
     Access::ShaderResourceCompute | Access::ShaderResourcePixel | Access::ShaderResourceNonPixel;
 inline constexpr Access kUnorderedAccessMask =
@@ -95,14 +87,11 @@ inline constexpr Access kWriteOnlyMask = kWriteOnlyExclusiveMask | Access::Depth
 inline constexpr Access kWritableMask = kWriteOnlyMask | kUnorderedAccessMask;
 inline constexpr Access kMergeableMask = kReadOnlyMask | kUnorderedAccessMask;
 
-// RHIAccess.h:88-123: IsReadOnlyExclusiveAccess, IsReadOnlyAccess,
-// IsWriteOnlyAccess, IsWritableAccess, IsReadableAccess, IsInvalidAccess,
-// IsValidAccess. Followed for the predicates; departure in is_valid_access:
-// the pin's IsValidAccess (:106-116) is !IsInvalidAccess and accepts two
-// writable bits together (RenderTarget|CopyDestination), while here a value
-// is valid when it is one write-only bit, or any set within the mergeable
-// mask, or Discard alone, because no backend of this project can hold two
-// write states at once and a declared transition names one.
+// Predicates. A value is valid when it is one write-only bit, or any set
+// within the mergeable mask, or Discard alone: two writable bits together
+// (RenderTarget|CopyDestination) are invalid, because no backend of this
+// project can hold two write states at once and a declared transition names
+// one.
 [[nodiscard]] constexpr bool is_read_only(Access access) noexcept {
   return access != Access::Unknown && (access & ~kReadOnlyMask) == Access::Unknown;
 }
@@ -132,14 +121,9 @@ inline constexpr Access kMergeableMask = kReadOnlyMask | kUnorderedAccessMask;
   return is_single_bit(access) && is_write_only(access);
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIPipeline.h:12-43: ERHIPipeline
-// Graphics = 1, AsyncCompute = 2, None, All; :45-50 GetEnabledRHIPipelines is
-// All only when GRHIGlobals.SupportsEfficientAsyncCompute. Followed. The
-// architecture puts compute work on the graphics queue until a backend
+// The architecture puts compute work on the graphics queue until a backend
 // proves async compute, so a declaration naming AsyncCompute on such a
-// device is executed on Graphics (Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:2143-2147
-// falls back the same way).
+// device is executed on Graphics.
 enum class Pipeline : std::uint8_t {
   None = 0,
   Graphics = 1U << 0U,
@@ -156,14 +140,9 @@ enum class Pipeline : std::uint8_t {
   return pipeline == Pipeline::Graphics || pipeline == Pipeline::AsyncCompute;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHITransition.h:406-433: FRHITrackedAccess
-// {Access, Pipelines}. Every buffer and texture carries one
-// (Engine/Source/Runtime/RHI/Public/RHIResources.h:1314-1368,
-// FRHIViewableResource::TrackedAccess at :1363-1367); it is written only by
-// the execution of a transition (RHIContext.h:510-531, SetTrackedAccess) and
-// read to resolve an Unknown before state. Pipelines None reads as Graphics
-// (RHIContext.h:527-530, GetTrackedPipelines).
+// Every buffer and texture carries one (resources.hpp, Viewable); it is
+// written only by the execution of a transition and read to resolve an
+// Unknown before state. Pipelines None reads as Graphics.
 struct TrackedAccess {
   Access access{Access::Unknown};
   Pipeline pipelines{Pipeline::Graphics};

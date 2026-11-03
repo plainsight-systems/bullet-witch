@@ -6,15 +6,13 @@
 #include <initializer_list>
 
 // Core C.32: these tables own values, never client storage. Performance MEM.5:
-// keep source size segregation; the reference, not illustrative rules, sets bins.
-// All references below: Unreal f45729c0b6f097038e72b52d366a62baeca3275b.
+// keep size segregation; this class table, not illustrative rules, sets bins.
 namespace bw::memory {
-// Align helper used by MallocBinnedCommon.h:823-894: round to the selected
-// power-of-two boundary; alignment zero is handled by the callers first.
+// The align helper rounds to the selected power-of-two boundary; alignment zero
+// is handled by the callers first.
 
-// MallocBinnedCommon.cpp:27-165, FSizeTableEntry/FillSizeTable; Binned3.cpp:475-543.
-// Build native-page-compatible block multiples, sort original classes, then
-// append 4KiB classes. This extracts the source constructor's immutable tables.
+// Build native-page-compatible block multiples, sort the listed classes, then
+// append 4KiB classes. The tables are immutable after construction.
 BinnedSizeClasses::BinnedSizeClasses(std::uint32_t native_page_size)
     : page_size_(native_page_size) {
   BW_ALLOCATOR_CHECK(page_size_ >= 4096U && page_size_ % 4096U == 0U);
@@ -43,7 +41,7 @@ BinnedSizeClasses::BinnedSizeClasses(std::uint32_t native_page_size)
     add(size / 4096U, {size});
   }
   BW_ALLOCATOR_CHECK(next == binned_class_count);
-  // Binned3.cpp:533-543: one byte per 8-byte request quantum, first fitting bin.
+  // One byte per 8-byte request quantum, first fitting bin.
   std::uint32_t pool = 0;
   for (std::size_t quantum = 0; quantum < lookup_.size(); ++quantum) {
     while (classes_[pool].bytes < quantum * 8U) {
@@ -53,20 +51,20 @@ BinnedSizeClasses::BinnedSizeClasses(std::uint32_t native_page_size)
   }
 }
 
-// Binned3.cpp:485-491 / .h:300-303: checked descriptor access.
+// Checked descriptor access.
 const BinnedSizeClass& BinnedSizeClasses::at(std::uint32_t index) const {
   BW_ALLOCATOR_CHECK(index < classes_.size());
   return classes_[index];
 }
 
-// MallocBinnedCommon.h:858-865, BoundSizeToPoolIndex: ceil request to lookup quantum.
+// Ceil request to lookup quantum.
 std::uint32_t BinnedSizeClasses::index_for(std::size_t bytes) const {
   BW_ALLOCATOR_CHECK(bytes <= binned_small_limit);
   return lookup_[(bytes + 7U) >> 3U];
 }
 
-// MallocBinnedCommon.h:823-855, QuantizeSizeCommon: preserve small classes;
-// larger alignment searches divisible bins, then falls through to native pages.
+// Preserve small classes; larger alignment searches divisible bins, then falls
+// through to native pages.
 std::size_t BinnedSizeClasses::quantize(std::size_t bytes, std::uint32_t alignment) const {
   BW_ALLOCATOR_CHECK((alignment & (alignment - 1U)) == 0U);
   if (bytes <= binned_small_limit && alignment <= 16U) {
@@ -84,8 +82,8 @@ std::size_t BinnedSizeClasses::quantize(std::size_t bytes, std::uint32_t alignme
   return align_up(bytes, std::max(alignment, page_size_));
 }
 
-// MallocBinnedCommon.h:868-894, PromoteToLargerBin: mutate only on source success
-// except the initial minimum alignment adjustment, which also persists on failure.
+// Mutate only on success, except the initial minimum alignment adjustment, which
+// also persists on failure.
 bool BinnedSizeClasses::promote(std::size_t& bytes, std::uint32_t& alignment) const {
   alignment = std::max(alignment, 16U);
   const auto requested = align_up(bytes, alignment);

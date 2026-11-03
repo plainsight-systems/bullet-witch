@@ -137,9 +137,6 @@ struct Offset3 {
   std::uint32_t y{};
   std::uint32_t z{};
 };
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHICommandList.h:181: FRHICopyTextureInfo
-// (size, source and destination positions, mips, slices). Followed.
 struct TextureCopyRegion {
   std::uint8_t source_mip{};
   std::uint16_t source_slice{};
@@ -160,22 +157,6 @@ struct BufferTextureRegion {
   std::uint16_t slice{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHICommandList.h:347-351: FRHICommandBase,
-// an intrusive node with ExecuteAndDestruct; :566-575 AllocCommand links a
-// node allocated from the list's memory stack; :453-1380 FRHICommandListBase;
-// :2493-3585 FRHIComputeCommandList and :3590-4328 FRHICommandList, the
-// recording interfaces; Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:517-548
-// Execute walks the chain and runs each command against the context
-// (Engine/Source/Runtime/RHI/Public/RHICommandListCommandExecutes.inl:7-14).
-// Followed as a byte stream with one record per command. Omitted: the
-// bypass mode that executes directly into the context
-// (RHICommandList.inl:27-34), the immediate list, sub-lists for parallel
-// render passes (RHICommandList.h:5035-5045), lambda commands (:353-410),
-// dispatch prerequisites and the RHI thread fence (:509-519, :751), the
-// GPU mask, the shader parameter batching (:996-1010) and the pending
-// upload tracking: the game has one submission path and binds through
-// descriptor indices.
 class CommandList {
 public:
   CommandList();
@@ -183,22 +164,17 @@ public:
   CommandList& operator=(const CommandList&) = delete;
   ~CommandList();
 
-  // Transitions. RHICommandList.h:2739-2778 BeginTransitions and
-  // EndTransitions; RHICommandList.cpp:2128-2132 Transition records the
-  // combined form then the tracked access.
+  // Transitions. transition records the combined form.
   void begin_transitions(const TransitionBatch& batch);
   void end_transitions(const TransitionBatch& batch);
   void transition(const TransitionBatch& batch);
 
-  // Render pass. RHICommandList.h:4030-4060 BeginRenderPass (checks not
-  // inside a pass, validates the info, records, caches the targets);
-  // :4062-4083 EndRenderPass. The name is copied.
+  // Render pass. The name is copied.
   void begin_render_pass(const RenderPassDescription& pass);
   void end_render_pass();
   [[nodiscard]] bool inside_render_pass() const noexcept { return inside_pass_; }
 
-  // Pipeline and fixed state. RHICommandList.h:3883-3894
-  // SetGraphicsPipelineState(state, stencil ref); :2667-2677 compute.
+  // Pipeline and fixed state.
   void set_graphics_pipeline(GraphicsPipeline& pipeline);
   void set_compute_pipeline(ComputePipeline& pipeline);
   void set_viewport(const Viewport& viewport);
@@ -209,10 +185,8 @@ public:
   void set_vertex_buffer(std::uint32_t slot, Buffer& buffer, std::uint64_t offset);
   void set_index_buffer(Buffer& buffer, IndexFormat format, std::uint64_t offset);
 
-  // Root layout binding (root_layout.hpp). The pin binds uniform buffers
-  // per stage and slot (RHIContext.h, RHISetStaticUniformBuffers at
-  // Engine/Source/Runtime/RHI/Public/RHIContext.h:254-567); here one call
-  // per slot for every stage, since the layout is one.
+  // Root layout binding (root_layout.hpp): one call per slot binds it for
+  // every stage, since the layout is one.
   void set_static_block(std::uint32_t slot, Buffer& buffer, std::uint64_t offset);
   void set_draw_block(std::span<const std::byte> bytes, shaders::LayoutHash layout);
   template <shaders::ParameterBlock Block> void set_draw_block(const Block& block) {
@@ -226,9 +200,7 @@ public:
   void draw_indexed(const DrawIndexedArguments& arguments);
   void dispatch(const DispatchArguments& arguments);
 
-  // Copies. RHICommandList.h:3996-4008 CopyTexture (source and destination
-  // differ, outside a render pass); :4105-4122 CopyBufferRegion;
-  // :3153-3161 CopyToStagingBuffer.
+  // Copies.
   void copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy);
   void copy_texture(Texture& source, Texture& destination, const TextureCopyRegion& region);
   void copy_buffer_to_texture(Buffer& source, const BufferTextureRegion& region,
@@ -237,17 +209,12 @@ public:
                                StagingBuffer& destination, std::uint64_t destination_offset);
   void copy_buffer_to_staging(Buffer& source, StagingBuffer& destination, const BufferCopy& copy);
 
-  // Fences and queries. RHICommandList.h:3163-3166 WriteGPUFence;
-  // :4020-4028 BeginRenderQuery and EndRenderQuery.
+  // Fences and queries.
   void write_fence(GpuFence& fence);
   void begin_query(QueryPool& pool, std::uint32_t index);
   void end_query(QueryPool& pool, std::uint32_t index);
 
-  // Markers. RHICommandList.h:3091-3147 BeginBreadcrumbGPU and
-  // EndBreadcrumbGPU reach the context's RHIBeginBreadcrumbGPU and
-  // RHIEndBreadcrumbGPU (RHIContext.h:369-372). Followed as a name per
-  // scope. Omitted: the breadcrumb tree, its allocator and crash output
-  // (RHIBreadcrumbs.h:136-310).
+  // Markers: a name per scope, passed through to the context.
 #if BW_RHI_DEBUG
   void begin_marker(std::string_view name);
   void end_marker();

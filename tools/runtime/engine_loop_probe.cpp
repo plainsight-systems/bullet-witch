@@ -11,10 +11,8 @@
 
 // MEM.9: bounded sample storage is allocated before dispatch; no vector growth or
 // logging on every frame. This observation tool does not implement a second loop.
-// Unreal reference: f45729c0b6f097038e72b52d366a62baeca3275b.
 namespace {
-// Observation of Engine/Source/Runtime/Launch/Private/Launch.cpp:123-194 and
-// Engine/Source/Runtime/Engine/Private/UnrealEngine.cpp:2980-3220: retain completed
+// Observation of run_engine_loop and the engine's timing update: retain completed
 // frame time, elapsed/idle/overshoot, and request ordinary exit after121samples.
 class ProbeEngine final : public bw::engine::Engine {
 public:
@@ -22,19 +20,19 @@ public:
   std::array<bw::engine::ApplicationTime, 121> samples{};
   std::size_t sample_count{};
 
-  // LaunchEngineLoop.cpp:4826-4830: retain host solely for normal exit request.
+  // Retain host solely for normal exit request.
   void init(bw::engine::EngineLoop& loop) override { loop_ = &loop; }
-  // LaunchEngineLoop.cpp:4885-4890: no world startup in this observation tool.
+  // No world startup in this observation tool.
   void start() override {}
-  // LaunchEngineLoop.cpp:5858-5861: observe the published frame, never pace it.
+  // Observe the published frame, never pace it.
   void tick(float, bool) override {
     samples[sample_count++] = application_time();
     if (sample_count == samples.size()) {
-      // CoreGlobals.cpp:325-341: finish this frame, leave the outer loop normally.
+      // Finish this frame, leave the outer loop normally.
       loop_->request_exit("Native timing sample complete");
     }
   }
-  // LaunchEngineLoop.cpp:5055-5065: fixed observation storage has no world cleanup.
+  // Fixed observation storage has no world cleanup.
   void pre_exit() override {}
 
 private:
@@ -42,12 +40,10 @@ private:
 };
 } // namespace
 
-// Native timing observation. References: Engine/Source/Runtime/Launch/Private/
-// Launch.cpp:123-194; Engine/Source/Runtime/Engine/Private/UnrealEngine.cpp:
-// 2980-3220; Engine/Source/Runtime/Core/Private/Mac/CocoaThread.cpp:358-369.
+// Native timing observation.
 int main(int argc, char** argv) {
   // Tool input, not a runtime default: require an explicit cap for every probe.
-  // It feeds the source setting through Engine::set_max_fps; no FPS floor exists.
+  // It feeds the maximum FPS setting through Engine::set_max_fps; no FPS floor exists.
   if (argc != 3 || std::string_view(argv[1]) != "--max-fps") {
     std::cerr << "Usage: engine_loop_probe --max-fps VALUE\n";
     return 2;
@@ -60,7 +56,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  // Source native initialization then normal lifecycle, as in the host. Observe
+  // Native initialization then normal lifecycle, as in the host. Observe
   // thread-policy return codes rather than silently substituting another policy.
   bw::platform::macos::PlatformTime time;
   bw::platform::macos::PlatformProcess process;

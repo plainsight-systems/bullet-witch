@@ -382,14 +382,8 @@ void append_enumerate_line(const ShaderDescription& shader, PermutationId permut
 void append_compiler_arguments(ShaderTarget target, ShaderStage stage, std::string_view entry_point,
                                std::span<const Define> defines, std::string_view root_signature,
                                bool emit_symbols, std::vector<std::string>& out) {
-  // The header's order, which is the pin's: Unreal
-  // f45729c0b6f097038e72b52d366a62baeca3275b
-  // Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompilerDXC.cpp:136-364
-  // for the DXIL flags, symbols at :249-261 before -disable-lifetime-markers
-  // at :276, and :320-330 for -E and -T last, and
-  // Engine/Source/ThirdParty/ShaderConductor/ShaderConductor/Source/Core/ShaderConductor.cpp:1233-1350
-  // for the SPIR-V ones (-Zi at :1254, -fspv-debug=line at :1350), with the
-  // departures and omissions the header states.
+  // The header's order: the fixed DXIL flags, symbols before
+  // -disable-lifetime-markers, -E and -T last.
   const bool dxil = target != ShaderTarget::Vulkan;
   out.emplace_back("-HV");
   out.emplace_back("2021");

@@ -15,16 +15,11 @@ BlockSuballocator::BlockSuballocator(std::uint64_t capacity)
   }
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:1684-1764:
-// FindOrAllocateBlock walks the blocks in address order for the first free
-// one that holds the aligned size; :1514-1561 SplitBlock cuts the remainder
-// off as a new free block. Followed for the remainder. Departure (stated in
-// memory_suballocator.hpp): SplitBlock also cuts the alignment padding into
-// its own free PreBlock (:1520-1536); here the padding stays inside the used
-// block and returns with it on free. Omitted: the heap growth
-// path of :1729-1763 (see the header). The signature is the header's; the
-// split's insert may allocate, and an allocation failure inside this noexcept
+// Walks the blocks in address order for the first free one that holds the
+// aligned size and cuts the remainder off as a new free block. The
+// alignment padding stays inside the used block and returns with it on free
+// (memory_suballocator.hpp). The signature is the header's; the split's
+// insert may allocate, and an allocation failure inside this noexcept
 // function terminates.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters,bugprone-exception-escape)
 std::optional<Allocation> BlockSuballocator::allocate(std::uint64_t size,
@@ -50,10 +45,7 @@ std::optional<Allocation> BlockSuballocator::allocate(std::uint64_t size,
   return std::nullopt;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:1586-1682:
-// FreeBlock marks the block free and :1563-1577 MergeBlocks joins it with a
-// free neighbor on either side. Followed.
+// Marks the block free and joins it with a free neighbor on either side.
 void BlockSuballocator::free(std::uint64_t offset) noexcept {
   for (std::size_t i = 0; i < blocks_.size(); ++i) {
     Block& block = blocks_[i];

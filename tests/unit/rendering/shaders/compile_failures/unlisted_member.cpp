@@ -1,4 +1,4 @@
-// Must not compile. parameter_block.hpp:28-31: every member listed; an
+// Must not compile. (parameter_block.hpp, BW_PARAMETER_BLOCK_LAYOUT): every member listed; an
 // unlisted member leaves a gap and fails. `hidden` is not listed, so `after`
 // does not start where the listed members end.
 #include "bw/rendering/shaders/parameter_block.hpp"

@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/shaders/root_layout.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/root_layout.hpp"
 
 #include <array>
@@ -32,7 +32,7 @@ RootLayout layout_with(std::uint32_t slot, std::string_view name, std::uint64_t 
   return layout;
 }
 
-// root_layout.hpp:222-225: same slots in the same order hash equal; moving a
+// (root_layout.hpp, root_layout_hash): same slots in the same order hash equal; moving a
 // block to another slot changes the hash; a slot's layout hash and
 // root_constant_words are hashed inputs.
 void hash_changes_when_slot_moves() {
@@ -52,8 +52,9 @@ void hash_changes_when_slot_moves() {
           "root constant words are hashed");
 }
 
-// root_layout.hpp:232-237: the slot of a block by name, no value when absent;
-// unused slots never match. :213-220 and :239-242: the engine's one layout is
+// (root_layout.hpp, find_static_slot): the slot of a block by name, no value
+// when absent; unused slots never match. (root_layout.hpp, RootLayout) and
+// (root_layout.hpp, engine_root_layout): the engine's one layout is
 // a value whose hash is root_layout_hash of it, whose root_constant_words is
 // kRootConstantWords, and in which find_static_slot finds each named block
 // and nothing else. Nothing is assumed about which blocks it holds.
@@ -96,7 +97,7 @@ void find_static_slot() {
   }
 }
 
-// root_layout.hpp:244-269: the exact text, root parameters in the pin's order
+// (root_layout.hpp, append_root_signature_text): the exact text, root parameters in the pin's order
 // (SRV table, sampler table, UAV table, draw CBV, static CBVs b0-b7, root
 // constants), every root CBV with flags=DATA_STATIC, ", " between parameters
 // and between the ranges of one table, no newline, appended;
@@ -160,11 +161,13 @@ struct ExpectedPlacement {
   char register_class;
 };
 
-// root_layout.hpp:126-149 and the placement() definition :321-373: each array's
+// (root_layout.hpp, DescriptorArray), (root_layout.hpp, DescriptorArrayPlacement)
+// and the definition of (root_layout.hpp, placement): each array's
 // HLSL type, table, register space (kSamplerSpace..kStorageBufferSpace),
 // Vulkan set (samplers kVulkanSamplerSet, the rest kVulkanResourceSet) and
 // distinct binding, bound (0 unbounded, kStorageDescriptors for the two
-// storage arrays) and register class. :186-198: the uniform set follows the
+// storage arrays) and register class. (root_layout.hpp, kVulkanUniformSet) and
+// (root_layout.hpp, kVulkanPushConstantBytes): the uniform set follows the
 // two array sets, and the push constant block is 8 static indices, then the
 // draw index at byte 32, then 16 root constant words from byte 36, 100 bytes.
 void placement_table() {

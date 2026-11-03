@@ -12,8 +12,7 @@
 
 // Core CP.2/C.32/R.15: locked metadata owns process-lifetime VM; client slots
 // have explicit release. Performance MEM.2/MEM.5: intrusive class pools and
-// direct large VM. References: Unreal f45729c0b6f097038e72b52d366a62baeca3275b,
-// Private/HAL/MallocBinned3.cpp and Public/HAL/MallocBinnedCommon.h unless stated.
+// direct large VM.
 namespace bw::memory {
 namespace {
 using VM = platform::AllocatorVirtualMemoryBlock;
@@ -21,7 +20,7 @@ constexpr auto unavailable = std::numeric_limits<std::uint32_t>::max();
 constexpr std::uint32_t no_next = 4096U;
 constexpr std::uint32_t large_unassigned = 0x39431234U;
 constexpr std::uint32_t large_assigned = 0x17ea5678U;
-// Binned3.cpp:103-163 FFreeBlock: an eight-byte header overlays a free run. Its
+// An eight-byte header overlays a free run. Its
 // head is returned last; client data never shares a live allocation header.
 struct FreeRun {
   std::uint32_t size_shifted : 15;
@@ -31,8 +30,8 @@ struct FreeRun {
   std::uint32_t next : 13;
 };
 static_assert(sizeof(FreeRun) == 8U);
-// Binned3.cpp:443-460: enforce process singleton before reserving virtual memory.
-// Extracted to retain this ordering during member construction.
+// Enforce process singleton before reserving virtual memory. A separate
+// function retains this ordering during member construction.
 VM reserve_small_ranges() {
   [[maybe_unused]] static bool constructed = false;
   BW_ALLOCATOR_CHECK(!constructed);
@@ -43,8 +42,8 @@ VM reserve_small_ranges() {
 } // namespace
 BinnedRecycler BinnedAllocator::recycler_;
 
-// Binned3.cpp:443-549 constructor: reserve class address ranges first, establish
-// native-page geometry and one packed region for pointer tables and bit trees.
+// Reserve class address ranges first, establish native-page geometry and one
+// packed region for pointer tables and bit trees.
 BinnedAllocator::BinnedAllocator()
     : small_reservation_(reserve_small_ranges()),
       sizes_(static_cast<std::uint32_t>(VM::commit_alignment())),
@@ -58,7 +57,7 @@ BinnedAllocator::BinnedAllocator()
     pool.pages_per_block = sizes_.at(index).pages_per_block;
     pool.block_size = pool.pages_per_block * page_size_;
     const auto blocks = static_cast<std::uint32_t>(binned_reservation_per_class / pool.block_size);
-    // Source pointer-table rounding includes the source's multiply-before-divide.
+    // Pointer-table rounding multiplies before dividing.
     required += align_up(sizeof(SmallBlockInfo*) * (blocks + small_infos_per_page_ - 1U) /
                              small_infos_per_page_,
                          platform::allocator_cache_line_size);
@@ -84,11 +83,10 @@ BinnedAllocator::BinnedAllocator()
   }
   initialize_large_metadata();
 }
-// Binned3.cpp:551-553: allocator/pool storage is process lifetime, no teardown.
+// Allocator/pool storage is process lifetime, no teardown.
 BinnedAllocator::~BinnedAllocator() = default;
 
-// Binned3.h:182-223 PoolIndexFromPtr/PoolBasePtr/BlockPointerFromIndecies:
-// unsigned subtraction classifies external pointers without per-slot headers.
+// Unsigned subtraction classifies external pointers without per-slot headers.
 std::uint64_t BinnedAllocator::pool_index(const void* pointer) const {
   return (reinterpret_cast<std::uintptr_t>(pointer) -
           reinterpret_cast<std::uintptr_t>(small_reservation_.virtual_pointer())) /
@@ -102,8 +100,8 @@ std::byte* BinnedAllocator::block_address(std::uint32_t pool, std::uint32_t bloc
   return pool_base(pool) + static_cast<std::size_t>(block) * pools_[pool].block_size;
 }
 
-// Binned3.cpp:569-589 Allocate/FreeMetaDataMemory: direct VM bypasses allocator
-// recursion. Descriptor aliases are rebuilt only by the explicit owner on release.
+// Direct VM bypasses allocator recursion. Descriptor aliases are rebuilt only by
+// the explicit owner on release.
 void* BinnedAllocator::allocate_metadata(std::size_t bytes) {
   auto block = VM::allocate_virtual(bytes);
   block.commit(0U, align_up(bytes, VM::commit_alignment()));
@@ -115,9 +113,9 @@ void BinnedAllocator::release_metadata(void* pointer, std::size_t bytes) {
   block.free_virtual();
 }
 
-// Binned3.cpp:291-315 GetOrCreatePoolInfoSmall: lazily allocate a page of block
-// records. Existing assigned blocks remain assigned; recycled ones re-enter use.
-// Source class index and block index remain separate documented coordinates.
+// Lazily allocate a page of block records. Existing assigned blocks remain
+// assigned; recycled ones re-enter use. Class index and block index remain
+// separate documented coordinates.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 BinnedAllocator::SmallBlockInfo& BinnedAllocator::block_info(std::uint32_t index,
                                                              std::uint32_t block) {
@@ -137,15 +135,15 @@ BinnedAllocator::SmallBlockInfo& BinnedAllocator::block_info(std::uint32_t index
   return result;
 }
 
-// Binned3.cpp:433-441 GetFrontPool: exhaustion summary selects a usable block.
+// The exhaustion summary selects a usable block.
 BinnedAllocator::SmallBlockInfo* BinnedAllocator::available_block(std::uint32_t pool,
                                                                   std::uint32_t& block) {
   block = pools_[pool].exhausted_blocks.next_available();
   return block == unavailable ? nullptr : &block_info(pool, block);
 }
 
-// Binned3.cpp:396-430 PushNewPoolToFront: reserve one unused block, commit it,
-// create one descending free run, and expose it in the non-exhausted tree.
+// Reserve one unused block, commit it, create one descending free run, and
+// expose it in the non-exhausted tree.
 BinnedAllocator::SmallBlockInfo* BinnedAllocator::commit_block(std::uint32_t index,
                                                                std::uint32_t& block) {
   auto& pool = pools_[index];
@@ -167,8 +165,8 @@ BinnedAllocator::SmallBlockInfo* BinnedAllocator::commit_block(std::uint32_t ind
   return &info;
 }
 
-// Binned3.cpp:207-230 FPoolInfoSmall::AllocateBin: consume a descending run;
-// move to its successor only when the run becomes empty.
+// Consume a descending run; move to its successor only when the run becomes
+// empty.
 void* BinnedAllocator::allocate_bin(std::uint32_t index, std::uint32_t block,
                                     SmallBlockInfo& info) {
   BW_ALLOCATOR_REQUIRE(info.canary == 1U);
@@ -191,8 +189,8 @@ void* BinnedAllocator::allocate_bin(std::uint32_t index, std::uint32_t block,
   return result;
 }
 
-// Binned3.cpp:319-386 FreeBundles: one class lock protects free chains/counts.
-// Save next before overwriting each client slot; discard a block only at taken0.
+// One class lock protects free chains/counts. Save next before overwriting each
+// client slot; discard a block only when taken reaches zero.
 void BinnedAllocator::release_bundles(BinnedBundleNode* bundle, std::uint32_t index) {
   auto& pool = pools_[index];
   const std::lock_guard lock(pool.mutex);
@@ -227,8 +225,8 @@ void BinnedAllocator::release_bundles(BinnedBundleNode* bundle, std::uint32_t in
   }
 }
 
-// Common.h:207-263 FPtrToPoolMapping::Init;943-952 AllocateHashBuckets: hash
-// geometry uses physical-memory hint, with circular collision lists per bucket.
+// Hash geometry uses the physical-memory hint, with circular collision lists
+// per bucket.
 void BinnedAllocator::initialize_large_metadata() {
   const auto& constants = platform::allocator_constants();
   address_base_ = constants.address_start;
@@ -249,7 +247,7 @@ void BinnedAllocator::initialize_large_metadata() {
   }
 }
 
-// Common.h:739-760 FindPoolInfo: locate pointer's collision key and page index.
+// Locate pointer's collision key and page index.
 BinnedAllocator::LargeAllocationInfo* BinnedAllocator::find_large(void* pointer) {
   const auto relative = reinterpret_cast<std::uintptr_t>(pointer) - address_base_;
   const auto key = relative >> hash_key_shift_;
@@ -264,8 +262,8 @@ BinnedAllocator::LargeAllocationInfo* BinnedAllocator::find_large(void* pointer)
   return nullptr;
 }
 
-// Common.h:645-737 GetOrCreatePoolInfo: metadata pages and collision nodes come
-// directly from VM. A bucket's metadata stays alive when individual clients free.
+// Metadata pages and collision nodes come directly from VM. A bucket's metadata
+// stays alive when individual clients free.
 BinnedAllocator::LargeAllocationInfo& BinnedAllocator::create_large(void* pointer) {
   const auto relative = reinterpret_cast<std::uintptr_t>(pointer) - address_base_;
   const auto key = relative >> hash_key_shift_;
@@ -278,7 +276,7 @@ BinnedAllocator::LargeAllocationInfo& BinnedAllocator::create_large(void* pointe
     bucket = bucket->next;
   } while (bucket != first);
   if (bucket->first_pool != nullptr && bucket->key != key) {
-    // Source collision-page freelist is circular, and nodes are unlinked/relinked.
+    // The collision-page freelist is circular, and nodes are unlinked/relinked.
     if (free_hash_buckets_ == nullptr) {
       auto* page = static_cast<HashBucket*>(allocate_metadata(page_size_));
       const auto count = page_size_ / sizeof(HashBucket);
@@ -311,8 +309,8 @@ BinnedAllocator::LargeAllocationInfo& BinnedAllocator::create_large(void* pointe
   return info;
 }
 
-// Binned3.cpp:597-766 Malloc: cache/recycler first, class-locked free runs next;
-// on reservation exhaustion promote to the next source class, never libc malloc.
+// Cache/recycler first, class-locked free runs next; on reservation exhaustion
+// promote to the next class, never libc malloc.
 void* BinnedAllocator::allocate(std::size_t bytes, std::uint32_t alignment) {
   BW_ALLOCATOR_CHECK((alignment & (alignment - 1U)) == 0U);
   bool pooled = bytes <= binned_small_limit;
@@ -342,7 +340,7 @@ void* BinnedAllocator::allocate(std::size_t bytes, std::uint32_t alignment) {
                     alignment);
   }
   void* result = allocate_bin(index, block, *info);
-  // Binned3.cpp:679-698: prefill up to32 extra bins while a free run remains.
+  // Prefill up to 32 extra bins while a free run remains.
   if (cache != nullptr) {
     for (std::uint32_t extra = 0; extra < 32U && info->no_free_index == 0U; ++extra) {
       if (!cache->release(result, index, pool.bin_size)) {
@@ -357,8 +355,8 @@ void* BinnedAllocator::allocate(std::size_t bytes, std::uint32_t alignment) {
   return result;
 }
 
-// Binned3.cpp:768-835 MallocNoTLS: identical class/large routing without cache
-// prefill. Mac large path (714-752) allocates/commits native pages directly.
+// Identical class/large routing without cache prefill. The Mac large path
+// allocates/commits native pages directly.
 void* BinnedAllocator::allocate_without_cache(std::size_t bytes, std::uint32_t alignment) {
   BW_ALLOCATOR_CHECK((alignment & (alignment - 1U)) == 0U);
   bool pooled = bytes <= binned_small_limit;
@@ -400,8 +398,8 @@ void* BinnedAllocator::allocate_without_cache(std::size_t bytes, std::uint32_t a
   return result;
 }
 
-// Binned3.cpp:837-908 Realloc: keep current bin only within its class interval;
-// keep large mapping while page extent is unchanged, else allocate-copy-free.
+// Keep current bin only within its class interval; keep large mapping while
+// page extent is unchanged, else allocate-copy-free.
 void* BinnedAllocator::reallocate(void* pointer, std::size_t bytes, std::uint32_t alignment) {
   if (bytes == 0U) {
     release_external(pointer, pool_index(pointer));
@@ -439,8 +437,8 @@ void* BinnedAllocator::reallocate(void* pointer, std::size_t bytes, std::uint32_
   return result;
 }
 
-// Binned3.h Free and .cpp:910-1003 FreeExternal: current thread owns its free
-// cache, independently of which thread allocated the client pointer.
+// The current thread owns its free cache, independently of which thread
+// allocated the client pointer.
 void BinnedAllocator::release(void* pointer) { release_external(pointer, pool_index(pointer)); }
 void BinnedAllocator::release_external(void* pointer, std::uint64_t index) {
   if (index < binned_class_count) {
@@ -474,7 +472,7 @@ void BinnedAllocator::release_external(void* pointer, std::uint64_t index) {
   block.free_virtual();
 }
 
-// Binned3.cpp:1005-1029 FreeNoTLS: one-node bundle returns immediately to pool.
+// A one-node bundle returns immediately to pool.
 void BinnedAllocator::release_without_cache(void* pointer) {
   const auto index = pool_index(pointer);
   if (index < binned_class_count) {
@@ -485,12 +483,12 @@ void BinnedAllocator::release_without_cache(void* pointer) {
   }
 }
 
-// Common.h:823-855 QuantizeSizeCommon: immutable class policy already extracted.
+// Delegates to the immutable size-class policy.
 std::size_t BinnedAllocator::quantize(std::size_t bytes, std::uint32_t alignment) const {
   return sizes_.quantize(bytes, alignment);
 }
-// Common.h:896-923 GetAllocationSizeExternal: small bin capacity; large committed
-// byte extent. Null is an unsuccessful query, not an allocation failure.
+// Small bin capacity; large committed byte extent. Null is an unsuccessful
+// query, not an allocation failure.
 bool BinnedAllocator::allocation_size(void* pointer, std::size_t& bytes) {
   const auto index = pool_index(pointer);
   if (index < binned_class_count) {
@@ -506,12 +504,11 @@ bool BinnedAllocator::allocation_size(void* pointer, std::size_t& bytes) {
   bytes = info->committed_bytes;
   return true;
 }
-// Binned3.cpp:592-595 IsInternallyThreadSafe: per-class and metadata locks suffice.
+// Per-class and metadata locks suffice.
 bool BinnedAllocator::internally_thread_safe() const { return true; }
 
-// Common.h:762-772,958-971: registry has a distinct lock and dynamic pointer
-// storage. Source TArray Add growth is ContainerAllocationPolicies.h:170-219;
-// Remove/RemoveAll Array.h:3343-3410 keeps capacity and stable entry order.
+// The registry has a distinct lock and dynamic pointer storage. Growth is
+// geometric; removal keeps capacity and stable entry order.
 struct BinnedAllocator::CacheRegistry {
   platform::AllocatorRecursiveMutex mutex;
   BinnedThreadCache** entries{};
@@ -522,8 +519,8 @@ BinnedAllocator::CacheRegistry& BinnedAllocator::cache_registry() {
   static CacheRegistry registry;
   return registry;
 }
-// RegisterThreadFreeBlockLists: published/locked TLS precedes this possible
-// allocation; selected Binned3 owns registry storage just as source GMalloc does.
+// Published/locked TLS precedes this possible allocation; this allocator owns
+// the registry storage it grows.
 void BinnedAllocator::register_cache(BinnedThreadCache& cache) {
   auto& registry = cache_registry();
   const std::lock_guard lock(registry.mutex);
@@ -541,8 +538,8 @@ void BinnedAllocator::register_cache(BinnedThreadCache& cache) {
   }
   registry.entries[registry.count++] = &cache;
 }
-// UnregisterThreadFreeBlockLists: source Remove removes matching runs preserving
-// other pointers. Unique registration means one match; trivial relocation memmove.
+// Removal preserves the order of other pointers. Unique registration means one
+// match; trivial relocation memmove.
 void BinnedAllocator::unregister_cache(BinnedThreadCache& cache) {
   auto& registry = cache_registry();
   const std::lock_guard lock(registry.mutex);
@@ -557,13 +554,12 @@ void BinnedAllocator::unregister_cache(BinnedThreadCache& cache) {
     }
   }
 }
-// Common.h:774-821 Setup/Clear/MarkTLSCachesAsUsed/Unused: explicit owner hooks.
+// Explicit owner hooks.
 void BinnedAllocator::setup_current_thread_cache() { BinnedThreadCache::setup(*this); }
 void BinnedAllocator::clear_current_thread_cache() { BinnedThreadCache::clear(*this); }
 void BinnedAllocator::mark_current_thread_cache_used() { BinnedThreadCache::mark_used(); }
 void BinnedAllocator::mark_current_thread_cache_unused() { BinnedThreadCache::mark_unused(*this); }
-// CommonUtils.h:103-140 FlushCurrentThreadCacheInternal/TrimThreadFreeBlockLists:
-// under current owner lock, return all detached class bundles once per requested
+// Under current owner lock, return all detached class bundles once per requested
 // epoch (or force). No other thread reads the owner's mutable lists here.
 void BinnedAllocator::flush_current_thread_cache(bool new_epoch_only) {
   auto* cache = BinnedThreadCache::current_if_owned();
@@ -580,9 +576,8 @@ void BinnedAllocator::flush_current_thread_cache(bool new_epoch_only) {
     }
   }
 }
-// CommonUtils.h:142-189 Trim / TaskGraph.cpp:1913-2009 desktop false,false:
-// advance trim epoch, execute game-local callback, enqueue render/RHI callbacks.
-// Named owners process asynchronously; source does not await named completions.
+// Advance trim epoch, execute game-local callback, enqueue render/RHI callbacks.
+// Named owners process asynchronously; trim does not await named completions.
 void BinnedAllocator::trim(bool trim_thread_caches) {
   if (!trim_thread_caches) {
     return;

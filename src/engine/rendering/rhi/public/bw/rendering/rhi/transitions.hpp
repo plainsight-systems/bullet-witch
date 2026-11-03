@@ -21,8 +21,7 @@
 //   resolution a before of Unknown is an error.
 //   Begin and end: a transition is open from its begin until its end on the
 //   same resource. validate_begin rejects, in this order: a null resource
-//   (departure: the pin's RHICreateTransition skips a null resource with no
-//   report, RHIValidation.cpp:926-927; here a null names a caller bug);
+//   (a null names a caller bug);
 //   an after of Unknown; an after that is_valid_access rejects; a before
 //   that differs from the tracked access; declared pipelines that differ
 //   from the tracked pipelines; a begin while a transition is open on the
@@ -56,29 +55,16 @@
 // between GPU work; no device-wide waits), EMB.6 (the checks are data).
 namespace bw::rhi {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHITransition.h:118-226:
-// FRHITransitionInfo {Resource, Type, AccessBefore, AccessAfter, Flags},
-// with constructors that leave AccessBefore Unknown. Followed. Omitted: the
-// subresource range (RHITransition.h:20-101; the pin's command list checks
-// whole-resource only at RHICommandList.cpp:2134-2168 and the game's passes
-// transition whole targets), the commit info for reserved resources
-// (:103-116), the MaintainCompression and IgnoreAfterState flags
-// (RHIDefinitions.h:1535-1545) and the BVH target.
+// A transition names a whole resource, with no subresource range: the
+// game's passes transition whole targets. before defaults to Unknown.
 struct Transition {
   Viewable* resource{};
   Access before{Access::Unknown};
   Access after{Access::Unknown};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHITransition.h:355-404:
-// FRHITransitionCreateInfo {SrcPipelines, DstPipelines, Flags,
-// TransitionInfos, AliasingInfos}. Followed without flags or aliasing.
-// Omitted: ERHITransitionCreateFlags NoFence, NoSplit, AllowDuringRenderPass,
-// AllowDecayPipelines (RHIDefinitions.h:1513-1533), which tune cross-queue
-// fencing the single-queue device has no use for; transient aliasing infos
-// (RHITransition.h:228-353), which arrive with the render graph.
+// A batch carries no flags that tune cross-queue fencing: the device has a
+// single queue.
 struct TransitionPipelines {
   Pipeline source{Pipeline::Graphics};
   Pipeline destination{Pipeline::Graphics};
@@ -90,10 +76,6 @@ struct TransitionBatch {
   TransitionPipelines pipelines{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHICore/Internal/RHICoreTransitions.h:11-58:
-// FResourceState takes the tracked pipelines and access when AccessBefore is
-// Unknown and checks neither side remains Unknown. Followed.
 [[nodiscard]] constexpr Transition resolve_before(Transition transition,
                                                   TrackedAccess tracked) noexcept {
   if (transition.before == Access::Unknown) {
@@ -106,21 +88,6 @@ struct TransitionBatch {
   return transition.before == transition.after;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIValidation.cpp:2408-2542:
-// FSubresourceState::BeginTransition resolves an Unknown after state from
-// the tracked state (:2414-2417), rejects a before state left Unknown
-// (:2443-2446, :2501-2505), a previous access or pipelines that do not match
-// the tracked state (:2474, :2503, :2509), and a duplicate begin while
-// transitioning (:2469);
-// :2544-2604 EndTransition rejects "Unsolicited resource end transition call"
-// and an end state that differs from the begin; :2606-2640 Assert rejects
-// use of a resource whose current access lacks the required bits.
-// Engine/Source/Runtime/RHI/Public/RHITransition.h:502-532: MarkBegin and
-// MarkEnd reject a double begin or end per pipeline. Followed as the codes
-// below. Omitted: the transient acquire and discard rules
-// (RHIValidation.cpp:2278-2326), the fence-issued check behind NoFence
-// (:2459-2466), and the AllowDecayPipelines collapse (:2476-2490).
 enum class TransitionError : std::uint8_t {
   None,
   NullResource,

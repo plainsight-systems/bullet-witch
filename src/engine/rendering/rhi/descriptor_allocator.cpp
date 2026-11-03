@@ -18,11 +18,9 @@ DescriptorIndexAllocator::DescriptorIndexAllocator(std::uint32_t capacity) : cap
   }
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHICore/Private/RHIDescriptorAllocator.cpp:127-172:
-// AllocateInternal takes the first index of the first range that fits and
-// shrinks or removes the range. Followed for a count of one, so the first
-// range always fits and the lowest free index is returned.
+// Takes the first index of the first range and shrinks or removes the
+// range; for a count of one the first range always fits, so the lowest free
+// index is returned.
 std::optional<std::uint32_t> DescriptorIndexAllocator::allocate() noexcept {
   if (free_ranges_.empty()) {
     return std::nullopt;
@@ -37,19 +35,14 @@ std::optional<std::uint32_t> DescriptorIndexAllocator::allocate() noexcept {
   return index;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHICore/Private/RHIDescriptorAllocator.cpp:174-265:
-// FreeInternal finds the index's place in the sorted range list and grows a
-// neighbor, merges two neighbors, or inserts a new range. Followed with a
-// lower_bound in place of the hand-written binary search. Omitted: the
-// outstanding-allocation tracking that detects a double free
-// (:189-210, DO_CHECK only); the header states a double free is not detected.
+// Finds the index's place in the sorted range list with a lower_bound and
+// grows a neighbor, merges two neighbors, or inserts a new range. A double
+// free is not detected; the header states it.
 // The insert below stays within the capacity reserved by the constructor, so
 // it never allocates and cannot throw.
 // NOLINTNEXTLINE(bugprone-exception-escape)
 void DescriptorIndexAllocator::free(std::uint32_t index) noexcept {
-  // RHIDescriptorAllocator.cpp:179-182: freeing the invalid handle returns
-  // at once. Followed: kInvalidDescriptorIndex is a no-op.
+  // Freeing kInvalidDescriptorIndex is a no-op.
   if (index == kInvalidDescriptorIndex) {
     return;
   }

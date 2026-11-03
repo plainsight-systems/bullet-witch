@@ -16,15 +16,15 @@ enum class NamedThread : unsigned char { game, rendering, rhi };
 
 // Restricted callback form for the allocator's capture: function and borrowed
 // context are copied into task storage. Context MUST outlive queued execution;
-// Binned3 supplies its process-lifetime allocator. No default-heap type erasure.
+// the binned allocator passes itself, which lives for the process. No
+// default-heap type erasure.
 struct NamedCallback final {
   void (*function)(void* context, NamedThread thread) noexcept;
   void* context;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// TaskGraph.cpp:665-687,850-870,1913-2009. Explicit game-owner startup; actual
-// render/RHI native owners attach, pump their queues, drain then detach. Lifecycle
+// Explicit game-owner startup; actual render/RHI native owners attach, pump
+// their queues, drain then detach. Lifecycle
 // changes must be coordinated with the game thread (as renderer start/stop is).
 // This is the named-thread idle-pump dependency, not the general jobs scheduler.
 class NamedThreadDispatch final {

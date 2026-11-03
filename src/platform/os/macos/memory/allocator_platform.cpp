@@ -14,17 +14,17 @@
 #include <sys/sysctl.h>
 
 // Core CP.2: immutable constants and atomic pressure publication. Performance
-// MEM.5: platform selects Binned3, never substitutes libc for client allocations.
-// Reference Unreal f45729c0b6f097038e72b52d366a62baeca3275b.
+// MEM.5: platform selects the binned allocator, never substitutes libc for client
+// allocations.
 namespace bw::platform {
 namespace {
 std::atomic<AllocatorMemoryPressure> pressure{AllocatorMemoryPressure::nominal};
-// MacPlatformMemory.cpp:68-80: callbacks run on native main dispatch queue.
+// Callbacks run on the native main dispatch queue.
 void normal_pressure(void*) { pressure.store(AllocatorMemoryPressure::nominal); }
 void warning_pressure(void*) { pressure.store(AllocatorMemoryPressure::warning); }
 void critical_pressure(void*) { pressure.store(AllocatorMemoryPressure::critical); }
-// Extraction uses dispatch's C function handler instead of Objective-C blocks;
-// same native source, main queue and process-lifetime observer ownership.
+// Uses dispatch's C function handler instead of Objective-C blocks, with the
+// native source, main queue and process-lifetime observer ownership.
 void observe_pressure(unsigned long mask, dispatch_function_t callback) {
   auto source = dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0U, mask,
                                        dispatch_get_main_queue());
@@ -33,8 +33,8 @@ void observe_pressure(unsigned long mask, dispatch_function_t callback) {
   dispatch_retain(source);
 }
 } // namespace
-// MacPlatformMemory.cpp:228-258 GetConstants: native physical memory and page
-// size; rounded physical size is a hash-sizing hint, never a virtual-address cap.
+// Native physical memory and page size; rounded physical size is a hash-sizing
+// hint, never a virtual-address cap.
 const AllocatorPlatformConstants& allocator_constants() {
   static const auto constants = [] {
     AllocatorPlatformConstants value;
@@ -48,7 +48,7 @@ const AllocatorPlatformConstants& allocator_constants() {
   }();
   return constants;
 }
-// BaseAllocator:68-175 selected game Binned3 branch; observers precede creation.
+// Selects the binned allocator; observers precede creation.
 // Facade's one-time bootstrap serializes this entry; no alternate allocator flags.
 memory::Allocator& create_base_allocator() {
   observe_pressure(DISPATCH_MEMORYPRESSURE_NORMAL, normal_pressure);
@@ -57,12 +57,12 @@ memory::Allocator& create_base_allocator() {
   static auto* instance = new memory::BinnedAllocator;
   return *instance;
 }
-// MacPlatformMemory pressure status is queried independently of allocation.
+// Pressure status is queried independently of allocation.
 AllocatorMemoryPressure allocator_memory_pressure() { return pressure.load(); }
-// ApplePlatformTLS GetCurrentThreadId: native Mach identity, not a hashed C++ id.
+// Native Mach identity, not a hashed C++ id.
 std::uint32_t current_allocator_thread_id() { return pthread_mach_thread_np(pthread_self()); }
-// ApplePlatformMemory.cpp:639-648 BinnedAllocFromOS selected non-Binned2 branch:
-// crash reserves use tag240 ordinary RW anonymous mapping; return null on failure.
+// Crash reserves use a tag 240 ordinary RW anonymous mapping; return null on
+// failure.
 void* allocate_crash_pool_from_os(std::size_t bytes) {
   // Darwin uses anonymous mmap's fd slot for native VM tags.
   // NOLINTNEXTLINE(clang-analyzer-unix.StdCLibraryFunctions)

@@ -53,15 +53,11 @@ class MetalGraphicsPipeline;
 class MetalComputePipeline;
 class MetalQueryPool;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIPrivate.h:26-32:
-// BufferOffsetAlignment is 256 on Mac, the alignment of every buffer offset
-// the pin binds. Followed for draw block offsets in the ring and reported as
-// Capabilities::uniform_buffer_alignment, the alignment a static block's
-// offset must have.
+// The alignment of every bound buffer offset: draw block offsets in the ring,
+// and reported as Capabilities::uniform_buffer_alignment, the alignment a
+// static block's offset must have.
 inline constexpr std::uint32_t kBufferOffsetAlignment = 256;
-// MetalRHIPrivate.h:26-32: BufferBackedLinearTextureOffsetAlignment, 1024 on
-// Mac, the placement alignment of a buffer a shader may read or write
+// The placement alignment of a buffer a shader may read or write
 // (metal_device.cpp, create_buffer).
 inline constexpr std::uint32_t kBufferBackedTextureOffsetAlignment = 1024;
 

@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/pipeline_cache.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/pipeline_cache.hpp"
 
 #include "bw/rendering/rhi/lifetime.hpp"
@@ -54,7 +54,7 @@ struct Set {
   Ref<bw_rhi_test::TestBlendState> blend;
 };
 
-// pipeline_cache.hpp:20-25 and 68-72: the key hashes content, not
+// (pipeline_cache.hpp, graphics_pipeline_key): the key hashes content, not
 // addresses, and not the debug name; a created pipeline gives the key of
 // the description it was created from.
 void key_stable_under_pointer_identity() {
@@ -79,7 +79,7 @@ void key_stable_under_pointer_identity() {
           "compute keys hash the artifact's content");
 }
 
-// pipeline_cache.hpp:20-26: any change of a shader hash or a state field
+// (pipeline_cache.hpp, graphics_pipeline_key): any change of a shader hash or a state field
 // changes the key.
 void key_changes_on_shader_hash_or_state() {
   DeferredDeleteQueue queue;
@@ -130,7 +130,7 @@ void key_changes_on_shader_hash_or_state() {
           "a compute hash change changes the key");
 }
 
-// pipeline_cache.hpp:27-31 and 85-92: find returns the pipeline inserted
+// (pipeline_cache.hpp, PipelineDescriptionCache): find returns the pipeline inserted
 // under the key, or null; insert under a present key replaces nothing and
 // returns false; the cache holds a Ref to every pipeline until cleared.
 void find_insert_no_replace() {
@@ -165,7 +165,7 @@ void find_insert_no_replace() {
   require(queue.pending() == 1U, "clearing releases the cache's last reference");
 }
 
-// pipeline_cache.hpp:32-35 and 113-120: every (shader, permutation) the
+// (pipeline_cache.hpp, enumerate_precompile_set): every (shader, permutation) the
 // predicates admit, in registry order then ascending id; the return is the
 // number of entries, at most out.size() of them written.
 void precompile_set_from_enumeration() {

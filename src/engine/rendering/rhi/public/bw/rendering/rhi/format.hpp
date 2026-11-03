@@ -22,13 +22,8 @@
 // count bytes before allocating).
 namespace bw::rhi {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Core/Public/PixelFormat.h:16-112: EPixelFormat with
-// 94 formats. Followed in kind: one enumerator per format the game reaches.
-// Omitted: the remaining pixel formats (ETC, ASTC, PVRTC, the 32-bit integer
-// pairs, the YUV and shared-exponent formats, PF_A8, PF_G8 aliases,
-// PF_R5G6B5 and the other 16-bit packed colors), which no imported texture,
-// render target or vertex stream of the game uses.
+// One enumerator per format the game reaches: the formats its imported
+// textures, render targets and vertex streams use.
 enum class Format : std::uint8_t {
   Unknown = 0,
   // 8-bit normalized color.
@@ -76,14 +71,8 @@ enum class Format : std::uint8_t {
   Count,
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Core/Public/PixelFormat.h:462-512: FPixelFormatInfo
-// (Name, BlockSizeX/Y/Z, BlockBytes, NumComponents, Capabilities,
-// PlatformFormat, Supported, bIs24BitUnormDepthStencil). Followed for the
-// backend-neutral members. Omitted: Capabilities and PlatformFormat, which
-// the pin says are "initialized by RHI module" (:483, :486), and Supported
-// (:489-490), the per-platform support flag; here they are the device's
-// FormatCapabilities report, never a mutable global table.
+// The backend-neutral facts of a format. What a device supports for it is
+// the device's FormatCapabilities report, never a mutable global table.
 struct FormatInfo {
   std::uint8_t block_width{};
   std::uint8_t block_height{};
@@ -109,13 +98,8 @@ struct Extent2 {
 [[nodiscard]] constexpr std::uint32_t row_bytes(Format format, std::uint32_t width) noexcept;
 [[nodiscard]] constexpr std::uint64_t slice_bytes(Format format, Extent2 extent) noexcept;
 
-// What a backend reports for one format at startup.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHI.cpp:1752-1774:
-// RHIInitDefaultPixelFormatCapabilities gives every supported format texture
-// capabilities, block-compressed formats texture-only capabilities, and
-// removes depth-stencil from non-depth formats; the platform RHI then
-// narrows the table. The bits here are the ones the game's passes ask about.
+// What a backend reports for one format at startup. The bits are the ones
+// the game's passes ask about.
 enum class FormatCapability : std::uint8_t {
   None = 0,
   Texture = 1U << 0U,

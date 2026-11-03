@@ -26,31 +26,21 @@
 // Algorithm:
 //   - validate_spirv: spvtools::SpirvTools::Validate for SPV_ENV_VULKAN_1_3
 //     with scalar block layout, the validator option DXC itself sets for
-//     -fvk-use-dx-layout (Source: DirectXShaderCompiler v1.9.2609,
-//     tools/clang/lib/SPIRV/SpirvEmitter.cpp, SpirvEmitter::spirvToolsValidate,
-//     "DX: Skip block layout rules" branch). The pin runs no separate
-//     validation after DXC; this is the tool's own check of the artifact it
+//     -fvk-use-dx-layout. This is the tool's own check of the artifact it
 //     writes, after optimization and any stripping.
 //   - optimize_spirv: one Optimizer with the performance passes, then the
 //     strip-debug pass when symbols were asked for, its internal validator
-//     off, as the pin's optimizer wrapper runs passes (Unreal
-//     f45729c0b6f097038e72b52d366a62baeca3275b
-//     Engine/Source/ThirdParty/ShaderConductor/ShaderConductor/Source/Core/ShaderConductor.cpp:2089-2097).
-//     Departure: the pin builds the optimizer for SPV_ENV_UNIVERSAL_1_3
-//     (:2089); here it is SPV_ENV_VULKAN_1_3, the one target environment of
-//     this tool (compiler_options.hpp, -fspv-target-env=vulkan1.3) and the
-//     environment the validator checks against.
-//     The pin strips reflection info only for ray tracing and Android
-//     (Engine/Source/Developer/VulkanShaderFormat/Private/SpirVShaderCompiler.inl:128-131,
-//     :979-988); the desktop path keeps it, and so does this one.
+//     off. The optimizer is built for SPV_ENV_VULKAN_1_3, the one target
+//     environment of this tool (compiler_options.hpp,
+//     -fspv-target-env=vulkan1.3) and the environment the validator checks
+//     against. Reflection info is kept.
 //   - reflect_spirv: descriptor bindings with accessed set, so a binding the
 //     shader declares and never reads is not reported, matching the DXIL
 //     targets, where the optimizer removes unread resources. Uniform buffers
 //     classify through classify_vulkan_uniform_buffer, everything else
 //     through descriptor_array_for_vulkan_binding. The push constant block
 //     uses the root constants when its member at kVulkanRootConstantOffset
-//     is not flagged unused, the pin's member usage test
-//     (SpirVShaderCompiler.inl:887-894); the block itself is present whenever
+//     is not flagged unused; the block itself is present whenever
 //     a block index is read, so its presence says nothing about the root
 //     constants. Vertex inputs are filtered by keeps_vertex_input (BuiltIn or
 //     an "SV_" semantic) and keep their location.

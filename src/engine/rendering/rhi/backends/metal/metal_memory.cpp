@@ -18,9 +18,7 @@ namespace {
 
 } // namespace
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDevice.cpp:483-488: a
-// heap-backed resource is created with tracked hazards. Followed.
+// A heap-backed resource is created with tracked hazards.
 MTL::ResourceOptions resource_options(StorageClass storage) noexcept {
   const NS::UInteger mode = storage == StorageClass::Shared ? MTL::ResourceStorageModeShared
                                                             : MTL::ResourceStorageModePrivate;
@@ -38,14 +36,11 @@ ResourceMemory::~ResourceMemory() {
   }
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:1684-1764:
-// FindOrAllocateBlock takes the first free block of the options' list that
-// fits the aligned size, else creates a placement heap of max(Size,
-// METALHEAP_DEFAULT_BLOCKSIZE) with the options' storage and CPU cache modes
-// and HazardTrackingModeTracked (:1729-1745) and retries. Followed with the
-// list keyed by storage class and the block arithmetic in BlockSuballocator.
-// The pin's newHeap result is not checked; a null heap here is OutOfMemory.
+// Takes the first free block of the storage class that fits the aligned size,
+// else creates a placement heap of max(kHeapBlockBytes, size + alignment) with
+// the storage class's storage mode, the default CPU cache mode and tracked
+// hazards, and retries. The block arithmetic is in BlockSuballocator. A null
+// heap is OutOfMemory.
 std::optional<HeapPlacement> ResourceMemory::allocate(StorageClass storage,
                                                       MTL::SizeAndAlign size) {
   const std::uint64_t bytes = size.size == 0U ? 1U : size.size;
@@ -81,13 +76,10 @@ std::optional<HeapPlacement> ResourceMemory::allocate(StorageClass storage,
   return HeapPlacement{&block, *range};
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:1586-1682:
-// FreeBlock merges the freed block with its free neighbours and, when the
-// merged block is the whole heap, removes the heap and hands it to
-// DeferredDelete (:1676-1681), so it is released after the GPU is done.
-// Followed: the heap is retired now (no allocation, not resident) and
-// released by release_retired once the frame being recorded has completed.
+// Returns the range to its block; when the block is then empty, the heap is
+// retired now (no allocation, not resident) and released by release_retired
+// once the frame being recorded has completed, so it is released after the
+// GPU is done.
 void ResourceMemory::free(const HeapPlacement& placement) noexcept {
   if (placement.block == nullptr) {
     return;

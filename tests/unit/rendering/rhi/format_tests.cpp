@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/format.hpp, one scenario
-// per CTest entry. Each scenario names the header lines it asserts.
+// per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/format.hpp"
 
 #include "test_main.hpp"
@@ -12,9 +12,10 @@ using bw::rhi::Extent2;
 using bw::rhi::Format;
 using bw_rhi_test::require;
 
-// format.hpp:12-14 and 87-98: every enumerator has a row, Unknown has
-// block_bytes 0. :107-110 and 214-230: row_bytes and slice_bytes count whole
-// blocks, a partial block counting whole.
+// (format.hpp, format_info): every enumerator has a row, Unknown has
+// block_bytes 0. (format.hpp, row_bytes) and (format.hpp, slice_bytes):
+// row_bytes and slice_bytes count whole blocks, a partial block counting
+// whole.
 void block_table_and_byte_counts() {
   require(bw::rhi::format_info(Format::Unknown).block_bytes == 0U, "Unknown has no bytes");
   for (std::uint32_t value = 1; value < static_cast<std::uint32_t>(Format::Count); ++value) {

@@ -20,7 +20,7 @@
 //     against the old table fail to load with RootLayoutMismatch instead of
 //     binding against the wrong slots.
 //   - append_root_signature_text appends exactly the text the header states,
-//     root parameters in the header's (the pin's) order: SRV table, sampler
+//     root parameters in the header's order: SRV table, sampler
 //     table, UAV table, draw CBV, static CBVs b0-b7, root constants; every
 //     root CBV carries flags=DATA_STATIC; parameters and table ranges joined
 //     by ", ", no newline. The only input
@@ -29,12 +29,7 @@
 //     tables come from placement(), so the text and the placement table cannot
 //     disagree. It cannot fail; it only appends.
 //
-// Algorithm, root signature (Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/D3D12RHI/Private/D3D12RootSignature.cpp:287-328
-// (tables first: SRV, sampler, UAV), :332-338 (per-shader root CBVs),
-// :411-428 (static binding CBVs), :430-437 (root constants last) and :181-197
-// (range flags by tier; :197 DATA_STATIC for root CBVs), as the header cites,
-// with the header's departures):
+// Algorithm, root signature:
 //   1. Root flags.
 //   2. One descriptor table per table element in the order ResourceTable,
 //      SamplerTable, StorageTable; within a table, one range per

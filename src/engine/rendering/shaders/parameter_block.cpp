@@ -30,9 +30,7 @@
 //     size; `member` is the last member.
 // append_hlsl_block_binding writes one line and cannot fail.
 //
-// Algorithm, per block (Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Private/ShaderParameters.cpp:240-256,
-// AdjustConstantBufferPadding, as the header cites):
+// Algorithm, per block:
 //   1. Validate the block name, every member name and every Block member's
 //      nested layout.
 //   2. Emit each nested block first, depth first, once per call.
@@ -44,8 +42,6 @@
 //      LayoutExceedsBlockSize naming that member; then, while running < block
 //      size, emit padding words. A hand-built size that is not a multiple of 4
 //      also ends past the size and is LayoutExceedsBlockSize naming the block.
-// The pin emits a cbuffer of prefixed globals; the header's struct form is
-// followed here (departure stated in the header).
 //
 // Design and cost: build-tool only. One pass over members per block, written
 // straight into `out`; the emitted set is a small vector of observed layout

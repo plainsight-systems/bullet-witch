@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/transitions.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/transitions.hpp"
 
 #include "bw/rendering/rhi/access.hpp"
@@ -36,9 +36,9 @@ TransitionState tracked_as(Access access) {
   return state;
 }
 
-// transitions.hpp:19-21 and 88-98: an Unknown before takes the tracked
-// access; a known before is kept; a before still Unknown after resolution
-// is UnknownBefore at begin.
+// (transitions.hpp, resolve_before) and (transitions.hpp, validate_begin): an
+// Unknown before takes the tracked access; a known before is kept; a before
+// still Unknown after resolution is UnknownBefore at begin.
 void unknown_before_resolves_from_tracked() {
   const Fixture f;
   const TrackedAccess tracked{Access::RenderTarget, Pipeline::Graphics};
@@ -57,7 +57,7 @@ void unknown_before_resolves_from_tracked() {
           "a before left Unknown is rejected");
 }
 
-// access.hpp:122-132 and transitions.hpp:23-26, 156-181: a begin is rejected
+// (access.hpp, is_valid_access) and (transitions.hpp, validate_begin): a begin is rejected
 // for a null resource, an Unknown after, an after is_valid_access rejects, a
 // before other than the tracked access, in that order; a legal pair passes.
 void legal_and_illegal_pairs() {
@@ -91,7 +91,7 @@ void legal_and_illegal_pairs() {
           "a before other than the tracked access");
 }
 
-// transitions.hpp:22-27 and 177-179: a begin while a transition is open on
+// (transitions.hpp, validate_begin): a begin while a transition is open on
 // the resource is rejected.
 void double_begin_rejected() {
   const Fixture f;
@@ -104,7 +104,7 @@ void double_begin_rejected() {
           "a second begin is rejected");
 }
 
-// transitions.hpp:27-29 and 192-205: an end with no open transition, and an
+// (transitions.hpp, validate_end): an end with no open transition, and an
 // end whose after or pipelines differ from the begin, are rejected.
 void unsolicited_end_rejected() {
   const Fixture f;
@@ -127,9 +127,10 @@ void unsolicited_end_rejected() {
           "a null resource");
 }
 
-// transitions.hpp:25-26, 32-35 and 148-154, 174-176: the declared source
-// pipelines must equal the tracked pipelines; on a device without async
-// compute a declared pipeline reads as Graphics, and None reads as Graphics.
+// (transitions.hpp, validate_begin) and (transitions.hpp, effective_pipelines):
+// the declared source pipelines must equal the tracked pipelines; on a device
+// without async compute a declared pipeline reads as Graphics, and None reads
+// as Graphics.
 void pipelines_must_match() {
   const Fixture f;
   const Transition transition{f.resource(), Access::RenderTarget, Access::ShaderResourcePixel};
@@ -150,7 +151,7 @@ void pipelines_must_match() {
           "the collapsed declaration matches the tracked pipelines");
 }
 
-// transitions.hpp:30-31 and 207-214: apply_end closes the transition and
+// (transitions.hpp, apply_end): apply_end closes the transition and
 // writes the begin's after and destination as the tracked access.
 void end_writes_tracked_access() {
   const Fixture f;
@@ -170,7 +171,7 @@ void end_writes_tracked_access() {
           "the next begin is checked against the written state");
 }
 
-// transitions.hpp:36-40 and 216-227: at use, every required bit must be in
+// (transitions.hpp, validate_use): at use, every required bit must be in
 // the tracked access and no transition may be open.
 void use_requires_access_and_no_open_transition() {
   const Fixture f;
@@ -188,7 +189,7 @@ void use_requires_access_and_no_open_transition() {
           "no use while a transition is open");
 }
 
-// transitions.hpp:28-30 and 100-102: a before equal to the after is
+// (transitions.hpp, is_redundant): a before equal to the after is
 // redundant and is not an error.
 void redundant_is_not_an_error() {
   const Fixture f;

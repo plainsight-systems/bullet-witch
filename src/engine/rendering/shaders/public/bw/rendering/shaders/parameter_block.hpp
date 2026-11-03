@@ -39,9 +39,9 @@
 // is immutable after static initialization.
 //
 // Algorithm, build time:
-//   1. The value types carry Unreal's member alignment in the type (Float2 8,
+//   1. The value types carry the member alignment in the type (Float2 8,
 //      Float3 and wider 16, arrays 16 per element). The C++ compiler then
-//      places members where the pinned metadata builder would.
+//      places each member at align_up(previous end, alignment).
 //   2. BW_PARAMETER_MEMBER records name, kind, offsetof, sizeof and element
 //      count; BW_PARAMETER_BLOCK_LAYOUT sorts the records by offset, checks
 //      the preconditions, hashes, and stores the BlockLayout.
@@ -55,9 +55,8 @@
 //
 // Design and cost: every layout and hash is a compile-time constant; no
 // allocation or work at runtime except generation, which appends to a
-// std::string in the build tool. Work scales with member count. A layout
-// hash over all members, not only resources, is stricter than the pin and is
-// what the plan's tests require.
+// std::string in the build tool. Work scales with member count. The layout
+// hash covers every member, not only resources.
 //
 // Core guidelines read: I.1 (layout is passed explicitly; no registry),
 // I.30 and ES.31 (the two macros exist only because offsetof and the member
@@ -74,28 +73,17 @@
 // applicable rule; recorded here rather than citing an unrelated rule.
 namespace bw::shaders {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:25,28:
-// SHADER_PARAMETER_STRUCT_ALIGNMENT 16, SHADER_PARAMETER_ARRAY_ELEMENT_ALIGNMENT 16.
 inline constexpr std::uint32_t kBlockAlignment = 16;
 inline constexpr std::uint32_t kArrayElementAlignment = 16;
 // One HLSL constant register row.
 inline constexpr std::uint32_t kConstantRowBytes = 16;
 
 // Value types. Alignment is part of the type so that a plain struct of them
-// has the pinned layout: the compiler places each member at
-// align_up(previous end, alignment), which is what the pinned builder does.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderParameterMacros.h:913-961:
-// Alignment 4 for float (913), 8 for FVector2f (929), 16 for FVector3f (945)
-// and FVector4f (961); :948 stores FVector3f as the 16-aligned typedef of
-// :34-51, so a float3 member occupies 16 bytes and the next member starts
-// after it. Engine/Source/Runtime/RenderCore/Public/ShaderParameterMetadataBuilder.h:36,51:
-// offset = Align(offset, Alignment); offset += sizeof(TAlignedType).
-// Departure in form only: the pin puts alignas on the member declaration
-// (Engine/Source/Runtime/RenderCore/Public/ShaderParameterMacros.h:1365) because, as its comment at
-// :34 says, clang rejects alignas on a typedef; a struct with alignas has the same size and
-// alignment and needs no per-member macro.
+// has the block layout: the compiler places each member at
+// align_up(previous end, alignment). Float3 is 16-aligned, so a float3 member
+// occupies 16 bytes and the next member starts after it. A struct with
+// alignas has the same size and alignment as an aligned member and needs no
+// per-member macro.
 struct alignas(8) Float2 {
   float x{};
   float y{};
@@ -125,8 +113,7 @@ struct alignas(kBlockAlignment) Uint4 {
 };
 // Row-major storage: rows[r] is HLSL row r at byte 16 * r. The tool passes
 // -Zpr on every target (compiler_options.hpp), so the HLSL float4x4 reads the
-// same bytes. Engine/Source/Runtime/RenderCore/Public/ShaderParameterMacros.h:1118-1121:
-// FMatrix44f, 4 rows, 4 columns, Alignment 16.
+// same bytes.
 struct alignas(kBlockAlignment) Float4x4 {
   std::array<Float4, 4> rows{};
 };
@@ -136,8 +123,7 @@ struct alignas(kBlockAlignment) Float4x4 {
 // in every read texture array; a BufferIndex a slot of the buffer array; the
 // two storage indices address the two storage arrays, below
 // kStorageDescriptors.
-// Engine/Source/Runtime/RenderCore/Private/ShaderParameters.cpp:348-364: a
-// resource member of a uniform buffer becomes a 4-byte uint slot.
+// Each occupies one 4-byte slot of the block.
 struct TextureIndex {
   std::uint32_t value{};
 };
@@ -153,9 +139,9 @@ struct StorageTextureIndex {
 struct StorageBufferIndex {
   std::uint32_t value{};
 };
-// Fixed-size array: every element on a 16-byte stride, as in HLSL and the pin
-// (Engine/Source/Runtime/RenderCore/Public/ShaderParameterMacros.h:1163-1197: array Alignment 16
-// and element size a multiple of 16). elements[i].value is element i.
+// Fixed-size array: every element on a 16-byte stride, as in HLSL (array
+// alignment 16 and element size a multiple of 16). elements[i].value is
+// element i.
 template <class T, std::size_t N>
   requires(N > 0)
 struct Array {
@@ -170,11 +156,6 @@ struct Array {
     return elements[index].value;
   }
 };
-// Omitted value types, with the pinned specialization each would follow:
-// bool (Engine/Source/Runtime/RenderCore/Public/ShaderParameterMacros.h:864; a uint32 member
-// carries a flag), FLinearColor, FIntPoint, FIntVector, FIntRect, FQuat4f (:977-1105; no block in
-// the game needs them; add a trait when one does), pointer and RDG resource members (:53-55,
-// :1130-1160; resources are heap indices here).
 
 enum class ParameterKind : std::uint8_t {
   Float,
@@ -233,8 +214,8 @@ concept ParameterBlock = requires {
 
 // Alignment and HLSL size per kind. A value's HLSL size is what DXC assigns
 // (float3 is 12, a matrix row is 16); its C++ size is sizeof.
-// Engine/Source/Runtime/RenderCore/Private/ShaderParameters.cpp:391-410: matrix size (rows - 1) *
-// 16 + columns * 4, vector size columns * 4, array size (N - 1) * align16(element) + element.
+// Matrix size (rows - 1) * 16 + columns * 4, vector size columns * 4, array
+// size (N - 1) * align16(element) + element.
 [[nodiscard]] constexpr std::uint32_t kind_alignment(ParameterKind kind) noexcept;
 [[nodiscard]] constexpr std::uint32_t kind_hlsl_size(ParameterKind kind,
                                                      const BlockLayout* nested) noexcept;
@@ -264,15 +245,9 @@ struct HlslPlacement {
 // not nested). Stable under reordering of the macro's member list, because
 // members are sorted first; changed by any change of a member's name, kind,
 // offset, count or nested layout, of the block name or of its size.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIUniformBufferLayoutInitializer.h:68-113
-// hashes ConstantBufferSize, flags, each resource's MemberOffset and
-// MemberType and the name CRC;
-// Engine/Source/Runtime/RenderCore/Private/ShaderParameterMetadata.cpp:898-912
-// sorts resources by offset before hashing. The inputs are kept and widened
-// to every member; FNV-1a replaces CRC32 and xxHash64 so the hash is
-// constexpr with no dependency. Binding flags and static slot bits are not
-// hashed: a block's slot is in the root layout hash (root_layout.hpp).
+// FNV-1a keeps the hash constexpr with no dependency. Binding flags and
+// static slot bits are not hashed: a block's slot is in the root layout hash
+// (root_layout.hpp).
 [[nodiscard]] constexpr LayoutHash
 layout_hash(std::string_view name, std::uint32_t size,
             std::span<const MemberLayout> sorted_members) noexcept;
@@ -290,14 +265,9 @@ layout_hash(std::string_view name, std::uint32_t size,
 // C++ offset, and after the last member until it equals the block size, so
 // the HLSL struct and the C++ struct have the same size. The text has no
 // comments and no other whitespace; it is an input of the artifact hash.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Private/ShaderParameters.cpp:240-256:
-// AdjustConstantBufferPadding appends one 4-byte padding member named
-// Padding<offset> while the HLSL offset is below the C++ offset, then sets
-// the HLSL offset to member offset + HLSL member size. Departure: the pin
-// emits a cbuffer of prefixed globals (UB_CB_MEMBER_NAME, :363); a struct is
-// emitted here so nested blocks are nested types and the declaration line can
-// be a ConstantBuffer<T> or an indexed array per target.
+// A struct is emitted, not a cbuffer of globals, so nested blocks are nested
+// types and the declaration line can be a ConstantBuffer<T> or an indexed
+// array per target.
 // Each names a layout that did not come from the macros; a layout that did
 // never fails.
 enum class HlslError : std::uint8_t {

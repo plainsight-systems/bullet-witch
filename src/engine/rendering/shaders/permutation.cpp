@@ -23,9 +23,7 @@
 //     compile time below.
 //   - find_shader returns the entry whose name is equal, or null.
 //
-// Algorithm, enumerate (Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Private/Shader.cpp:463-466 as the header cites:
-// each permutation id is offered to the per-type predicate):
+// Algorithm, enumerate (each permutation id is offered to the predicate):
 //   1. Check the output capacity.
 //   2. For id = 0 .. permutation_count - 1, keep id when the predicate admits it.
 //

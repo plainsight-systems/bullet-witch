@@ -76,16 +76,10 @@ namespace bw::rhi {
 enum class BackendKind : std::uint8_t { Metal, Vulkan, Direct3D12 };
 
 // The capabilities every backend must report true. A missing one fails
-// device creation by this name.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIGlobals.h:711-718: bSupportsBindless
-// and the descriptor type groups; Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:490
-// reads the bindless configuration at startup;
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDevice.cpp:339-429 sets
-// the feature flags from the device. Followed as a report with named
-// required entries (docs/architecture/shaders.md, "Targets": Metal 3 on
-// macOS 15 with argument buffers tier 2; Direct3D 12 shader model 6.4 and
-// resource binding tier 2; Vulkan 1.3 with descriptor indexing).
+// device creation by this name. The backend sets them from the device at
+// creation (docs/architecture/shaders.md, "Targets": Metal 3 on macOS 15
+// with argument buffers tier 2; Direct3D 12 shader model 6.4 and resource
+// binding tier 2; Vulkan 1.3 with descriptor indexing).
 enum class RequiredCapability : std::uint8_t {
   TypedDescriptorArrays,
   ShaderFloor,
@@ -100,13 +94,7 @@ enum class RequiredCapability : std::uint8_t {
   return {};
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIGlobals.h:267
-// SupportsEfficientAsyncCompute, :174 SupportsTimestampRenderQueries,
-// :114 SupportsMultithreading, :968 GRHISupportsAsyncPipelinePrecompile.
-// Followed for the entries the architecture's scope table names. Omitted:
-// the remaining several hundred globals, each tied to a feature the game
-// does not reach.
+// The reported entries are the ones the architecture's scope table names.
 inline constexpr std::size_t kDeviceNameCapacity = 127;
 struct Capabilities {
   BackendKind backend{BackendKind::Metal};
@@ -165,19 +153,9 @@ struct BackendOptions {
   std::uint64_t transient_bytes_per_frame{};
 };
 
-// The execution side of command_list.hpp. One per backend.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIContext.h:254-567: IRHIComputeContext
-// (RHIBeginTransitions and RHIEndTransitions :287-289, RHIWriteGPUFence
-// :390-393, RHICopyToStagingBuffer :381-384, SetTrackedAccess :510-531,
-// RHIBeginBreadcrumbGPU and RHIEndBreadcrumbGPU :369-372); :686-858
-// IRHICommandContext (render queries :714-716, render pass :834-836, copies
-// :842-844, RHISetGraphicsPipelineState :737). Followed, sized to the
-// commands the list records. Omitted: the parallel render pass entries
-// (:824-832), ray tracing, shader bundle, UAV overlap and multi-GPU
-// transfer members (:268-339, :405-487), the per-stage shader parameter
-// setters (binding is through descriptor indices in blocks), and the
-// PSO fallback context (:877-914).
+// The execution side of command_list.hpp. One per backend, sized to the
+// commands the list records. There are no per-stage shader parameter
+// setters: binding is through descriptor indices in blocks.
 class Context {
 public:
   Context(const Context&) = delete;
@@ -226,33 +204,13 @@ protected:
   Context() = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/DynamicRHI.h:198-997: FDynamicRHI. The
-// entries kept, by the pin's line: Init 207 and Shutdown 213 (the
-// constructor and destructor here), GetName 215 (Capabilities::name),
-// RHICreateSamplerState 232, RHICreateRasterizerState 235,
-// RHICreateDepthStencilState 238, RHICreateBlendState 241,
-// RHICreateGraphicsPipelineState 395, RHICreateComputePipelineState 398,
-// RHICreateBufferInitializer 425 and RHICreateTextureInitializer 481 (as
-// create with initial data), RHICreateShaderResourceView 506 and
-// RHICreateUnorderedAccessView 507, RHICreateGPUFence 292,
-// RHICreateStagingBuffer 319, RHILockStagingBuffer 333 and
-// RHIUnlockStagingBuffer 339, RHILockBuffer 427 and RHIUnlockBuffer 431,
-// RHICreateRenderQuery 610 and RHIGetRenderQueryResult 620,
-// RHIGetDefaultContext 799, RHISubmitCommandLists 881, RHIBlockUntilGPUIdle
-// 697, RHIEndFrame 229 (reset_frame_resources), RHIProcessDeleteQueue 887
-// (the device's queue). Omitted: the viewport, present and display entries
-// (680-689, 630-632, 721-744; the next slice), the shader creation entries
-// (247-287; artifacts are loaded by the shader system and handed to
-// pipeline creation), RHICreateVertexDeclaration 244 (a value here),
-// uniform buffer objects 414-416 (blocks are buffer ranges), texture
-// references and replace 434, 423, 503, the async texture creation 498,
-// the surface read entries 584-607 (staging readback), the finalize and
-// close-chain entries 836-869 (one context, one submission), the transition
-// create and release 301-305 (transitions are values), the transient
-// allocator 312 (the render graph slice), ray tracing 922-970, descriptor
-// ranges 518-523, debug label binding 575-577 (names are in descriptors),
-// the suspend and resume entries 700-710, and RHITick 693.
+// Initialization and shutdown are the constructor and destructor; buffers
+// and textures are created with their initial data. There is no shader
+// creation entry: artifacts are loaded by the shader system and handed to
+// pipeline creation. The vertex layout and transitions are values, blocks
+// are buffer ranges, readback goes through staging buffers, debug names are
+// in the descriptions, and there is one context and one submission. The
+// delete queue is the device's.
 class Backend {
 public:
   Backend(const Backend&) = delete;
@@ -308,22 +266,16 @@ public:
                                                  WaitPolicy policy) = 0;
 
   [[nodiscard]] virtual Context& context() noexcept = 0;
-  // Engine/Source/Runtime/Apple/MetalRHI/Private/MetalSubmission.cpp:427-455:
-  // FinalizePayload assigns the next completion value; :457-587 commits the
-  // command buffers and a signal command buffer that encodes the value on
-  // the queue's event. Followed: the value is the frame number.
+  // The completion value the submitted work signals is the frame number.
   virtual void submit_frame(std::uint64_t frame) = 0;
   [[nodiscard]] virtual std::uint64_t completed_frame() const noexcept = 0;
   // Precondition: frame <= the last submitted frame.
   virtual void wait_for_frame(std::uint64_t frame) = 0;
   virtual void wait_idle() = 0;
-  // Engine/Source/Runtime/Apple/MetalRHI/Private/MetalSubmission.cpp:737-774:
-  // the completed handler reads the command buffer's status and error.
-  // Followed as a flag the device reads once per frame.
+  // Set from the status of completed work; the device reads it once per
+  // frame.
   [[nodiscard]] virtual bool take_gpu_fault() noexcept = 0;
-  // Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:1226-1258:
-  // RHIEndFrame garbage collects (heap compaction and the temporary
-  // allocators' cleanup, MetalDevice.cpp:446-457). Followed with the
+  // Resets the transient allocations and compacts the pools, with the
   // completed frame as the gate.
   virtual void reset_frame_resources(std::uint64_t completed_frame) = 0;
 
@@ -351,17 +303,8 @@ using BackendResult = Result<std::unique_ptr<Backend>, DeviceError>;
 // with that transition's resource name. A redundant transition is reported
 // with Redundant and forwarded. A pipeline's name in a failure is its
 // description's debug name (GraphicsPipeline::description,
-// ComputePipeline::debug_name).
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIValidation.h:43: FValidationRHI derives
-// from FDynamicRHI and wraps the real RHI;
-// Engine/Source/Runtime/RHI/Private/RHIValidation.cpp:570-577: its
-// constructor sets GRHIValidationEnabled (RHIValidationCommon.h:17-21); RHIValidation.cpp:830-1009
-// builds the per-transition checks; :2114-2130 define the redundant-transition reason text, which
-// the pin's BeginTransition (:2408-2542) never emits: reporting Redundant is this layer's
-// departure. Followed otherwise. Omitted:
-// the op queue replay across pipelines (RHIValidationCommon.h:572-592, 892-946), because one queue
-// executes in order here; the uniform buffer lifetime checks (:594-604); the UAV overlap tracking.
+// ComputePipeline::debug_name). One queue executes in order, so the checks
+// need no replay of operations across pipelines.
 enum class ValidationCode : std::uint8_t {
   None,
   // transition carries the TransitionError.

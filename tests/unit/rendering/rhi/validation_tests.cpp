@@ -5,7 +5,7 @@
 // and the Backend and Context interfaces; the backend it wraps is the
 // recording fake of validation_objects.hpp, the boundary the contract names
 // ("the layer never changes what the backend sees"). Each scenario names the
-// header lines it asserts.
+// header declaration it asserts.
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/backend.hpp"
 #include "bw/rendering/rhi/binding_structure.hpp"
@@ -157,11 +157,11 @@ void require_forwarded(const Fixture& f, std::size_t calls_before, std::string_v
   require(calls.back().name == name, std::string("forwarded as ") + std::string(name));
 }
 
-// backend.hpp:328-336 (the validation layer checks every declared
-// transition against transitions.hpp and reports a failure once with the
-// code, the resource's debug name and the command's name, then forwards);
-// transitions.hpp:22-28, 161-186 (validate_begin: a before that differs from
-// the tracked access is BeforeDoesNotMatchTracked).
+// (backend.hpp, wrap_with_validation: the validation layer checks every
+// declared transition against transitions.hpp and reports a failure once with
+// the code, the resource's debug name and the command's name, then forwards);
+// (transitions.hpp, validate_begin, TransitionError::BeforeDoesNotMatchTracked:
+// a before that differs from the tracked access is BeforeDoesNotMatchTracked).
 void undeclared_transition_rejected_by_name() {
   Fixture f;
   const auto vertices = buffer(f, "Vertices", Access::VertexOrIndexBuffer);
@@ -175,9 +175,9 @@ void undeclared_transition_rejected_by_name() {
   require_forwarded(f, calls, "begin_transitions");
 }
 
-// backend.hpp:337-338 (a redundant transition is reported with Redundant
-// and forwarded); transitions.hpp:30-32, 105-107 (before equal to after is
-// redundant, not an error). The matching end is not a failure.
+// (backend.hpp, ValidationCode::Redundant: a redundant transition is reported
+// with Redundant and forwarded); (transitions.hpp, is_redundant: before equal
+// to after is redundant, not an error). The matching end is not a failure.
 void redundant_transition_reported_and_forwarded() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -196,10 +196,10 @@ void redundant_transition_reported_and_forwarded() {
           "end forwarded with the batch");
 }
 
-// transitions.hpp:22-33, 161-210 (a begin while a transition is open is
-// TransitionAlreadyOpen; an end with none open is NoOpenTransition; an end
-// whose after differs from the begin is EndDoesNotMatchBegin), reported by
-// the layer per backend.hpp:328-336.
+// (transitions.hpp, validate_begin, validate_end: a begin while a transition
+// is open is TransitionAlreadyOpen; an end with none open is NoOpenTransition;
+// an end whose after differs from the begin is EndDoesNotMatchBegin), reported
+// by the layer per (backend.hpp, wrap_with_validation).
 void double_begin_and_unsolicited_end_named() {
   Fixture f;
   const auto first = buffer(f, "First", Access::CopySource);
@@ -227,10 +227,11 @@ void double_begin_and_unsolicited_end_named() {
                    "end_transitions");
 }
 
-// transitions.hpp:34-37 (a split batch is rejected on a device without async
-// compute: SourceDestinationMismatch); backend.hpp:336-337 (a transition
-// batch is reported once per failing transition, each with that
-// transition's resource name); backend.hpp:106-127 (the capability report's
+// (transitions.hpp, TransitionError::SourceDestinationMismatch: a split batch
+// is rejected on a device without async compute);
+// (backend.hpp, wrap_with_validation: a transition batch is reported once per
+// failing transition, each with that transition's resource name);
+// (backend.hpp, Capabilities::async_compute: the capability report's
 // async_compute). The layer reports it at the begin; the same batch on a
 // device with async compute is accepted.
 void split_batch_on_single_queue_is_named() {
@@ -268,11 +269,11 @@ void split_batch_on_single_queue_is_named() {
   }
 }
 
-// transitions.hpp:38-42, 223-232 (at use, a copy source must be in
-// CopySource: AccessMissingAtUse); backend.hpp:328-336. Control: once a
-// declared transition to CopySource has ended, the same copy is accepted
-// (transitions.hpp:32-33, the end writes the tracked access the next check
-// reads).
+// (transitions.hpp, validate_use: at use, a copy source must be in
+// CopySource: AccessMissingAtUse); (backend.hpp, wrap_with_validation).
+// Control: once a declared transition to CopySource has ended, the same copy
+// is accepted (transitions.hpp, apply_end: the end writes the tracked access
+// the next check reads).
 void use_without_access_is_named() {
   Fixture f;
   const auto source = buffer(f, "Source", Access::ShaderResourcePixel);
@@ -290,10 +291,10 @@ void use_without_access_is_named() {
   require_quiet(f, 1, "copy after the declared transition to CopySource");
 }
 
-// command_list.hpp:38-47 (passes nest nothing; draws only inside a pass;
-// copies only outside one), reported by name per backend.hpp:332-336:
-// EndWithoutBegin, CommandOutsideRenderPass, NestedRenderPass,
-// CommandInsideRenderPass.
+// (command_list.hpp, CommandList::begin_render_pass: passes nest nothing;
+// draws only inside a pass; copies only outside one), reported by name per
+// (backend.hpp, wrap_with_validation): EndWithoutBegin,
+// CommandOutsideRenderPass, NestedRenderPass, CommandInsideRenderPass.
 void render_pass_nesting_named() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -319,9 +320,11 @@ void render_pass_nesting_named() {
   require_quiet(f, 4, "end_render_pass after begin");
 }
 
-// backend.hpp:329-330 (every render pass against validate_render_pass);
-// pipeline_states.hpp:43-46, 537-550 (a color target without RenderTarget
-// usage is named): RenderPassInvalid, with the pass's name.
+// (backend.hpp, wrap_with_validation: every render pass against
+// validate_render_pass);
+// (pipeline_states.hpp, validate_render_pass, RenderPassError::TargetUsageMissing:
+// a color target without RenderTarget usage is named): RenderPassInvalid, with
+// the pass's name.
 void render_pass_description_invalid_named() {
   Fixture f;
   bw::rhi::TextureDescription description = bw_rhi_test::render_target_description("Sampled");
@@ -338,10 +341,11 @@ void render_pass_description_invalid_named() {
   require_forwarded(f, calls, "begin_render_pass");
 }
 
-// backend.hpp:330-331 (every pipeline against the pass it is set in,
-// render_target_layout: PipelineTargetsMismatch); pipeline_states.hpp:46-48,
-// 552; command_list.hpp:38-47 (a draw with no graphics pipeline set in the
-// pass): NoPipelineBound.
+// (backend.hpp, wrap_with_validation: every pipeline against the pass it is
+// set in, render_target_layout: PipelineTargetsMismatch);
+// (pipeline_states.hpp, render_target_layout);
+// (command_list.hpp, CommandList::set_graphics_pipeline: a draw with no
+// graphics pipeline set in the pass): NoPipelineBound.
 void pipeline_targets_mismatch_and_no_pipeline_named() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -364,12 +368,12 @@ void pipeline_targets_mismatch_and_no_pipeline_named() {
   require_reported(f, 2, ValidationCode::NoPipelineBound, TransitionError::None, "", "draw");
 }
 
-// backend.hpp:331-332 (every draw block against the pipeline's draw block
-// hash) and 338-340 (the failure names the pipeline: the graphics
-// description's debug name, ComputePipeline::debug_name);
-// command_list.hpp:42-44 (blocks bind to the pass's graphics pipeline inside
-// a pass and to the compute pipeline outside one) and 51-52 (the layout hash
-// travels with the bytes); binding_structure.hpp:143-154 (PipelineBinding).
+// (backend.hpp, wrap_with_validation: every draw block against the pipeline's
+// draw block hash; the failure names the pipeline: the graphics description's
+// debug name, ComputePipeline::debug_name);
+// (command_list.hpp, CommandList::set_draw_block: blocks bind to the pass's
+// graphics pipeline inside a pass and to the compute pipeline outside one; the
+// layout hash travels with the bytes); (binding_structure.hpp, PipelineBinding).
 // A pipeline that reads no draw block matches no layout.
 void draw_block_layout_mismatch_named() {
   Fixture f;
@@ -401,9 +405,10 @@ void draw_block_layout_mismatch_named() {
   require_quiet(f, 3, "matching compute draw block");
 }
 
-// command_list.hpp:59-60 (markers nest and must balance); backend.hpp:332-333
-// (the marker nesting rules): a stray end and a marker open at submit_frame
-// are MarkerUnbalanced; a balanced frame is not.
+// (command_list.hpp, CommandList::begin_marker, CommandList::end_marker:
+// markers nest and must balance); (backend.hpp, wrap_with_validation: the
+// marker nesting rules): a stray end and a marker open at submit_frame are
+// MarkerUnbalanced; a balanced frame is not.
 void marker_unbalanced_named() {
   Fixture f;
   f.context().end_marker();
@@ -418,10 +423,10 @@ void marker_unbalanced_named() {
   require_quiet(f, 2, "balanced frame");
 }
 
-// queries.hpp:21-24 (occlusion begin and end bracket draws inside a pass
-// whose description names the pool; a begin outside such a pass is
-// rejected): QueryOutsidePass; an index at or beyond the pool's count:
-// QueryIndexOutOfRange (queries.hpp:19, count).
+// (queries.hpp, QueryKind::Occlusion: occlusion begin and end bracket draws
+// inside a pass whose description names the pool; a begin outside such a pass
+// is rejected): QueryOutsidePass; an index at or beyond the pool's count:
+// QueryIndexOutOfRange (queries.hpp, QueryPoolDescription::count).
 void query_outside_pass_and_index_named() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -447,13 +452,13 @@ void query_outside_pass_and_index_named() {
   f.context().end_render_pass();
 }
 
-// transitions.hpp:38-42 (at use: a render pass target in RenderTarget or
-// the depth states, a copy destination in CopyDestination, a vertex or
-// index buffer in VertexOrIndexBuffer, a staging copy source in
-// CopySource), 223-232 (validate_use: AccessMissingAtUse); backend.hpp:
-// 328-329 (every use checked). Each command is issued where
-// command_list.hpp:38-47 allows it, so the access check is the one that
-// fires.
+// (transitions.hpp, validate_use: at use, a render pass target in
+// RenderTarget or the depth states, a copy destination in CopyDestination, a
+// vertex or index buffer in VertexOrIndexBuffer, a staging copy source in
+// CopySource; AccessMissingAtUse); (backend.hpp, wrap_with_validation: every
+// use checked). Each command is issued where
+// (command_list.hpp, CommandList::begin_render_pass) allows it, so the access
+// check is the one that fires.
 void use_checks_cover_every_named_use() {
   Fixture f;
   bw::rhi::TextureDescription depth_description = bw_rhi_test::render_target_description("Depth");
@@ -499,9 +504,10 @@ void use_checks_cover_every_named_use() {
                    "Destination", "copy_buffer_to_staging");
 }
 
-// transitions.hpp:223-232 (validate_use: a use while a transition is open on
-// the resource is TransitionAlreadyOpen), 22-23 (a transition is open from
-// its begin until its end); backend.hpp:328-329.
+// (transitions.hpp, validate_use: a use while a transition is open on the
+// resource is TransitionAlreadyOpen); (transitions.hpp, TransitionState::open:
+// a transition is open from its begin until its end);
+// (backend.hpp, wrap_with_validation).
 void use_during_open_transition_is_named() {
   Fixture f;
   const auto source = buffer(f, "Source", Access::CopySource);
@@ -514,11 +520,11 @@ void use_during_open_transition_is_named() {
                    "Source", "copy_buffer");
 }
 
-// transitions.hpp:23-25, 161-165, 197-202 (validate_begin and validate_end
-// reject a null resource first; stated as a departure from the pin);
-// backend.hpp:336-337 (once per failing transition): the null entry is
-// reported with no resource name and the valid entry of the same batch is
-// not.
+// (transitions.hpp, validate_begin, validate_end, TransitionError::NullResource:
+// validate_begin and validate_end reject a null resource first);
+// (backend.hpp, wrap_with_validation: once per failing transition): the null
+// entry is reported with no resource name and the valid entry of the same
+// batch is not.
 void null_resource_in_batch_is_named() {
   Fixture f;
   const auto valid = buffer(f, "Valid", Access::CopySource);
@@ -533,9 +539,10 @@ void null_resource_in_batch_is_named() {
                    "end_transitions");
 }
 
-// command_list.hpp:38-47 (dispatch, the compute pipeline, transitions and
-// the AbsoluteTime end_query only outside a pass: CommandInsideRenderPass;
-// block and root constant calls legal in both places); backend.hpp:332-333.
+// (command_list.hpp, CommandList::begin_render_pass: dispatch, the compute
+// pipeline, transitions and the AbsoluteTime end_query only outside a pass:
+// CommandInsideRenderPass; block and root constant calls legal in both
+// places); (backend.hpp, wrap_with_validation).
 void inside_only_and_outside_only_commands_named() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -584,10 +591,11 @@ void inside_only_and_outside_only_commands_named() {
   require_quiet(f, 5, "compute pipeline, blocks, dispatch and timestamp outside a pass");
 }
 
-// command_list.hpp:44-45 (a pass still open at end_frame is a violation,
-// RenderPassOpenAtSubmit); backend.hpp:351-371. The failure names the pass
-// even after the caller's name storage has changed; the next frame starts
-// with no pass open.
+// (command_list.hpp, CommandList::begin_render_pass: a pass still open at
+// end_frame is a violation, RenderPassOpenAtSubmit);
+// (backend.hpp, ValidationCode::RenderPassOpenAtSubmit). The failure names the
+// pass even after the caller's name storage has changed; the next frame
+// starts with no pass open.
 void render_pass_open_at_submit_is_named() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -605,9 +613,10 @@ void render_pass_open_at_submit_is_named() {
   require_quiet(f, 1, "a frame whose pass ended");
 }
 
-// queries.hpp:25-27 (begin_query is not recorded for an AbsoluteTime pool;
-// the validation layer reports one as QueryKindMismatch); an end_query
-// outside a pass is legal for that kind (command_list.hpp:38-47).
+// (queries.hpp, QueryKind::AbsoluteTime: begin_query is not recorded for an
+// AbsoluteTime pool; the validation layer reports one as QueryKindMismatch);
+// an end_query outside a pass is legal for that kind
+// (command_list.hpp, CommandList::end_query).
 void query_kind_mismatch_is_named() {
   Fixture f;
   const auto timestamps = bw_rhi_test::make<bw_rhi_validation_test::TestQueryPool>(
@@ -836,7 +845,7 @@ void every_backend_entry_forwarded(Fixture& f) {
                     [](bw::rhi::Backend& b) { b.reset_frame_resources(4); });
 }
 
-// backend.hpp:333-336 and 380-382 (the returned backend forwards to inner;
+// (backend.hpp, wrap_with_validation: the returned backend forwards to inner;
 // a failure is reported once and the command is then forwarded; the layer
 // never changes what the backend sees). Every Backend entry, and every
 // Context entry in a frame with no failure, reaches the inner exactly once
@@ -844,8 +853,9 @@ void every_backend_entry_forwarded(Fixture& f) {
 // entry that has a failure case is issued in that case and still reaches the
 // inner once, with exactly one failure. begin_marker has no failure case
 // (it opens a scope) and appears in the first frame only; set_static_block
-// and set_root_constants, legal in both places (command_list.hpp, Render
-// passes), fail only out of range (command_list.hpp, Blocks).
+// and set_root_constants, legal in and out of a render pass
+// (command_list.hpp, CommandList::begin_render_pass), fail only out of range
+// (command_list.hpp, CommandList::set_static_block, CommandList::set_root_constants).
 void every_call_forwarded_once_with_same_arguments() {
   Fixture f;
   every_backend_entry_forwarded(f);
@@ -1060,8 +1070,9 @@ void every_call_forwarded_once_with_same_arguments() {
   require(g.captured.count == before + 1, "one failure for the open marker");
 }
 
-// command_list.hpp:48-50 (a static slot is below kMaxStaticBlocks, else
-// StaticSlotOutOfRange); backend.hpp:385-386. Named by the buffer.
+// (command_list.hpp, CommandList::set_static_block: a static slot is below
+// kMaxStaticBlocks, else StaticSlotOutOfRange);
+// (backend.hpp, ValidationCode::StaticSlotOutOfRange). Named by the buffer.
 void static_slot_out_of_range_is_named() {
   Fixture f;
   const auto block = buffer(f, "Block", Access::ShaderResourcePixel);
@@ -1072,8 +1083,9 @@ void static_slot_out_of_range_is_named() {
   require_quiet(f, 1, "the last static slot");
 }
 
-// command_list.hpp:55-57 (first + n <= kRootConstantWords, else
-// RootConstantsOutOfRange); backend.hpp:385-387.
+// (command_list.hpp, CommandList::set_root_constants: first + n <=
+// kRootConstantWords, else RootConstantsOutOfRange);
+// (backend.hpp, ValidationCode::RootConstantsOutOfRange).
 void root_constants_out_of_range_is_named() {
   Fixture f;
   const std::array<std::uint32_t, 3> words{1, 2, 3};
@@ -1084,9 +1096,10 @@ void root_constants_out_of_range_is_named() {
   require_quiet(f, 1, "root constants ending at the last word");
 }
 
-// command_list.hpp:51-53 and 57-60 (the draw block is bound until the frame
-// ends; a draw whose pipeline uses it with none set since the frame began is
-// DrawBlockNotSet); backend.hpp:385-388. Named by the pipeline.
+// (command_list.hpp, CommandList::set_draw_block: the draw block is bound
+// until the frame ends; a draw whose pipeline uses it with none set since the
+// frame began is DrawBlockNotSet);
+// (backend.hpp, ValidationCode::DrawBlockNotSet). Named by the pipeline.
 void draw_block_not_set_is_named() {
   Fixture f;
   const auto target = texture(f, "Target", Access::RenderTarget);
@@ -1110,10 +1123,10 @@ void draw_block_not_set_is_named() {
   f.context().end_render_pass();
 }
 
-// command_list.hpp:48-50 and 57-60 (a static slot is bound until the frame
-// ends; a dispatch whose pipeline's mask names a slot not set since the
-// frame began is StaticSlotNotSet); backend.hpp:385-389. Named by the
-// pipeline.
+// (command_list.hpp, CommandList::set_static_block: a static slot is bound
+// until the frame ends; a dispatch whose pipeline's mask names a slot not set
+// since the frame began is StaticSlotNotSet);
+// (backend.hpp, ValidationCode::StaticSlotNotSet). Named by the pipeline.
 void static_slot_not_set_is_named() {
   Fixture f;
   const auto block = buffer(f, "Block", Access::ShaderResourcePixel);

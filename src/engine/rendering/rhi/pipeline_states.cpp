@@ -30,20 +30,13 @@ namespace {
 
 } // namespace
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHI.cpp:1383-1496: Validate walks the
-// color slots until the first empty one, then requires every later slot
-// empty (no gaps, :1421-1425), and requires one sample count across the
-// color and depth targets (:1393-1401, :1429-1433). Followed, checked in
-// RenderPassError's order: every target is checked for one code before any
-// target is checked for the next. Omitted: the resolve rules (:1403-1410,
-// :1434-1488), which arrive with resolves; and the rule for a pass with no
-// depth target (:1489-1492: the depth actions must be DontLoad_DontStore and
-// the exclusive depth-stencil access Nop). No RenderPassError names that
-// case, and with no depth texture the depth and stencil actions and
-// read-only flags address nothing: the backend reads none of them, so a
-// pass whose absent depth target keeps the description's default actions
-// is accepted.
+// Walks the color slots until the first empty one, then requires every
+// later slot empty (no gaps), and requires one sample count across the color
+// and depth targets, checked in RenderPassError's order: every target is
+// checked for one code before any target is checked for the next. A pass
+// with no depth target is accepted whatever its depth and stencil actions
+// and read-only flags: with no depth texture they address nothing, and the
+// backend reads none of them.
 RenderPassError validate_render_pass(const RenderPassDescription& pass) noexcept {
   const Texture* depth = pass.depth_stencil.texture;
   if (pass.color_count == 0U && depth == nullptr) {

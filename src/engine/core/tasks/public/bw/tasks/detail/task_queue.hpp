@@ -11,9 +11,8 @@
 // Core CP.2 / Performance CONC.2: indexed links retain storage for outstanding
 // readers; acquire/CAS publishes payload and counters across native threads.
 namespace bw::tasks {
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// LockFreeList.h:544-687. Indexed tagged Michael-Scott FIFO; link payload is
-// borrowed until pop transfers it to the consumer. Null is the empty marker.
+// Indexed tagged Michael-Scott FIFO; link payload is borrowed until pop
+// transfers it to the consumer. Null is the empty marker.
 class TaskQueue final {
 public:
   TaskQueue();
@@ -28,7 +27,7 @@ private:
   alignas(platform::allocator_cache_line_size) std::atomic<std::uint64_t> tail_{0};
 };
 
-// LockFreeList.h:689-838: two source priorities, tagged stall-state handshake.
+// Two priorities, tagged stall-state handshake.
 // The current dependency exposes idle pumping only, so pop does not mark a
 // sleeping owner. The named owner is bit zero; high priority is index zero.
 class NamedTaskQueue final {

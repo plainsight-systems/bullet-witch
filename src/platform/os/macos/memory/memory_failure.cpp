@@ -14,11 +14,9 @@
 
 // E.26/E.28: record native failures without recovery or later errno ambiguity.
 // MEM.7: native memory accounting stays in the target implementation.
-// All references: Unreal f45729c0b6f097038e72b52d366a62baeca3275b,
-// Engine/Source/Runtime/Core/Private unless a public path is named.
 namespace bw::platform {
 namespace {
-// Own extraction of the fields reported by GenericPlatformMemory.cpp:277-290.
+// The fields reported by the out-of-memory diagnostic.
 // This snapshot is only collected on the fatal winner, not shared mutable state.
 struct NativeMemoryStats {
   std::uint64_t available_physical{};
@@ -31,9 +29,8 @@ struct NativeMemoryStats {
   int task_result{-1};
 };
 
-// Apple/ApplePlatformMisc.cpp LocalPrint:74-84 uses native os_log.
-// Misc/OutputDeviceStdOut.cpp:33-36 writes/flushes the selected stdout device.
-// Own bounded diagnostic extraction: no full structured-log/crash-UI subsystem.
+// Writes to native os_log, then writes/flushes stdout on the headless target.
+// Bounded diagnostic output: no full structured-log/crash-UI subsystem.
 void output_diagnostic(const char* message) {
 #ifndef NDEBUG
   os_log(OS_LOG_DEFAULT, "[Bullet Witch] %{public}s", message);
@@ -47,8 +44,8 @@ void output_diagnostic(const char* message) {
 #endif
 }
 
-// Mac/MacPlatformMemory.cpp GetStats:178-225: host free/inactive pages + swap,
-// then process phys_footprint and virtual_size. No resident-size substitution.
+// Host free/inactive pages + swap, then process phys_footprint and
+// virtual_size. No resident-size substitution.
 NativeMemoryStats native_memory_stats() {
   NativeMemoryStats result;
   vm_statistics64_data_t host_stats{};
@@ -56,7 +53,7 @@ NativeMemoryStats native_memory_stats() {
   result.host_result = host_statistics64(mach_host_self(), HOST_VM_INFO64,
                                          reinterpret_cast<host_info_t>(&host_stats), &host_count);
   if (result.host_result != KERN_SUCCESS) {
-    // Source:187-190 warns and returns the available snapshot on query failure.
+    // Warn and return the available snapshot on query failure.
     output_diagnostic("MemoryStats: host_statistics64 failed\n");
     return result;
   }
@@ -68,7 +65,7 @@ NativeMemoryStats native_memory_stats() {
   result.swap_result = sysctlbyname("vm.swapusage", &swap, &swap_size, nullptr, 0);
   result.available_virtual = result.available_physical + swap.xsu_avail;
 
-  // Source:201-222 queries process memory. There is no earlier stats sampler in
+  // Query process memory. There is no earlier stats sampler in
   // this leaf, so the reported observed peaks equal this sole fatal snapshot.
   task_vm_info_data_t task_stats{};
   mach_msg_type_number_t task_count = TASK_VM_INFO_COUNT;
@@ -83,22 +80,21 @@ NativeMemoryStats native_memory_stats() {
   return result;
 }
 
-// Mac/MacPlatformMisc.cpp RequestExit:725-735 selects immediate critical exit3.
-// The current host is unguarded: MacErrorOutputDevice.cpp Serialize:69-74.
+// Immediate critical exit with code 3. The current host is unguarded.
 [[noreturn]] void exit_critical() { std::_Exit(3); }
 } // namespace
 
-// GenericPlatformMemory.cpp OnOutOfMemory:262-300 + selected native dependencies.
+// Out-of-memory report through the selected native dependencies.
 [[noreturn]] void report_out_of_memory(const memory::OutOfMemoryRecord& record) {
-  // ApplePlatformMisc GetSystemErrorMessage:87-104 uses strerror_r. This fixed
-  // buffer passes its actual bound; no TCHAR conversion subsystem is required.
+  // strerror_r into a fixed buffer that passes its actual bound; no character
+  // conversion subsystem is required.
   std::array<char, 256> system_error{};
   if (strerror_r(record.system_error, system_error.data(), system_error.size()) != 0) {
     system_error[0] = '\0';
   }
   const NativeMemoryStats stats = native_memory_stats();
-  // GenericPlatformMemory:267-295 reserve/dump branches are absent because Mac
-  // inherits GetBackMemoryPoolSize()==0. No fake reserve or allocator is created.
+  // Reserve/dump branches are absent because Mac holds no reserve pool. No fake
+  // reserve or allocator is created.
   std::array<char, 2048> message{};
   (void)std::snprintf(
       message.data(), message.size(),
@@ -110,15 +106,15 @@ NativeMemoryStats native_memory_stats() {
       stats.used_virtual, stats.used_virtual, stats.host_result, stats.swap_result,
       stats.task_result, record.allocation_size, record.allocation_alignment, record.system_error,
       system_error.data());
-  // GenericPlatformMemory:296-300: no listeners installed; emit fatal diagnosis.
+  // No listeners installed; emit fatal diagnosis.
   output_diagnostic(message.data());
-  // MacErrorOutputDevice HandleError:77-107 has no installed logger/delegates/UI
-  // in this headless host. Preserve its critical termination, not ordinary exit.
+  // No logger/delegates/UI are installed in this headless host. Preserve
+  // critical termination, not ordinary exit.
   exit_critical();
 }
 
-// AssertionMacros.cpp:175-192 → MacErrorOutputDevice.cpp:69-74. Keep assertion
-// provenance distinct from allocation failure while selecting native fatal exit.
+// Keep assertion provenance distinct from allocation failure while selecting
+// native fatal exit.
 [[noreturn]] void memory_check_failed(const char* expression, const char* file, int line) {
   std::array<char, 2048> message{};
   (void)std::snprintf(message.data(), message.size(), "Memory assertion failed: %s [%s:%d]\n",
@@ -127,8 +123,8 @@ NativeMemoryStats native_memory_stats() {
   exit_critical();
 }
 
-// GenericPlatform/GenericPlatformProcess.cpp SleepInfinite:427-434: stop this
-// thread indefinitely. This fallback is outside successful allocation/game ticks.
+// Stop this thread indefinitely. This fallback is outside successful
+// allocation/game ticks.
 [[noreturn]] void wait_after_memory_failure() {
   for (;;) {
     (void)pause();

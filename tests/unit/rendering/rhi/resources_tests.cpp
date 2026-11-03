@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/resources.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/resources.hpp"
 
 #include "bw/rendering/rhi/build.hpp"
@@ -57,9 +57,9 @@ ResourceError check(const TextureDescription& d, FormatCapability capability = k
   return bw::rhi::validate_texture(d, kLimits, capability);
 }
 
-// resources.hpp:26-28 and 236-271, 292: usage None, initial access Unknown
-// and an empty debug name are errors; each rule has its code; the first in
-// ResourceError's order that applies is returned.
+// (resources.hpp, validate_buffer) and (resources.hpp, ResourceError): usage
+// None, initial access Unknown and an empty debug name are errors; each rule
+// has its code; the first in ResourceError's order that applies is returned.
 void buffer_validation_named_in_order() {
   require(bw::rhi::validate_buffer(valid_buffer()) == ResourceError::None, "valid buffer");
   BufferDescription d = valid_buffer();
@@ -103,8 +103,9 @@ void buffer_validation_named_in_order() {
   require(bw::rhi::validate_buffer(d) == ResourceError::None, "an index stride of 2");
 }
 
-// resources.hpp:26-28 and 236-303: the texture rules against the limits and
-// the format's capability, the first in ResourceError's order returned.
+// (resources.hpp, validate_texture) and (resources.hpp, ResourceError): the
+// texture rules against the limits and the format's capability, the first in
+// ResourceError's order returned.
 void texture_validation_named_in_order() {
   require(check(valid_texture()) == ResourceError::None, "valid texture");
   TextureDescription d = valid_texture();
@@ -177,7 +178,8 @@ void texture_validation_named_in_order() {
           "multisampling needs the format capability");
 }
 
-// resources.hpp:410-421: a view range outside the resource, a format or
+// (resources.hpp, validate_buffer_view) and
+// (resources.hpp, validate_texture_view): a view range outside the resource, a format or
 // plane the resource cannot take, a kind its usage does not include; each
 // named, checked in ResourceError's order.
 void view_validation_named() {
@@ -251,8 +253,9 @@ void view_validation_named() {
           "format before usage");
 }
 
-// resources.hpp:44-47 and 304-314: array_size * mip_levels subresources, six
-// slices per cube, index = slice * mip_levels + mip.
+// (resources.hpp, subresource_count) and (resources.hpp, subresource_index):
+// array_size * mip_levels subresources, six slices per cube, index = slice *
+// mip_levels + mip.
 void subresource_arithmetic() {
   TextureDescription d = valid_texture();
   d.dimension = TextureDimension::Texture2DArray;
@@ -267,9 +270,10 @@ void subresource_arithmetic() {
   require(bw::rhi::subresource_count(d) == 18U, "a cube is six slices");
 }
 
-// resources.hpp:28-31 and 62-82, 347-348: the debug name is copied into the
-// resource, so the caller's storage may change after creation; at most
-// kDebugNameCapacity bytes are kept; with BW_RHI_DEBUG 0 nothing is kept.
+// (resources.hpp, DebugName) and (resources.hpp, Buffer::description): the
+// debug name is copied into the resource, so the caller's storage may change
+// after creation; at most kDebugNameCapacity bytes are kept; with
+// BW_RHI_DEBUG 0 nothing is kept.
 void debug_name_copied_and_bounded() {
   std::string caller = "Original";
   const bw::rhi::DebugName name{caller};
@@ -297,9 +301,9 @@ void debug_name_copied_and_bounded() {
 #endif
 }
 
-// resources.hpp:36-43 and 447-469: a view owns one descriptor slot and its
+// (resources.hpp, View): a view owns one descriptor slot and its
 // destructor returns it to the pools it was created against;
-// descriptor_allocator.hpp:25-30: a freed index is reused by a later
+// (descriptor_allocator.hpp, DescriptorIndexAllocator): a freed index is reused by a later
 // allocate, lowest first. The slot is not returned while the view lives,
 // and is free again once the queue destroys the view.
 void view_returns_slot_on_destruction() {
@@ -331,7 +335,7 @@ void view_returns_slot_on_destruction() {
       "a later allocate returns the view's index");
 }
 
-// resources.hpp:32-35 and 320-339: the tracked access starts as initial_access on
+// (resources.hpp, Viewable): the tracked access starts as initial_access on
 // Graphics and is written by set_tracked_access; is_texture tells a texture
 // from a buffer.
 void viewable_initial_tracked_access_and_kind() {
@@ -354,7 +358,7 @@ void viewable_initial_tracked_access_and_kind() {
           "set_tracked_access writes the tracked access");
 }
 
-// resources.hpp:423-439 (array_for): a shader resource view lands in the read array
+// (resources.hpp, array_for): a shader resource view lands in the read array
 // of its dimension; every storage view in StorageTexture2D.
 void array_for_by_dimension_and_kind() {
   using bw::shaders::DescriptorArray;
@@ -375,8 +379,8 @@ void array_for_by_dimension_and_kind() {
   }
 }
 
-// resources.hpp:44-47, 222-232 and 293-300 (the SubresourceData pitch
-// rule, validate_buffer_initial_data, validate_initial_data): a buffer's data is empty or exactly
+// (resources.hpp, SubresourceData), (resources.hpp, validate_buffer_initial_data)
+// and (resources.hpp, validate_initial_data): a buffer's data is empty or exactly
 // its size; a texture's is empty or one entry per subresource with row_pitch at least the row
 // bytes, slice_pitch read only for a 3D mip with depth above 1, and the bytes covering what the
 // pitches address.
@@ -442,7 +446,7 @@ void initial_data_validation_named() {
           "bytes short of the last slice");
 }
 
-// resources.hpp:48-50 and 530-543 (validate_lock): NotUploadBuffer first, then
+// (resources.hpp, validate_lock): NotUploadBuffer first, then
 // RangeOutOfBounds for an empty range or one past the end.
 void lock_validation_named() {
   BufferDescription upload = valid_buffer();

@@ -1,4 +1,4 @@
-// Must not compile. permutation.hpp:74-76: a domain beyond kMaxPermutations
+// Must not compile. (permutation.hpp, kMaxPermutations): a domain beyond kMaxPermutations
 // fails to compile. 1025 values in one dimension.
 #include "bw/rendering/shaders/permutation.hpp"
 

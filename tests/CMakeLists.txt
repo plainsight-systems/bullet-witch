@@ -136,13 +136,13 @@ function(bw_shader_compile_probes)
   # Compile only; a probe has no main.
   set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
   set(probe_dir "${CMAKE_CURRENT_SOURCE_DIR}/unit/rendering/shaders/compile_failures")
-  # name | header line asserted | text the compiler output must contain
+  # name | header declaration asserted | text the compiler output must contain
   set(probes
-    "unlisted_member|parameter_block.hpp:28-31 every member listed|parameter block member is not dense"
-    "wrong_alignment|parameter_block.hpp:31-32 a type outside the value set|ParameterTraits<PlainFloat3>"
-    "size_not_multiple_of_16|parameter_block.hpp:27 alignof 16, sizeof a multiple of 16|a parameter block is a multiple of 16 bytes"
-    "nested_before_layout|parameter_block.hpp:576-578 nested layouts first|BlockLayoutOf<ProbeInner>"
-    "domain_over_max_permutations|permutation.hpp:74-76 domain within kMaxPermutations|permutation domain exceeds kMaxPermutations")
+    "unlisted_member|(parameter_block.hpp, BW_PARAMETER_BLOCK_LAYOUT) every member listed|parameter block member is not dense"
+    "wrong_alignment|(parameter_block.hpp, ParameterTraits) a type outside the value set|ParameterTraits<PlainFloat3>"
+    "size_not_multiple_of_16|(parameter_block.hpp, BW_PARAMETER_BLOCK_LAYOUT) alignof 16, sizeof a multiple of 16|a parameter block is a multiple of 16 bytes"
+    "nested_before_layout|(parameter_block.hpp, BW_PARAMETER_BLOCK_LAYOUT) nested layouts first|BlockLayoutOf<ProbeInner>"
+    "domain_over_max_permutations|(permutation.hpp, kMaxPermutations) domain within kMaxPermutations|permutation domain exceeds kMaxPermutations")
   try_compile(control_compiled SOURCES "${probe_dir}/control.cpp"
     CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${probe_includes}"
     COMPILE_DEFINITIONS ${probe_options} ${probe_definitions}

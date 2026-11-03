@@ -36,30 +36,21 @@
 // first). The include handler lives on the stack of compile() for the whole
 // Compile call; DXC's AddRef and Release on it only count.
 //
-// Algorithm, compile, following
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompilerDXC.cpp:
+// Algorithm, compile:
 //   1. IDxcCompiler3::Compile with a DxcBuffer source, the argument list and
-//      the include handler (:437-443; the pin passes a null handler because
-//      its source is preprocessed beforehand, here DXC preprocesses and the
-//      handler records what it opens).
-//   2. Status and the error buffer on both paths (:634, :791-794), then
-//      DXC_OUT_OBJECT and DXC_OUT_REFLECTION when it succeeded (:576-613), and DXC_OUT_PDB when
-//      symbols were asked for (:614, RetrieveDebugNameAndBlob). Omitted: the pin's disabled
-//      post-compile signing branch (:584-609, bPostCompileSign false), the disassembly dump
-//      (:616-620) and the -Fc/-Fo dump file arguments (:465-471): no file is written by the
-//      compiler, and the tool writes only the artifact, the depfile and the symbol file.
-//   3. IDxcUtils and the DxcBuffer over the reflection blob (:831-834),
-//      then IDxcUtils::CreateReflection (:880, :1065).
+//      the include handler; DXC preprocesses and the handler records what it
+//      opens.
+//   2. Status and the error buffer on both paths, then DXC_OUT_OBJECT and
+//      DXC_OUT_REFLECTION when it succeeded, and DXC_OUT_PDB when symbols
+//      were asked for. No file is written by the compiler; the tool writes
+//      only the artifact, the depfile and the symbol file.
+//   3. IDxcUtils and the DxcBuffer over the reflection blob, then
+//      IDxcUtils::CreateReflection.
 //   4. RemoveReflectionData: IDxcContainerBuilder Load, RemovePart of the
-//      reflection part, SerializeContainer, GetResult (:524-552). The builder
+//      reflection part, SerializeContainer, GetResult. The builder
 //      re-hashes the container with the hash function it found in the loaded
-//      one, so the stripped container stays signed (Source:
-//      DirectXShaderCompiler v1.9.2609, lib/DxilContainer/DxcContainerBuilder.cpp,
-//      SerializeContainer, DetermineHashFunctionFromContainerContents and
-//      HashAndUpdate).
-// Omitted: the pin's structured exception wrapper (:420-452, Windows SEH);
-// a crash inside DXC ends the tool, and the build reports the command.
+//      one, so the stripped container stays signed.
+// A crash inside DXC ends the tool, and the build reports the command.
 //
 // Retrieved rules: R.1 and E.6 (ComPtr and SharedLibrary own every handle),
 // R.31 (ComPtr is move-only like unique_ptr), I.11, E.27, SL.con.3 (blob
@@ -450,10 +441,9 @@ BackendStatus DxcSession::compile(const DxcCompileInput& input, DxcCompileOutput
                              handler_diagnostics,
                          shaders::ExitCode::CompileError};
   }
-  // Step 2. The error buffer is read on both paths, as the pin does
-  // (:634 takes it whatever the status, :791-794 reports any non-empty
-  // buffer). With -WX a successful compile has nothing to say, so a message
-  // on a successful status is treated as a failure rather than dropped.
+  // Step 2. The error buffer is read on both paths, whatever the status.
+  // With -WX a successful compile has nothing to say, so a message on a
+  // successful status is treated as a failure rather than dropped.
   HRESULT status = S_OK;
   const bool succeeded = SUCCEEDED(result->GetStatus(&status)) && SUCCEEDED(status);
   const std::string messages = handler_diagnostics + utf8_output(*result.get());

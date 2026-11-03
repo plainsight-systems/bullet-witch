@@ -6,13 +6,9 @@
 
 namespace bw::rhi {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/DynamicRHI.cpp:290-335: RHIInit creates
-// the platform's one dynamic RHI (PlatformCreateDynamicRHI) and calls Init
-// on it; when none is created, :370-374 falls back to InitNullRHI where the
-// platform allows it. Followed as a switch over the kinds this build knows;
-// departure: a kind with no backend compiled in fails by name and creates
-// nothing (E.4), with no null RHI to fall back to.
+// A switch over the kinds this build knows. A kind with no backend compiled
+// in fails by name and creates nothing (E.4); there is no null backend to
+// fall back to.
 BackendResult create_backend(BackendKind kind, const BackendOptions& options) {
   switch (kind) {
   case BackendKind::Metal:

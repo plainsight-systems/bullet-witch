@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/pipeline_states.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/pipeline_states.hpp"
 
 #include "bw/rendering/rhi/lifetime.hpp"
@@ -83,7 +83,8 @@ private:
   }
 };
 
-// pipeline_states.hpp:43-48 and 528-541: color targets 0..n-1 without gaps,
+// (pipeline_states.hpp, validate_render_pass) and
+// (pipeline_states.hpp, RenderPassError): color targets 0..n-1 without gaps,
 // each with RenderTarget usage and a mip and slice inside it, one sample
 // count and extent across the targets, stencil actions only on a stencil
 // format, no clear on a read-only aspect; the first violation is named.
@@ -158,7 +159,8 @@ void render_pass_validation_named() {
   require(bw::rhi::validate_render_pass(pass) == RenderPassError::None, "a read-only load");
 }
 
-// pipeline_states.hpp:46-48 and 327-334, 542-543: the layout a pipeline
+// (pipeline_states.hpp, render_target_layout) and
+// (pipeline_states.hpp, RenderTargetLayout): the layout a pipeline
 // must match is the pass's color formats in slot order, its depth format
 // and its sample count.
 void render_target_layout_derived() {
@@ -216,8 +218,8 @@ struct PipelineParts {
   }
 };
 
-// pipeline_states.hpp:404-418 (validate_graphics_pipeline and
-// validate_compute_pipeline): the description-only checks, the first that
+// (pipeline_states.hpp, validate_graphics_pipeline) and
+// (pipeline_states.hpp, validate_compute_pipeline): the description-only checks, the first that
 // applies in the stated order; the target is not among them.
 void pipeline_validation_named() {
   using bw::rhi::PipelineError;
@@ -270,7 +272,7 @@ void pipeline_validation_named() {
           "a vertex artifact in the compute slot");
 }
 
-// pipeline_states.hpp:49-52 and 420-449: GraphicsPipeline takes Refs on the three state
+// (pipeline_states.hpp, GraphicsPipeline): GraphicsPipeline takes Refs on the three state
 // objects, copies both artifacts' input hashes, drops the shader pointers,
 // and description().debug_name views its own copy of the name.
 void graphics_pipeline_holds_states_and_drops_shaders() {
@@ -304,7 +306,7 @@ void graphics_pipeline_holds_states_and_drops_shaders() {
   require(parts.rasterizer->ref_count() == 1U, "destroying the pipeline releases its Refs");
 }
 
-// pipeline_states.hpp:451-467: ComputePipeline copies the artifact's input hash
+// (pipeline_states.hpp, ComputePipeline): ComputePipeline copies the artifact's input hash
 // and thread group size, and keeps the binding it is given.
 void compute_pipeline_copies_hash_and_group_size() {
   DeferredDeleteQueue queue;

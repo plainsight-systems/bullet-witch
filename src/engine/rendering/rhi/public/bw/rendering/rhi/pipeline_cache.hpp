@@ -52,34 +52,19 @@ struct PipelineKey {
   [[nodiscard]] friend constexpr bool operator==(PipelineKey, PipelineKey) noexcept = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/DynamicRHI.cpp:608-674:
-// RHIComputeStatePrecachePSOHash hashes the shader hashes and the content of
-// the blend, rasterizer and depth-stencil initializers, the primitive type
-// and depth bounds; :676-742 RHIComputePrecachePSOHash adds the render
-// target formats, depth-stencil format, sample count and the pass fields.
-// Followed as the one key. Departure: the pin's runtime cache keys on the
-// initializer with state-object pointers
-// (Engine/Source/Runtime/RHI/Private/PipelineStateCache.cpp:112-142, pointers
-// hashed at :114-117); one content key here, so the key is the same across
-// runs and across the precompile and draw paths. Hash function: FNV-1a 64
-// over the fields in declaration order, each integer little-endian, each
-// float as its bits; the pin's CityHash64 is not reproduced.
+// One content key, never state-object pointers, so the key is the same
+// across runs and across the precompile and draw paths. Hash function:
+// FNV-1a 64 over the fields in declaration order, each integer
+// little-endian, each float as its bits.
 [[nodiscard]] PipelineKey graphics_pipeline_key(const GraphicsPipelineDescription& d) noexcept;
 [[nodiscard]] PipelineKey compute_pipeline_key(const ComputePipelineDescription& d) noexcept;
 // The same keys from the parts a created pipeline keeps, so a cache can be
 // rebuilt from its entries.
 [[nodiscard]] PipelineKey graphics_pipeline_key(const GraphicsPipeline& pipeline) noexcept;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/PipelineStateCache.cpp:1718-2474:
-// TSharedPipelineStateCache, a map from initializer to state; Find at
-// :1808-1858 and Add at :1860-1875. Followed as one map keyed by content.
-// Omitted: the per-thread local caches and the backfill map consolidated at
-// the frame boundary (:1901-1970), because pipeline lookup here is on the
-// one recording path the device serializes; the async compile tasks
-// (:3817-4051); the file cache (PipelineFileCache.h:314-458), replaced by
-// the permutation enumeration, which is complete by construction.
+// One map keyed by content. There are no per-thread caches: pipeline lookup
+// is on the one recording path the device serializes. There is no file
+// cache: the permutation enumeration is complete by construction.
 class PipelineDescriptionCache {
 public:
   [[nodiscard]] Ref<GraphicsPipeline> find_graphics(PipelineKey key) const noexcept;
@@ -100,16 +85,8 @@ private:
   std::vector<Entry<ComputePipeline>> compute_{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/PipelineStateCache.h:241-244:
-// PrecacheComputePipelineState and PrecacheGraphicsPipelineState take
-// complete initializers; Engine/Source/Runtime/RenderCore/Private/ShaderPipelineCache.cpp:1080-1190
-// builds them from the bundled cache's descriptors. Followed with the
-// permutation enumeration as the source of the shader set (shaders.md,
-// invariant 6). Omitted: the bundled and user file caches
-// (PipelineFileCache.cpp:2183-2345), their game version (:278, :2432) and
-// usage masks (:214-215, :337), and the precache thread pool
-// (PipelineStateCache.cpp:561-619).
+// The permutation enumeration is the source of the shader set (shaders.md,
+// invariant 6); precompile takes complete descriptions built from it.
 struct PrecompileEntry {
   const shaders::ShaderDescription* shader{};
   shaders::PermutationId permutation{};

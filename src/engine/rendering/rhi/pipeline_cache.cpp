@@ -156,12 +156,9 @@ template <class T> [[nodiscard]] Ref<T> find_entry(const auto& entries, Pipeline
   return it->pipeline;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/PipelineStateCache.cpp:1860-1875: Add
-// inserts the state under its key. Difference: the pin check()s that the key
-// is absent (:1871), a fatal assertion; here a present key is a returned
-// false and the cache keeps the first entry (pipeline_cache.hpp: insert
-// replaces nothing).
+// Inserts the pipeline under its key. A present key is a returned false and
+// the cache keeps the first entry (pipeline_cache.hpp: insert replaces
+// nothing).
 template <class Entry, class T>
 bool insert_entry(std::vector<Entry>& entries, PipelineKey key, Ref<T> pipeline) {
   const auto it = std::lower_bound(

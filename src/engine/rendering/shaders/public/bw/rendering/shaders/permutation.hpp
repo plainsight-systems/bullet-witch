@@ -98,11 +98,7 @@ concept PermutationDimension = requires(typename D::value_type value, std::uint3
   { D::define_value(value) } -> std::same_as<std::int32_t>;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderPermutation.h:48-93:
-// FShaderPermutationBool, PermutationCount 2 (:56), ToDimensionValueId
-// E ? 1 : 0 (:68-71), ToDefineValue the bool (:74-77), FromDimensionValueId
-// id == 1 (:80-84).
+// Off is index 0 and define value 0; on is index 1 and define value 1.
 template <DefineName Name> struct BoolDimension {
   using value_type = bool;
   static constexpr std::string_view define = Name.view();
@@ -119,13 +115,8 @@ template <DefineName Name> struct BoolDimension {
   }
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderPermutation.h:96-149:
-// TShaderPermutationInt<TType, TDimensionSize, TFirstValue>, PermutationCount
-// TDimensionSize (:104), ToDimensionValueId int32(E) - TFirstValue
-// (:120-125), ToDefineValue the value (:128-131), FromDimensionValueId
-// TFirstValue + id (:134-138). The pin's leading TIsSpecialization
-// parameter is omitted: specialization constants are not built (below).
+// Count contiguous values from First; the index is value - First and the
+// define value is the value itself.
 template <DefineName Name, std::int32_t Count, std::int32_t First = 0>
   requires(Count > 0)
 struct IntDimension {
@@ -145,12 +136,7 @@ struct IntDimension {
   }
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderPermutation.h:674-690:
-// SHADER_PERMUTATION_ENUM_CLASS expands to TShaderPermutationInt<Enum,
-// int32(Enum::MAX)> and the comment requires enumerators contiguous from 0.
-// Count is given explicitly instead of a MAX enumerator; the same
-// contiguity from 0 is required.
+// Count is given explicitly; the enumerators must be contiguous from 0.
 template <DefineName Name, class Enum, std::uint32_t Count>
   requires(std::is_enum_v<Enum> && Count > 0)
 struct EnumDimension {
@@ -169,12 +155,6 @@ struct EnumDimension {
     return static_cast<std::int32_t>(static_cast<std::underlying_type_t<Enum>>(value));
   }
 };
-// Omitted dimension kinds, with the pinned type each would follow:
-// TShaderPermutationSparseInt
-// (Engine/Source/Runtime/RenderCore/Public/ShaderPermutation.h:152-240), a dimension over listed
-// non-contiguous values: no shader of the game selects among sparse constants; an EnumDimension
-// names the cases instead. The specialization constant variants (TIsSpecialization, :380-388,
-// :469-480): the game builds every permutation offline and never specializes at pipeline creation.
 
 namespace detail {
 template <class D, class... Dims>
@@ -186,15 +166,10 @@ inline constexpr std::size_t dimension_index = [] {
 }();
 } // namespace detail
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderPermutation.h:451-603:
-// TShaderPermutationDomain. PermutationCount is the product (:466); the
-// constructor from an id takes id % count for the first dimension and
-// id / count for the tail (:488-493), so the first dimension is least
-// significant; ToDimensionValueId is index + count * tail id (:546-549);
-// the empty domain has count 1 (:283). ModifyCompilationEnvironment sets one
-// define per dimension, DefineName to ToDefineValue (:365-416, the SetDefine
-// at :378), recursing into the tail (:390); defines() is that walk as data.
+// The count is the product of the dimension counts, and 1 for the empty
+// domain. The first dimension is least significant: from an id, the first
+// dimension takes id % count and the tail id / count; id() is index + count *
+// tail id. defines() sets one define per dimension, name to define value.
 template <PermutationDimension... Dims> class PermutationDomain {
 public:
   static constexpr std::size_t dimension_count = sizeof...(Dims);
@@ -251,12 +226,7 @@ private:
 };
 
 // Pipeline stages the game builds. Values are this format's own.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:188-206: EShaderFrequency
-// with twelve frequencies. Omitted: Mesh and Amplification (:191-192),
-// Geometry (:194), the four ray tracing frequencies (:196-199) and the two
-// work graph frequencies (:200-201). The game's passes are vertex, pixel and
-// compute; the converter maps nothing else for them.
+// The game's passes are vertex, pixel and compute.
 enum class ShaderStage : std::uint8_t {
   Vertex = 0,
   Pixel = 1,
@@ -269,16 +239,8 @@ enum class ShaderStage : std::uint8_t {
 using DefineEmitter = std::size_t (*)(PermutationId id, std::span<Define> out) noexcept;
 // True when the permutation is compiled. Pure: the same id gives the same
 // answer on every host.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/Shader.h:848: the default
-// ShouldCompilePermutation returns true;
-// Engine/Source/Runtime/RenderCore/Private/Shader.cpp:463-466 calls the
-// per-type predicate after ShouldCompileShaderFrequency. Omitted: the
-// frequency check (:453-461, a mobile-platform restriction), and the
-// Platform and Flags members of FShaderPermutationParameters
-// (Engine/Source/Runtime/RenderCore/Public/ShaderPermutation.h:28-46) and the wave-size gate
-// (Engine/Source/Runtime/RenderCore/Public/ShaderPermutationUtils.h:11-28): one platform floor per
-// target is fixed in docs/architecture/shaders.md, so the predicate sees the id alone.
+// One platform floor per target is fixed in docs/architecture/shaders.md, so
+// the predicate sees the id alone.
 using ExclusionPredicate = bool (*)(PermutationId id) noexcept;
 
 // The type-erased identity the tool and the RHI share. name is unique in the

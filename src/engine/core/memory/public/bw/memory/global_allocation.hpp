@@ -6,8 +6,6 @@
 
 // Core R.15/R.1: matched storage families, process-lifetime allocator ownership.
 // Performance MEM.6: every executable allocation enters the existing facade.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// Core/Public/Modules/Boilerplate/ModuleBoilerplate.h:20-70.
 // Compile definitions once per executable, never implicitly into every consumer.
 // Scalar and array forms use identical byte/alignment policy. Zero bytes become
 // one; default alignment is eight for requested bytes<=8, compiler default
@@ -43,7 +41,7 @@ struct NewRequest final {
 [[nodiscard]] void* operator new[](std::size_t bytes, std::align_val_t alignment,
                                    const std::nothrow_t&) noexcept;
 
-// Same reference:54-69. Every delete family forwards only the pointer to free;
+// Every delete family forwards only the pointer to free;
 // redundant size/alignment and nothrow tags never select another allocator.
 void operator delete(void* pointer) noexcept;
 void operator delete(void* pointer, const std::nothrow_t&) noexcept;

@@ -10,14 +10,11 @@
 #include <mach/vm_statistics.h>
 #include <sys/mman.h>
 
-// E.26/E.28: mapping errors enter the source fatal path, not heap fallback.
+// E.26/E.28: mapping errors enter the fatal path, not heap fallback.
 // MEM.7: reserve/commit/decommit operations retain the selected Mac semantics.
-// All source references use Unreal f45729c0b6f097038e72b52d366a62baeca3275b.
-// Apple implementation = Engine/Source/Runtime/Core/Private/Apple/ApplePlatformMemory.cpp.
-// Apple header = Engine/Source/Runtime/Core/Public/Apple/ApplePlatformMemory.h.
 #ifndef NDEBUG
-// Own spelling of source check(): same debug preconditions, distinct native fatal
-// assertion handling. This is not std::assert's abort policy.
+// Debug-only precondition check with distinct native fatal assertion handling.
+// This is not std::assert's abort policy.
 #define BW_MEMORY_CHECK(expression)                                                                \
   ((expression) ? static_cast<void>(0)                                                             \
                 : bw::platform::memory_check_failed(#expression, __FILE__, __LINE__))
@@ -26,38 +23,38 @@
 #endif
 
 namespace bw::platform::macos {
-// Apple header:77-84 constructs the common descriptor without acquiring storage.
+// Constructs the common descriptor without acquiring storage.
 VirtualMemoryBlock::VirtualMemoryBlock() = default;
 VirtualMemoryBlock::VirtualMemoryBlock(void* pointer, std::uint32_t size_in_pages)
     : BasicVirtualMemoryBlock(pointer, size_in_pages) {}
 
-// GetVirtualSizeAlignment:733-737 / Mac GetConstants:249 use native vm_page_size.
+// Uses the native vm_page_size.
 std::size_t VirtualMemoryBlock::virtual_size_alignment() {
   static const auto page_size = static_cast<std::size_t>(vm_page_size);
   return page_size;
 }
-// GetCommitAlignment:739-743 has the same native value, a separate platform contract.
+// The same native value, as a separate platform contract.
 std::size_t VirtualMemoryBlock::commit_alignment() {
   static const auto page_size = static_cast<std::size_t>(vm_page_size);
   return page_size;
 }
-// Apple header GetActualSize:112-115 converts recorded pages back to byte extent.
+// Converts recorded pages back to byte extent.
 std::size_t VirtualMemoryBlock::actual_size() const {
   return static_cast<std::size_t>(size_in_pages_) * virtual_size_alignment();
 }
 
-// AllocateVirtual:745-760 rounds/maps and returns a descriptor. No user heap call.
-// Keep the inspected source size/alignment API; named arguments are documented.
+// Rounds/maps and returns a descriptor. No user heap call.
+// Keep the size/alignment API; named arguments are documented.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 VirtualMemoryBlock VirtualMemoryBlock::allocate_virtual(std::size_t size, std::size_t alignment) {
-  // AllocateVirtual:748-751: page rounding, 32-bit page count, page-bounded alignment.
+  // Page rounding, 32-bit page count, page-bounded alignment.
   const auto page_size = virtual_size_alignment();
   VirtualMemoryBlock result(
       nullptr, static_cast<std::uint32_t>(memory::align_up(size, page_size) / page_size));
   [[maybe_unused]] const auto required_alignment = std::max(alignment, page_size);
   BW_MEMORY_CHECK(required_alignment <= page_size);
 
-  // AllocateVirtual:753 and MmapWithTag:65-77: RW anonymous, no-reserve mapping;
+  // RW anonymous, no-reserve mapping;
   // application tag 241 identifies virtual-memory blocks in native instruments.
   // Darwin accepts VM_MAKE_TAG in this slot for anonymous mappings; the generic
   // POSIX analyzer assumes an fd >= -1 and does not model that native extension.
@@ -65,7 +62,7 @@ VirtualMemoryBlock VirtualMemoryBlock::allocate_virtual(std::size_t size, std::s
   result.pointer_ = mmap(nullptr, result.actual_size(), PROT_READ | PROT_WRITE,
                          MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
                          VM_MAKE_TAG(VM_MEMORY_APPLICATION_SPECIFIC_1 + 1), 0);
-  // AllocateVirtual:754-758: failed native mapping is fatal; then check alignment.
+  // Failed native mapping is fatal; then check alignment.
   if (result.pointer_ == MAP_FAILED) {
     memory::out_of_memory(result.actual_size(), static_cast<std::uint32_t>(alignment));
   }
@@ -74,29 +71,29 @@ VirtualMemoryBlock VirtualMemoryBlock::allocate_virtual(std::size_t size, std::s
   return result;
 }
 
-// Commit:780-785 and Decommit:787-796 share this range precondition.
+// Commit and decommit share this range precondition.
 bool VirtualMemoryBlock::contains_page_range(std::size_t offset, std::size_t size) const {
   return offset % commit_alignment() == 0 && size % commit_alignment() == 0 &&
          offset + size <= actual_size();
 }
 
-// Commit:780-785 checks a valid aligned range, then issues reuse advice only.
+// Checks a valid aligned range, then issues reuse advice only.
 void VirtualMemoryBlock::commit(std::size_t offset, std::size_t size) {
   BW_MEMORY_CHECK(contains_page_range(offset, size) && pointer_ != nullptr);
-  // Source deliberately ignores madvise's result on the reuse path.
+  // madvise's result is deliberately ignored on the reuse path.
   (void)madvise(static_cast<std::byte*>(pointer_) + offset, size, MADV_FREE_REUSE);
 }
 
-// Decommit:787-796 makes the range reclaimable without unmapping its address.
+// Makes the range reclaimable without unmapping its address.
 void VirtualMemoryBlock::decommit(std::size_t offset, std::size_t size) {
   BW_MEMORY_CHECK(contains_page_range(offset, size) && pointer_ != nullptr);
-  // Decommit:791-795: unlike reuse advice, reusable advice failure is fatal.
+  // Unlike reuse advice, reusable advice failure is fatal.
   if (madvise(static_cast<std::byte*>(pointer_) + offset, size, MADV_FREE_REUSABLE) != 0) {
     memory::out_of_memory(size, 0);
   }
 }
 
-// Apple header CommitByPtr/DecommitByPtr:92-100 forward an interior byte offset.
+// Forward an interior byte offset.
 void VirtualMemoryBlock::commit_by_pointer(void* pointer, std::size_t size) {
   commit(static_cast<std::size_t>(static_cast<std::byte*>(pointer) -
                                   static_cast<std::byte*>(pointer_)),
@@ -107,17 +104,17 @@ void VirtualMemoryBlock::decommit_by_pointer(void* pointer, std::size_t size) {
                                     static_cast<std::byte*>(pointer_)),
            size);
 }
-// Apple header whole-block overloads:102-110 use offset zero and recorded extent.
+// Whole-block overloads use offset zero and recorded extent.
 void VirtualMemoryBlock::commit() { commit(0, actual_size()); }
 void VirtualMemoryBlock::decommit() { decommit(0, actual_size()); }
 
-// FreeVirtual:764-778 releases one owned mapping, then clears this descriptor only.
+// Releases one owned mapping, then clears this descriptor only.
 void VirtualMemoryBlock::free_virtual() {
   if (pointer_ == nullptr) {
     return;
   }
   BW_MEMORY_CHECK(actual_size() > 0);
-  // FreeVirtual:769-774: release the full mapping; native failure cannot continue.
+  // Release the full mapping; native failure cannot continue.
   if (munmap(pointer_, actual_size()) != 0) {
     memory::out_of_memory(actual_size(), 0);
   }

@@ -1,7 +1,7 @@
 // Unit test: public contracts of bw/rendering/shaders/artifact.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 // Byte offsets used to corrupt an image come from the header's byte format
-// (artifact.hpp:62-83), which is a public contract.
+// (artifact.hpp, kArtifactFormatVersion), which is a public contract.
 #include "bw/rendering/shaders/artifact.hpp"
 
 #include <array>
@@ -173,8 +173,9 @@ bool same_bytes(std::span<const std::byte> a, std::span<const std::byte> b) {
   return true;
 }
 
-// artifact.hpp:22-29 and :62-83: write then load returns equal header,
-// reflection (blocks in (kind, slot) order), code and trailer entries.
+// (artifact.hpp, write_artifact), (artifact.hpp, load_artifact) and the byte
+// format (artifact.hpp, kArtifactFormatVersion): write then load returns equal
+// header, reflection (blocks in (kind, slot) order), code and trailer entries.
 void write_then_load_round_trip() {
   const Fixture f;
   const std::vector<std::byte> bytes = f.write();
@@ -212,7 +213,7 @@ void write_then_load_round_trip() {
   require(get_u32(bytes, 8) == bytes.size(), "total_size is the image size");
 }
 
-// artifact.hpp:22-26 and :228-231: blocks and inputs given in another order
+// (artifact.hpp, write_artifact): blocks and inputs given in another order
 // give identical bytes; write_artifact replaces the output's contents.
 void identical_bytes_for_equal_inputs() {
   const Fixture f;
@@ -233,10 +234,10 @@ void expect_error(std::span<const std::byte> bytes, const LoadExpectations& expe
   require(!result.ok() && result.error().code == code, what);
 }
 
-// artifact.hpp:29-56 (the numbered checks) and :252-282 (codes, compared
-// values): one corrupted image per code and per site where a code arises at
-// two checks (Truncated at 1 and 7, MalformedHeader at 6, 7 and 8), each with
-// a single fault, plus one image with two faults showing the stated order.
+// (artifact.hpp, load_artifact) (the numbered checks), (artifact.hpp, ArtifactError)
+// and (artifact.hpp, LoadError) (codes, compared values): one corrupted image per code and per site
+// where a code arises at two checks (Truncated at 1 and 7, MalformedHeader at 6, 7 and 8), each
+// with a single fault, plus one image with two faults showing the stated order.
 void named_failures() {
   const Fixture f;
   const std::vector<std::byte> valid = f.write();
@@ -355,7 +356,7 @@ void named_failures() {
   }
   {
     // Check 11 skipped: permutation_count 0 means the caller has no
-    // description (artifact.hpp:284-285), so an id past any domain loads.
+    // description (artifact.hpp, LoadExpectations), so an id past any domain loads.
     Fixture far;
     far.header.permutation = PermutationId{5000};
     const std::vector<std::byte> bytes = far.write();
@@ -451,10 +452,12 @@ ArtifactWriteError write_with(const Fixture& f) {
   return bw::shaders::write_artifact(f.header, f.reflection, f.code, f.trailer, out);
 }
 
-// artifact.hpp:204-227: each named write failure, one fault per input, and a
-// thread group accepted on a compute stage (:218-219). ImageTooLarge and TrailerEntryTooLarge are
-// not exercised: each needs a code block, trailer entry or image over 4 GiB, and constructing a
-// span of that size over a smaller buffer would break std::span's precondition.
+// (artifact.hpp, ArtifactWriteError): each named write failure, one fault per
+// input, and a thread group accepted on a compute stage
+// (artifact.hpp, ArtifactWriteError::ThreadGroupOnNonCompute). ImageTooLarge and
+// TrailerEntryTooLarge are not exercised: each needs a code block, trailer entry or image
+// over 4 GiB, and constructing a span of that size over a smaller buffer would break
+// std::span's precondition.
 void write_errors_named() {
   {
     Fixture f;
@@ -548,12 +551,14 @@ void write_errors_named() {
   }
 }
 
-// artifact.hpp:176-177: an unknown trailer key, as a later tool would write
-// it, is kept and ignored. The entry is spliced into a written image ahead of
-// the known entries, and the size fields are rewritten (format :81-83).
-// :292-294: Artifact::trailer spans the whole trailer section, closing length
-// included, so its size equals the header's trailer_size. :334-338: a
-// malformed trailer passed to find_trailer_entry yields no value.
+// (artifact.hpp, TrailerKey): an unknown trailer key, as a later tool would
+// write it, is kept and ignored. The entry is spliced into a written image
+// ahead of the known entries, and the size fields are rewritten as the byte
+// format states (artifact.hpp, kArtifactFormatVersion).
+// (artifact.hpp, Artifact::trailer): it spans the whole trailer section,
+// closing length included, so its size equals the header's trailer_size.
+// (artifact.hpp, find_trailer_entry): a malformed trailer passed to it yields
+// no value.
 void unknown_trailer_key_ignored() {
   Fixture f;
   f.trailer.resize(1); // Features only.
@@ -586,7 +591,7 @@ void unknown_trailer_key_ignored() {
   require(!bw::shaders::find_trailer_entry(trailer, TrailerKey::CompilerIdentity).has_value(),
           "an absent key has no value");
 
-  // artifact.hpp:334-338: a malformed trailer yields no value, even for a key
+  // (artifact.hpp, find_trailer_entry): a malformed trailer yields no value, even for a key
   // whose entry is present. A well-formed one-entry trailer is the baseline.
   std::vector<std::byte> good{std::byte{'x'}, std::byte{0}, std::byte{0}, std::byte{0},
                               std::byte{0},   std::byte{3}, std::byte{0}, std::byte{0},
@@ -609,7 +614,7 @@ void unknown_trailer_key_ignored() {
           "a trailer shorter than its closing length yields no value");
 }
 
-// artifact.hpp:340-344 and root_layout.hpp:289-303: the same reflection gives
+// (artifact.hpp, derive_binding_use) and (root_layout.hpp, BindingUse): the same reflection gives
 // the same BindingUse whatever the target, with the descriptor array mask.
 void binding_use_same_for_same_reflection() {
   Fixture f;
@@ -630,8 +635,8 @@ void binding_use_same_for_same_reflection() {
   }
 }
 
-// artifact.hpp:346-353: "<shader>.<permutation>.<suffix>.bwsh" and the target
-// directory names.
+// (artifact.hpp, artifact_file_name) and (artifact.hpp, target_directory):
+// "<shader>.<permutation>.<suffix>.bwsh" and the target directory names.
 void file_name_convention() {
   require(bw::shaders::artifact_file_name("fullscreen_triangle", PermutationId{1},
                                           ShaderStage::Vertex) == "fullscreen_triangle.1.vs.bwsh",

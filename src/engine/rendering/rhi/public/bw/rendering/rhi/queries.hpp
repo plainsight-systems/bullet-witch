@@ -44,10 +44,6 @@
 // is left to the slice that measures GPU time.
 namespace bw::rhi {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:250-258: ERenderQueryType
-// {RQT_Undefined, RQT_Occlusion ("samples not culled"), RQT_AbsoluteTime
-// ("current time in microseconds, not a duration")}. Followed.
 enum class QueryKind : std::uint8_t { Occlusion, AbsoluteTime };
 
 struct QueryPoolDescription {
@@ -56,13 +52,8 @@ struct QueryPoolDescription {
   std::string_view debug_name{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:2454-2458: FRHIRenderQuery;
-// :2460-2522: FRHIRenderQueryPool and FRHIPooledRenderQuery. Followed as one
-// pool type with indices. Omitted: the default pool of individually created
-// queries (Engine/Source/Runtime/RHI/Public/DynamicRHI.h:78-95) and the
-// occlusion batch machinery (RHICommandList.h:4055-4071), which Metal's
-// visibility result buffer makes a property of the render pass here.
+// One pool type addressed by index. Occlusion queries are a property of the
+// render pass, as Metal's visibility result buffer makes them.
 class QueryPool : public Resource {
 public:
   [[nodiscard]] QueryKind kind() const noexcept { return kind_; }

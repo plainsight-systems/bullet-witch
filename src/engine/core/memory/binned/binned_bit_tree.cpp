@@ -7,17 +7,16 @@
 #include <limits>
 
 // Core C.32/CP.2: caller owns and synchronizes backing. Performance MEM.2:
-// availability summaries stay outside client slots. References below are Unreal
-// f45729c0b6f097038e72b52d366a62baeca3275b, HAL/MallocBinnedCommon.{h,cpp}.
+// availability summaries stay outside client slots.
 namespace bw::memory {
 namespace {
 constexpr auto full = std::numeric_limits<std::uint64_t>::max();
 constexpr auto unavailable = std::numeric_limits<std::uint32_t>::max();
 } // namespace
-// .h:128-132 FBitTree: begin unbound, without implicit allocation.
+// Begin unbound, without implicit allocation.
 BinnedBitTree::BinnedBitTree() = default;
 
-// .h:134-153 GetMemoryRequirements: geometric summary rows minus unused leaves.
+// Geometric summary rows minus unused leaves.
 std::uint32_t BinnedBitTree::memory_requirement(std::uint32_t capacity) {
   std::uint32_t coverage = 64U;
   std::uint32_t words = 1U;
@@ -30,7 +29,7 @@ std::uint32_t BinnedBitTree::memory_requirement(std::uint32_t capacity) {
   return (words - (coverage - capacity) / 64U) * 8U;
 }
 
-// .cpp:168-227 FBitTreeInit: describe rows, bind caller memory and exclude padding.
+// Describe rows, bind caller memory and exclude padding.
 void BinnedBitTree::initialize(std::uint32_t capacity, void* backing,
                                [[maybe_unused]] std::uint32_t bytes, bool occupied) {
   desired_capacity_ = capacity;
@@ -58,7 +57,7 @@ void BinnedBitTree::initialize(std::uint32_t capacity, void* backing,
   if (occupied) {
     return;
   }
-  // FBitTreeInit: full nonexistent child subtrees must be occupied at every row;
+  // Full nonexistent child subtrees must be occupied at every row;
   // otherwise first-free descent could leave the truncated backing allocation.
   std::uint32_t items_per_bit = 64U;
   for (std::uint32_t row = rows_ - 1U; row > 0U;) {
@@ -79,8 +78,8 @@ void BinnedBitTree::initialize(std::uint32_t capacity, void* backing,
   }
 }
 
-// .cpp:229-276 AllocBit: first-free descent, then identical indexed propagation.
-// Extraction shares the source indexed marking algorithm instead of duplicating it.
+// First-free descent, then identical indexed propagation. This shares the
+// indexed marking algorithm instead of duplicating it.
 std::uint32_t BinnedBitTree::allocate() {
   const auto index = next_available();
   if (index != unavailable) {
@@ -89,7 +88,7 @@ std::uint32_t BinnedBitTree::allocate() {
   return index;
 }
 
-// .cpp:289-317 AllocBit(Index): set leaf and carry newly full summaries upward.
+// Set leaf and carry newly full summaries upward.
 void BinnedBitTree::allocate(std::uint32_t index) {
   BW_ALLOCATOR_CHECK(index < desired_capacity_ && !is_allocated(index));
   auto word = last_row_offset_ + index / 64U;
@@ -101,13 +100,13 @@ void BinnedBitTree::allocate(std::uint32_t index) {
   }
 }
 
-// .cpp:278-287 IsAllocated: read the checked leaf bit.
+// Read the checked leaf bit.
 bool BinnedBitTree::is_allocated(std::uint32_t index) const {
   BW_ALLOCATOR_CHECK(index < desired_capacity_);
   return (bits_[last_row_offset_ + index / 64U] & (std::uint64_t{1} << (index % 64U))) != 0U;
 }
 
-// .cpp:319-345 NextAllocBit: descend the first clear child without mutating rows.
+// Descend the first clear child without mutating rows.
 std::uint32_t BinnedBitTree::next_available() const {
   if (bits_[0] == full) {
     return unavailable;
@@ -122,7 +121,7 @@ std::uint32_t BinnedBitTree::next_available() const {
   return result;
 }
 
-// .cpp:347-413 NextAllocBit(Start): mask earlier leaves, ascend to a later branch,
+// Mask earlier leaves, ascend to a later branch,
 // then descend that branch's first clear child. Never wrap around to earlier bins.
 std::uint32_t BinnedBitTree::next_available(std::uint32_t start) const {
   if (bits_[0] == full) {
@@ -156,7 +155,7 @@ std::uint32_t BinnedBitTree::next_available(std::uint32_t start) const {
   }
 }
 
-// .cpp:415-443 FreeBit: clear leaf, then only formerly full ancestor summaries.
+// Clear leaf, then only formerly full ancestor summaries.
 void BinnedBitTree::release(std::uint32_t index) {
   BW_ALLOCATOR_CHECK(index < desired_capacity_ && is_allocated(index));
   auto word = last_row_offset_ + index / 64U;
@@ -172,7 +171,7 @@ void BinnedBitTree::release(std::uint32_t index) {
   }
 }
 
-// .cpp:445-459 CountOnes: whole leaf words then masked partial end word.
+// Whole leaf words then masked partial end word.
 std::uint32_t BinnedBitTree::count_occupied(std::uint32_t end) const {
   BW_ALLOCATOR_CHECK(end <= desired_capacity_);
   std::uint32_t count = 0U;

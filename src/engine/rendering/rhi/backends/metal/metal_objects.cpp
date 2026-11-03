@@ -9,10 +9,7 @@ namespace bw::rhi::metal {
 
 // Destruction runs inside the delete queue after the GPU completed every
 // frame that named the object (lifetime.hpp), so the Metal object is released
-// and its heap range returned at once. Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:1545-1629:
-// RHIProcessDeleteQueue releases NS objects and returns heap blocks
-// (:1563-1582) inside an end-of-pipe task, the same gate.
+// and its heap range returned at once.
 MetalBuffer::~MetalBuffer() {
   buffer_->release();
   memory_->free(placement_);
@@ -72,12 +69,9 @@ FenceState MetalGpuFence::state() const noexcept {
   return phase;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalUAV.cpp:786-801:
-// FMetalGPUFence::Wait polls, then waitUntilSignaledValue with a timeout of
-// 1000000 ms. Followed; the wait repeats until the value is reached rather
-// than falling back to a sync point, so it never returns early and never
-// spins (each call blocks in the event).
+// Waits with waitUntilSignaledValue and a timeout of 1000000 ms; the wait
+// repeats until the value is reached rather than falling back to a sync point,
+// so it never returns early and never spins (each call blocks in the event).
 void MetalGpuFence::wait() noexcept {
   const std::uint64_t target = value_.load(std::memory_order_acquire);
   constexpr std::uint64_t kWaitMilliseconds = 1000000;

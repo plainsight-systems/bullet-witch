@@ -19,14 +19,8 @@
 // references the validation factory under BW_RHI_DEBUG=0 and must fail to
 // compile naming it.
 //
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Core/Public/Misc/Build.h:474-476:
-// ENABLE_RHI_VALIDATION defaults to (UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT);
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:48-54:
-// RHI_USE_RESOURCE_DEBUG_NAME is 0 in Shipping and Test, else 1;
-// Engine/Source/Runtime/RHI/Public/RHIBreadcrumbs.h:25-33: WITH_RHI_BREADCRUMBS
-// gates the markers. Followed as one switch instead of three: the game has
-// two configurations, development and shipping, and the three gates never
+// One switch gates validation, debug names and markers together: the game
+// has two configurations, development and shipping, and the three never
 // differ between them.
 //
 // Core guidelines read: I.1 (the configuration is an explicit definition the

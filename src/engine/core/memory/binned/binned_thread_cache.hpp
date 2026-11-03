@@ -10,12 +10,11 @@
 #include "bw/platform/memory/allocator_sync.hpp"
 
 // Core CP.2: local bundles have one locked owner; recycler CAS transfers bundles.
-// Performance MEM.2/MEM.5: released slots carry links, split by source size class.
+// Performance MEM.2/MEM.5: released slots carry links, split by size class.
 namespace bw::memory {
 class BinnedAllocator;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// MallocBinnedCommon.h:186-202. Link/count fit the source 8-byte smallest slot.
+// Link/count fit the 8-byte smallest slot.
 struct BinnedBundleNode {
   std::uint64_t next_address : 48;
   std::uint64_t count : 8;
@@ -25,8 +24,8 @@ struct BinnedBundleNode {
 };
 static_assert(sizeof(BinnedBundleNode) == 8);
 
-// MallocBinnedCommonUtils.h:45-95. Each slot transfers one whole bundle, never
-// exposing mutable cache lists to another owner. Source eight-slot bound.
+// Each slot transfers one whole bundle, never exposing mutable cache lists to
+// another owner. Eight-slot bound.
 class BinnedRecycler final {
 public:
   BinnedRecycler();
@@ -40,7 +39,7 @@ private:
   std::array<Slots, binned_class_count> pools_{};
 };
 
-// MallocBinnedCommon.h:265-405. No mutex inside: caller owns the cache lock.
+// No mutex inside: caller owns the cache lock.
 class BinnedFreeList final {
 public:
   BinnedFreeList();
@@ -59,8 +58,8 @@ private:
   Bundle full_{};
 };
 
-// MallocBinnedCommon.h:500-643,774-821. Setup/clear are explicit thread lifetime
-// operations; no automatic thread_local object destructor replaces engine hooks.
+// Setup/clear are explicit thread lifetime operations; no automatic thread_local
+// object destructor replaces engine hooks.
 class BinnedThreadCache final {
 public:
   BinnedThreadCache();

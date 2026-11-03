@@ -8,12 +8,11 @@
 
 // CP.2 / CONC.2: only game owner changes graph lifecycle. Attach/detach are
 // coordinated native-thread startup/shutdown operations, not concurrent topology
-// edits. Task values use source linear storage; callback context is borrowed.
+// edits. Task values use linear task storage; callback context is borrowed.
 namespace bw::tasks {
 namespace {
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// TaskGraph.cpp:539-542,665-687,1836-1911. TLS identifies the current named owner;
-// processing guard prevents reentry; each task holds its own callback value.
+// TLS identifies the current named owner; processing guard prevents reentry;
+// each task holds its own callback value.
 struct CurrentOwner final {
   NamedThread role{NamedThread::game};
   bool attached{false};
@@ -30,10 +29,10 @@ void check(bool condition, const char* expression) {
 }
 } // namespace
 
-// TaskGraph singleton/startup lifecycle, TaskGraph.cpp:1776-1814. The extraction
-// retains a small process-lifetime facade; first access must be on game owner
-// (the future host establishes source GGameThreadId). Queue storage is allocated
-// only at explicit startup, never during allocator bootstrap or a local broadcast.
+// Singleton/startup lifecycle: a small process-lifetime facade; first access
+// must be on the game owner (the future host establishes the game thread id).
+// Queue storage is allocated only at explicit startup, never during allocator
+// bootstrap or a local broadcast.
 NamedThreadDispatch::NamedThreadDispatch() : game_thread_(std::this_thread::get_id()) {}
 NamedThreadDispatch& NamedThreadDispatch::instance() {
   static NamedThreadDispatch dispatch;
@@ -49,8 +48,8 @@ void NamedThreadDispatch::startup() {
   running_ = true;
 }
 
-// Source graph shutdown requires named threads stopped first. This extraction
-// drains game tasks, then destroys empty queues; no queued callback is discarded.
+// Shutdown requires named threads stopped first. It drains game tasks, then
+// destroys empty queues; no queued callback is discarded.
 void NamedThreadDispatch::shutdown() {
   check(std::this_thread::get_id() == game_thread_ && running_, "game owner stops graph");
   check(!(*owners_)[1].attached.load(std::memory_order_acquire) &&
@@ -65,9 +64,7 @@ void NamedThreadDispatch::shutdown() {
   running_ = false;
 }
 
-// FTaskGraphImplementation::AttachToThread/InitializeForCurrentThread,
-// TaskGraph.cpp:1433-1438,539-542:
-// source native thread binds its named TLS identity; ownership is not simulated
+// The native thread binds its named TLS identity; ownership is not simulated
 // by routing callbacks onto a different native thread.
 void NamedThreadDispatch::attach_current_thread(NamedThread role) {
   check(role != NamedThread::game && !current.attached && owners_ != nullptr,
@@ -84,9 +81,8 @@ void NamedThreadDispatch::detach_current_thread() {
   current = {};
 }
 
-// FNamedTaskThread::ProcessTasksUntilIdle, TaskGraph.cpp:679-687 and named
-// execution loop:760-814. Execute high/normal tasks on owner until queue empty;
-// there is no blocking wait or recursive pump in this selected method.
+// Execute high/normal tasks on owner until queue empty; there is no blocking
+// wait or recursive pump in this selected method.
 std::size_t NamedThreadDispatch::process_until_idle() {
   check(current.attached && !current.processing, "owner pump cannot reenter");
   current.processing = true;
@@ -94,8 +90,8 @@ std::size_t NamedThreadDispatch::process_until_idle() {
   std::size_t processed = 0;
   while (auto* task = static_cast<Task*>(queue.pop())) {
     task->callback.function(task->callback.context, current.role);
-    // TGraphTask::ExecuteTask/linear object destruction: copied task outlives
-    // broadcast's stack value, then releases its storage after actual execution.
+    // The copied task outlives broadcast's stack value, then releases its
+    // storage after actual execution.
     task->~Task();
     release_task_storage(task);
     ++processed;
@@ -104,9 +100,8 @@ std::size_t NamedThreadDispatch::process_until_idle() {
   return processed;
 }
 
-// TGraphTask construction (TaskGraphInterfaces.h:639-658) and
-// FNamedTaskThread::EnqueueFromOtherThread (TaskGraph.cpp:853-870). Copy payload
-// into task-block storage and publish to the target's selected priority FIFO.
+// Copy payload into task-block storage and publish to the target's selected
+// priority FIFO.
 void NamedThreadDispatch::enqueue(NamedThread target, NamedCallback callback, bool high_priority) {
   check(index_of(target) < 3 && owners_ != nullptr && callback.function != nullptr,
         "valid named task submission");
@@ -116,9 +111,9 @@ void NamedThreadDispatch::enqueue(NamedThread target, NamedCallback callback, bo
   owner.queue.push(task, high_priority);
 }
 
-// BroadcastSlow(false,false), TaskGraph.cpp:1913-1931,1983-1992. Source calls
-// game locally before graph check, then dispatches RHI/render high-priority tasks
-// asynchronously. No worker barrier/three-second timeout belongs to this path.
+// Call game locally before the graph check, then dispatch RHI/render
+// high-priority tasks asynchronously. No worker barrier/three-second timeout
+// belongs to this path.
 void NamedThreadDispatch::broadcast(NamedCallback callback) {
   check(std::this_thread::get_id() == game_thread_ && callback.function != nullptr,
         "broadcast runs on game owner");
@@ -132,8 +127,8 @@ void NamedThreadDispatch::broadcast(NamedCallback callback) {
   }
 }
 
-// Source IsRunning tests singleton availability; lifecycle observation is game-
-// owner-only here, avoiding a promise of concurrent graph startup/shutdown.
+// Lifecycle observation is game-owner-only here, avoiding a promise of
+// concurrent graph startup/shutdown.
 bool NamedThreadDispatch::running() const {
   check(std::this_thread::get_id() == game_thread_, "game owner observes graph lifecycle");
   return running_;

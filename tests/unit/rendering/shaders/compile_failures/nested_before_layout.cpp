@@ -1,6 +1,7 @@
-// Must not compile. parameter_block.hpp:576-578 (BW_PARAMETER_BLOCK_LAYOUT
-// goes after the layouts of any nested blocks) and :31-32: before its layout
-// exists, a nested block is not a parameter block and matches no trait.
+// Must not compile. (parameter_block.hpp, BW_PARAMETER_BLOCK_LAYOUT) (it goes
+// after the layouts of any nested blocks) and
+// (parameter_block.hpp, ParameterTraits): before its layout exists, a nested
+// block is not a parameter block and matches no trait.
 #include "bw/rendering/shaders/parameter_block.hpp"
 
 struct alignas(16) ProbeInner {

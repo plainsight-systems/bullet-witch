@@ -68,14 +68,10 @@ MetalContext::~MetalContext() {
 
 // ---- Command buffer and encoders ------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommandQueue.cpp:106-130:
-// CreateCommandBuffer under a scoped pool, with retained references off on
-// Mac (:110-120), retained by its owner past the pool
-// (MetalCommandBuffer.h:18-19). Followed: unretained references are safe
-// because the deferred delete queue keeps every object a frame names alive
-// until the frame completes (lifetime.hpp). Omitted: the encoder execution
-// status error option (:121), a debugging aid.
+// The command buffer is created under a scoped pool, with retained references
+// off, and retained by its owner past the pool. Unretained references are
+// safe because the deferred delete queue keeps every object a frame names
+// alive until the frame completes (lifetime.hpp).
 MTL::CommandBuffer* MetalContext::command_buffer() {
   if (command_buffer_ == nullptr) {
     const AutoreleaseScope pool;
@@ -92,12 +88,8 @@ MTL::CommandBuffer* MetalContext::command_buffer() {
   return command_buffer_;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommandEncoder.cpp:617-845:
-// EndEncoding ends whichever encoder is open and resets the per-encoder
-// bindings. Followed. Omitted: the encoder fences (:680-695, :785, :808),
-// which are null on Mac by default (MetalDevice.cpp:132-137, :343-346;
-// MetalCommandQueue.cpp:146-170): tracked hazards order the encoders.
+// Ends whichever encoder is open and resets the per-encoder bindings. No
+// encoder fences: tracked hazards order the encoders.
 void MetalContext::end_encoder() {
   MTL::CommandEncoder* encoder = nullptr;
   switch (encoder_kind_) {
@@ -170,21 +162,18 @@ MetalContext::Ring& MetalContext::frame_ring() noexcept {
   return rings_[backend_->recording_frame() % rings_.size()];
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1886-1926:
-// FlushUsedResources declares the stage's heaps with UseHeaps and the
-// resources it reaches indirectly with UseResources (Read or Read|Write);
-// MetalCommandEncoder.cpp:1548-1620 forwards to useHeaps and useResources.
-// Followed: every resource heap (buffers and textures reached through the
-// descriptor heap or a block address), and, read-only, the frame's ring (the
-// draw block address) and the two descriptor heaps, for both stages, once per
-// encoder and again when the heap list changed. The descriptor heaps are
-// declared although they are also bound at their bind points: with the
-// tables in the root signature the converter's functions reach them through
-// the table addresses in the argument buffer and mark the bind point
-// arguments unused, and a buffer bound only at an unused argument is not
-// resident (measured on the fixture draw: without the declaration the vertex
-// function's texture handle read as null under Metal shader validation).
+// Declares the stage's heaps with useHeaps and the resources it reaches
+// indirectly with useResources: every resource heap (buffers and textures
+// reached through the descriptor heap or a block address), and, read-only, the
+// frame's ring (the draw block address) and the two descriptor heaps, for both
+// stages, once per encoder and again when the heap list changed. The
+// descriptor heaps are declared although they are also bound at their bind
+// points: with the tables in the root signature the converter's functions
+// reach them through the table addresses in the argument buffer and mark the
+// bind point arguments unused, and a buffer bound only at an unused argument
+// is not resident (measured on the fixture draw: without the declaration the
+// vertex function's texture handle read as null under Metal shader
+// validation).
 void MetalContext::declare_residency(MTL::RenderCommandEncoder& encoder) {
   ResourceMemory& memory = backend_->memory();
   if (!heaps_resident_ || memory.generation() != resident_heap_generation_) {
@@ -221,14 +210,12 @@ void MetalContext::declare_residency(MTL::ComputeCommandEncoder& encoder) {
   }
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1920-1922:
-// FlushUsedResources' third branch declares the resources a stage writes with
-// UseResources(Read|Write). Followed: every resource an unordered access view
-// names (metal_memory.hpp, WritableResources), for both stages or the
-// compute encoder, when the bound pipeline uses the storage table, once per
-// encoder and again when the set changed. Compiled, not run: no artifact of
-// this slice uses the storage table.
+// Declares the resources a stage writes with useResources(Read|Write): every
+// resource an unordered access view names (metal_memory.hpp,
+// WritableResources), for both stages or the compute encoder, when the bound
+// pipeline uses the storage table, once per encoder and again when the set
+// changed. Compiled, not run: no artifact of this slice uses the storage
+// table.
 void MetalContext::declare_written(MTL::RenderCommandEncoder& encoder) {
   const WritableResources& writable = backend_->writable_resources();
   if (written_resident_ && writable.generation() == written_generation_) {
@@ -258,14 +245,12 @@ void MetalContext::declare_written(MTL::ComputeCommandEncoder& encoder) {
   written_resident_ = true;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1928-1953:
-// IRBindResourcesToEncoder flushes residency, binds the two descriptor heaps
-// and sets the top-level argument buffer as bytes at
-// kIRArgumentBufferBindPoint. Followed for both stages of a draw. The slice's
-// plan carved the argument buffer from the frame's ring; set*Bytes is the
-// pin's choice and is kept because draw has no error to return if a carve
-// from the ring failed (backend.hpp, Context::draw), while set*Bytes cannot.
+// Flushes residency and sets the top-level argument buffer as bytes at
+// kIRArgumentBufferBindPoint, for both stages of a draw; the two descriptor
+// heaps are bound when the pass begins. The argument buffer is set as bytes
+// rather than carved from the frame's ring because draw has no error to
+// return if a carve from the ring failed (backend.hpp, Context::draw), while
+// set*Bytes cannot fail.
 void MetalContext::bind_render_arguments() {
   declare_residency(*render_encoder_);
   if (graphics_pipeline_->binding().uses_storage_table) {
@@ -277,19 +262,14 @@ void MetalContext::bind_render_arguments() {
 
 // ---- Transitions ---------------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalTransitionData.cpp:34-36:
-// BeginResourceTransitions is empty. Followed: Metal tracks hazards on the
-// heaps' resources (metal_memory.hpp), so a begin is no work.
+// Metal tracks hazards on the heaps' resources (metal_memory.hpp), so a begin
+// is no work.
 void MetalContext::begin_transitions(const TransitionBatch& batch) { static_cast<void>(batch); }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalTransitionData.cpp:38-120,
-// 130-151: EndResourceTransitions inspects only whether the before or after
-// access has an unordered access bit, and RHIEndTransitions then issues
-// memoryBarrier(BarrierScopeBuffers | BarrierScopeTextures) on the compute
-// encoder if one is open; with a render, blit or no encoder it issues
-// nothing. Followed. What each access pair maps to on this backend:
+// Inspects only whether the before or after access has an unordered access
+// bit, then issues memoryBarrier(BarrierScopeBuffers | BarrierScopeTextures)
+// on the compute encoder if one is open; with a render, blit or no encoder it
+// issues nothing. What each access pair maps to on this backend:
 //   - any pair with UnorderedAccessCompute or UnorderedAccessGraphics on
 //     either side: a buffers-and-textures memory barrier when a compute
 //     encoder is open, else no work (the next encoder is ordered after it by
@@ -301,11 +281,9 @@ void MetalContext::begin_transitions(const TransitionBatch& batch) { static_cast
 // apply_end): the after access on the graphics pipeline, the only one on a
 // device without async compute (access.hpp, Pipeline).
 // An after of Unknown is skipped and writes no tracked access: it is not a
-// legal after (access.hpp), the validation layer names it (UnknownAfter),
-// and the pin's checkf at MetalTransitionData.cpp:55 rejects it. An after of
-// Discard writes the tracked access and is skipped before the unordered
-// access test, as the pin skips it (:49-53, "Discard as a destination is a
-// no-op").
+// legal after (access.hpp) and the validation layer names it (UnknownAfter).
+// An after of Discard writes the tracked access and is skipped before the
+// unordered access test: Discard as a destination is no work.
 void MetalContext::end_transitions(const TransitionBatch& batch) {
   bool unordered_access = false;
   for (const Transition& transition : batch.transitions) {
@@ -331,22 +309,13 @@ void MetalContext::end_transitions(const TransitionBatch& batch) {
 
 // ---- Render passes -------------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIContext.cpp:341-401:
-// RHIBeginRenderPass starts the command buffer if needed, takes the pass's
-// visibility buffer when it has occlusion queries, builds the render pass
-// descriptor (MetalStateCache.cpp:440ff, load and store actions
-// MetalRHIPrivate.h:176-185 and MetalStateCache.cpp:76-103), ends any open
-// encoder and begins the render encoder, then sets the viewport to the whole
-// of color target 0 (:390-400). Followed; the clear values are the
-// textures' (resources.hpp, ClearValue). The scissor is reset to the whole
-// target with the viewport. Departure, for the user to decide: the pin's
-// StartRenderPass (MetalStateCache.cpp:2074-2111) rewrites the actions, a
-// load that is not Clear becomes Load, a color Clear forces Store, and a
-// writable depth or stencil forces Store; here the description's actions
-// pass through unchanged. Omitted: the descriptor updates push (:345; the
-// descriptor heaps are written at view creation) and the stage counter
-// samples (no timestamp queries).
+// Ends any open encoder, starts the command buffer if needed, builds the
+// render pass descriptor (load and store actions from metal_formats.hpp),
+// takes the pass's visibility buffer when it has occlusion queries, begins
+// the render encoder, then sets the viewport to the whole of color target 0.
+// The clear values are the textures' (resources.hpp, ClearValue). The
+// scissor is reset to the whole target with the viewport. The description's
+// load and store actions pass through unchanged.
 void MetalContext::begin_render_pass(const RenderPassDescription& pass) {
   const AutoreleaseScope pool;
   end_encoder();
@@ -417,8 +386,7 @@ void MetalContext::begin_render_pass(const RenderPassDescription& pass) {
   render_encoder_->setScissorRect(MTL::ScissorRect{0, 0, extent.width, extent.height});
 }
 
-// MetalRHIContext.cpp:403-423: RHIEndRenderPass ends the render encoder.
-// Followed. Omitted: the resolve blits (:415-418), with resolves.
+// Ends the render encoder.
 void MetalContext::end_render_pass() {
   if (encoder_kind_ == EncoderKind::Render) {
     end_encoder();
@@ -431,13 +399,9 @@ void MetalContext::end_render_pass() {
 // pass, and a copy, fence or dispatch inside a pass is not recorded, so it
 // cannot end the pass's encoder.
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:2196-2264:
-// SetRenderState sets the winding (counter-clockwise), cull mode, depth bias
-// with clamp FLT_MAX, fill mode, depth-stencil state and depth clip mode from
-// the bound states; :2477-2508 SetRenderPipelineState sets the pipeline.
-// Followed at set_graphics_pipeline, where this RHI's pipeline carries its
-// states.
+// Sets the pipeline, then the winding (counter-clockwise), cull mode, depth
+// bias with clamp FLT_MAX, fill mode, depth clip mode and depth-stencil state
+// from the states this RHI's pipeline carries.
 void MetalContext::set_graphics_pipeline(GraphicsPipeline& pipeline) {
   if (render_encoder_ == nullptr) {
     return;
@@ -496,10 +460,7 @@ void MetalContext::set_stencil_reference(std::uint32_t reference) {
 
 // No pipeline of this backend reads a vertex buffer: a non-empty vertex
 // layout is VertexLayoutUnsupported at creation (pipeline_states.hpp), so a
-// bound vertex buffer has no reader and nothing is recorded. Omitted for
-// that reason: Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1955-1968
-// IRMapVertexBuffers, which arrives with the stage-in synthesis.
+// bound vertex buffer has no reader and nothing is recorded.
 void MetalContext::set_vertex_buffer(std::uint32_t slot, Buffer& buffer, std::uint64_t offset) {
   static_cast<void>(slot);
   static_cast<void>(buffer);
@@ -512,10 +473,8 @@ void MetalContext::set_index_buffer(Buffer& buffer, IndexFormat format, std::uin
   index_offset_ = offset;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1626,
-// :1629-1636: a uniform buffer's GPU address goes into its CBV table entry.
-// Followed at the static slot's offset of the binding structure.
+// The buffer's GPU address goes into the argument buffer at the static slot's
+// offset of the binding structure.
 void MetalContext::set_static_block(std::uint32_t slot, Buffer& buffer, std::uint64_t offset) {
   if (slot >= shaders::kMaxStaticBlocks) {
     return;
@@ -526,7 +485,7 @@ void MetalContext::set_static_block(std::uint32_t slot, Buffer& buffer, std::uin
 }
 
 // command_list.hpp, Blocks, and invariant 7: the bytes go to the frame's ring
-// at a BufferOffsetAlignment offset and the draw block parameter takes that
+// at a kBufferOffsetAlignment offset and the draw block parameter takes that
 // address; the ring never grows.
 ExecuteError MetalContext::set_draw_block(std::span<const std::byte> bytes,
                                           shaders::LayoutHash layout) {
@@ -565,11 +524,9 @@ void MetalContext::set_root_constants(std::uint32_t first_word,
   std::memcpy(arguments_.data() + offset, words.data(), count * sizeof(std::uint32_t));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommands.cpp:1036-1048:
-// RHIDrawPrimitive prepares the render state and, under the converter, draws
-// with IRRuntimeDrawPrimitives (which sets the draw arguments and the
-// non-indexed marker at the converter's bind points). Followed.
+// Binds the render arguments and draws with IRRuntimeDrawPrimitives (which
+// sets the draw arguments and the non-indexed marker at the converter's bind
+// points).
 void MetalContext::draw(const DrawArguments& arguments) {
   if (render_encoder_ == nullptr || graphics_pipeline_ == nullptr) {
     return;
@@ -580,9 +537,8 @@ void MetalContext::draw(const DrawArguments& arguments) {
                           arguments.first_instance);
 }
 
-// MetalCommands.cpp:1082 (indexed): IRRuntimeDrawIndexedPrimitives with the
-// bound index buffer. Followed; the first index becomes the byte offset into
-// the index buffer.
+// IRRuntimeDrawIndexedPrimitives with the bound index buffer; the first index
+// becomes the byte offset into the index buffer.
 void MetalContext::draw_indexed(const DrawIndexedArguments& arguments) {
   if (render_encoder_ == nullptr || graphics_pipeline_ == nullptr || index_buffer_ == nullptr) {
     return;
@@ -616,10 +572,8 @@ void MetalContext::dispatch(const DispatchArguments& arguments) {
 
 // ---- Copies ------------------------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIContext.cpp:565-581:
-// buffer copies are blits on the context's blit encoder. Followed for every
-// copy; a blit encoder stays open across consecutive copies.
+// Every copy is a blit on the context's blit encoder; a blit encoder stays
+// open across consecutive copies.
 void MetalContext::copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy) {
   if (render_encoder_ != nullptr) {
     return;
@@ -692,10 +646,8 @@ void MetalContext::copy_texture_to_staging(Texture& source, std::uint8_t mip, st
                                   destination_offset, layout.row_pitch, layout.slice_pitch, option);
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalUAV.cpp:713-738:
-// RHICopyToStagingBuffer copies the source buffer into the staging buffer's
-// shared shadow buffer with a blit. Followed.
+// Copies the source buffer into the staging buffer's shared shadow buffer
+// with a blit.
 void MetalContext::copy_buffer_to_staging(Buffer& source, StagingBuffer& destination,
                                           const BufferCopy& copy) {
   if (render_encoder_ != nullptr) {
@@ -708,12 +660,10 @@ void MetalContext::copy_buffer_to_staging(Buffer& source, StagingBuffer& destina
 
 // ---- Fences and queries ------------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalUAV.cpp:803-831:
-// RHIWriteGPUFence_TopOfPipe signals the fence's shared event at this point
-// of the context's stream (MetalRHIContext.cpp:674). Followed: the event is
-// signalled with the write's value on the frame's command buffer, after the
-// open encoder ends (a command buffer encodes events between encoders).
+// Signals the fence's shared event at this point of the context's stream: the
+// event is signalled with the write's value on the frame's command buffer,
+// after the open encoder ends (a command buffer encodes events between
+// encoders).
 void MetalContext::write_fence(GpuFence& fence) {
   if (render_encoder_ != nullptr) {
     return;
@@ -725,11 +675,9 @@ void MetalContext::write_fence(GpuFence& fence) {
   backend_->track_fence(metal_fence);
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIRenderQuery.cpp:337-355
-// and :373-377: an occlusion query sets the visibility result mode to
-// Counting at its offset and back to Disabled at its end. Followed with the
-// offset index * 8 in the pool's buffer, which the pass names.
+// An occlusion query sets the visibility result mode to Counting at its
+// offset, index * 8 in the pool's buffer, which the pass names, and back to
+// Disabled at its end.
 void MetalContext::begin_query(QueryPool& pool, std::uint32_t index) {
   if (render_encoder_ == nullptr || pool.kind() != QueryKind::Occlusion) {
     return;
@@ -840,14 +788,11 @@ MTL::CommandBuffer* MetalContext::finish_frame() {
   return commands;
 }
 
-// command_list.hpp, Blocks: bindings do not survive end_frame. Unreal
-// f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIContext.cpp:75-97:
-// ResetContext resets the state cache and zeroes the static uniform buffer
-// bindings (:93). Followed for the argument table: the draw block address,
-// the static slot addresses and the root constants are zeroed, so the next
-// frame's first draw cannot read a ring address of a frame the ring has
-// rewound past. The three table addresses stay: they are the device's.
+// command_list.hpp, Blocks: bindings do not survive end_frame. In the argument
+// table, the draw block address, the static slot addresses and the root
+// constants are zeroed, so the next frame's first draw cannot read a ring
+// address of a frame the ring has rewound past. The three table addresses
+// stay: they are the device's.
 void MetalContext::reset_bindings() noexcept {
   const BindingStructure& binding = backend_->binding_structure();
   const std::uint32_t first = binding.draw_block().argument_offset;

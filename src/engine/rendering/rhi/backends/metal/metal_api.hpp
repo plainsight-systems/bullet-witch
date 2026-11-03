@@ -14,14 +14,9 @@
 //   implementation, like metal-cpp's, is emitted by metal_implementation.cpp
 //   alone; no other translation unit defines an implementation macro.
 //
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIPrivate.h:51-56: the
-// shim is included with IR_RUNTIME_METALCPP 1 after metal-cpp. Followed.
-// Engine/Source/ThirdParty/MetalCPP/MetalInclude.h:63-80:
-// MTL_SCOPED_AUTORELEASE_POOL, an NS::AutoreleasePool per call site. Followed
-// as AutoreleaseScope. Departure: the pin holds objects in NS::SharedPtr
-// (MetalInclude.h:24-53); this backend releases by hand in destructors, the
-// rule its slice fixed.
+// The shim is included with IR_RUNTIME_METALCPP 1 after metal-cpp.
+// AutoreleaseScope is one NS::AutoreleasePool per call site. Owned objects are
+// released by hand in destructors, not held in NS::SharedPtr.
 //
 // Core guidelines read: R.1 (each owned API object has one owner that
 // releases it), C.67 (the helpers are not copyable).

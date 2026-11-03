@@ -1,8 +1,7 @@
 #ifndef BW_PLATFORM_REGISTER_TYPES_HPP
 #define BW_PLATFORM_REGISTER_TYPES_HPP
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b, VectorRegister.h:11–19 selects
-// the native register backend at compile time. ARM64 is silicon, not an OS.
+// Select the native register backend at compile time. ARM64 is silicon, not an OS.
 #if defined(__aarch64__)
 #include "../../../../../cpu/arm64/math/simd/register_types.hpp"
 namespace bw::platform {

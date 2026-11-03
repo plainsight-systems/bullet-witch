@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/command_list.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 // Replay is asserted through a recording Context: Context is the public,
 // pure-virtual boundary replay drives (backend.hpp), so recording the calls
 // it receives is the test of the replay contract itself.
@@ -225,7 +225,8 @@ bool names_are(const RecordingContext& context, std::span<const std::string_view
   return true;
 }
 
-// command_list.hpp:26-30 and 52-54, 57-58, 250: every call appends one
+// (command_list.hpp, CommandList), (command_list.hpp, CommandList::transition)
+// and (command_list.hpp, CommandList::replay): every call appends one
 // command; the list copies every argument (transition arrays, the pass
 // name, draw block bytes, root constant words), so the caller's storage may
 // change after the call; replay issues every command in recording order
@@ -323,7 +324,10 @@ void replay_in_order_with_copied_arguments() {
           "replay leaves the list intact");
 }
 
-// command_list.hpp:38 and 61-62, 188, 251-253: begin_render_pass and
+// (command_list.hpp, CommandList::begin_render_pass),
+// (command_list.hpp, CommandList::end_render_pass),
+// (command_list.hpp, CommandList::inside_render_pass) and
+// (command_list.hpp, CommandList::reset): begin_render_pass and
 // end_render_pass bracket a pass and inside_render_pass reports it; reset
 // empties the list.
 void reset_empties_and_pass_tracking() {
@@ -350,7 +354,8 @@ void reset_empties_and_pass_tracking() {
   require(list.replay(context).ok() && context.calls.empty(), "an empty list issues nothing");
 }
 
-// command_list.hpp:55-56 and 241-247: begin_marker and end_marker record a
+// (command_list.hpp, CommandList::begin_marker) and
+// (command_list.hpp, CommandList::end_marker): begin_marker and end_marker record a
 // command each and the name is copied; with BW_RHI_DEBUG 0 they record
 // nothing.
 void markers_record_in_debug() {
@@ -371,12 +376,13 @@ void markers_record_in_debug() {
 #endif
 }
 
-// command_list.hpp:57-61 and 80-88, 250; backend.hpp:190-194: replay
+// (command_list.hpp, CommandList::replay), (command_list.hpp, ExecuteError)
+// and (backend.hpp, Context::set_draw_block): replay
 // returns the first failure set_draw_block reports, names the command in the
 // detail, and issues nothing after it.
 void replay_stops_at_first_failure() {
   const std::array<std::byte, 16> block{};
-  // A list is replayed at most once per recording (command_list.hpp:62), so
+  // A list is replayed at most once per recording (command_list.hpp, CommandList::replay), so
   // each replay gets its own recording of the same commands.
   const auto record = [&block](CommandList& list) {
     list.set_draw_block(block, bw::shaders::LayoutHash{1});
@@ -405,7 +411,7 @@ void replay_stops_at_first_failure() {
           "a failure on the first command stops at once");
 }
 
-// command_list.hpp:30-34: resource pointers are copied as observers; the
+// (command_list.hpp, CommandList): resource pointers are copied as observers; the
 // list adds no references.
 void recording_adds_no_reference() {
   bw::rhi::DeferredDeleteQueue queue;
@@ -430,7 +436,8 @@ void recording_adds_no_reference() {
   require(buffer->ref_count() == 1U && target->ref_count() == 1U, "replay adds no reference");
 }
 
-// command_list.hpp:27-30 and 52-54, 57-58: every recording call replays as
+// (command_list.hpp, CommandList) and (command_list.hpp, CommandList::replay):
+// every recording call replays as
 // its Context call with the arguments it was given, copied at record time;
 // this scenario covers the commands replay_in_order_with_copied_arguments
 // does not (compute pipeline, index buffer, static block, indexed draw,

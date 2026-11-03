@@ -1,7 +1,7 @@
 // Unit test: public contracts of tools/shader_compiler's pure library,
 // bw/shader_compiler/logic.hpp and bw/shader_compiler/enumeration.hpp, one
 // scenario per CTest entry. Nothing here starts a process, opens a file or
-// loads a toolchain. Each scenario names the header lines it asserts.
+// loads a toolchain. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/artifact.hpp"
 #include "bw/rendering/shaders/compiler_options.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
@@ -107,9 +107,10 @@ bw::shaders::RootLayout layout_with_view() {
   return layout;
 }
 
-// logic.hpp:67-73: space 4 b<i> (i < 8) is static slot i, space 0 b0 the
-// draw block, space 3 b0 the root constants, anything else no value;
-// logic.hpp:74-80: set 2 binding i (i < 8) static slot i, binding 8 the draw
+// (logic.hpp, classify_dxil_constant_buffer): space 4 b<i> (i < 8) is static
+// slot i, space 0 b0 the draw block, space 3 b0 the root constants, anything
+// else no value; (logic.hpp, classify_vulkan_uniform_buffer): set 2 binding i
+// (i < 8) static slot i, binding 8 the draw
 // block, anything else no value.
 void constant_buffer_classification() {
   using bw::shader_compiler::classify_dxil_constant_buffer;
@@ -137,7 +138,9 @@ void constant_buffer_classification() {
   require(!classify_vulkan_uniform_buffer(0, 8).has_value(), "set 0 holds no uniform buffer");
 }
 
-// logic.hpp:82-90: an array is found from exactly its placement() register
+// (logic.hpp, descriptor_array_for_register) and
+// (logic.hpp, descriptor_array_for_vulkan_binding): an array is found from
+// exactly its placement() register
 // class and space, or its Vulkan set and binding, and from nothing else.
 void descriptor_array_round_trip() {
   using bw::shader_compiler::descriptor_array_for_register;
@@ -162,7 +165,7 @@ void descriptor_array_round_trip() {
   require(!descriptor_array_for_vulkan_binding(2, 0).has_value(), "set 2 holds no array");
 }
 
-// logic.hpp:92-102 split_semantic: trailing digits are the index, the name is
+// (logic.hpp, split_semantic): trailing digits are the index, the name is
 // upper-cased; an empty semantic, one of digits only, or one with an index
 // past 32 bits is no value.
 void semantic_split() {
@@ -176,7 +179,7 @@ void semantic_split() {
   require(!split_semantic("A99999999999").has_value(), "index past 32 bits");
 }
 
-// logic.hpp:104-112 keeps_vertex_input: the DXIL view (semantic, SystemValueType !=
+// (logic.hpp, keeps_vertex_input): the DXIL view (semantic, SystemValueType !=
 // UNDEFINED) and the SPIR-V view (semantic from -fspv-reflect, BuiltIn) agree
 // for the system values and for an ordinary input.
 void vertex_input_predicate() {
@@ -192,7 +195,8 @@ void vertex_input_predicate() {
   require(keeps_vertex_input("SVELTE", false), "only the SV_ prefix marks a system value");
 }
 
-// logic.hpp:165-174, with :144-164: blocks are named and hashed from the
+// (logic.hpp, assemble_reflection), with (logic.hpp, ReflectionError): blocks
+// are named and hashed from the
 // registry by slot, in the stated (kind, slot) order; root constant words come from the
 // layout when used; the named errors for undeclared, duplicate and
 // over-long input lists.
@@ -284,7 +288,7 @@ void assemble_reflection_by_slot() {
           "a semantic longer than the format holds");
 }
 
-// logic.hpp:195-208 and artifact.hpp InputHash: the same inputs give the
+// (logic.hpp, compute_input_hash) and (artifact.hpp, InputHash): the same inputs give the
 // same hash, a change in any one item changes it, and items and lists are
 // length-prefixed, so equal concatenations split differently differ.
 void input_hash_items() {
@@ -375,8 +379,9 @@ void input_hash_items() {
   require(reference_hex == kReferenceInputHash, "known-answer input hash; got " + reference_hex);
 }
 
-// logic.hpp:255-261: exact text, structs then binding lines, draw block
-// first; :231-254: the named errors before any text is trusted.
+// (logic.hpp, append_generated_include): exact text, structs then binding
+// lines, draw block first; (logic.hpp, IncludeError): the named errors before
+// any text is trusted.
 void generated_include_text() {
   using bw::shader_compiler::append_generated_include;
   const bw::shaders::RootLayout layout = layout_with_view();
@@ -455,10 +460,10 @@ void generated_include_text() {
 
   require(bw::shader_compiler::generated_include_path("fullscreen_triangle") ==
               "bw/generated/fullscreen_triangle.hlsli",
-          "generated include path (logic.hpp:262-264)");
+          "generated include path (logic.hpp, generated_include_path)");
 }
 
-// logic.hpp:268-274: what DXC asks for, made relative to the shader root, or
+// (logic.hpp, normalize_include_path): what DXC asks for, made relative to the shader root, or
 // refused.
 void include_path_normalization() {
   using bw::shader_compiler::normalize_include_path;
@@ -481,7 +486,7 @@ void include_path_normalization() {
   require(!normalize_include_path("").has_value(), "empty");
 }
 
-// logic.hpp:276-288: exact Makefile text, main source first, root joined with
+// (logic.hpp, append_depfile): exact Makefile text, main source first, root joined with
 // one slash, special characters escaped, no generated include.
 void depfile_text() {
   using bw::shader_compiler::append_depfile;
@@ -506,8 +511,9 @@ void depfile_text() {
   require(bw::shader_compiler::join_path("root/", "a") == "root/a", "join with trailing slash");
 }
 
-// logic.hpp:207-208 and :290-298: artifact path, symbol file and hash text;
-// logic.hpp:209-213 converter_identity: the converter identity text from a UUID.
+// (logic.hpp, artifact_relative_path), (logic.hpp, symbol_file_name) and
+// (logic.hpp, input_hash_hex): artifact path, symbol file and hash text;
+// (logic.hpp, converter_identity): the converter identity text from a UUID.
 void file_names() {
   using bw::shader_compiler::artifact_relative_path;
   using bw::shader_compiler::input_hash_hex;
@@ -580,7 +586,7 @@ std::vector<std::byte> mach_o_image(std::uint32_t magic, std::uint32_t ncmds,
   return image;
 }
 
-// logic.hpp:215-227 mach_o_uuid: the first LC_UUID among the commands, and no value
+// (logic.hpp, mach_o_uuid): the first LC_UUID among the commands, and no value
 // for each refusal the contract lists.
 void mach_o_uuid_walk() {
   using bw::shader_compiler::mach_o_uuid;
@@ -630,7 +636,7 @@ void mach_o_uuid_walk() {
           "a span shorter than the header");
 }
 
-// enumeration.hpp:14-24: registry order, then admitted permutations
+// (enumeration.hpp, append_enumeration): registry order, then admitted permutations
 // ascending, then targets in the order given; nothing else.
 void enumeration_order() {
   ShaderDescription excluding = description({}, nullptr);

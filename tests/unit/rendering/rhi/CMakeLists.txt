@@ -123,7 +123,7 @@ if("BW_RHI_DEBUG=1" IN_LIST rhi_header_definitions)
   endforeach()
 endif()
 
-# Shipping absence (build.hpp:12-19): configure-time compile probes under
+# Shipping absence (build.hpp, BW_RHI_DEBUG): configure-time compile probes under
 # BW_RHI_DEBUG=0, modeled on bw_shader_compile_probes (tests/CMakeLists.txt).
 # The usage requirements of bw_rhi_headers are walked transitively; the
 # interface's own BW_RHI_DEBUG definition is dropped and BW_RHI_DEBUG=0
@@ -171,9 +171,9 @@ function(bw_rhi_compile_probes)
   # Compile only; a probe has no main.
   set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
   set(probe_dir "${CMAKE_CURRENT_SOURCE_DIR}/compile_failures")
-  # name | header line asserted | text the compiler output must contain
+  # name | header declaration asserted | text the compiler output must contain
   set(probes
-    "validation_absent|build.hpp:12-19 no validation factory with BW_RHI_DEBUG 0|'wrap_with_validation'"
+    "validation_absent|(build.hpp, BW_RHI_DEBUG) no validation factory with BW_RHI_DEBUG 0|'wrap_with_validation'"
     "validation_field_absent|device.hpp DeviceDescription: no validation field with BW_RHI_DEBUG 0|'validation'")
   try_compile(control_compiled SOURCES "${probe_dir}/control.cpp"
     CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${probe_includes}"

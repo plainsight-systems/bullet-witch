@@ -105,10 +105,7 @@ namespace {
     return e.width <= limits.max_dimension_2d && e.height <= limits.max_dimension_2d &&
            e.depth == 1U;
   case TextureDimension::TextureCube:
-    // Fidelity difference, for the user to decide:
-    // Engine/Source/Runtime/RHI/Private/RHI.cpp:1524-1530 bounds a cube's
-    // width and height by GMaxCubeTextureDimensions and has no square rule;
-    // this code requires width == height.
+    // A cube is square: width == height.
     return e.width == e.height && e.width <= limits.max_dimension_cube && e.depth == 1U;
   case TextureDimension::Texture3D:
     return e.width <= limits.max_dimension_3d && e.height <= limits.max_dimension_3d &&
@@ -149,10 +146,8 @@ namespace {
   return d.array_size;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:298-300: a 3D view only
-// of a 3D texture, a 3D texture only through a 3D view, a cube view only of a
-// cube texture.
+// A 3D view only of a 3D texture, a 3D texture only through a 3D view, a
+// cube view only of a cube texture.
 [[nodiscard]] bool dimension_compatible(const TextureDescription& texture,
                                         const TextureViewDescription& view_description) noexcept {
   const TextureDimension view = view_description.dimension;
@@ -323,35 +318,29 @@ ResourceError validate_texture(const TextureDescription& description, const Text
     return ResourceError::MissingDebugName;
   }
   // InvalidStride is a buffer rule.
-  // Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-  // Engine/Source/Runtime/RHI/Private/RHI.cpp:1510-1613: format, extent,
-  // depth, array size, samples, mips, in that order; the order here is
-  // ResourceError's, which the header makes the contract.
+  // The checks run in ResourceError's order, which the header makes the
+  // contract.
   if (!supported) {
     return ResourceError::UnsupportedFormat;
   }
   if (!extent_within_limits(d, limits)) {
     return ResourceError::ExtentOutOfRange;
   }
-  // RHI.cpp:1565-1574: a multisampled texture has one mip. Fidelity
-  // difference, for the user to decide: the pin bounds the mip count by
-  // GMaxTextureMipCount (:1572-1573); this code bounds it by the texture's
-  // full mip chain.
+  // A multisampled texture has one mip. The mip count is bounded by the
+  // texture's full mip chain.
   if (d.mip_levels == 0U || d.mip_levels > full_mip_chain(d) ||
       (d.sample_count > 1U && d.mip_levels != 1U)) {
     return ResourceError::MipCountOutOfRange;
   }
-  // RHI.cpp:1544-1553: only an array dimension takes more than one slice
-  // (the cube array is omitted, resources.hpp TextureDimension).
+  // Only an array dimension takes more than one slice (there is no cube
+  // array, resources.hpp TextureDimension).
   if (d.array_size == 0U ||
       (d.dimension == TextureDimension::Texture2DArray ? d.array_size > limits.max_array_size
                                                        : d.array_size != 1U)) {
     return ResourceError::ArraySizeOutOfRange;
   }
-  // RHI.cpp:1555-1563: samples only on 2D and 2D array textures. Fidelity
-  // difference, for the user to decide: the pin requires NumSamples > 0 on
-  // 2D and 2D array and == 1 otherwise, with no power-of-two rule; this code
-  // also requires a power of two within the limit.
+  // Samples only on 2D and 2D array textures; the sample count is a power of
+  // two within the limit.
   if (!is_power_of_two(d.sample_count) || d.sample_count > limits.max_sample_count) {
     return ResourceError::SampleCountUnsupported;
   }
@@ -363,14 +352,10 @@ ResourceError validate_texture(const TextureDescription& description, const Text
   return ResourceError::None;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:176-271 (GetViewInfo
-// for buffers): the offset inside the buffer (:246) and the range inside it
-// (:256). Followed. Omitted: the 16-byte multiple required of a raw view's
-// offset (:238), which ResourceError has no code for; the backend rejects an
-// offset its API cannot take with BackendRejected. Difference: :250 rejects
-// a non-zero offset with an element count of 0; resources.hpp defines size 0
-// as "to the end of the buffer" at any offset, and the header is followed.
+// The offset lies inside the buffer and the range inside it. ResourceError
+// has no code for an offset alignment rule; the backend rejects an offset
+// its API cannot take with BackendRejected. Size 0 means "to the end of the
+// buffer" at any offset (resources.hpp).
 ResourceError validate_buffer_view(const BufferDescription& buffer,
                                    const BufferViewDescription& view,
                                    bool unordered_access) noexcept {
@@ -386,18 +371,15 @@ ResourceError validate_buffer_view(const BufferDescription& buffer,
   return ResourceError::None;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:291-401 (GetViewInfo for
-// textures): dimension compatibility, mip and array ranges, plane and format;
-// :420-437 a UAV covers one mip of a texture that is not multisampled.
-// Followed, checked in ResourceError's order. ViewOutOfRange covers the
-// dimension, the mip and slice ranges and the storage view's shape: one mip,
-// one slice, dimension Texture2D (the storage array is RWTexture2D,
-// root_layout.hpp) and a texture that is not multisampled.
-// ViewFormatIncompatible covers the plane and the format.
-// Difference: :302 and :309 reject a non-zero first mip or slice with a
-// count of 0; resources.hpp defines count 0 as "every mip (slice) from
-// first", and the header is followed.
+// Dimension compatibility, mip and array ranges, plane and format, and that
+// a UAV covers one mip of a texture that is not multisampled, checked in
+// ResourceError's order. ViewOutOfRange covers the dimension, the mip and
+// slice ranges and the storage view's shape: one mip, one slice, dimension
+// Texture2D (the storage array is RWTexture2D, root_layout.hpp) and a
+// texture that is not multisampled.
+// ViewFormatIncompatible covers the plane and the format. A count of 0
+// means "every mip (slice) from first" at any first mip or slice
+// (resources.hpp).
 ResourceError validate_texture_view(const TextureDescription& texture,
                                     const TextureViewDescription& view,
                                     bool unordered_access) noexcept {
@@ -408,18 +390,14 @@ ResourceError validate_texture_view(const TextureDescription& texture,
   if (view.first_mip >= mips || (view.mip_count != 0U && view.mip_count > mips - view.first_mip)) {
     return ResourceError::ViewOutOfRange;
   }
-  // Fidelity difference, for the user to decide: a cube view's slice range
-  // is counted here in faces (6 per cube); the pin counts a cube view's range
-  // in cubes and scales it by 6 (RHIResources.cpp:319-323).
+  // A cube view's slice range is counted in faces (6 per cube).
   const std::uint32_t slices = view_slices(texture);
   if (view.first_slice >= slices ||
       (view.slice_count != 0U && view.slice_count > slices - view.first_slice)) {
     return ResourceError::ViewOutOfRange;
   }
-  // Fidelity difference, for the user to decide: the pin requires a UAV's
-  // mip count to be exactly 1 (RHIResources.cpp:428, check(MipRange.Num ==
-  // 1)); this code also accepts a count of 0 when one mip remains from
-  // first_mip.
+  // A UAV covers exactly one mip; a count of 0 is accepted when one mip
+  // remains from first_mip.
   if (unordered_access) {
     const std::uint32_t mip_count =
         view.mip_count == 0U ? mips - view.first_mip : std::uint32_t{view.mip_count};
@@ -430,10 +408,8 @@ ResourceError validate_texture_view(const TextureDescription& texture,
       return ResourceError::ViewOutOfRange;
     }
   }
-  // Fidelity difference, for the user to decide: the pin gates the Stencil
-  // plane on the DepthStencilTargetable flag (RHIResources.cpp:365-366) and
-  // does not check the Depth plane (:377-380); this code gates both planes
-  // on the format (is_depth, has_stencil).
+  // Both the Depth and the Stencil plane are gated on the format (is_depth,
+  // has_stencil).
   const FormatInfo info = format_info(texture.format);
   if ((view.plane == TexturePlane::Depth && !info.is_depth) ||
       (view.plane == TexturePlane::Stencil && !info.has_stencil)) {

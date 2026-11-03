@@ -216,11 +216,9 @@ void CommandList::transition(const TransitionBatch& batch) {
   ++command_count_;
 }
 
-// Engine/Source/Runtime/RHI/Public/RHICommandList.h:4030-4060 (cited on the
-// declaration) checks at record time that no render or compute pass is open
-// (:4032, :4035) and validates the pass info. Omitted here: the list records
-// without checks (command_list.hpp, Render passes); nesting and the pass
-// description are checked by the validation layer when the list executes.
+// The list records without checks (command_list.hpp, Render passes);
+// nesting and the pass description are checked by the validation layer when
+// the list executes.
 void CommandList::begin_render_pass(const RenderPassDescription& pass) {
   RenderPassPayload payload{pass, static_cast<std::uint32_t>(pass.name.size())};
   payload.pass.name = {};
@@ -368,15 +366,11 @@ void CommandList::end_marker() {
 }
 #endif
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:517-548: Execute walks
-// the command chain in recording order and runs each against the context.
-// Followed. The list is left intact (a node here is never destroyed by
-// replay), and the walk stops at the first command that reports a failure.
-// Omitted: the pin's check that the list is not already executing
-// (:519-520, check(!IsExecuting())). "Replayed at most once per recording"
-// (command_list.hpp) is the caller's precondition (device.hpp, execute) and
-// is not checked here.
+// Walks the commands in recording order and runs each against the context.
+// The list is left intact (a record is never destroyed by replay), and the
+// walk stops at the first command that reports a failure. "Replayed at most
+// once per recording" (command_list.hpp) is the caller's precondition
+// (device.hpp, execute) and is not checked here.
 Status<ExecuteError> CommandList::replay(Context& context) const {
   std::size_t offset = 0;
   while (offset < bytes_.size()) {

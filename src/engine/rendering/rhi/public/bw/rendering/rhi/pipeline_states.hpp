@@ -58,14 +58,7 @@
 // CACHE.2 (state descriptions are small POD values compared by content).
 namespace bw::rhi {
 
-// Enumerations. Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:307 ESamplerFilter,
-// :320 ESamplerAddressMode, :333 ESamplerCompareFunction, :339
-// ERasterizerFillMode, :350 ERasterizerCullMode, :361 ERasterizerDepthClipMode,
-// :371 EColorWriteMask, :387 ECompareFunction, :424 EStencilOp, :440
-// EBlendOperation, :453 EBlendFactor, :815-844 EPrimitiveType. Followed with
-// the enumerators the game's passes use. Omitted: QuadList and RectList
-// primitives (:815-844; no pass draws them), ERasterizerFillMode::Point.
+// Enumerations: the values the game's passes use.
 enum class Filter : std::uint8_t {
   Point,
   Bilinear,
@@ -129,21 +122,13 @@ enum class ColorWriteMask : std::uint8_t {
   All = Red | Green | Blue | Alpha,
 };
 enum class PrimitiveType : std::uint8_t { TriangleList, TriangleStrip, LineList, PointList };
-// Border colors a sampler may name. Departure: the pin packs a 32-bit color
-// (RHI.h:259); Metal offers these three (MTLSamplerBorderColor) and no pass
-// of the game samples with another border.
+// Border colors a sampler may name: the three Metal offers
+// (MTLSamplerBorderColor). No pass of the game samples with another border.
 enum class BorderColor : std::uint8_t { TransparentBlack, OpaqueBlack, OpaqueWhite };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:333-337:
-// ESamplerCompareFunction is Never or Less. Departure: a sampler's compare
-// is a CompareFunction here, so a shadow compare of any direction is
-// expressible; the three APIs accept every value.
-// Engine/Source/Runtime/RHI/Public/RHI.h:221-265: FSamplerStateInitializerRHI,
-// fields :249-260 (Filter, AddressU/V/W, MipBias, MinMipLevel, MaxMipLevel,
-// MaxAnisotropy, BorderColor, SamplerComparisonFunction);
-// Engine/Source/Runtime/RHI/Private/RHI.cpp:237-266: its hash and equality
-// over every field. Followed.
+// A sampler's compare is a CompareFunction, so a shadow compare of any
+// direction is expressible; the three APIs accept every value. Equality is
+// over every field.
 struct SamplerDescription {
   Filter filter{Filter::Point};
   AddressMode address_u{AddressMode::Wrap};
@@ -160,10 +145,6 @@ struct SamplerDescription {
                                                  const SamplerDescription&) noexcept = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHI.h:267-313: FRasterizerStateInitializerRHI,
-// fields :269-274 (FillMode, CullMode, DepthBias, SlopeScaleDepthBias,
-// DepthClipMode, bAllowMSAA); RHI.cpp:268-289 hash and equality. Followed.
 struct RasterizerDescription {
   FillMode fill{FillMode::Solid};
   CullMode cull{CullMode::None};
@@ -175,11 +156,6 @@ struct RasterizerDescription {
                                                  const RasterizerDescription&) noexcept = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHI.h:315-390: FDepthStencilStateInitializerRHI,
-// fields :317-331 (bEnableDepthWrite, DepthTest, front and back face enable,
-// test, fail, depth-fail and pass ops, StencilReadMask, StencilWriteMask);
-// RHI.cpp:291-328 hash and equality. Followed.
 struct StencilFace {
   bool enable{};
   CompareFunction test{CompareFunction::Always};
@@ -200,18 +176,8 @@ struct DepthStencilDescription {
                                                  const DepthStencilDescription&) noexcept = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:278-283:
-// MaxSimultaneousRenderTargets = 8.
 inline constexpr std::uint32_t kMaxRenderTargets = 8;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHI.h:392-488: FBlendStateInitializerRHI,
-// per target :396-443 (ColorBlendOp, ColorSrcBlend, ColorDestBlend,
-// AlphaBlendOp, AlphaSrcBlend, AlphaDestBlend, ColorWriteMask), members
-// :467-469 (RenderTargets, bUseIndependentRenderTargetBlendStates,
-// bUseAlphaToCoverage); RHI.cpp:444-465 and :506-529 hash and equality.
-// Followed.
 struct RenderTargetBlend {
   BlendOperation color_op{BlendOperation::Add};
   BlendFactor color_source{BlendFactor::One};
@@ -232,12 +198,8 @@ struct BlendDescription {
                                                  const BlendDescription&) noexcept = default;
 };
 
-// State objects. Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:633-663: FRHISamplerState,
-// FRHIRasterizerState, FRHIDepthStencilState, FRHIBlendState; the last three
-// expose GetInitializer. Followed, with the description on every one.
-// Omitted: FRHIVertexDeclaration as an object (:687-693); the vertex layout
-// is a value in the pipeline description.
+// State objects, each with its description. The vertex layout is not an
+// object; it is a value in the pipeline description.
 class Sampler : public Resource {
 public:
   [[nodiscard]] const SamplerDescription& description() const noexcept { return description_; }
@@ -287,15 +249,9 @@ private:
   BlendDescription description_;
 };
 
-// Vertex layout. Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:4440-4606:
-// FBoundShaderStateInput names a vertex declaration beside the shaders; the
-// element list is FVertexElement of
-// Engine/Source/Runtime/RHI/Public/RHI.h:171-217 (fields :173-182:
-// StreamIndex, Offset, Type, AttributeIndex, Stride, bUseInstanceIndex).
-// Followed as a value with the same facts; the
-// location is the vertex input location of the artifact's reflection
-// (artifact.hpp, VertexInput::location).
+// Vertex layout, a value beside the shaders. The location is the vertex
+// input location of the artifact's reflection (artifact.hpp,
+// VertexInput::location).
 enum class VertexInputRate : std::uint8_t { PerVertex, PerInstance };
 struct VertexAttribute {
   std::uint32_t location{};
@@ -322,12 +278,8 @@ struct VertexLayout {
                                                  const VertexLayout&) noexcept = default;
 };
 
-// The render target formats and sample count a pipeline is built for.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:4630-4652:
-// FGraphicsPipelineRenderTargetsInfo (RenderTargetsEnabled, formats, flags,
-// depth-stencil format and flag, NumSamples). Followed without the flags
-// (sRGB is in the format).
+// The render target formats and sample count a pipeline is built for. It
+// carries no flags: sRGB is in the format.
 struct RenderTargetLayout {
   std::array<Format, kMaxRenderTargets> color_formats{};
   std::uint8_t color_count{};
@@ -337,20 +289,8 @@ struct RenderTargetLayout {
                                                  const RenderTargetLayout&) noexcept = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:4655-4897:
-// FGraphicsPipelineStateInitializer; fields :4835-4859 (BoundShaderState,
-// BlendState, RasterizerState, DepthStencilState, PrimitiveType, render target
-// formats and count, depth-stencil format, NumSamples and the rest). Followed
-// for the members named here. Omitted: the depth and stencil load and store
-// actions and DepthStencilAccess (they belong to the render pass here, and
-// the pin's ApplyCachedRenderTargets copies them from the pass at
-// RHICommandList.h:3831-3881), SubpassHint and SubpassIndex,
-// ConservativeRasterization, bDepthBounds, MultiViewCount,
-// bHasFragmentDensityAttachment, bAllowVariableRateShading and ShadingRate
-// (:4852-4859; no pass of the game uses them), the mesh, amplification,
-// geometry and work graph shaders, the specialization constants, and the
-// precache flags and hash (:4861-4896).
+// The depth and stencil load and store actions and the depth-stencil access
+// belong to the render pass, not to the pipeline.
 struct GraphicsPipelineDescription {
   const shaders::Artifact* vertex_shader{};
   // Null for a depth-only pipeline.
@@ -364,21 +304,12 @@ struct GraphicsPipelineDescription {
   std::string_view debug_name{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:4899-4958:
-// FComputePipelineStateInitializer {ComputeShader, SpecializationConstants,
-// Flags}. Followed without specialization constants (permutation.hpp omits
-// them) or flags.
 struct ComputePipelineDescription {
   const shaders::Artifact* compute_shader{};
   std::string_view debug_name{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/PipelineStateCache.cpp:639-714:
-// HandlePipelineCreationFailure, where a graphics creation failure outside
-// precache ends in a fatal log ("Shader compilation failures are Fatal",
-// :709-712). Departure: a named error returned to the caller; the device
+// A creation failure is a named error returned to the caller; the device
 // never continues with a fallback pipeline (invariant 6).
 enum class PipelineError : std::uint8_t {
   None,
@@ -482,12 +413,7 @@ using BlendStateResult = Result<Ref<BlendState>, ResourceError>;
 using GraphicsPipelineResult = Result<Ref<GraphicsPipeline>, PipelineError>;
 using ComputePipelineResult = Result<Ref<ComputePipeline>, PipelineError>;
 
-// Render passes. Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:1249-1263
-// ERenderTargetLoadAction {NoAction, Load, Clear}; :1268-1282
-// ERenderTargetStoreAction {NoAction, Store, MultisampleResolve}. Followed.
-// Omitted: MultisampleResolve, which arrives with the swapchain slice's
-// resolve targets. Clear writes the target texture's
+// Render passes. Clear writes the target texture's
 // TextureDescription::clear_value (resources.hpp); NoAction leaves the
 // contents undefined; Load keeps them.
 enum class LoadAction : std::uint8_t { NoAction, Load, Clear };
@@ -495,15 +421,6 @@ enum class StoreAction : std::uint8_t { NoAction, Store };
 
 class QueryPool;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:5346-5637: FRHIRenderPassInfo;
-// FColorEntry :5348-5355 (RenderTarget, ResolveTarget, ArraySlice, MipIndex,
-// Action), FDepthStencilEntry :5358-5365 (DepthStencilTarget, ResolveTarget,
-// Action, ExclusiveDepthStencil), NumOcclusionQueries :5378. Followed.
-// Omitted: ResolveTarget and ResolveRect (resolves with the swapchain
-// slice), ShadingRateTexture and combiner, NopAccess, MultiViewCount,
-// SubpassHint (:5368-5385); FExclusiveDepthStencil (:371-627) is the two
-// read-only flags here.
 struct ColorTarget {
   Texture* texture{};
   std::uint8_t mip{};
@@ -530,12 +447,9 @@ struct RenderPassDescription {
   std::string_view name{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHI.cpp:1383-1496:
-// FRHIRenderPassInfo::Validate requires a consistent sample count across
-// color and depth targets and no gaps in the color slots, and checks the
-// resolve rules. Followed for the first two, plus the usage, range and
-// extent checks every backend needs; the resolve rules go with resolves.
+// validate_render_pass requires a consistent sample count across color and
+// depth targets and no gaps in the color slots, and checks the usage, range
+// and extent rules every backend needs.
 enum class RenderPassError : std::uint8_t {
   None,
   NoTargets,

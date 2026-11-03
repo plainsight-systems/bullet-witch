@@ -132,17 +132,10 @@ struct ArtifactHeader {
   ShaderStage stage{ShaderStage::Vertex};
 };
 
-// Backend-neutral reflection. Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:717-777 (FShaderResourceTable:
-// bound uniform buffer bits, per-type resource maps, layout hashes per
-// uniform buffer) and Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:790-800
-// (FShaderCodePackedResourceCounts: usage flags and per-type counts).
-// Followed: the set of bound blocks with a layout hash each, and usage flags.
-// Omitted: the per-resource token streams
-// (Engine/Source/Developer/ShaderCompilerCommon/Private/ShaderCompilerCommon.cpp:50-85) and the
-// SRV/sampler/UAV counts, because every resource is reached by an index from a block into a typed
-// descriptor array (invariant 5), so the only resource facts a backend needs are which arrays the
-// shader uses.
+// Backend-neutral reflection: the set of bound blocks with a layout hash each,
+// and usage flags. Every resource is reached by an index from a block into a
+// typed descriptor array (invariant 5), so the only resource facts a backend
+// needs are which arrays the shader uses.
 enum class BlockSlotKind : std::uint8_t {
   Static = 0,
   Draw = 1,
@@ -177,23 +170,15 @@ struct Reflection {
 
 // Trailer keys. Unknown keys are kept and ignored by the loader, so a later
 // tool may add one within this format version.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:752-774: optional data
-// keys as single characters, Features 'x' (:758). CompilerIdentity is this
-// format's own key. Omitted keys: PackedResourceCounts 'p', UniformBuffers 'u',
-// EntryPoint 'e', Name 'n' (the header carries these), ShaderModel6 '6',
-// VendorExtension 'v', CompressedDebugCode 'z', ObjectFile 'O', SourceCode 'c',
-// NativePath 'P' (one shader model, no vendor extensions, symbols live in a
-// separate file, source never ships).
+// Keys are single characters. The header carries the shader name and entry
+// point, symbols live in a separate file and source never ships, so none of
+// those has a key.
 enum class TrailerKey : std::uint8_t {
   Features = 'x',
   CompilerIdentity = 'C',
 };
-// Features, stored as a u32 bit set under TrailerKey::Features.
-// Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:864-867 and
-// Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompilerDXC.cpp:1148-1193:
-// FShaderCodeFeatures from the DXIL feature flags. Omitted bits: TypedUAVLoadsExtended, Atomic64,
-// StencilRef, BarycentricsSemantic, the two bindless bits (always on here).
+// Features, stored as a u32 bit set under TrailerKey::Features, from the DXIL
+// feature flags.
 enum class ShaderFeature : std::uint8_t {
   WaveOperations = 1U << 0U,
   SixteenBitTypes = 1U << 1U,
@@ -231,20 +216,11 @@ enum class ArtifactWriteError : std::uint8_t {
 // written in (kind, slot) order and inputs in (location, semantic_index,
 // name) order whatever order the Reflection holds them; trailer entries in
 // the order given. Equal inputs give identical bytes.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:1456-1467: an optional
-// data entry is u8 key, u32 size, bytes; :1349-1364: the trailer is closed by
-// an int32 holding its own length, written last. Followed as written, with
-// the length as u32. Omitted: Oodle compression of the finalized code
-// (Engine/Source/Runtime/RenderCore/Private/ShaderCore.cpp:4281-4323) and the
-// symbol buffer kept beside the code
-// (Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:1376-1386); artifacts are uncompressed and
-// symbols are a separate file named by the input hash. Also omitted: the per-format prefix each
-// backend writes ahead of the code
-// (Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompiler.inl:522-534,
-// Engine/Source/Developer/VulkanShaderFormat/Private/VulkanShaderCompiler.cpp:343-352,
-// Engine/Source/Developer/Apple/MetalShaderFormat/Private/MetalShaderCompiler.cpp:832-862); one
-// header and one reflection block serve all three targets (invariant 8).
+// An entry is u8 key, u32 size, bytes; the trailer is closed by a u32 holding
+// its own length, written last. Artifacts are uncompressed and symbols are a
+// separate file named by the input hash. No backend writes a prefix ahead of
+// the code: one header and one reflection block serve all three targets
+// (invariant 8).
 [[nodiscard]] ArtifactWriteError write_artifact(const ArtifactHeader& header,
                                                 const Reflection& reflection,
                                                 std::span<const std::byte> code,
@@ -324,12 +300,8 @@ private:
   LoadError error_{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:1175-1190: the trailing
-// int32 is the optional data size, checked non-negative and not larger than
-// the code; :1082-1110: records are walked as key, size, value and the walk
-// excludes the closing length. Followed. The header and section checks
-// before it are this format's own.
+// The trailer's closing u32 is its own length; records are walked as key,
+// size, value and the walk excludes the closing length.
 [[nodiscard]] ArtifactLoadResult load_artifact(std::span<const std::byte> bytes,
                                                const LoadExpectations& expectations) noexcept;
 

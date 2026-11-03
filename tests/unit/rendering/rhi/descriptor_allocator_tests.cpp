@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/descriptor_allocator.hpp,
-// one scenario per CTest entry. Each scenario names the header lines it
+// one scenario per CTest entry. Each scenario names the header declaration it
 // asserts.
 #include "bw/rendering/rhi/descriptor_allocator.hpp"
 
@@ -17,7 +17,7 @@ using bw::rhi::DescriptorPool;
 using bw::shaders::DescriptorArray;
 using bw_rhi_test::require;
 
-// descriptor_allocator.hpp:25-30 and 104-114: allocate returns the lowest
+// (descriptor_allocator.hpp, DescriptorIndexAllocator): allocate returns the lowest
 // free index; a freed index is reused by a later allocate, lowest first;
 // allocated() + free_count() == capacity().
 void allocate_free_reuse_lowest_first() {
@@ -43,7 +43,7 @@ void allocate_free_reuse_lowest_first() {
   require(allocator.allocate() == std::optional<std::uint32_t>{4}, "and the next");
 }
 
-// descriptor_allocator.hpp:25-26 and 108: with no free index, allocate
+// (descriptor_allocator.hpp, DescriptorIndexAllocator::allocate): with no free index, allocate
 // returns no value and nothing grows; a free makes one available again.
 void exhaustion_is_no_value() {
   DescriptorIndexAllocator allocator(2);
@@ -55,7 +55,8 @@ void exhaustion_is_no_value() {
   require(!DescriptorIndexAllocator(0).allocate().has_value(), "capacity zero has none");
 }
 
-// descriptor_allocator.hpp:19-24, 31-34 and 57-79, 138-153: every read
+// (descriptor_allocator.hpp, pool_of) and
+// (descriptor_allocator.hpp, DescriptorAllocators): every read
 // array draws from the read pool, the sampler array from the sampler pool,
 // both storage arrays from the storage pool; a slot carries its array;
 // exhausting one pool leaves the others unchanged.

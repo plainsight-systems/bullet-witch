@@ -1,7 +1,5 @@
 #include "bw/math/rotation/quaternion.hpp"
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b,
-// Private/Math/UnrealMath.cpp:27–28 and Public/Math/Quat.h:871–880.
 // Per-precision const specializations use the ordinary four-component constructor,
 // including its diagnostic; no singleton, heap registry or replacement constructor.
 namespace bw::math {

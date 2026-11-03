@@ -6,7 +6,7 @@
 #include <cstdint>
 
 // Performance MEM.5: separate small size classes from native-page allocations.
-// Inspected source values, not the guideline's illustrative class boundaries.
+// The class table is not the guideline's illustrative class boundaries.
 namespace bw::memory {
 inline constexpr std::uint32_t binned_class_count = 77;
 inline constexpr std::size_t binned_small_limit = std::size_t{128} * 1024U;
@@ -17,21 +17,19 @@ struct BinnedSizeClass {
   std::uint32_t pages_per_block{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// HAL/MallocBinnedCommon.cpp:27-165; .h:823-894; MallocBinned3.cpp:475-543.
 // Immutable after construction; native page size is supplied by the allocator.
 class BinnedSizeClasses final {
 public:
-  // Build the original listed classes and block multiples, then append to 128 KiB.
+  // Build the listed classes and block multiples, then append to 128 KiB.
   explicit BinnedSizeClasses(std::uint32_t native_page_size);
   [[nodiscard]] const BinnedSizeClass& at(std::uint32_t index) const;
   // Small requests only, including zero: round lookup to 8-byte index granularity.
   [[nodiscard]] std::uint32_t index_for(std::size_t bytes) const;
-  // Default alignment0 retains the source 8-byte minimum class. Higher alignment
-  // may promote through256; otherwise round to native pages for the large path.
+  // Default alignment 0 retains the 8-byte minimum class. Higher alignment
+  // may promote through 256; otherwise round to native pages for the large path.
   [[nodiscard]] std::size_t quantize(std::size_t bytes, std::uint32_t alignment) const;
-  // Source PromoteToLargerBin: on success rewrite size and standard alignment;
-  // failure retains the source's alignment adjustment, without allocating.
+  // On success rewrite size and standard alignment; failure retains the
+  // alignment adjustment, without allocating.
   [[nodiscard]] bool promote(std::size_t& bytes, std::uint32_t& alignment) const;
 
 private:

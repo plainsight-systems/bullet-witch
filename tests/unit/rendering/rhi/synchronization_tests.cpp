@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/synchronization.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/synchronization.hpp"
 
 #include "test_main.hpp"
@@ -20,7 +20,8 @@ TextureDescription texture(Format format, bw::rhi::Extent3 extent, TextureDimens
   return description;
 }
 
-// synchronization.hpp:41-46 and 145-177: rows of row_bytes(format, width)
+// (synchronization.hpp, staging_layout) and
+// (synchronization.hpp, kStagingRowAlignment): rows of row_bytes(format, width)
 // at a pitch rounded up to 256 bytes, slices at row_pitch * rows, a mip's
 // extent halved per level and clamped to 1, depth only for a volume.
 void staging_layout_pitch_and_bytes() {
@@ -53,9 +54,8 @@ void staging_layout_pitch_and_bytes() {
   require(flat.depth == 1U, "a non-volume has depth 1");
 }
 
-// synchronization.hpp:21-34 and 123-136 (the GpuFence contract and
-// fence_wait_error): a wait
-// on an Unwritten fence is FenceNotWritten, on a Pending one
+// (synchronization.hpp, GpuFence) and (synchronization.hpp, fence_wait_error):
+// a wait on an Unwritten fence is FenceNotWritten, on a Pending one
 // FenceNotSubmitted; Submitted and Signaled can be waited on.
 void fence_wait_error_by_state() {
   using bw::rhi::FenceState;

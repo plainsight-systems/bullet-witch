@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/memory_suballocator.hpp,
-// one scenario per CTest entry. Each scenario names the header lines it
+// one scenario per CTest entry. Each scenario names the header declaration it
 // asserts.
 #include "bw/rendering/rhi/memory_suballocator.hpp"
 
@@ -14,7 +14,8 @@ using bw::rhi::BlockSuballocator;
 using bw_rhi_test::require;
 using bw_rhi_test::unwrap;
 
-// memory_suballocator.hpp:15-27 and 64-78: allocate returns the first free
+// (memory_suballocator.hpp, BlockSuballocator::allocate) and
+// (memory_suballocator.hpp, BlockSuballocator::free): allocate returns the first free
 // block in address order that fits; free merges with free neighbors, so
 // after every allocation is freed one block of capacity bytes remains.
 void first_fit_split_merge() {
@@ -44,8 +45,9 @@ void first_fit_split_merge() {
           "one block of capacity bytes again");
 }
 
-// memory_suballocator.hpp:18-24: the offset is a multiple of the alignment;
-// the padding before it belongs to the allocation and returns with it.
+// (memory_suballocator.hpp, BlockSuballocator::allocate): the offset is a
+// multiple of the alignment; the padding before it belongs to the allocation
+// and returns with it.
 void alignment_padding_belongs_to_allocation() {
   BlockSuballocator allocator(512);
   static_cast<void>(unwrap(allocator.allocate(10, 1), "ten bytes"));
@@ -60,8 +62,8 @@ void alignment_padding_belongs_to_allocation() {
   require(again.offset == 10U, "the padded range is free again");
 }
 
-// memory_suballocator.hpp:15-18 and 68-69: when no free block fits, allocate
-// returns no value and nothing grows.
+// (memory_suballocator.hpp, BlockSuballocator::allocate): when no free block
+// fits, allocate returns no value and nothing grows.
 void exhaustion_is_no_value() {
   BlockSuballocator allocator(256);
   require(allocator.allocate(256, 1).has_value(), "the whole range fits");

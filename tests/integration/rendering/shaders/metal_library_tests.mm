@@ -55,7 +55,7 @@ std::string function_names(id<MTLLibrary> library) {
   return names;
 }
 
-// toolchain.hpp:61-63: "The Metal library's function is named after
+// (toolchain.hpp, compile_shader): "The Metal library's function is named after
 // the shader's entry point", so the function is
 // `main`, a vertex function, in the library of every permutation the build
 // set holds (enumerate_permutations).

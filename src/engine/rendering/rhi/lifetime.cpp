@@ -10,11 +10,9 @@ namespace bw::rhi {
 
 void Resource::add_ref() const noexcept { refs_.fetch_add(1U, std::memory_order_relaxed); }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:46-59: MarkForDelete
-// pushes the resource into the pending queue once the count reaches zero.
-// The decrement is acq_rel (CONC.2) so the thread that destroys the object
-// sees every write made before any release.
+// The release that takes the count to zero pushes the resource into the
+// queue. The decrement is acq_rel (CONC.2) so the thread that destroys the
+// object sees every write made before any release.
 void Resource::release() const noexcept {
   if (refs_.fetch_sub(1U, std::memory_order_acq_rel) == 1U) {
     queue_->enqueue(this);
@@ -49,20 +47,15 @@ void DeferredDeleteQueue::enqueue(const Resource* resource) noexcept {
   entries_.push_back(Entry{resource, current_frame_});
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:61-77 and 102-117:
-// GatherResourcesToDelete takes the pending entries out of the queue, then
-// DeleteResources runs the destructors outside it. Followed: the prefix is
-// spliced out under the mutex and destroyed after it is released, because a
-// destructor may release the last Ref to another resource and enqueue it
-// (a view holds its resource). Entries enqueued by those destructors are
-// tagged with the current frame and are destroyed by this call too when that
-// tag is at or below completed_frame, so the loop runs until no entry at or
-// below it remains. Copying the prefix out may allocate; as for enqueue, an
-// allocation failure here terminates. The enqueue order of destruction is
-// the header's departure from the pin, whose pending queue is a LIFO stack
-// drained with ConsumeAllLifo (RHIResources.cpp:107, 113;
-// Core/Public/Containers/ConsumeAllMpmcQueue.h:21).
+// The pending entries are taken out of the queue, then destroyed outside it:
+// the prefix is spliced out under the mutex and destroyed after it is
+// released, because a destructor may release the last Ref to another resource
+// and enqueue it (a view holds its resource). Entries enqueued by those
+// destructors are tagged with the current frame and are destroyed by this
+// call too when that tag is at or below completed_frame, so the loop runs
+// until no entry at or below it remains. Copying the prefix out may allocate;
+// as for enqueue, an allocation failure here terminates. Destruction is in
+// enqueue order (lifetime.hpp).
 // NOLINTNEXTLINE(bugprone-exception-escape)
 std::size_t DeferredDeleteQueue::destroy_completed(std::uint64_t completed_frame) noexcept {
   std::size_t destroyed = 0;

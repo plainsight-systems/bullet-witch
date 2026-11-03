@@ -57,14 +57,7 @@
 // backend's primitive provides it).
 namespace bw::rhi {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:2397-2452: FRHIGPUFence
-// with Clear, Poll (non-blocking) and Wait, and NumPendingWriteCommands;
-// Engine/Source/Runtime/RHI/Public/RHIGPUReadback.h:33-36: IsReady is no
-// pending write commands and Poll. Followed. The pin's Metal fence waits on
-// a shared event by value (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalUAV.cpp:740-801,
-// waitUntilSignaledValue at :791-795), which is what the Metal backend does.
-// Omitted: the per-GPU-mask Poll overload.
+// The Metal backend's fence waits on a shared event by value.
 enum class FenceState : std::uint8_t { Unwritten, Pending, Submitted, Signaled };
 
 class GpuFence : public Resource {
@@ -85,14 +78,10 @@ private:
   DebugName name_;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:4052-4087: FRHIStagingBuffer
-// with Lock(Offset, NumBytes) and Unlock;
-// Engine/Source/Runtime/RHI/Private/RHIGPUReadback.cpp:34-94: FRHIGPUBufferReadback pairs
-// CopyToStagingBuffer with WriteGPUFence and locks through the fence. Followed. Departure: texture
-// readback goes through the same staging buffer and a texture-to-buffer copy with the stated
-// layout, instead of a staging texture and MapStagingSurface (RHIGPUReadback.cpp:105-262), so one
-// lock path serves both.
+// A readback pairs a copy to the staging buffer with a fence write and locks
+// through the fence. Texture readback goes through the same staging buffer
+// and a texture-to-buffer copy with the stated layout, so one lock path
+// serves both.
 class StagingBuffer : public Resource {
 public:
   [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
@@ -157,9 +146,8 @@ struct StagingLayout {
   std::uint32_t height{};
   std::uint32_t depth{};
 };
-// Source: Microsoft Learn, "Upload and readback of texture data",
-// D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, 256 bytes; the alignment is applied
-// on every backend so the layout is one contract.
+// Direct3D 12 requires texture data rows at a 256-byte pitch alignment; the
+// alignment is applied on every backend so the layout is one contract.
 // The bytes of one readback row: row_bytes for a color format, the depth
 // plane's bytes for a depth or depth-stencil format (the contract above).
 [[nodiscard]] constexpr std::uint32_t staging_row_bytes(Format format,

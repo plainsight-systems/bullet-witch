@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/result.hpp, one scenario
-// per CTest entry. Each scenario names the header lines it asserts.
+// per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/result.hpp"
 
 #include "test_main.hpp"
@@ -15,9 +15,10 @@ using bw_rhi_test::require;
 
 enum class TestError : std::uint8_t { None, First, Second };
 
-// result.hpp:15-19 and 32-62: ok() exactly when the error is None; a success
+// (result.hpp, Result): ok() exactly when the error is None; a success
 // holds the value and no error; a failure holds the error and its detail and
-// no value. :65-78: Status defaults to None and carries an error and detail.
+// no value. (result.hpp, Status): Status defaults to None and carries an
+// error and detail.
 void success_failure_and_detail() {
   const auto success = Result<int, TestError>::success(42);
   require(success.ok(), "success is ok");

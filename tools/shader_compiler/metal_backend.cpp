@@ -28,37 +28,23 @@
 // and output objects, library binary, error) is destroyed on every path, and
 // before the library handle closes.
 //
-// Algorithm, following Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Developer/Apple/MetalShaderFormat/Private/MetalCompileShaderMSC.cpp:
-//   1. IRObjectCreateFromDXIL with a copy of the bytes (:1270).
-//   2. IRCompilerCreate (:1272); compatibility flags bounds check, position
-//      invariance, sample NaN to zero and texture write rounding toward zero
-//      (:1275); minimum GPU family Metal3 (:1276); minimum deployment target
-//      macOS 15.0.0 (:1277).
-//   3. IRCompilerAllocCompileAndLink with the entry point name (:1312-1316).
+// Algorithm:
+//   1. IRObjectCreateFromDXIL with a copy of the bytes.
+//   2. IRCompilerCreate; compatibility flags bounds check, position
+//      invariance, sample NaN to zero and texture write rounding toward zero;
+//      minimum GPU family Metal3; minimum deployment target macOS 15.0.0.
+//   3. IRCompilerAllocCompileAndLink with the entry point name.
 //   4. IRMetalLibBinaryCreate, IRObjectGetMetalLibBinary for the stage,
-//      IRMetalLibGetBytecodeSize, IRMetalLibGetBytecode (:888-903).
+//      IRMetalLibGetBytecodeSize, IRMetalLibGetBytecode.
 // The argument buffer layout comes from the root signature DXC embedded in
 // the DXIL (compiler_options.hpp, -rootsig-define): the converter reads an
 // embedded root signature unless told to ignore it
 // (IRCompilerIgnoreRootSignature), so no IRRootSignature is built here.
-// Departure: the pin builds its root signature in C++ and sets it with
-// IRCompilerSetGlobalRootSignature (:1215-1232, :1273); here the one root
-// signature text of root_layout.hpp reaches the converter inside the DXIL,
-// so Direct3D 12 and Metal cannot see different layouts.
-// Omitted:
-//   - IRCompilerSetStageInGenerationMode(UseSeparateStageInFunction) (:1274):
-//     the default, Metal vertex fetch, takes the input layout from the
-//     pipeline's vertex descriptor; the separate stage-in function is
-//     synthesized per input layout by the pin's RHI, and input layouts belong
-//     to the RHI slice.
-//   - IRCompilerSetEntryPointName with the CRC-unique name (:1315): the
-//     pin renames to keep entry names unique inside its native shader
-//     library archives; artifacts here hold one library each, so the
-//     converter's own name for the entry is kept.
-//   - The ray tracing, geometry emulation and dual source blending setup
-//     (:1197-1210, :1279-1310): the game builds vertex, pixel and compute
-//     shaders only.
+// The one root signature text of root_layout.hpp reaches the converter
+// inside the DXIL, so Direct3D 12 and Metal cannot see different layouts.
+// The stage-in generation mode stays the default, Metal vertex fetch, which
+// takes the input layout from the pipeline's vertex descriptor. The entry
+// point keeps the converter's own name: an artifact holds one library.
 //
 // Retrieved rules: R.1 and E.6 (owning wrappers for every converter object),
 // I.11, E.27. Performance: COPY.4, COPY.2.
@@ -237,8 +223,8 @@ BackendStatus MetalConverterSession::convert(std::span<const std::byte> dxil,
                                       static_cast<unsigned>(IRCompatibilityFlagPositionInvariance) |
                                       static_cast<unsigned>(IRCompatibilityFlagSampleNanToZero) |
                                       static_cast<unsigned>(IRCompatibilityFlagTexWriteRoundingRTZ);
-  // The converter's C API takes OR-ed flags in its enum type, as the pin
-  // passes them (:1275); the combination is not itself an enumerator.
+  // The converter's C API takes OR-ed flags in its enum type; the combination
+  // is not itself an enumerator.
   // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
   const auto compatibility = static_cast<IRCompatibilityFlags>(kCompatibility);
   api.set_compatibility_flags(compiler.get(), compatibility);

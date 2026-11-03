@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/queries.hpp, one scenario
-// per CTest entry. Each scenario names the header lines it asserts.
+// per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/queries.hpp"
 
 #include "test_main.hpp"
@@ -12,7 +12,7 @@ using bw::rhi::QueryKind;
 using bw::rhi::QueryPoolDescription;
 using bw_rhi_test::require;
 
-// queries.hpp:16-20 and 95-106 (validate_query_pool): ZeroCount, then MissingDebugName; the
+// (queries.hpp, validate_query_pool): ZeroCount, then MissingDebugName; the
 // kind is the device's check (it needs the capability report).
 void query_pool_validation_named() {
   require(bw::rhi::validate_query_pool(QueryPoolDescription{QueryKind::Occlusion, 4, "Pass"}) ==

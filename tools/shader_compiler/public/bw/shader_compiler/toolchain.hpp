@@ -59,8 +59,8 @@
 // read beyond loading. The same text is every artifact's CompilerIdentity
 // trailer entry.
 // The Metal library's function is named after the shader's entry point: the
-// converter keeps the name (metal_backend.cpp omits the pin's rename), so the
-// RHI finds the function by ShaderDescription::entry_point.
+// converter keeps the name, so the RHI finds the function by
+// ShaderDescription::entry_point.
 // The same request on the same host gives byte-identical products
 // (docs/architecture/shaders.md, invariant 3): no timestamps, no absolute
 // paths in any compiler argument, sorted reflection. Ownership: the product

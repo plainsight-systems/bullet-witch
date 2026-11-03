@@ -31,16 +31,11 @@ namespace {
 
 } // namespace
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/DynamicRHI.cpp:290-335: RHIInit selects
-// the platform's one dynamic RHI and initializes it, failing startup when
-// none is available. Followed, with the device description validated first
-// and the two required capabilities checked by name after the backend
-// reports them. Omitted: the InitNullRHI branch for a process that can
-// never render (:304-308), because the game has one real backend per
-// platform and no null RHI (a missing backend is BackendUnavailable); and
-// RHIDetectAndWarnOfBadDrivers (:315-333), a driver blacklist warning that
-// belongs to an editor or launcher, not to the game's device.
+// create selects the platform's one backend and initializes it, failing
+// startup when none is available. The device description is validated
+// first, and the two required capabilities are checked by name after the
+// backend reports them. The game has one real backend per platform and no
+// null backend: a missing backend is BackendUnavailable.
 //
 // Order: BackendOptions hands the backend pointers to the device's delete
 // queue, descriptor pools and binding structure, which must outlive the backend (backend.hpp),
@@ -99,7 +94,7 @@ Device::Device(const DeviceDescription& description, std::unique_ptr<Backend> ba
 // cache, drain the queue, destroy the backend. backend_ is null only for a
 // Device whose create failed before the backend was attached; nothing was
 // created through it then, so there is nothing to wait for. The drain runs
-// under mutex_ like every destroy of the queue (device.hpp:42-47): it runs
+// under mutex_ like every destroy of the queue (device.hpp, Creation functions): it runs
 // view destructors, which free slots in descriptors_.
 Device::~Device() {
   if (backend_ != nullptr) {
@@ -165,7 +160,7 @@ TextureResult Device::create_texture(const TextureDescription& description,
 //
 // On success the slot belongs to the view; the view's destructor returns it
 // to descriptors_ (resources.hpp, Views), and views are destroyed only by
-// the delete queue under mutex_ (device.hpp:42-47), so the pools see one
+// the delete queue under mutex_ (device.hpp, Creation functions), so the pools see one
 // caller at a time.
 //
 // A null resource is NullResource; the view description is validated
@@ -341,9 +336,9 @@ namespace {
 // the device's state, in the header's order: WrongTarget against this
 // device's ShaderTarget, FormatNotRenderable and SampleCountUnsupported
 // against the capability report. VertexLayoutUnsupported is listed among
-// the device's checks (pipeline_states.hpp:406) but no capability reports
-// whether a backend takes a vertex layout; the backend returns it
-// (pipeline_states.hpp:36-37), with ShaderLibraryRejected,
+// the device's checks (pipeline_states.hpp, PipelineError) but no
+// capability reports whether a backend takes a vertex layout; the backend
+// returns it (pipeline_states.hpp, Vertex layout), with ShaderLibraryRejected,
 // EntryPointNotFound and BackendRejected.
 [[nodiscard]] PipelineError validate_graphics(const GraphicsPipelineDescription& d,
                                               shaders::ShaderTarget target,
@@ -398,9 +393,7 @@ namespace {
 
 } // namespace
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/PipelineStateCache.cpp:1808-1875: Find,
-// then create and Add on a miss. Followed with the content key and the miss
+// Find, then create and insert on a miss, with the content key and the miss
 // policy of device.hpp. Called with the device mutex held.
 namespace {
 
@@ -465,11 +458,8 @@ ComputePipelineResult Device::compute_pipeline(const ComputePipelineDescription&
                         *backend_, cache_);
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/PipelineStateCache.h:241-244: precache
-// takes complete initializers. Followed: every description is created, in
-// order, whatever the miss policy, and the first failure stops it with its
-// code and the description's debug name.
+// Every description is created, in order, whatever the miss policy, and the
+// first failure stops it with its code and the description's debug name.
 Status<PipelineError> Device::precompile(std::span<const GraphicsPipelineDescription> graphics,
                                          std::span<const ComputePipelineDescription> compute) {
   const std::scoped_lock lock(mutex_);
@@ -556,14 +546,9 @@ Status<StagingError> Device::wait_fence(GpuFence& fence) {
   return Status<StagingError>{};
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1414-1464:
-// Submit_Close processes the delete queue, then calls RHIEndFrame with the
-// frame number and increments it. Followed in device.hpp's order: submit the
-// frame with its number as completion value; block on the oldest frame when
-// frames_in_flight are queued (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalViewport.cpp:1106,
-// the semaphore wait);
-// read the completed frame; destroy the delete queue's entries at or below
+// In device.hpp's order: submit the frame with its number as completion
+// value; block on the oldest frame when frames_in_flight are queued; read
+// the completed frame; destroy the delete queue's entries at or below
 // it; reset the backend's transient resources of those frames; read the
 // backend's GPU fault flag (backend.hpp, take_gpu_fault); advance the frame
 // number.
@@ -579,7 +564,7 @@ EndFrameResult Device::end_frame() {
   }
   result.completed = backend_->completed_frame();
   {
-    // View destructors free slots in descriptors_ (device.hpp:42-47).
+    // View destructors free slots in descriptors_ (device.hpp, Creation functions).
     const std::scoped_lock lock(mutex_);
     result.destroyed = queue_.destroy_completed(result.completed);
   }
@@ -593,7 +578,7 @@ EndFrameResult Device::end_frame() {
 void Device::wait_idle() {
   backend_->wait_idle();
   const std::uint64_t completed = backend_->completed_frame();
-  // View destructors free slots in descriptors_ (device.hpp:42-47).
+  // View destructors free slots in descriptors_ (device.hpp, Creation functions).
   const std::scoped_lock lock(mutex_);
   static_cast<void>(queue_.destroy_completed(completed));
 }

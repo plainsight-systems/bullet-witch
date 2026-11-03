@@ -60,12 +60,6 @@
 namespace bw::rhi {
 
 // A copied, bounded debug name. Empty in shipping builds.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:1577,1609 and 2105,2149:
-// DebugName on the buffer and texture create descriptors;
-// Engine/Source/Runtime/RHI/Private/DynamicRHI.cpp:938-960:
-// RHIBindDebugLabelName writes the name only when RHI_USE_RESOURCE_DEBUG_NAME
-// is 1. Followed with a fixed copy instead of an FName.
 inline constexpr std::size_t kDebugNameCapacity = 63;
 class DebugName {
 public:
@@ -81,18 +75,11 @@ private:
 #endif
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:885-971: EBufferUsageFlags.
-// Followed: Static and Dynamic become the absence or presence of Upload;
-// UnorderedAccess, SourceCopy, DrawIndirect, ShaderResource, VertexBuffer,
-// IndexBuffer and UniformBuffer map one to one; CopyDestination is implied
-// by the pin for every buffer and is explicit here so the initial state and
-// the pool choice are visible. Omitted: Volatile (per-frame transient
-// buffers come from the frame ring, command_list.hpp), ByteAddressBuffer and
-// StructuredBuffer (every shader-visible buffer is reached as a byte address
-// buffer through the buffer array), KeepCPUAccessible and FastVRAM (pool
-// hints with no consumer), Shared, AccelerationStructure, MultiGPU*,
-// NullResource and ReservedResource (features the game does not reach).
+// A buffer the CPU writes has Upload; a buffer only the GPU writes does not.
+// CopyDestination is explicit so the initial state and the pool choice are
+// visible. Per-frame transient buffers come from the frame ring
+// (command_list.hpp), and every shader-visible buffer is reached as a byte
+// address buffer through the buffer array, so neither has a usage flag.
 enum class BufferUsage : std::uint16_t {
   None = 0,
   Vertex = 1U << 0U,
@@ -119,12 +106,6 @@ enum class BufferUsage : std::uint16_t {
   return (value & bit) == bit;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:1370-1447: FRHIBufferDesc
-// {Size, Stride, Usage}; :1466-1625: FRHIBufferCreateDesc adds DebugName,
-// InitialData, InitialState. Followed. Omitted: GPUMask (one GPU), InitAction
-// and the initializer path (RHIBufferInitializer.h:11-106; initial bytes are
-// a span here), ClassName and OwnerName (statistics), and the Null factory.
 struct BufferDescription {
   std::uint64_t size{};
   // Element stride for Vertex and Index buffers (2 or 4 for Index); 0 for
@@ -135,10 +116,8 @@ struct BufferDescription {
   std::string_view debug_name{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:1077-1084:
-// ETextureDimension. Omitted: TextureCubeArray, which no descriptor array
-// of the root layout can hold.
+// There is no cube array dimension: no descriptor array of the root layout
+// can hold one.
 enum class TextureDimension : std::uint8_t {
   Texture2D,
   Texture2DArray,
@@ -146,17 +125,9 @@ enum class TextureDimension : std::uint8_t {
   TextureCube,
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:1087-1185:
-// ETextureCreateFlags. Followed: RenderTargetable, DepthStencilTargetable,
-// ShaderResource, UAV and SRGB (as a format), plus explicit copy flags.
-// Omitted: ResolveTargetable (resolves are the next slice with the
-// swapchain), CPUReadback and CPUWritable (readback is a staging buffer,
-// synchronization.hpp; textures upload through initial data or a copy),
-// Presentable (the viewport slice), Dynamic, Streamable, the TexCreate_Transient
-// macro (:1220) and the
-// memoryless, fast-VRAM, external and reserved-resource flags the game does
-// not reach.
+// sRGB is a property of the format, not a usage. No usage marks CPU access:
+// readback goes through a staging buffer (synchronization.hpp), and textures
+// upload through initial data or a copy.
 enum class TextureUsage : std::uint8_t {
   None = 0,
   ShaderResource = 1U << 0U,
@@ -188,24 +159,12 @@ struct Extent3 {
 // The clear value a render target or depth target is created with; a render
 // pass whose clear differs is a programming error on Direct3D 12 and is
 // reported by the validation layer.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:1716-1946 (FRHITextureDesc,
-// ClearValue member).
 struct ClearValue {
   std::array<float, 4> color{};
   float depth{1.0F};
   std::uint8_t stencil{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:1716-1946: FRHITextureDesc
-// (Flags, ClearValue, Extent, Depth, ArraySize, NumMips, NumSamples,
-// Dimension, Format); :1965-2165: FRHITextureCreateDesc adds DebugName,
-// InitialState, BulkData; CheckValidity at :2084-2089 requires InitialState
-// != Unknown. Followed. Omitted: GPUMask, ExtData, UAVFormat (a view names
-// its format), FastVRAMPercentage, AliasableFormats, InitAction and the
-// initializer (RHITextureInitializer.h:9-189; initial data is a span of
-// subresources here), ClassName and OwnerName.
 struct TextureDescription {
   Extent3 extent{};
   std::uint16_t array_size{1};
@@ -282,13 +241,9 @@ struct TextureLimits {
 
 // Pure validation of a descriptor against its own rules and the limits;
 // the device calls these before the backend and returns the same codes.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHI.cpp:1510-1614: FRHITextureDesc::Validate
-// checks format known and supported, extents against the maximum dimensions,
-// depth, array size, samples and mips. Followed.
-// Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:2507-2514: a buffer of
-// size 0 is fatal (InvalidBufferFatalError); here ZeroSize. Omitted: the
-// reserved-resource checks and the GPU mask.
+// validate_texture checks that the format is known and supported, and checks
+// the extents against the maximum dimensions, the depth, the array size, the
+// samples and the mips. A buffer of size 0 is ZeroSize.
 [[nodiscard]] ResourceError validate_buffer(const BufferDescription& description) noexcept;
 // Initial data checks (InitialDataMismatch or None): a buffer's data is
 // empty or exactly description.size bytes; a texture's data is empty or
@@ -313,10 +268,8 @@ subresource_index(const TextureDescription& d, std::uint16_t slice, std::uint8_t
   return static_cast<std::uint32_t>(slice) * d.mip_levels + mip;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:1314-1368:
-// FRHIViewableResource, the common base of buffer and texture that holds the
-// tracked access and the debug name. Followed.
+// The common base of buffer and texture; holds the tracked access and the
+// debug name.
 class Viewable : public Resource {
 public:
   [[nodiscard]] TrackedAccess tracked_access() const noexcept { return tracked_; }
@@ -338,10 +291,8 @@ private:
   bool is_texture_;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:1627-1689: FRHIBuffer with
-// a protected constructor "only called by platform RHI implementations" and
-// the Desc accessor. Followed: backends derive from Buffer.
+// The constructor is protected: only backends create buffers, and they
+// derive from Buffer.
 class Buffer : public Viewable {
 public:
   // description().debug_name views this object's copy of the name.
@@ -354,12 +305,9 @@ private:
   BufferDescription description_;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:2167-2391: FRHITexture.
-// Followed as for Buffer. Omitted: the texture reference indirection
-// (RHITextureReference.h:7-64) and the default bindless handle
-// (RHIResources.h:2195),
-// because every shader-visible texture has an explicit view and index.
+// As for Buffer, only backends create textures. A texture has no bindless
+// index of its own: every shader-visible texture has an explicit view and
+// index.
 class Texture : public Viewable {
 public:
   [[nodiscard]] const TextureDescription& description() const noexcept { return description_; }
@@ -371,24 +319,15 @@ private:
   TextureDescription description_;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:2639-2674: ERHITexturePlane.
-// Followed for the three planes the game reaches. Omitted: PrimaryCompressed,
-// HTile, FMask and CMask (console-private planes).
 enum class TexturePlane : std::uint8_t {
   Primary,
   Depth,
   Stencil,
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:2713-2875: FRHIViewDesc, a
-// union of buffer and texture, SRV and UAV descriptions; :2877-3188 the
-// initializers (format, offset, stride, element count, dimension, plane, mip
-// and array ranges, sRGB disable). Followed as two plain structs with the
-// same fields. Omitted: structured and typed buffer views (every buffer view
-// is raw, placement() Buffer is ByteAddressBuffer), append and counter UAVs,
-// the ray tracing scene view, and the sRGB disable (a view names its format).
+// Buffer and texture view descriptions, used for both shader resource and
+// unordered access views. Every buffer view is raw (placement() Buffer is
+// ByteAddressBuffer); a texture view names its format, which decides sRGB.
 struct BufferViewDescription {
   std::uint64_t offset{};
   // 0 means to the end of the buffer.
@@ -407,12 +346,10 @@ struct TextureViewDescription {
   std::uint16_t slice_count{};
 };
 
-// Pure checks the device runs before the backend writes a descriptor.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:176-437: GetViewInfo
-// validates a buffer view's offset and bounds and usage flags, and a texture
-// view's dimension compatibility, mip and array ranges, plane and format,
-// and that a UAV names one mip of a non-multisampled texture. Followed.
+// Pure checks the device runs before the backend writes a descriptor: a
+// buffer view's offset, bounds and usage flags, and a texture view's
+// dimension compatibility, mip and array ranges, plane and format, and that
+// a UAV names one mip of a non-multisampled texture.
 [[nodiscard]] ResourceError validate_buffer_view(const BufferDescription& buffer,
                                                  const BufferViewDescription& view,
                                                  bool unordered_access) noexcept;
@@ -438,12 +375,8 @@ struct TextureViewDescription {
   return shaders::DescriptorArray::Texture2D;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:3304-3377: FRHIView holds a
-// TRefCountPtr to its resource and the view description; FRHIShaderResourceView
-// and FRHIUnorderedAccessView derive from it; :3315-3318 GetBindlessHandle
-// returns the descriptor handle the platform assigned. Followed: the handle
-// is the slot, assigned by the device's allocator at creation.
+// A view holds a Ref to its resource. Its bindless handle is the slot,
+// assigned by the device's allocator at creation.
 class View : public Resource {
 public:
   [[nodiscard]] const Ref<Viewable>& resource() const noexcept { return resource_; }
@@ -508,15 +441,9 @@ struct BufferCopy {
   std::uint64_t size{};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:778-784: EResourceLockMode
-// {ReadOnly, WriteOnly, WriteOnly_NoOverwrite};
-// Engine/Source/Runtime/RHI/Public/RHICommandList.h:753-795: LockBuffer and
-// UnlockBuffer. Followed for the write-only lock of an Upload buffer.
-// Omitted: ReadOnly (reads go through a staging buffer and a fence,
-// synchronization.hpp) and the no-overwrite hint; the top-of-pipe shadow
-// copy path (RHICommandList.cpp:2245-2319), because an Upload buffer here is
-// persistently host-visible.
+// A lock is the write-only mapping of an Upload buffer. Reads go through a
+// staging buffer and a fence (synchronization.hpp). An Upload buffer is
+// persistently host-visible, so a lock needs no shadow copy.
 enum class LockError : std::uint8_t {
   None,
   // The buffer was not created with BufferUsage::Upload.

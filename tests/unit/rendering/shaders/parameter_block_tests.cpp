@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/shaders/parameter_block.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/parameter_block.hpp"
 #include "bw/rendering/shaders/permutation.hpp"
 
@@ -102,7 +102,8 @@ struct ExpectedMember {
   const BlockLayout* nested;
 };
 
-// parameter_block.hpp:25-33 and :204-224 (the preconditions' failing side is
+// (parameter_block.hpp, BW_PARAMETER_BLOCK_LAYOUT), (parameter_block.hpp, MemberLayout) and
+// (parameter_block.hpp, BlockLayout) (the preconditions' failing side is
 // the compile probes under compile_failures/, tests/CMakeLists.txt): preconditions hold and members
 // are sorted by offset, each at its C++ offsetof with its sizeof, kind from the declared type,
 // element count N for Array<T, N>, nested layout for blocks; size is sizeof(Block).
@@ -163,7 +164,7 @@ void dense_layout_offsets_equal_offsetof() {
           "storage index kinds");
 }
 
-// parameter_block.hpp:245-257: after padding from the previous member's HLSL
+// (parameter_block.hpp, place_in_hlsl): after padding from the previous member's HLSL
 // end, place_in_hlsl lands on the C++ offset, for every member of every
 // declared block: the walk descends into each nested block, including the
 // element block of an array of blocks, and covers the registry's blocks.
@@ -195,7 +196,7 @@ void hlsl_placement_matches_cpp_offsets() {
       check_placement(*shader.draw_block);
     }
   }
-  // Sizes DXC assigns (parameter_block.hpp:234-240): float3 12, matrix 64,
+  // Sizes DXC assigns (parameter_block.hpp, kind_hlsl_size): float3 12, matrix 64,
   // array (N - 1) * 16 + element, an array of blocks (N - 1) * stride + size.
   const BlockLayout& layout = outer_layout();
   require(bw::shaders::place_in_hlsl(layout.members[1], 64).size == 12U, "float3 is 12 bytes");
@@ -206,7 +207,7 @@ void hlsl_placement_matches_cpp_offsets() {
           "InnerBlock[2] is 64 bytes");
 }
 
-// parameter_block.hpp:259-266: the hash is a function of the members in
+// (parameter_block.hpp, layout_hash): the hash is a function of the members in
 // offset order, whatever order the macro listed them in.
 void hash_stable_under_member_reordering() {
   // Declaration order, independently of the macro's shuffled list.
@@ -225,7 +226,7 @@ void hash_stable_under_member_reordering() {
           "nested hash is the hash of its sorted members");
 }
 
-// parameter_block.hpp:264-266: any change of a member's name, kind, offset,
+// (parameter_block.hpp, layout_hash): any change of a member's name, kind, offset,
 // count or nested layout, of the block name or of its size, changes the hash.
 void hash_changes_on_any_member_change() {
   const BlockLayout& layout = outer_layout();
@@ -250,7 +251,7 @@ void hash_changes_on_any_member_change() {
   require(bw::shaders::layout_hash(layout.name, layout.size + 16U, base) != original, "block size");
 }
 
-// parameter_block.hpp:280-292: exact text, nested blocks first and once per
+// (parameter_block.hpp, append_hlsl_struct): exact text, nested blocks first and once per
 // call, 4-byte padding to each C++ offset and to the block size, uint for the
 // index kinds, "<type> <member>[<N>]" for arrays including arrays of blocks.
 void generated_struct_text_is_exact() {
@@ -288,7 +289,8 @@ void generated_struct_text_is_exact() {
   std::string text = "// kept\n";
   const HlslResult result = bw::shaders::append_hlsl_struct(outer_layout(), text);
   require(result.error == HlslError::None, "a macro-built layout generates");
-  require(result.member.empty(), "member is empty on None (parameter_block.hpp:318)");
+  require(result.member.empty(),
+          "member is empty on None (parameter_block.hpp, HlslResult::member)");
   require(text == std::string("// kept\n") + std::string(expected), "generated text is exact");
 
   const std::string_view expected_list = "struct BW_InnerBlock {\n"
@@ -312,12 +314,13 @@ void generated_struct_text_is_exact() {
   require(list_text == expected_list, "array of blocks and storage indices text is exact");
 }
 
-// parameter_block.hpp:301-323: a layout that did not come from the macros
-// reports the named error; HlslResult::member names what failed (:316-318):
-// the member for a member-level error, the block name for an invalid block
-// name. On an error `out` holds what was appended before the failing member,
-// which the caller discards (:314-315), so only the caller's own earlier text
-// is asserted to remain at its front.
+// (parameter_block.hpp, HlslError): a layout that did not come from the macros
+// reports the named error; HlslResult::member names what failed
+// (parameter_block.hpp, HlslResult::member): the member for a member-level
+// error, the block name for an invalid block name. On an error `out` holds
+// what was appended before the failing member, which the caller discards
+// (parameter_block.hpp, HlslResult), so only the caller's own earlier text is
+// asserted to remain at its front.
 void expect_hlsl_error(const BlockLayout& layout, HlslError error, std::string_view member,
                        std::string_view what) {
   const std::string prefix = "// caller text\n";
@@ -352,7 +355,7 @@ void hlsl_errors_named() {
   expect_hlsl_error(orphan, HlslError::MissingNestedLayout, "inner", "missing nested layout");
 }
 
-// parameter_block.hpp:325-332: the binding line for each slot kind.
+// (parameter_block.hpp, append_hlsl_block_binding): the binding line for each slot kind.
 void binding_line_text() {
   std::string text;
   bw::shaders::append_hlsl_block_binding(outer_layout(), true, 3, text);

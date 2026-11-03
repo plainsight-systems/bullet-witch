@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/access.hpp, one scenario
-// per CTest entry. Each scenario names the header lines it asserts.
+// per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/access.hpp"
 
 #include "test_main.hpp"
@@ -11,10 +11,10 @@ using bw::rhi::Access;
 using bw::rhi::Pipeline;
 using bw_rhi_test::require;
 
-// access.hpp:12-17 and 83-132: a legal access is any set of read-only bits,
-// one write-only bit, the mergeable set (read-only with unordered access),
-// or Discard alone; Unknown is never legal; two writable bits, or a write
-// with a read, are not.
+// (access.hpp, is_valid_access) and (access.hpp, kMergeableMask): a legal
+// access is any set of read-only bits, one write-only bit, the mergeable set
+// (read-only with unordered access), or Discard alone; Unknown is never
+// legal; two writable bits, or a write with a read, are not.
 void masks_and_valid_access() {
   require(!bw::rhi::is_valid_access(Access::Unknown), "Unknown is not a legal access");
   require(bw::rhi::is_valid_access(Access::Discard), "Discard alone is legal");
@@ -45,9 +45,10 @@ void masks_and_valid_access() {
           "the mergeable mask is read-only plus unordered access");
 }
 
-// access.hpp:17-18 and 143-157: Pipeline is a bit set over the two queues;
-// All is both; a single pipeline is exactly one of them. :167-171: a tracked
-// access starts Unknown on Graphics.
+// (access.hpp, Pipeline) and (access.hpp, is_single_pipeline): Pipeline is a
+// bit set over the two queues; All is both; a single pipeline is exactly one
+// of them. (access.hpp, TrackedAccess): a tracked access starts Unknown on
+// Graphics.
 void pipeline_bits() {
   require((Pipeline::Graphics | Pipeline::AsyncCompute) == Pipeline::All, "All is both queues");
   require((Pipeline::All & Pipeline::Graphics) == Pipeline::Graphics, "All contains Graphics");

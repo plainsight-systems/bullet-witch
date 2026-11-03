@@ -86,12 +86,9 @@
 //                           kMaxStaticBlocks when the layout has no slot for it.
 // Artifact::trailer is the whole trailer section, entries and closing length.
 //
-// Algorithm, load: the Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// trailer reader is followed (Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:1175-1190:
-// read the closing length, require it non-negative and within the data;
-// :1082-1110: walk key, size, value records up to the closing length). The
-// header and reflection checks before it are this format's own, as the
-// header says.
+// Algorithm, load: read the trailer's closing length, require it within the
+// data, then walk key, size, value records up to the closing length. The
+// header and reflection checks come before it, as the header says.
 //
 // Design and cost: one pass over header, reflection and trailer with a
 // bounds-checked cursor; the code block is never touched. Integers are
@@ -692,8 +689,7 @@ ArtifactWriteError write_artifact(const ArtifactHeader& header, const Reflection
   }
   // Code, uncompressed.
   sink.bytes(code);
-  // Trailer: key, size, bytes per entry, closed by its own length
-  // (Engine/Source/Runtime/RenderCore/Public/ShaderCore.h:1456-1467, :1349-1364).
+  // Trailer: key, size, bytes per entry, closed by its own length.
   for (const TrailerEntry& entry : trailer) {
     sink.u8(static_cast<std::uint8_t>(entry.key));
     sink.u32(static_cast<std::uint32_t>(entry.bytes.size()));

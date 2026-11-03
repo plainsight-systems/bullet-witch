@@ -27,8 +27,8 @@ namespace bw::rhi::metal {
 
 namespace {
 
-// MetalUAV.cpp:791-795 waits with FENCE_EVENT_WAIT_TIMEOUT, 1000000 ms; the
-// same value bounds each blocking call here, repeated until reached.
+// 1000000 ms bounds each blocking call here, repeated until the value is
+// reached.
 constexpr std::uint64_t kWaitMilliseconds = 1000000;
 
 void wait_for_event(MTL::SharedEvent& event, std::uint64_t value) {
@@ -37,11 +37,10 @@ void wait_for_event(MTL::SharedEvent& event, std::uint64_t value) {
   }
 }
 
-// Source: Apple, "Metal feature set tables", 2025, "GPU implementation
-// limits": on the Apple7 and later families the maximum 2D and cube texture
-// width and height are 16384, a 3D texture's width, height and depth 2048,
-// and a texture array's length 2048. The device is checked for the Apple7
-// family before this is read.
+// On the Apple7 and later families the maximum 2D and cube texture width and
+// height are 16384, a 3D texture's width, height and depth 2048, and a texture
+// array's length 2048. The device is checked for the Apple7 family before this
+// is read.
 constexpr TextureLimits kApple7TextureLimits{16384, 2048, 16384, 2048, 1};
 
 [[nodiscard]] std::uint8_t max_sample_count(MTL::Device& device) noexcept {
@@ -161,20 +160,11 @@ MetalBackend::~MetalBackend() {
   device_->release();
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDevice.cpp:186-232:
-// CreateDevice takes the system default device; :241-249 the constructor
-// retains it and creates the command queue; :339-429 the feature flags from
-// the device; Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBindlessDescriptors.cpp:118-138
-// the two descriptor heaps as buffers of IRDescriptorTableEntry;
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommandQueue.cpp:96 the
-// queue's signal event. Followed, with the required capabilities checked by
-// name (backend.hpp) and the converter's bind points checked against the
-// ones bound here. Omitted: the capture manager, the counter sampler (no
-// timestamp queries, queries.hpp), the PSO manager and the static samplers
-// (the engine root layout declares none), and the device selection by
-// preference or command line (MetalDevice.cpp:186-232 beyond the default
-// device): the game runs on the system's default device.
+// Takes the system default device (the game runs on it), creates the command
+// queue and the frame event, reads the feature flags from the device and
+// creates the two descriptor heaps as buffers of IRDescriptorTableEntry. The
+// required capabilities are checked by name (backend.hpp) and the
+// converter's bind points against the ones bound here.
 BackendResult MetalBackend::create(const BackendOptions& options) {
   const AutoreleaseScope pool;
   const std::string_view mismatch = irconverter_bind_point_mismatch();
@@ -196,9 +186,7 @@ BackendResult MetalBackend::create(const BackendOptions& options) {
     return BackendResult::failure(DeviceError::RequiredCapabilityMissing,
                                   name(RequiredCapability::TypedDescriptorArrays));
   }
-  // Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-  // Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDevice.cpp:204-211
-  // refuses a device below GPUFamilyApple7. Every Apple7 device supports the
+  // A device below GPUFamilyApple7 is refused. Every Apple7 device supports the
   // Metal 3 family the architecture names (docs/architecture/shaders.md,
   // "Targets"), so this one check is the shader floor.
   if (!device->supportsFamily(MTL::GPUFamilyApple7)) {
@@ -230,9 +218,8 @@ BackendResult MetalBackend::create(const BackendOptions& options) {
   capabilities.shader_floor = true;
   // Reported absent until a backend proves them (backend.hpp). Timestamp
   // queries are off in this slice: the game needs no GPU timestamps for
-  // correctness, and Metal's counter sample buffers
-  // (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCounterSampler.h:19-87)
-  // are a later slice; AbsoluteTime pools are KindUnsupported (queries.hpp).
+  // correctness, and Metal's counter sample buffers are a later slice;
+  // AbsoluteTime pools are KindUnsupported (queries.hpp).
   capabilities.async_compute = false;
   capabilities.mesh_shaders = false;
   capabilities.ray_tracing = false;
@@ -287,12 +274,8 @@ std::string_view MetalBackend::initialize(MTL::Buffer* resource_heap, MTL::Buffe
   memory_ = std::make_unique<ResourceMemory>(*device_, recording_frame_);
   writable_ = std::make_unique<WritableResources>();
 
-  // Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-  // Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommandEncoder.cpp:18,
-  // :72: the encoder's ring buffer, 1 MiB, untracked. Departure: one ring per
-  // frame in flight of the device's transient budget that never grows
-  // (invariant 7), instead of a ring that reallocates on overrun
-  // (MetalBuffer.cpp:1047-1060).
+  // One untracked ring per frame in flight, of the device's transient budget,
+  // that never grows (invariant 7).
   std::vector<MTL::Buffer*> rings;
   for (std::uint32_t i = 0; i < options_.frames_in_flight; ++i) {
     MTL::Buffer* ring =
@@ -325,13 +308,8 @@ FormatCapability MetalBackend::format_capabilities(Format format) const noexcept
 // returns. A private resource is filled by a blit from a temporary shared
 // buffer on its own command buffer, waited for here (a creation-time path,
 // blocking by design, and it never spins: waitUntilCompleted blocks).
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIBuffer.cpp:459-469:
-// Unlock of a private buffer enqueues a buffer-to-buffer copy from a
-// transfer buffer on the upload context. Followed as a copy; departure: the
-// copy is committed and waited for at creation instead of riding the next
-// submission, so the resource is complete when creation returns, which is
-// this RHI's contract.
+// The copy is committed and waited for at creation, so the resource is
+// complete when creation returns, which is this RHI's contract.
 std::string_view MetalBackend::finish_upload(MTL::CommandBuffer& commands) {
   commands.commit();
   commands.waitUntilCompleted();
@@ -410,19 +388,13 @@ std::string_view MetalBackend::upload_texture(MTL::Texture& destination,
 
 // ---- Resources ---------------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:1766-1803:
-// CreateBuffer takes heapBufferSizeAndAlign, raises the alignment to the
-// requested one, finds or allocates a block and creates the buffer at its
-// offset with newBuffer(Size, Options, Offset);
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDevice.cpp:470-501:
-// CreatePooledBuffer asks for BufferOffsetAlignment, and for
-// BufferBackedLinearTextureOffsetAlignment when the buffer has the
-// ShaderResource or UnorderedAccess usage (:474-481; MetalRHIPrivate.h:26-32,
-// 256 and 1024 on Mac). Followed. Storage: an
-// Upload buffer is shared and persistently mapped (resources.hpp, Locks;
-// MetalRHIPrivate.h:66 BUFFER_STORAGE_MODE Shared on Mac); every other buffer
-// is private.
+// Takes heapBufferSizeAndAlign, raises the alignment to the required one,
+// finds or allocates a block and creates the buffer at its offset with
+// newBuffer(size, options, offset). The required alignment is
+// kBufferOffsetAlignment, or kBufferBackedTextureOffsetAlignment when the
+// buffer has the ShaderResource or UnorderedAccess usage. Storage: an Upload
+// buffer is shared and persistently mapped (resources.hpp, Locks); every
+// other buffer is private.
 BufferResult MetalBackend::create_buffer(const BufferDescription& description,
                                          std::span<const std::byte> initial_data) {
   const AutoreleaseScope pool;
@@ -463,14 +435,9 @@ BufferResult MetalBackend::create_buffer(const BufferDescription& description,
       new MetalBuffer(*options_.delete_queue, description, buffer, *placement, *memory_)));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:2024-2059:
-// CreateTexture takes heapTextureSizeAndAlign, finds or allocates a block and
-// creates the texture with newTexture(Desc, Offset); MetalTexture.cpp:526-680
-// builds the descriptor from the RHI's. Followed for private textures.
-// Omitted: buffer-backed textures (:589-618), memoryless MSAA storage
-// (:662-667) and the separate MSAA resolve texture (:669), which arrive with
-// resolves.
+// Builds the descriptor from the RHI's, takes heapTextureSizeAndAlign, finds
+// or allocates a private block and creates the texture with
+// newTexture(descriptor, offset).
 TextureResult MetalBackend::create_texture(const TextureDescription& description,
                                            std::span<const SubresourceData> initial_data) {
   const AutoreleaseScope pool;
@@ -535,15 +502,11 @@ TextureResult MetalBackend::create_texture(const TextureDescription& description
 
 // ---- Views and samplers ----------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBindlessDescriptors.cpp:31-50:
-// a texture descriptor is IRDescriptorTableSetTexture(texture, 0, 0), a buffer
-// descriptor IRDescriptorTableSetBuffer(address, length), a sampler
-// IRDescriptorTableSetSampler(state, 0); the entry is written at the slot the
-// view was given. Followed: the entry is written at creation in the heap of
-// the slot's pool (metal_memory.hpp). The entry is not cleared when the view
-// is destroyed: the slot returns to the pool and no shader may read a free
-// slot.
+// A texture descriptor is IRDescriptorTableSetTexture(texture, 0, 0), a
+// buffer descriptor IRDescriptorTableSetBuffer(address, length). The entry is
+// written at creation, at the slot the view was given, in the heap of the
+// slot's pool (metal_memory.hpp). The entry is not cleared when the view is
+// destroyed: the slot returns to the pool and no shader may read a free slot.
 ShaderResourceViewResult
 MetalBackend::create_shader_resource_view(Ref<Buffer> buffer, const BufferViewDescription& view,
                                           DescriptorSlot slot) {
@@ -603,17 +566,13 @@ MetalBackend::create_unordered_access_view(Ref<Texture> texture, const TextureVi
       *target.texture, *writable_)));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalState.cpp:235-289:
-// FindOrCreateSamplerState maps the filter to min, mag and mip filters (both
-// anisotropic filters linear), sets the anisotropy only for the anisotropic
-// filters (:16-24, :268), the address modes, LOD clamps, compare function and
-// border color, with setSupportArgumentBuffers under the converter (:279-281).
-// Followed. Departure: the descriptor's LOD bias is the description's
-// mip_bias (the converter applies it in the shader from the entry's
-// metadata, IRDescriptorTableSetSampler); the pin writes 0
-// (MetalBindlessDescriptors.cpp:31-36). Sharing equal samplers is the
-// device's (device.hpp), so no cache here.
+// Maps the filter to min, mag and mip filters (both anisotropic filters
+// linear), sets the anisotropy only for the anisotropic filters, the address
+// modes, LOD clamps, compare function and border color, with
+// setSupportArgumentBuffers for the converter. The descriptor's LOD bias is
+// the description's mip_bias (the converter applies it in the shader from
+// the entry's metadata, IRDescriptorTableSetSampler). Sharing equal samplers
+// is the device's (device.hpp), so no cache here.
 SamplerResult MetalBackend::create_sampler(const SamplerDescription& description,
                                            DescriptorSlot slot) {
   const AutoreleaseScope pool;
@@ -672,12 +631,10 @@ MetalBackend::create_rasterizer_state(const RasterizerDescription& description) 
       Ref<RasterizerState>(new MetalRasterizerState(*options_.delete_queue, description)));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalState.cpp:342-415:
-// FMetalDepthStencilState builds an MTL::DepthStencilDescriptor with the depth
-// compare and write, a front stencil descriptor when front stencil is on, a
-// back one when back stencil is on or the front one copied in single-face
-// mode, each with the read and write masks. Followed.
+// Builds an MTL::DepthStencilDescriptor with the depth compare and write, a
+// front stencil descriptor when front stencil is on, a back one when back
+// stencil is on or the front one copied in single-face mode, each with the
+// read and write masks.
 DepthStencilStateResult
 MetalBackend::create_depth_stencil_state(const DepthStencilDescription& description) {
   const AutoreleaseScope pool;
@@ -722,12 +679,10 @@ BlendStateResult MetalBackend::create_blend_state(const BlendDescription& descri
 
 // ---- Pipelines -------------------------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/Shaders/Types/Templates/MetalBaseShader.h:269-301:
-// the converter's library is created from the code bytes with
-// dispatch_data_create and newLibrary(dispatch_data, &Error); :458-497 the
-// function is taken from the library by name. Followed, with the artifact's
-// entry point as the name (the shader system names the function after it).
+// The converter's library is created from the code bytes with
+// dispatch_data_create and newLibrary(dispatch_data, &error); the function is
+// taken from the library by the artifact's entry point (the shader system
+// names the function after it).
 MetalBackend::LoadedFunction MetalBackend::load_function(const shaders::Artifact& artifact,
                                                          PipelineError& error,
                                                          std::string_view& detail) {
@@ -753,20 +708,15 @@ MetalBackend::LoadedFunction MetalBackend::load_function(const shaders::Artifact
   return LoadedFunction{library, function};
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDynamicRHI.cpp:44-104:
-// RHICreateGraphicsPipelineState under the converter; MetalPipeline.cpp:989-1100:
-// CreateMTLRenderPipeline builds a RenderPipelineDescriptor with the vertex
-// and fragment functions, the color attachments' formats and blend states, the
-// depth and stencil formats and the sample count, skips the vertex descriptor
-// under bindless (:1055-1058), and calls newRenderPipelineState(desc, &Error)
-// (:1100). Followed. A non-empty vertex layout is VertexLayoutUnsupported in
-// this slice (pipeline_states.hpp): the pin synthesizes a stage-in function
-// with the converter (MetalDynamicRHI.cpp:60-78), which is not shipped.
-// WrongTarget is not checked here: the device checks the artifacts' target
-// against this backend's before calling (device.cpp, validate_graphics).
-// Omitted: the binary archives (MetalPipeline.cpp:1039-1042) and the
-// reflection request (:1087-1091).
+// Builds a RenderPipelineDescriptor with the vertex and fragment functions,
+// the color attachments' formats and blend states, the depth and stencil
+// formats and the sample count, and no vertex descriptor (bindless), and
+// calls newRenderPipelineState(descriptor, &error). A non-empty vertex layout
+// is VertexLayoutUnsupported in this slice (pipeline_states.hpp): a stage-in
+// function would have to be synthesized with the converter, which is not
+// shipped. WrongTarget is not checked here: the device checks the artifacts'
+// target against this backend's before calling (device.cpp,
+// validate_graphics).
 GraphicsPipelineResult
 MetalBackend::create_graphics_pipeline(const GraphicsPipelineDescription& description,
                                        const PipelineBinding& binding) {
@@ -838,11 +788,8 @@ MetalBackend::create_graphics_pipeline(const GraphicsPipelineDescription& descri
       new MetalGraphicsPipeline(*options_.delete_queue, description, binding, state)));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDynamicRHI.cpp:106-110:
-// the compute pipeline holds its shader; the pin's MTL::ComputePipelineState
-// creation was not read. Followed from the function as for graphics:
-// newComputePipelineState(function, &Error).
+// Created from the function as for graphics:
+// newComputePipelineState(function, &error).
 ComputePipelineResult
 MetalBackend::create_compute_pipeline(const ComputePipelineDescription& description,
                                       const PipelineBinding& binding) {
@@ -870,10 +817,7 @@ MetalBackend::create_compute_pipeline(const ComputePipelineDescription& descript
 
 // ---- Fences, staging and queries -------------------------------------------------
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalUAV.cpp:740-748: the GPU
-// fence creates a shared event of its own (GMetalUseEventForGPUFence).
-// Followed.
+// The GPU fence creates a shared event of its own.
 GpuFenceResult MetalBackend::create_fence(std::string_view debug_name) {
   const AutoreleaseScope pool;
   MTL::SharedEvent* event = device_->newSharedEvent();
@@ -886,11 +830,8 @@ GpuFenceResult MetalBackend::create_fence(std::string_view debug_name) {
       Ref<GpuFence>(new MetalGpuFence(*options_.delete_queue, debug_name, event)));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalUAV.cpp:713-738: the
-// staging buffer's shadow buffer is a pooled shared buffer. Followed, from
-// the shared heaps; departure: allocated at creation with the staging size
-// rather than grown at the first copy.
+// The staging buffer's shadow buffer is a shared buffer from the shared
+// heaps, allocated at creation with the staging size.
 StagingBufferResult MetalBackend::create_staging_buffer(std::uint64_t size,
                                                         std::string_view debug_name) {
   if (size == 0U) {
@@ -915,10 +856,8 @@ StagingBufferResult MetalBackend::create_staging_buffer(std::uint64_t size,
       *options_.delete_queue, size, debug_name, buffer, *placement, *memory_)));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIRenderQuery.cpp:155:
-// the occlusion results live in a buffer from the resource heap. Followed: one
-// shared buffer of count 8-byte results per pool, zeroed at creation.
+// The occlusion results live in a buffer from the resource heap: one shared
+// buffer of count 8-byte results per pool, zeroed at creation.
 // AbsoluteTime pools are refused by the device (timestamp_queries is off,
 // queries.hpp); the check is repeated here so the backend never creates one.
 QueryPoolResult MetalBackend::create_query_pool(const QueryPoolDescription& description) {
@@ -970,12 +909,8 @@ LockError MetalBackend::unlock_buffer(Buffer& buffer) {
   return LockError::None;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIStagingBuffer.cpp:35-42:
-// Lock returns the shadow buffer's contents with no GPU wait; the readback
-// helper waits on the fence first
-// (Engine/Source/Runtime/RHI/Private/RHIGPUReadback.cpp:34-94). Followed as the
-// contract of synchronization.hpp: Block waits on the fence's event, PollOnly
+// Lock returns the shadow buffer's contents once the fence is signaled, as
+// synchronization.hpp states: Block waits on the fence's event, PollOnly
 // returns NotReady while it is unsignaled; neither spins.
 StagingLockResult MetalBackend::lock_staging(StagingBuffer& staging, GpuFence& fence,
                                              WaitPolicy policy) {
@@ -1015,12 +950,8 @@ StagingError MetalBackend::unlock_staging(StagingBuffer& staging) {
 // clears the ended frame, metal_context.cpp). Before completion, PollOnly is
 // NotReady and Block waits for that frame, or returns NotSubmitted without
 // blocking when the frame has not been submitted.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIRenderQuery.cpp:413-430:
-// GetResult waits on the query's sync point when bWait, else returns false
-// until it completes. Followed with the frame as the completion value; the
-// value is read from the visibility buffer after completion, where the pin
-// samples it at completion (:404-411).
+// The frame is the completion value; the value is read from the visibility
+// buffer after completion.
 QueryResult MetalBackend::query_result(QueryPool& pool, std::uint32_t index, WaitPolicy policy) {
   const auto& metal_pool = static_cast<const MetalQueryPool&>(pool);
   const std::uint64_t ended = metal_pool.ended_frame(index);
@@ -1043,29 +974,17 @@ QueryResult MetalBackend::query_result(QueryPool& pool, std::uint32_t index, Wai
 
 void MetalBackend::track_fence(MetalGpuFence& fence) { fences_written_.push_back(&fence); }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalSubmission.cpp:427-455:
-// FinalizePayload takes the next completion value; :457-587
-// FlushBatchedPayloads commits the payload's command buffers (:495-500), then
-// a separate command buffer that encodes encodeSignalEvent(SignalEvent,
-// CompletionFenceValue) and is committed (:505-530). Followed, with the frame
-// number as the value and one queue. The signal rides its own command buffer,
-// so a failed work buffer cannot keep the frame from completing. Omitted: the
-// submission and interrupt threads (MetalSubmission.cpp:66-83, :696-844);
-// commit happens on the submission thread that calls end_frame.
-// Fault: Engine/Source/Runtime/Apple/MetalRHI/Private/MetalSubmission.cpp:737-774
-// reads each work command buffer's and the signal buffer's status after
-// completion and handles an Error status. Followed: a completed handler on
-// both buffers reads status() and error() and sets the flag take_gpu_fault
-// returns (backend.hpp). The handler holds the flag by shared ownership,
-// because Metal may run it after the frame event has been signaled and the
-// backend destroyed. The error text has no channel in the RHI and is not
-// kept.
-// Departure, for the user to decide: the pin's queue event is an MTL::Event
-// whose signal buffer's completed handler wakes its interrupt thread
-// (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommandQueue.cpp:96,
-// MetalSubmission.cpp:516-524); here the frame event is an MTL::SharedEvent
-// whose value the CPU reads and waits on (completed_frame, wait_for_frame).
+// Commits the frame's work command buffer, then a separate command buffer
+// that encodes encodeSignalEvent(frame event, frame) and is committed, with
+// the frame number as the value and one queue. The signal rides its own
+// command buffer, so a failed work buffer cannot keep the frame from
+// completing. Commit happens on the submission thread that calls end_frame.
+// Fault: a completed handler on both buffers reads status() and error() and
+// sets the flag take_gpu_fault returns (backend.hpp). The handler holds the
+// flag by shared ownership, because Metal may run it after the frame event
+// has been signaled and the backend destroyed. The error text has no channel
+// in the RHI and is not kept. The frame event is an MTL::SharedEvent whose
+// value the CPU reads and waits on (completed_frame, wait_for_frame).
 void MetalBackend::submit_frame(std::uint64_t frame) {
   const AutoreleaseScope pool;
   const std::shared_ptr<std::atomic<bool>> fault = gpu_fault_;
@@ -1109,11 +1028,8 @@ void MetalBackend::wait_idle() {
   wait_for_event(*frame_event_, submitted_frame_.load(std::memory_order_acquire));
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:1226-1258:
-// RHIEndFrame garbage collects: heap compaction and the temporary allocators'
-// cleanup (MetalDevice.cpp:446-457). Followed: the rings of completed frames
-// rewind and the heaps retired by then are released.
+// The rings of completed frames rewind and the heaps retired by then are
+// released.
 void MetalBackend::reset_frame_resources(std::uint64_t completed_frame) {
   context_->reset_rings(completed_frame);
   memory_->release_retired(completed_frame);

@@ -4,22 +4,13 @@
 // command_list.hpp and queries.hpp. Compiled into bw_rhi only when
 // BW_RHI_DEBUG is 1 (src/engine/rendering/rhi/CMakeLists.txt).
 //
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIValidation.h:43: FValidationRHI derives
-// from FDynamicRHI and holds the real RHI; every entry forwards to it.
-// Engine/Source/Runtime/RHI/Private/RHIValidation.cpp:570-577: the
-// constructor takes the wrapped RHI. Followed: ValidationBackend owns the
-// inner backend and forwards every Backend entry. Omitted: the global
-// GRHIValidationEnabled the constructor sets
-// (Engine/Source/Runtime/RHI/Public/RHIValidationCommon.h:17-21); nothing in
-// this RHI asks whether validation is on, the wrapper's presence is the
-// state, and a global would be ambient state (I.1).
+// ValidationBackend owns the inner backend and forwards every Backend entry.
+// There is no global validation flag: nothing in this RHI asks whether
+// validation is on, the wrapper's presence is the state, and a global would
+// be ambient state (I.1).
 //
-// Reporting. Engine/Source/Runtime/RHI/Private/RHIValidation.cpp:1296-1351:
-// ReportValidationFailure reports each distinct message once per session
-// (:1298-1311), logs it and continues (:1341-1350). Followed in that a
-// failure is reported, then the command is forwarded. Departure: every
-// occurrence reaches the reporter; the session set of seen hashes is omitted,
+// Reporting. A failure is reported, then the command is forwarded. Every
+// occurrence reaches the reporter, with no record of failures already seen,
 // because the default reporter aborts at the first failure (backend.hpp,
 // report_validation_failure_and_abort), so a repeat never reaches it, and a
 // test reporter observes each occurrence. Rule: a command reports at most one
@@ -34,32 +25,22 @@
 // layer's own copy of the open pass's name at submit_frame, or a string
 // literal for the command.
 //
-// Transitions. RHIValidation.cpp:830-1009 (RHICreateTransition) builds one
-// begin and one end operation per transition info, with the before state on
-// the source pipelines and the after state on the destination pipelines;
-// :2408-2542 BeginTransition and :2544-2604 EndTransition run the checks
-// transitions.hpp encodes (validate_begin, validate_end) and update the state
-// whether or not a check failed. Followed: per Transition, resolve_before
-// against the tracked access, validate, report, apply_begin or apply_end
-// regardless of the outcome. Departures (stated in backend.hpp and
-// transitions.hpp): :2114-2130 define the reason text for a transition to the
-// state the resource is already in, which BeginTransition never emits; this
-// layer reports it with Redundant, and the transition still opens and closes,
-// so its end is not a false NoOpenTransition. :926-927 skip a null resource
-// with no report; this layer reports NullResource. Omitted: the
-// cross-pipeline fences (:839-869, :996-999), because one queue executes in
-// order here; the commit-info checks (:930-944), the aliasing and transient
-// operations (:874-918) and the backtrace capture (:977-994), for features
-// this RHI omits (transitions.hpp).
+// Transitions. A begin carries the before state on the source pipelines and
+// an end the after state on the destination pipelines. Per Transition:
+// resolve_before against the tracked access, validate (transitions.hpp,
+// validate_begin and validate_end), report, then apply_begin or apply_end
+// regardless of the outcome. A transition to the state the resource is
+// already in is reported with Redundant, and the transition still opens and
+// closes, so its end is not a false NoOpenTransition. A null resource is
+// reported with NullResource. One queue executes in order, so there are no
+// cross-pipeline fences.
 //
-// Uses. RHIValidation.cpp:2606-2640 Assert rejects use during a transition
-// and use without the required access. Followed through validate_use.
-// Omitted: the access decay after the assert (:2639), because a tracked
-// access here changes only through a declared transition (resources.hpp,
-// Viewable); and the UAV overlap tracking (:2625, backend.hpp's omission).
-// transitions.hpp:38-42 also names an indirect buffer in IndirectArguments;
-// no Context command takes an indirect buffer (backend.hpp, Context), so
-// there is no use to check.
+// Uses. validate_use rejects use during a transition and use without the
+// required access. A use does not change the tracked access: it changes only
+// through a declared transition (resources.hpp, Viewable). transitions.hpp
+// also names an indirect buffer in IndirectArguments; no Context command
+// takes an indirect buffer (backend.hpp, Context), so there is no use to
+// check.
 //
 // Per-resource state. The layer keeps a TransitionState only while a
 // transition is open on the resource, keyed by the Viewable's address; a

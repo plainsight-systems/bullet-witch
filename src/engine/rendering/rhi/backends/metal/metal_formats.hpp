@@ -52,8 +52,7 @@ struct TextureShape {
 };
 [[nodiscard]] MTL::TextureType texture_type(TextureShape shape) noexcept;
 
-// Whether a blend target does anything other than write the source (the
-// pin's blending-enabled test).
+// Whether a blend target does anything other than write the source.
 [[nodiscard]] bool blending_enabled(const RenderTargetBlend& blend) noexcept;
 
 } // namespace bw::rhi::metal

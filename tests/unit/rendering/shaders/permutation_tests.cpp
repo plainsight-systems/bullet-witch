@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/shaders/permutation.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/permutation.hpp"
 
 #include <array>
@@ -50,8 +50,10 @@ struct TestShader {
   }
 };
 
-// permutation.hpp:28-30: count is the product of dimension counts and every
-// id below it round-trips through from_id; get/set round-trip values.
+// (permutation.hpp, PermutationDomain::count) and
+// (permutation.hpp, PermutationDomain::from_id): count is the product of
+// dimension counts and every id below it round-trips through from_id; get/set
+// round-trip values.
 void id_round_trip_and_count() {
   require(TestDomain::count == 2U * 3U * 4U, "count is the product of dimension counts");
   require(PermutationDomain<>::count == 1U, "the empty domain has one permutation");
@@ -68,8 +70,8 @@ void id_round_trip_and_count() {
   require(TestDomain::from_id(domain.id()) == domain, "set values round-trip through the id");
 }
 
-// permutation.hpp:30-31: one define per dimension, in declaration order, set
-// to the dimension's define value.
+// (permutation.hpp, PermutationDomain::defines): one define per dimension, in declaration order,
+// set to the dimension's define value.
 void defines_one_per_dimension_in_order() {
   TestDomain domain{};
   domain.set<Fog>(true);
@@ -87,7 +89,7 @@ void defines_one_per_dimension_in_order() {
   require(description.dimension_count == 3U, "description carries dimension_count");
 }
 
-// permutation.hpp:31-32, :343-347: strictly ascending ids below count,
+// (permutation.hpp, enumerate_permutations): strictly ascending ids below count,
 // exactly those the predicate admits; all ids when the predicate is null.
 void enumeration_ascending_excluded_absent() {
   const ShaderDescription description = bw::shaders::describe_shader<TestShader>();
@@ -110,7 +112,8 @@ void enumeration_ascending_excluded_absent() {
   }
 }
 
-// permutation.hpp:351-358: over whatever the registry holds, names are unique,
+// (permutation.hpp, shader_registry) and (permutation.hpp, find_shader): over
+// whatever the registry holds, names are unique,
 // find_shader returns each entry by its name, and null for a name the
 // registry does not hold. Nothing is assumed about which shaders it holds.
 void registry_names_unique() {

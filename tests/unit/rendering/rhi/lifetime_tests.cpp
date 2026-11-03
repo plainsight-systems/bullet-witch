@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/lifetime.hpp, one scenario
-// per CTest entry. Each scenario names the header lines it asserts.
+// per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/lifetime.hpp"
 
 #include "bw/rendering/rhi/descriptor_allocator.hpp"
@@ -20,10 +20,11 @@ using bw_rhi_test::DestructionLog;
 using bw_rhi_test::require;
 using bw_rhi_test::TestResource;
 
-// lifetime.hpp:21-26 and 80-100: the first Ref takes the count to one, a copy
-// (construction or assignment) adds one, self-assignment adds none, a move
-// adds none; the release that takes it to zero enqueues the object and does
-// not destroy it. :108-150: a null Ref owns nothing. :27-29 and 180-185:
+// (lifetime.hpp, Resource) and (lifetime.hpp, Resource::release): the first
+// Ref takes the count to one, a copy (construction or assignment) adds one,
+// self-assignment adds none, a move adds none; the release that takes it to
+// zero enqueues the object and does not destroy it. (lifetime.hpp, Ref): a
+// null Ref owns nothing. (lifetime.hpp, DeferredDeleteQueue::destroy_completed):
 // destroy_completed destroys it and returns how many.
 void ref_count_and_release_enqueues() {
   DeferredDeleteQueue queue;
@@ -56,7 +57,9 @@ void ref_count_and_release_enqueues() {
   require(log.destroyed(1) && queue.pending() == 0U, "the queue destroyed it");
 }
 
-// lifetime.hpp:15-17, 21-24 and 27-29, :180-185: an entry is tagged with the
+// (lifetime.hpp, Resource::release),
+// (lifetime.hpp, DeferredDeleteQueue::destroy_completed) and
+// (lifetime.hpp, DeferredDeleteQueue::drain): an entry is tagged with the
 // queue's current frame; destroy_completed(frame) leaves entries tagged
 // above frame untouched and destroys those at or below; drain destroys
 // everything.
@@ -79,8 +82,9 @@ void nothing_destroyed_before_completion() {
   require(queue.drain() == 1U && log.destroyed(4), "drain destroys everything");
 }
 
-// lifetime.hpp:27-33: destruction between entries of one frame is enqueue
-// order, not the order in which Refs were taken.
+// (lifetime.hpp, DeferredDeleteQueue::destroy_completed): destruction
+// between entries of one frame is enqueue order, not the order in which Refs
+// were taken.
 void destruction_order_is_enqueue_order() {
   DeferredDeleteQueue queue;
   DestructionLog log;
@@ -95,8 +99,8 @@ void destruction_order_is_enqueue_order() {
           "destroyed in enqueue order");
 }
 
-// lifetime.hpp:25-26: a resource outlives every view that holds it;
-// resources.hpp:36-38 and 447-469: a view holds a Ref to its resource. The
+// (lifetime.hpp, Resource): a resource outlives every view that holds it;
+// (resources.hpp, View): a view holds a Ref to its resource. The
 // resource is not enqueued while the view lives, and is destroyed only after
 // the view, by a destroy_completed that covers its own tag.
 void view_keeps_resource_alive() {
@@ -128,7 +132,7 @@ void view_keeps_resource_alive() {
   require(log.ids[0] == 2 && log.ids[1] == 1, "the view before the resource");
 }
 
-// lifetime.hpp:37-41 and 210-225: with N frames in flight and completed C,
+// (lifetime.hpp, required_completion): with N frames in flight and completed C,
 // a wait is required exactly when next - C - 1 >= N, for frame next - N.
 void frames_in_flight_wait_exactly_at_bound() {
   require(!bw::rhi::required_completion(FrameProgress{1, 0}, 3).has_value(),
@@ -148,9 +152,9 @@ void frames_in_flight_wait_exactly_at_bound() {
   require(bw::rhi::kDefaultFramesInFlight == 3U, "the default bound is 3");
 }
 
-// lifetime.hpp:35-36 and 170 ("a non-empty queue at destruction ... the
-// remaining entries are destroyed then"): entries never
-// destroyed by destroy_completed or drain are destroyed with the queue.
+// (lifetime.hpp, DeferredDeleteQueue::~DeferredDeleteQueue): "a non-empty
+// queue at destruction ... the remaining entries are destroyed then"; entries
+// never destroyed by destroy_completed or drain are destroyed with the queue.
 void queue_destroys_remaining_at_destruction() {
   DestructionLog log;
   {
@@ -163,7 +167,8 @@ void queue_destroys_remaining_at_destruction() {
   require(log.destroyed(1), "the queue's destruction destroyed the remaining entry");
 }
 
-// lifetime.hpp:27-30 and 180-182: every entry tagged at or below the frame
+// (lifetime.hpp, DeferredDeleteQueue::destroy_completed): every entry
+// tagged at or below the frame
 // is destroyed, including one a destructor enqueues during the call (a view
 // releasing the last Ref to its resource) when its tag is at or below the
 // frame; destruction is in enqueue order.

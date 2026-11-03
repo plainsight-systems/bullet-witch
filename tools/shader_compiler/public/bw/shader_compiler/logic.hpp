@@ -202,7 +202,7 @@ struct HashInputs {
 // different input sets produce the same byte stream: the count prefix keeps
 // a define from being read as an argument when both lists are short. The
 // list counts are stricter than artifact.hpp's item list, which they extend.
-// This is the format's own hash (artifact.hpp, InputHash); no pinned step.
+// This is the format's own hash (artifact.hpp, InputHash).
 [[nodiscard]] shaders::InputHash compute_input_hash(const HashInputs& inputs);
 // Lower-case hexadecimal, 64 characters.
 [[nodiscard]] std::string input_hash_hex(const shaders::InputHash& hash);

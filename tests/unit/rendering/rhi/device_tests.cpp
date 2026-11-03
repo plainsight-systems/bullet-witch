@@ -1,5 +1,5 @@
 // Unit test: validate_device_description of bw/rendering/rhi/device.hpp,
-// one scenario per CTest entry. Each scenario names the header lines it
+// one scenario per CTest entry. Each scenario names the header declaration it
 // asserts. Device itself is not referenced: it links the backend dispatch
 // and the validation layer, which this header-only test does not take.
 #include "bw/rendering/rhi/device.hpp"
@@ -14,7 +14,7 @@ using bw::rhi::DeviceDescription;
 using bw::rhi::DeviceError;
 using bw_rhi_test::require;
 
-// device.hpp:35-37 and 106-122 (validate_device_description): DescriptorCapacityInvalid, then
+// (device.hpp, validate_device_description): DescriptorCapacityInvalid, then
 // FramesInFlightInvalid outside 1..kMaxFramesInFlight, then
 // TransientBudgetInvalid for zero; the defaults are valid.
 void device_description_validation_named() {

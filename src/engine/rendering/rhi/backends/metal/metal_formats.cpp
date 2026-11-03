@@ -6,13 +6,8 @@
 
 namespace bw::rhi::metal {
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:799-1038:
-// the PlatformFormat of each EPixelFormat, with Depth32Float_Stencil8
-// for the depth-stencil format where Depth24Unorm_Stencil8 is unsupported.
-// Followed for the formats format.hpp names. R32G32B32Float has no Metal
-// pixel format (the pin sets PF_R32G32B32F Invalid on iOS and leaves the
-// vertex path to it); it is a vertex format only here.
+// The Metal pixel format of each format format.hpp names. R32G32B32Float has
+// no Metal pixel format; it is a vertex format only here.
 MTL::PixelFormat pixel_format(Format format) noexcept {
   switch (format) {
   case Format::R8Unorm:
@@ -106,20 +101,15 @@ namespace {
 
 } // namespace
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHI.cpp:1752-1774:
-// RHIInitDefaultPixelFormatCapabilities gives every supported uncompressed
-// format all texture and UAV capabilities and removes DepthStencil from
-// non-depth formats, and block-compressed formats texture capabilities only;
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:1049-1094 then
-// narrows the UAV capabilities by readWriteTextureSupport. Followed, narrowed
-// further so that nothing is reported that this backend or Metal does not do:
+// The capabilities reported per format, so that nothing is reported that this
+// backend or Metal does not do:
+//   - Block-compressed formats: Texture only.
 //   - Depth formats: Texture, DepthStencil, Multisample; not RenderTarget,
 //     Blendable or UnorderedAccess (Metal depth formats are not color
 //     attachments, not blendable and not shader-writable).
 //   - D24UnormS8Uint only where the device reports it
-//     (isDepth24Stencil8PixelFormatSupported, MetalRHI.cpp:809-827); block
-//     compressed formats only where supportsBCTextureCompression.
+//     (isDepth24Stencil8PixelFormatSupported); block compressed formats only
+//     where supportsBCTextureCompression.
 //   - Integer formats are not Blendable (Metal blends float and normalized
 //     formats only). 32-bit float formats are not reported Blendable and
 //     sRGB and R11G11B10Float are not reported UnorderedAccess: they are
@@ -153,9 +143,6 @@ FormatCapability format_capability(Format format, FormatSupport support) noexcep
   return capability;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalState.cpp:51-64
-// TranslateCompareFunction. Followed.
 MTL::CompareFunction compare_function(CompareFunction function) noexcept {
   switch (function) {
   case CompareFunction::Never:
@@ -178,7 +165,6 @@ MTL::CompareFunction compare_function(CompareFunction function) noexcept {
   return MTL::CompareFunctionAlways;
 }
 
-// MetalState.cpp:76-89 TranslateStencilOp. Followed.
 MTL::StencilOperation stencil_operation(StencilOp operation) noexcept {
   switch (operation) {
   case StencilOp::Keep:
@@ -201,7 +187,6 @@ MTL::StencilOperation stencil_operation(StencilOp operation) noexcept {
   return MTL::StencilOperationKeep;
 }
 
-// MetalState.cpp:91-101 TranslateBlendOp. Followed.
 MTL::BlendOperation blend_operation(BlendOperation operation) noexcept {
   switch (operation) {
   case BlendOperation::Add:
@@ -218,10 +203,8 @@ MTL::BlendOperation blend_operation(BlendOperation operation) noexcept {
   return MTL::BlendOperationAdd;
 }
 
-// MetalState.cpp:104-123 TranslateBlendFactor. Followed. Departure: the pin
-// has no case for BF_ConstantBlendFactor and BF_InverseConstantBlendFactor
-// and maps them to Zero by its default; here they are Metal's BlendColor and
-// OneMinusBlendColor, the factors they name.
+// The constant blend factors are Metal's BlendColor and OneMinusBlendColor,
+// the factors they name.
 MTL::BlendFactor blend_factor(BlendFactor factor) noexcept {
   switch (factor) {
   case BlendFactor::Zero:
@@ -260,7 +243,6 @@ MTL::BlendFactor blend_factor(BlendFactor factor) noexcept {
   return MTL::BlendFactorZero;
 }
 
-// MetalState.cpp:125-134 TranslateWriteMask. Followed.
 MTL::ColorWriteMask color_write_mask(ColorWriteMask mask) noexcept {
   const auto bits = static_cast<std::uint8_t>(mask);
   NS::UInteger result = MTL::ColorWriteMaskNone;
@@ -279,8 +261,7 @@ MTL::ColorWriteMask color_write_mask(ColorWriteMask mask) noexcept {
   return static_cast<MTL::ColorWriteMask>(result);
 }
 
-// MetalState.cpp:36-49 TranslateWrapMode (Border is ClampToBorderColor on
-// Mac). Followed.
+// Border is ClampToBorderColor.
 MTL::SamplerAddressMode address_mode(AddressMode mode) noexcept {
   switch (mode) {
   case AddressMode::Wrap:
@@ -295,8 +276,7 @@ MTL::SamplerAddressMode address_mode(AddressMode mode) noexcept {
   return MTL::SamplerAddressModeRepeat;
 }
 
-// MetalState.cpp:276 picks TransparentBlack or OpaqueWhite from the
-// packed color; the three named values map one to one here.
+// The three named border colors map one to one.
 MTL::SamplerBorderColor border_color(BorderColor color) noexcept {
   switch (color) {
   case BorderColor::TransparentBlack:
@@ -323,11 +303,9 @@ MTL::PrimitiveType primitive_type(PrimitiveType type) noexcept {
   return MTL::PrimitiveTypeTriangle;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:39-47
-// TranslateCullMode (CM_CCW to Front, CM_CW to Back) with the front face
-// counter-clockwise (:2206-2209). Followed: the encoder's winding is set to
-// counter-clockwise with the cull mode (metal_context.cpp).
+// CounterClockwise culls Front and Clockwise culls Back, with the front face
+// counter-clockwise: the encoder's winding is set to counter-clockwise with
+// the cull mode (metal_context.cpp).
 MTL::CullMode cull_mode(CullMode mode) noexcept {
   switch (mode) {
   case CullMode::None:
@@ -344,15 +322,11 @@ MTL::TriangleFillMode fill_mode(FillMode mode) noexcept {
   return mode == FillMode::Wireframe ? MTL::TriangleFillModeLines : MTL::TriangleFillModeFill;
 }
 
-// MetalStateCache.cpp:49-57 TranslateDepthClipMode. Followed.
 MTL::DepthClipMode depth_clip_mode(DepthClipMode mode) noexcept {
   return mode == DepthClipMode::Clamp ? MTL::DepthClipModeClamp : MTL::DepthClipModeClip;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHIPrivate.h:176-185
-// GetMetalRTLoadAction: NoAction, Load, Clear to DontCare, Load, Clear.
-// Followed.
+// NoAction, Load, Clear to DontCare, Load, Clear.
 MTL::LoadAction load_action(LoadAction action) noexcept {
   switch (action) {
   case LoadAction::NoAction:
@@ -365,9 +339,7 @@ MTL::LoadAction load_action(LoadAction action) noexcept {
   return MTL::LoadActionDontCare;
 }
 
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:76-103
-// GetMetalRTStoreAction: NoAction, Store to DontCare, Store. Followed.
-// Omitted: the multisample resolve store actions (:82-98), with resolves.
+// NoAction, Store to DontCare, Store.
 MTL::StoreAction store_action(StoreAction action) noexcept {
   return action == StoreAction::Store ? MTL::StoreActionStore : MTL::StoreActionDontCare;
 }
@@ -394,10 +366,7 @@ MTL::TextureType texture_type(TextureShape shape) noexcept {
   return MTL::TextureType2D;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalState.cpp:456-458:
-// blending is enabled unless both color and alpha are Add of One and Zero.
-// Followed.
+// Blending is enabled unless both color and alpha are Add of One and Zero.
 bool blending_enabled(const RenderTargetBlend& blend) noexcept {
   return blend.color_op != BlendOperation::Add || blend.color_destination != BlendFactor::Zero ||
          blend.color_source != BlendFactor::One || blend.alpha_op != BlendOperation::Add ||

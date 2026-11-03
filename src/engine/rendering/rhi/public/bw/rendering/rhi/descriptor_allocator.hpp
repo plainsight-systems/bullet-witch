@@ -78,11 +78,7 @@ inline constexpr std::uint32_t kDescriptorPoolCount = 3;
   return DescriptorPool::Read;
 }
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:1397-1430:
-// FRHIDescriptorHandle {Index, default MAX_uint32; Type; IsValid()}.
-// Followed: the index plus the array it addresses; invalid is the all-ones
-// index.
+// The index plus the array it addresses; invalid is the all-ones index.
 struct DescriptorSlot {
   std::uint32_t index{kInvalidDescriptorIndex};
   shaders::DescriptorArray array{shaders::DescriptorArray::Texture2D};
@@ -90,17 +86,6 @@ struct DescriptorSlot {
   [[nodiscard]] friend constexpr bool operator==(DescriptorSlot, DescriptorSlot) noexcept = default;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHICore/Public/RHIDescriptorAllocator.h:30-156:
-// FRHIDescriptorAllocator keeps free ranges (:79);
-// Engine/Source/Runtime/RHICore/Private/RHIDescriptorAllocator.cpp:127-172
-// AllocateInternal scans the ranges from the first and :174-265 FreeInternal
-// merges the index back; FRHIHeapDescriptorAllocator
-// binds one allocator to a heap type. Followed. Omitted:
-// FRHIOffsetHeapDescriptorAllocator (sub-ranges of a parent heap), which the
-// Direct3D 12 slice decides when it needs per-frame copies; and the
-// per-ERHIDescriptorType heaps, replaced by the three pools the root layout
-// fixes.
 class DescriptorIndexAllocator {
 public:
   explicit DescriptorIndexAllocator(std::uint32_t capacity);

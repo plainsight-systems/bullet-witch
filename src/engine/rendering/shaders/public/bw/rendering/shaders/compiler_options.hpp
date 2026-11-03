@@ -166,13 +166,8 @@ enum class ExitCode : std::uint8_t {
 // DXC profile for a stage: vs_6_4, ps_6_4, cs_6_4 (docs/architecture/shaders.md,
 // "Targets": shader model 6.4 is the Direct3D 12 floor, the Xbox Dev Mode
 // container's ceiling).
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompiler.cpp:131-146:
-// per-frequency `<stage>_6_<minor>` profile names for the SM6 format;
-// Engine/Source/Developer/Apple/MetalShaderFormat/Private/MetalCompileShaderMSC.cpp:1019:
-// one shader model for the converter path. Departure: minor version 4, not
-// 6, so nothing in the shaders can require the shader model 6.6 descriptor
-// heap or any later feature.
+// Minor version 4, so nothing in the shaders can require the shader model 6.6
+// descriptor heap or any later feature.
 [[nodiscard]] std::string_view stage_profile(ShaderStage stage) noexcept;
 
 // Enumerate output: one line per artifact,
@@ -196,46 +191,17 @@ void append_enumerate_line(const ShaderDescription& shader, PermutationId permut
 //   with symbols, Vulkan:       -fspv-debug=line
 //   -E <entry>  -T <profile>
 // root_signature is the text from append_root_signature_text and is ignored
-// on Vulkan. The pin's order is kept: the fixed flags, the symbol flags
-// before -disable-lifetime-markers, then the defines, then the entry point
-// and the profile last.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompilerDXC.cpp:136-364
-// (FDxcArguments): -HV 2021 at :180-181, -Zpr :190, -O3 :207, -WX :222,
-// -enable-16bit-types :241, -Zss then -Zi then -Qstrip_debug :249-261,
-// -disable-lifetime-markers :276; GetCompilerArgs appends -E :325 and -T
-// :329 after the other arguments (:320-330).
-// Engine/Source/ThirdParty/ShaderConductor/ShaderConductor/Source/Core/ShaderConductor.cpp:1254
-// pushes -Zi when debug info is enabled on the SPIR-V path, before
-// -fspv-debug=line at :1350; followed. Omitted from that range:
-// -Wno-parentheses-equality and -Wno-for-redefinition (:264-266) and the
-// bindless -Wno-ignored-attributes (:270-273), because the shaders here are
-// new source expected to compile clean under -WX; -Vd (:192-195), because
-// validation always runs; -exports (:231-237), no ray tracing.
-// Engine/Source/ThirdParty/ShaderConductor/ShaderConductor/Source/Core/ShaderConductor.cpp:1233
-// (-Zpr for every target), :1244 (-enable-16bit-types), :1333 (-spirv),
-// :1342 (-fspv-reflect), :1350 (-fspv-debug=line).
-// Engine/Source/Developer/VulkanShaderFormat/Private/VulkanShaderCompiler.cpp:88-90:
-// Vulkan 1.3 for SM6.
-// Departures, each because the game ships against upstream DXC and one
-// bindless layout: -fvk-ue5-layout
-// (Engine/Source/ThirdParty/ShaderConductor/ShaderConductor/Source/Core/ShaderConductor.cpp:1335)
-// and -fvk-use-scalar-layout
-// (Engine/Source/Developer/ShaderCompilerCommon/Private/ShaderConductorContext.cpp:434) are
-// replaced by -fvk-use-dx-layout so constant buffer offsets equal the Direct3D ones and the
-// parameter block padding holds on Vulkan; -auto-binding-space
-// (Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompilerDXC.cpp:227) is not
-// passed because the include binds explicit register spaces from root_layout.hpp;
-// -fvk-use-dx-position-w
-// (Engine/Source/ThirdParty/ShaderConductor/ShaderConductor/Source/Core/ShaderConductor.cpp:1339)
-// is not passed because no Metal shader is built from SPIR-V. Omitted: -Od/-O1 selection (:199-203)
-// and -Gfp/-Gfa
-// (:212-217), one optimization level and default float semantics; the
-// SPIR-V entry point rename to main_<size>_<crc>
-// (Engine/Source/Developer/ShaderCompilerCommon/Private/SpirvCommon.cpp:154,175-190),
-// the entry point keeps its declared name. Whether the chosen DXC tag
-// accepts -fvk-use-dx-layout and -fspv-reflect is a fact the slice
-// establishes; the integration test fails if it does not.
+// on Vulkan. Order: the fixed flags, the symbol flags before
+// -disable-lifetime-markers, then the defines, then the entry point and the
+// profile last.
+// -fvk-use-dx-layout makes constant buffer offsets equal the Direct3D ones,
+// so the parameter block padding holds on Vulkan. -auto-binding-space is not
+// passed because the include binds explicit register spaces from
+// root_layout.hpp; -fvk-use-dx-position-w is not passed because no Metal
+// shader is built from SPIR-V. The SPIR-V entry point keeps its declared
+// name. Whether the chosen DXC tag accepts -fvk-use-dx-layout and
+// -fspv-reflect is a fact the slice establishes; the integration test fails
+// if it does not.
 void append_compiler_arguments(ShaderTarget target, ShaderStage stage, std::string_view entry_point,
                                std::span<const Define> defines, std::string_view root_signature,
                                bool emit_symbols, std::vector<std::string>& out);

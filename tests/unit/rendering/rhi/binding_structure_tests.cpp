@@ -1,5 +1,5 @@
 // Unit test: public contracts of bw/rendering/rhi/binding_structure.hpp, one
-// scenario per CTest entry. Each scenario names the header lines it asserts.
+// scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/binding_structure.hpp"
 
 #include "bw/rendering/shaders/root_layout.hpp"
@@ -21,7 +21,9 @@ constexpr std::uint32_t bit(DescriptorArray array) noexcept {
   return 1U << static_cast<std::uint32_t>(array);
 }
 
-// binding_structure.hpp:18-27 and 85-91, 112-132: thirteen parameters in
+// (binding_structure.hpp, derive_binding_structure),
+// (binding_structure.hpp, kRootParameterCount) and
+// (binding_structure.hpp, kEngineArgumentBufferBytes): thirteen parameters in
 // the root signature's order, 8 bytes per table and block, 4 per root
 // constant word, consecutive from 0; for the engine layout, 160 bytes with
 // tables at 0, 8, 16, the draw block at 24, static slot i at 32 + 8 i and
@@ -56,7 +58,7 @@ void engine_layout_is_160_bytes_in_order() {
           "the root constants are parameter 12 at 96 for 64 bytes");
 }
 
-// binding_structure.hpp:12-16: the same root layout gives the same
+// (binding_structure.hpp, derive_binding_structure): the same root layout gives the same
 // structure; the structure follows the layout's root constant words.
 void same_inputs_same_structure() {
   const bw::shaders::RootLayout layout = bw::shaders::engine_root_layout();
@@ -70,7 +72,7 @@ void same_inputs_same_structure() {
           "four root constant words are 16 bytes");
 }
 
-// binding_structure.hpp:134-197: a pipeline binds the union of its stages'
+// (binding_structure.hpp, derive_pipeline_binding): a pipeline binds the union of its stages'
 // uses: static slots and arrays OR-ed, the larger root constant count, the
 // draw block of whichever stage uses one; the tables follow the arrays (the
 // five read arrays share the resource table, the two storage arrays the

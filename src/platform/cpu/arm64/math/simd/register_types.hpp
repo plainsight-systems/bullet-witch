@@ -5,7 +5,6 @@
 
 // Read F.20/I.1 and SIMD.3/GEN.6: registers own values; native layout stays at
 // the silicon boundary. No heap, dispatch table or portable scalar fallback.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b, UnrealMathNeon.h:115–120,144–169:
 // float uses one 128-bit register; double uses aligned XY then ZW register pairs.
 namespace bw::platform::arm64 {
 using Register4f = float32x4_t;

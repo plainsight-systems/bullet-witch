@@ -37,10 +37,8 @@
 namespace bw::shaders {
 
 // The three bytecode targets. Xbox Series X uses the Direct3D 12 target.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIDefinitions.h:188-206 enumerates shader
-// frequencies, not targets; Unreal names targets by shader format string. The
-// game ships three backends, so a fixed enum replaces the format registry.
+// The game ships three backends, so a fixed enum names them; there is no
+// format registry.
 enum class ShaderTarget : std::uint8_t {
   Direct3D12 = 1,
   Vulkan = 2,
@@ -60,29 +58,9 @@ enum class ShaderTarget : std::uint8_t {
 //   StorageTable     UAV descriptor table      set 1, 64-entry arrays    argument buffer table
 //                    of 64-entry typed ranges
 //
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Shaders/Shared/HLSLReservedSpaces.h:20-54 reserves space 4 for the
-// static shader bindings and space 3 for shader root constants; the two space
-// numbers are kept so the pinned HLSL conventions read unchanged.
-// Engine/Source/Runtime/VulkanRHI/Private/VulkanBindlessDescriptorManager.cpp:154-164
-// is the push constant range of MaxUniformBufferEntries * 4 bytes for the
-// static uniform buffers, stage flags ALL.
-// Engine/Source/Runtime/VulkanRHI/Public/VulkanCommon.h:95-157 fixes the
-// sampler set at 0 and the resource set at 1.
-// Engine/Source/Developer/Apple/MetalShaderFormat/Private/MetalCompileShaderMSC.cpp:1198-1211
-// builds one CBV root parameter per static entry in space 4 for the converter
-// root signature; :1216-1220 is root signature version 1.1;
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1948-1952
-// sets the CBV table as argument buffer bytes at kIRArgumentBufferBindPoint.
-// Engine/Source/Runtime/D3D12RHI/Private/D3D12RootSignature.cpp:411-428 adds
-// one root CBV per static binding entry at (CBVResourceIndex, RegisterSpace),
-// visibility ALL; :430-437 adds the root constants at register 0 of space 3.
-// Departure: the pin's root constants are 4 words (:434); 16 here, fixed for
-// every pipeline, so the layout never varies per shader.
-// Omitted: the ray tracing local and global spaces (0, 1, 2), the work graph
-// spaces, the diagnostic space 999 and the NVIDIA extension space 1001 at
-// HLSLReservedSpaces.h:23-39,48-54. The game has no ray tracing or work graph
-// pass and ships no vendor extension.
+// Space 4 holds the static blocks and space 3 the root constants. Root
+// constants are 16 words, fixed for every pipeline, so the layout never
+// varies per shader.
 enum class RootElement : std::uint8_t {
   StaticBlock,
   DrawBlock,
@@ -101,28 +79,12 @@ enum class RootElement : std::uint8_t {
 // the array that matches the resource's type; the same holds for the two
 // storage arrays within the storage table. The bindless-access include
 // declares exactly these arrays, per target, and nothing else.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RenderCore/Private/ShaderParameterParser.cpp:971-1028:
-// a bindless parameter becomes a uint index (:989) and, under
-// BindlessUsesArrays, an unbounded array of its type (:1006-1014);
-// Engine/Source/Developer/VulkanShaderFormat/Private/VulkanShaderCompiler.cpp:221-251
-// reads it as array[NonUniformResourceIndex(index)] (:243) or array[index]
-// (:248); Engine/Source/Developer/VulkanShaderFormat/Private/SpirVShaderCompiler.inl:567-600
-// moves each array to binding 0 of the set of its descriptor type (samplers
-// :589, sampled images :594, storage buffers :592-593, storage images
-// :595-596). That Vulkan path is the guide for all three targets here.
-// Departures: one array per resource type instead of one per parameter, at
-// fixed distinct bindings of set 1, so the include is fixed text and no
-// SPIR-V patching is needed; non-uniform indexing always, since one draw may
-// read different slots per lane.
-// Omitted: the shader model 6.6 descriptor heap access of the pin's Direct3D
-// path (Engine/Source/Developer/Windows/ShaderFormatD3D/Private/D3DShaderCompiler.cpp:1384-1421,
-// ResourceDescriptorHeap and SamplerDescriptorHeap at :1397), because the
-// Xbox Dev Mode container stops at shader model 6.4 and the game ships one
-// model; and the converter's six static samplers in space 1000
-// (Engine/Source/Runtime/Apple/MetalRHI/Public/MetalShaderResources.h:124-132),
-// because samplers come through the sampler table like every other
-// descriptor.
+// One array per resource type, at fixed distinct bindings of set 1, so the
+// include is fixed text and no SPIR-V patching is needed; non-uniform
+// indexing always, since one draw may read different slots per lane.
+// Resources are reached through these typed arrays, not the shader model 6.6
+// descriptor heap, because the Xbox Dev Mode container stops at shader model
+// 6.4 and the game ships one model.
 enum class DescriptorArray : std::uint8_t {
   Sampler = 0,
   Texture2D = 1,
@@ -149,14 +111,11 @@ struct DescriptorArrayPlacement {
 };
 [[nodiscard]] constexpr DescriptorArrayPlacement placement(DescriptorArray array) noexcept;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIShaderBindingLayout.h:77:
-// MaxUniformBufferEntries = 8.
 inline constexpr std::uint32_t kMaxStaticBlocks = 8;
 // Root constants, in 32-bit words. Chosen so the Vulkan push constant block
 // (8 static indices + 1 draw index + 16 words = 100 bytes) fits the 128-byte
-// minimum every Vulkan 1.3 device guarantees. Not a pinned value: Unreal sizes
-// root constants per shader; one fixed size is what makes the layout fixed.
+// minimum every Vulkan 1.3 device guarantees. One fixed size is what makes
+// the layout fixed.
 inline constexpr std::uint32_t kRootConstantWords = 16;
 // HLSL register spaces for the Direct3D 12 and Metal (DXIL) targets.
 inline constexpr std::uint32_t kDrawBlockSpace = 0;
@@ -174,21 +133,15 @@ inline constexpr std::uint32_t kStorageBufferSpace = 17;
 // unbounded sampler and SRV ranges, a sampler heap of at most 2048, and at
 // most 64 UAVs per stage. The storage arrays are bounded at 64 so the layout
 // is valid on tier 2 hardware; a storage index is below this bound.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/D3D12RHI/Private/D3D12Util.cpp:1194-1204: at tier 2
-// the sampler and SRV counts become the maxima and UAV counts round up to
-// a power of two below MAX_UAVS (Engine/Source/Runtime/D3D12RHI/Public/D3D12RHI.h:17-20:
-// MAX_SRVS 64, MAX_SAMPLERS 32, MAX_UAVS 16). Departure: the pin's maxima are
-// per-shader register counts for its bound-resource model; here the ranges
-// are the tier's own limits because every resource is reached by index.
+// The ranges are the tier's own limits, not per-shader register counts,
+// because every resource is reached by index.
 inline constexpr std::uint32_t kMaxSamplerDescriptors = 2048;
 inline constexpr std::uint32_t kStorageDescriptors = 64;
 // Vulkan descriptor sets, and the push constant block layout in bytes.
 inline constexpr std::uint32_t kVulkanSamplerSet = 0;
 inline constexpr std::uint32_t kVulkanResourceSet = 1;
 // Uniform buffers reached by index live in their own set, after the two
-// heaps, as the pin's single-use uniform buffer set does
-// (VulkanCommon.h:117-120: the set after NumBindlessSets).
+// heaps.
 inline constexpr std::uint32_t kVulkanUniformSet = 2;
 inline constexpr std::uint32_t kVulkanStaticIndexOffset = 0;
 inline constexpr std::uint32_t kVulkanDrawIndexOffset = kMaxStaticBlocks * 4U;
@@ -199,12 +152,7 @@ static_assert(kVulkanPushConstantBytes <= 128U, "push constants exceed the Vulka
 
 // One static slot: the block bound there for the whole frame, by name and
 // layout hash. An empty block_name is an unused slot.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIShaderBindingLayout.h:13-50: the pinned
-// entry carries a layout name and packed register indices (RegisterSpace,
-// CBVResourceIndex, BaseSRV, BaseUAV, BaseSampler). Omitted: the SRV, UAV and
-// sampler base indices, which exist for the non-bindless branch; every
-// resource here is an array index, so a slot binds one constant buffer only.
+// Every resource is an array index, so a slot binds one constant buffer only.
 struct StaticSlot {
   std::string_view block_name{};
   LayoutHash layout_hash{};
@@ -223,16 +171,10 @@ struct RootLayout {
 // eight little-endian bytes, per slot) then root_constant_words as four
 // little-endian bytes. Two layouts with the same slots in the same order hash
 // equal; moving a block to another slot changes the hash.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIShaderBindingLayout.h:136-141 hashes
-// flags, entry count and each entry's name and flags. The hashed inputs are
-// kept; the hash function is FNV-1a so it is constexpr with no dependency.
+// FNV-1a keeps the hash constexpr with no dependency.
 [[nodiscard]] constexpr LayoutHash root_layout_hash(const RootLayout& layout) noexcept;
 
 // The slot a block occupies, by block name; no value when it is not static.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIShaderBindingLayout.h:99-110: FindEntry
-// scans the entries by layout name.
 [[nodiscard]] constexpr std::optional<std::uint32_t>
 find_static_slot(const RootLayout& layout, std::string_view block_name) noexcept;
 
@@ -245,7 +187,7 @@ find_static_slot(const RootLayout& layout, std::string_view block_name) noexcept
 // -rootsig-define and embeds in the DXIL; the converter reads it from there
 // for its explicit argument buffer layout, and the Direct3D 12 backend
 // creates its root signature from the same text or from the blob. Exactly,
-// with ", " between parameters and no newline, root parameters in the pin's
+// with ", " between parameters and no newline, root parameters in this
 // order (descriptor tables, then the per-pipeline CBV, then the static CBVs,
 // then the root constants):
 //   RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT),
@@ -267,23 +209,9 @@ find_static_slot(const RootLayout& layout, std::string_view block_name) noexcept
 // starts at offset 0 of its table (DXC rejects a second unbounded range with
 // an implicit offset, and offset 0 is what gives one index space per table).
 // The text is an input of the artifact hash through the argument list.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/D3D12RHI/Private/D3D12RootSignature.cpp:287-328 builds
-// the SRV, sampler and UAV descriptor tables first, in that order, each one
-// range; :332-338 the per-shader root CBVs after them; :411-428 the static
-// binding CBVs; :430-437 the root constants last. :181-197 picks the range
-// flags by tier: SRV DATA_STATIC_WHILE_SET_AT_EXECUTE plus
-// DESCRIPTORS_VOLATILE above tier 1, UAV DATA_VOLATILE plus
-// DESCRIPTORS_VOLATILE above tier 2, sampler DESCRIPTORS_VOLATILE above tier
-// 1, and :197 DATA_STATIC for root CBVs; the flags above are those of
-// Engine/Source/Runtime/D3D12RHI/Public/D3D12RootSignatureDefinitions.h:24-30.
-// Departures: the pin sizes each range from the shader's quantized register
-// counts (:292, :313, :322) and repeats the tables per visibility
-// (:165-176); here one unbounded or 64-entry range per type, visibility ALL,
-// so every pipeline shares one root signature. The pin's converter root
-// signature holds root CBVs only (MetalCompileShaderMSC.cpp:1198-1211) and
-// its descriptor range helper (:117-145) is unused; the tables above are
-// what the converter's explicit layout mode requires for unbounded arrays.
+// One unbounded or 64-entry range per type, visibility ALL, so every pipeline
+// shares one root signature. The descriptor tables are what the converter's
+// explicit layout mode requires for unbounded arrays.
 void append_root_signature_text(const RootLayout& layout, std::string& out);
 
 // What one compiled shader uses of the root layout, derived from reflection at
@@ -301,20 +229,6 @@ struct BindingUse {
   [[nodiscard]] friend constexpr bool operator==(const BindingUse&,
                                                  const BindingUse&) noexcept = default;
 };
-
-// Omitted from this layout, with the pinned step each replaces:
-// - The non-bindless root signature built from quantized per-stage register
-//   counts and the USE_STATIC_ROOT_SIGNATURE Windows branch
-//   (Engine/Source/Runtime/D3D12RHI/Private/D3D12Util.cpp:1383-1470,
-//   Engine/Source/Runtime/D3D12RHI/Private/Windows/WindowsD3D12RHIDefinitions.h:29).
-//   The game ships one bindless model on every target (invariant 5).
-// - Vulkan's legacy per-pipeline descriptor set layouts and the descriptor
-//   buffer mode (Engine/Source/Runtime/VulkanRHI/Private/VulkanDescriptorSets.cpp:16-93,
-//   VulkanBindlessDescriptorManager.cpp:691-960; mode selection at :395-410).
-//   One mode: descriptor heaps.
-// - Metal's direct SetShaderBuffer binding when the converter is not in use
-//   (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalCommands.cpp:111-132).
-//   Every Metal pipeline here is converter-built.
 
 // ---- constexpr definitions ------------------------------------------------
 

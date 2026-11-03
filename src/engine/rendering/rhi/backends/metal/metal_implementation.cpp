@@ -3,11 +3,6 @@
 // implementation macros come first, then the shim's metal-cpp selection and
 // its implementation macro, then the headers; no other file of the backend
 // defines any of them.
-//
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/ThirdParty/MetalCPP/Private/MetalCPP.cpp:8-14: the pin's
-// single metal-cpp implementation unit, the three macros then the three
-// headers. Followed, with the shim's implementation added to the same unit.
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #define CA_PRIVATE_IMPLEMENTATION

@@ -139,19 +139,9 @@ struct EndFrameResult {
 class Device;
 using DeviceResult = Result<std::unique_ptr<Device>, DeviceError>;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/DynamicRHI.cpp:290-335:
-// RHIInit selects the one dynamic RHI through PlatformCreateDynamicRHI and
-// calls Init; :436-441 RHIPostInit; :460 Shutdown. The frame boundary:
-// Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1414-1464 Submit_Close
-// (delete queue, then RHIEndFrame with the incremented frame number);
-// DynamicRHI.h:182-195 and 228-229 (FRHIEndFrameArgs, RHIEndFrame); no
-// begin-frame entry exists in the pin (RHICommandList.inl:59 mentions one
-// in a comment only). Followed. Omitted: the global GDynamicRHI
-// (DynamicRHI.h:1000; the device is an object the host owns), the render
-// thread and RHI thread split with its task pipes
-// (RHICommandList.h:5047-5295), the immediate flush types
-// (:4330-4338) and the suspend and resume path.
+// The device is an object the host owns, not a global. end_frame is the
+// frame boundary: the delete queue runs, then the backend ends the frame with
+// the incremented frame number.
 class Device final {
 public:
   [[nodiscard]] static DeviceResult create(const DeviceDescription& description);

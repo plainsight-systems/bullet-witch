@@ -9,16 +9,14 @@
 #include <cstdint>
 #include <span>
 
-// Core R.1: singleton owns reserved regions for process lifetime; source crash
+// Core R.1: singleton owns reserved regions for process lifetime; crash
 // activation deliberately retains its lock. Performance MEM.2: reserve storage
-// up front, with source scan/promotion instead of a replacement free-list policy.
+// up front, with scan/promotion instead of a replacement free-list policy.
 namespace bw::memory {
 class BinnedAllocator;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// GenericPlatformMallocCrash.h:43-177; .cpp:74-671. Mac pooled variant.
-// Only the activating thread may allocate. Other threads suspend on allocation
-// and skip frees, following the source default, not a general-purpose heap.
+// Pooled variant. Only the activating thread may allocate. Other threads suspend
+// on allocation and skip frees by default; this is not a general-purpose heap.
 class CrashAllocator final : public Allocator {
 public:
   static CrashAllocator& get(BinnedAllocator* previous = nullptr);

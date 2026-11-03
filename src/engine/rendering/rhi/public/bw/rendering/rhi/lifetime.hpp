@@ -28,9 +28,7 @@
 //   at or below frame, in enqueue order, and returns how many; entries tagged
 //   above frame are untouched. Destruction order between entries of one frame
 //   is enqueue order, so it does not depend on which Ref was dropped last.
-//   (Departure from the pin's queue, which is a LIFO stack drained with
-//   ConsumeAllLifo, RHIResources.cpp:107, 113: this order is the one a test
-//   can state.)
+//   (This order is the one a test can state.)
 //   drain(): destroys everything, for device shutdown after the GPU is idle.
 //   The queue is destroyed empty; a non-empty queue at destruction is a
 //   programming error and the remaining entries are destroyed then.
@@ -65,18 +63,10 @@ namespace bw::rhi {
 
 class DeferredDeleteQueue;
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIResources.h:53-109: FRHIResource with a
-// protected virtual destructor ("should only be destructed via the deletion
-// queue"), AddRef, Release (at zero, MarkForDelete), GetRefCount;
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:46-59: MarkForDelete
-// pushes the resource into the pending-delete queue. Followed. Omitted: the
-// packed FAtomicFlags with MarkedForDelete and Deleting bits
-// (RHIResources.h:141-220) and the resurrection check in Deleting()
-// (:184-203, "caches can bring dead objects back to life"): no cache here
-// holds a raw pointer to a resource, every holder owns a Ref, so a count at
-// zero is final; the lifetime-extension queue (RHIResources.cpp:12-13,
-// 81-100), which serves render-thread scopes the game does not have.
+// The destructor is protected and virtual: a resource is destroyed only
+// through the deletion queue. A count at zero is final: no cache holds a raw
+// pointer to a resource, every holder owns a Ref, so nothing brings a
+// released resource back.
 class Resource {
 public:
   Resource(const Resource&) = delete;
@@ -99,12 +89,8 @@ private:
   DeferredDeleteQueue* queue_;
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Core/Public/Templates/RefCounting.h:289:
-// TRefCountPtr, the owning pointer of every RHI resource
-// (Engine/Source/Runtime/RHI/Public/RHIFwd.h:103-133 names the typed refs).
-// Followed: copy adds a reference, destruction releases one, a null Ref owns
-// nothing.
+// The owning pointer of every RHI resource: copy adds a reference,
+// destruction releases one, a null Ref owns nothing.
 template <class T> class Ref {
 public:
   constexpr Ref() noexcept = default;
@@ -149,19 +135,10 @@ private:
   T* ptr_{nullptr};
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Private/RHIResources.cpp:61-77 and 102-117:
-// GatherResourcesToDelete consumes the pending queue and DeleteResources runs
-// the destructors; Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1414-1464:
-// Submit_Close runs the gather and delete before the frame-end call, so a
-// deletion happens at the frame boundary after the GPU work that could
-// reference it. Followed, with the frame tag made explicit: the pin's Metal
-// backend ties deletion to GPU completion with an end-of-pipe task
-// (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp:1545-1629,
-// 1631-1664); here the tag plus the completed frame value is that gate on
-// every backend. Omitted: the lock-free MPMC queue
-// (Core/Public/Containers/ConsumeAllMpmcQueue.h:25) in favor of one mutex
-// (CP.100), and the extended-lifetime queue (see Resource).
+// A deletion happens at a frame boundary, after the GPU work that could
+// reference the object: each entry carries its frame tag, and the tag plus
+// the completed frame value is the gate on every backend. One mutex guards
+// the queue (CP.100).
 class DeferredDeleteQueue {
 public:
   DeferredDeleteQueue() = default;
@@ -194,14 +171,9 @@ private:
   std::uint64_t current_frame_{1};
 };
 
-// Frames in flight.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalDevice.cpp:290: the
-// frame semaphore is created with a count of 3 (1 with -gpulockstep);
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalViewport.cpp:1106:
-// dispatch_semaphore_wait blocks the CPU when that many frames are queued.
-// Followed as arithmetic over frame numbers so the bound is the same on
-// every backend and testable without a GPU.
+// Frames in flight: the CPU blocks when that many frames are queued. The
+// bound is arithmetic over frame numbers, so it is the same on every backend
+// and testable without a GPU.
 inline constexpr std::uint32_t kDefaultFramesInFlight = 3;
 inline constexpr std::uint32_t kMaxFramesInFlight = 3;
 

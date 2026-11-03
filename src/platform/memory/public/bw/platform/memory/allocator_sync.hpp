@@ -3,8 +3,7 @@
 
 #include "bw/platform/os/macos/allocator_sync.hpp"
 
-// Target selection, corresponding to Unreal HAL/PlatformMutex.h and private
-// HAL/PlatformManualResetEvent.h. Native definitions stay in the Mac target.
+// Target selection. Native definitions stay in the Mac target.
 namespace bw::platform {
 using macos::allocator_spin_yield;
 using AllocatorRecursiveMutex = macos::AllocatorRecursiveMutex;

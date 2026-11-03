@@ -1,6 +1,6 @@
 // Unit test: public contracts of bw/rendering/shaders/compiler_options.hpp,
 // the shader_compiler option parser and argument set, one scenario per CTest
-// entry. Each scenario names the header lines it asserts.
+// entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/compiler_options.hpp"
 
 #include <array>
@@ -37,10 +37,11 @@ bool points_into(std::string_view view, std::string_view arg) {
   return view.data() == arg.data() && view.size() == arg.size();
 }
 
-// compiler_options.hpp:23-39, grammar at :41-47: both modes parse, views
+// (compiler_options.hpp, parse_command_line), grammar as
+// (compiler_options.hpp, usage_text) describes it: both modes parse, views
 // point into the argument strings, optional options may be absent, and a
 // --converter-library given for a non-Metal target is parsed and kept in the
-// invocation (:139-140; the tool ignores it, :46-47).
+// invocation ((compiler_options.hpp, CommandLineResult); the tool ignores it).
 void parse_enumerate_and_compile() {
   const std::array<std::string_view, 5> enumerate{"enumerate", "--targets", "metal,d3d12",
                                                   "--output-root", "build/shaders"};
@@ -125,8 +126,9 @@ void expect_static(const std::array<std::string_view, N>& args, CommandLineError
   }
 }
 
-// compiler_options.hpp:23-33 (errors in argument order, after-the-walk errors
-// last) and :133-140 (offending per error: the argument itself for
+// (compiler_options.hpp, parse_command_line) (errors in argument order,
+// after-the-walk errors last) and (compiler_options.hpp, CommandLineResult)
+// (offending per error: the argument itself for
 // UnknownMode, UnknownOption, RepeatedOption, UnexpectedArgument; the option
 // argument for MissingValue, InvalidTarget, InvalidPermutation; empty for
 // MissingMode; the option's name as static text for MissingRequiredOption and
@@ -204,7 +206,7 @@ std::vector<std::string> with(std::vector<std::string> head, std::vector<std::st
   return head;
 }
 
-// compiler_options.hpp:185-201 and :33-37: the fixed list in the fixed order:
+// (compiler_options.hpp, append_compiler_arguments): the fixed list in the fixed order:
 // symbol flags after -enable-16bit-types and before -disable-lifetime-markers
 // (-Zss -Zi -Qstrip_debug on DXIL targets, -Zi on Vulkan), defines in domain
 // order, the root signature pair on DXIL targets only (ignored on Vulkan),
@@ -249,8 +251,10 @@ void arguments_fixed_order_no_paths() {
           "no argument contains a path");
 }
 
-// compiler_options.hpp:162-183: the enumerate line for a description built
-// here, target names round-trip, and the 6.4 profiles.
+// (compiler_options.hpp, append_enumerate_line),
+// (compiler_options.hpp, target_name), (compiler_options.hpp, parse_target) and
+// (compiler_options.hpp, stage_profile): the enumerate line for a description
+// built here, target names round-trip, and the 6.4 profiles.
 void enumerate_line_format() {
   bw::shaders::ShaderDescription shader{};
   shader.name = "test_shader";

@@ -32,12 +32,11 @@
 // and the draw block when it uses one; unused parameters are left as they
 // are.
 //
-// Source: Metal Shader Converter 4.0.3, IRRootSignatureGetResourceLocations
-// over the engine root signature and IRShaderReflectionGetResourceLocations
-// over the fixture artifact's embedded signature, both read on 2026-11-02:
-// thirteen entries at topLevelOffset 0, 8, 16, 24, 32..88 of sizeBytes 8 and
-// one at 96 of sizeBytes 64. The byte rule above is that measurement stated
-// as the contract; the integration test that draws the fixture asserts it
+// Measured with the converter's resource-location query over the engine root
+// signature and over the fixture artifact's embedded signature: thirteen
+// entries at top-level offsets 0, 8, 16, 24 and 32 to 88 of 8 bytes each, and
+// one at 96 of 64 bytes. The byte rule above is that measurement stated as
+// the contract; the integration test that draws the fixture asserts it
 // against the converter at run time.
 //
 // Core guidelines read: Con.5 and I.1 (the structure is a constexpr function
@@ -56,23 +55,9 @@ enum class RootParameterKind : std::uint8_t {
   RootConstants,
 };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalStateCache.cpp:1928-1953:
-// IRBindResourcesToEncoder binds the two heaps (:1936-1943), writes the
-// static sampler table's address into the entry after the last CBV
-// (:1945-1949) and sets CBVTable as bytes at kIRArgumentBufferBindPoint,
-// 8 bytes per entry (:1952); each root constant buffer view's 8-byte GPU
-// address is written into its CBVTable entry at :1626 and by
-// IRBindUniformBuffer at :1629-1636. Followed: one 8-byte address per table
-// and per block, the root constants inline. Departure: the pin's converter
-// root signature holds root CBVs only
-// (Engine/Source/Developer/Apple/MetalShaderFormat/Private/MetalCompileShaderMSC.cpp:319-337;
-// :1198-1211 is the ray tracing branch of the same construction) and its
-// descriptor heaps are bound at the converter's fixed heap bind points
-// (Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBindlessDescriptors.cpp:388-392);
-// here the three tables are
-// root parameters of the one root signature, so their addresses live in the
-// argument buffer like the blocks.
+// One 8-byte address per table and per block, the root constants inline.
+// The three tables are root parameters of the one root signature, so their
+// addresses live in the argument buffer like the blocks.
 struct RootParameter {
   RootParameterKind kind{RootParameterKind::ResourceTable};
   std::uint8_t static_slot{};
@@ -135,11 +120,6 @@ derive_binding_structure(const shaders::RootLayout& layout) noexcept {
 // BindingUse (artifact.hpp, derive_binding_use). Backends bind the tables
 // whose arrays the pipeline declares; the two storage arrays share one
 // table, the five read arrays another.
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/RHI/Public/RHIShaderBindingLayout.h:77-110: the
-// binding layout entries a shader may use; MetalStateCache.cpp:1477-1493
-// CacheOrSkipResourceResidencyUpdate collects per-stage heap use. Followed
-// as a per-pipeline mask.
 struct PipelineBinding {
   shaders::LayoutHash draw_block_hash{};
   std::uint32_t root_constant_words{};

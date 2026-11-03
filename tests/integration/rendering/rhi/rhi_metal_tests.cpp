@@ -371,11 +371,12 @@ bool within_one(std::uint8_t actual, Unorm8 expected) {
 
 // ---- Scenarios ------------------------------------------------------------------------
 
-// device.hpp:35-41 (create checks the two required capabilities and creates
-// the backend); backend.hpp:33-38 (the required entries are true) and
-// :111-131 (the device's name; frames in flight, descriptor capacities and
-// the transient budget are the budgets the backend was created with,
-// :126-127).
+// (device.hpp, Device::create: create checks the two required capabilities
+// and creates the backend); (backend.hpp, RequiredCapability: the required
+// entries are true) and (backend.hpp, Capabilities: the device's name;
+// frames in flight, descriptor capacities and the transient budget are the
+// budgets the backend was created with, frames_in_flight, descriptors and
+// transient_bytes_per_frame).
 void device_creation_and_required_capabilities(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   const Capabilities& capabilities = device->capabilities();
@@ -393,8 +394,8 @@ void device_creation_and_required_capabilities(const std::filesystem::path& /*ar
           "the transient budget is the description's");
 }
 
-// device.hpp:35-37 (create validates the description first and fails by
-// name, creating no device). One probe of the wiring; the order of
+// (device.hpp, Device::create: create validates the description first and
+// fails by name, creating no device). One probe of the wiring; the order of
 // validate_device_description's codes is its unit test's.
 void device_create_rejects_bad_description(const std::filesystem::path& /*artifacts*/) {
   DeviceDescription capacity{};
@@ -404,11 +405,12 @@ void device_create_rejects_bad_description(const std::filesystem::path& /*artifa
           "a storage capacity other than the root layout's is DescriptorCapacityInvalid");
 }
 
-// pipeline_states.hpp:490-492 (Clear writes the target texture's
-// clear_value); command_list.hpp:62-64 (a transition is declared before the
-// copy); synchronization.hpp:35-40 (Block waits on the fence first and
-// reports that it waited; a second lock before unlock is AlreadyLocked) and
-// :41-50 with :151-192 (the texture lands in the staging layout).
+// (pipeline_states.hpp, LoadAction::Clear: Clear writes the target texture's
+// clear_value); (command_list.hpp, CommandList::transition: a transition is
+// declared before the copy); (synchronization.hpp, StagingBuffer: Block waits
+// on the fence first and reports that it waited; a second lock before unlock
+// is AlreadyLocked) and (synchronization.hpp, staging_layout: the texture
+// lands in the staging layout).
 void clear_offscreen_and_read_back(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   constexpr std::array<float, 4> kClear{0.25F, 0.5F, 0.75F, 1.0F};
@@ -433,13 +435,15 @@ void clear_offscreen_and_read_back(const std::filesystem::path& /*artifacts*/) {
   }
 }
 
-// device.hpp:50-52 and :191-192 and pipeline_states.hpp:29-42 (a pipeline
-// from the fixture artifacts with an empty vertex layout);
-// binding_structure.hpp:18-34 (the 160-byte top-level argument buffer: the
-// draw block's address at 24 and the tables at 0, 8, 16, against a live
-// draw that reads the draw block, the Texture2D array and the sampler
-// array); command_list.hpp:48-61 (set_draw_block binds the block for the
-// draw). Coverage: the viewport and scissor are (8, 8, 32, 32) and the
+// (device.hpp, Device::graphics_pipeline) and
+// (pipeline_states.hpp, GraphicsPipelineDescription: a pipeline from the
+// fixture artifacts with an empty vertex layout);
+// (binding_structure.hpp, derive_binding_structure, kEngineArgumentBufferBytes:
+// the 160-byte top-level argument buffer: the draw block's address at 24 and
+// the tables at 0, 8, 16, against a live draw that reads the draw block, the
+// Texture2D array and the sampler array);
+// (command_list.hpp, CommandList::set_draw_block: set_draw_block binds the
+// block for the draw). Coverage: the viewport and scissor are (8, 8, 32, 32) and the
 // triangle covers the viewport, so every texel in [8, 40) on both axes is
 // the block's color times the white texel within one unit, and every other
 // texel is the clear color.
@@ -476,10 +480,11 @@ void draw_fixture_triangle_and_read_back(const std::filesystem::path& artifacts)
   }
 }
 
-// device.hpp:60-66 (end_frame destroys the delete queue's entries at or
-// below the completed frame and reports how many) and :67-68 (wait_idle
-// runs the queue for every submitted frame); lifetime.hpp:21-30 (a release
-// at zero enqueues; the entry is destroyed only once its frame has
+// (device.hpp, Device::end_frame: end_frame destroys the delete queue's
+// entries at or below the completed frame and reports how many) and
+// (device.hpp, Device::wait_idle: wait_idle runs the queue for every submitted
+// frame); (lifetime.hpp, Resource::release, DeferredDeleteQueue::destroy_completed:
+// a release at zero enqueues; the entry is destroyed only once its frame has
 // completed). Observed through Device::delete_queue().pending().
 void release_mid_frame_destroys_after_completion(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
@@ -507,9 +512,10 @@ void release_mid_frame_destroys_after_completion(const std::filesystem::path& /*
           "the buffer is destroyed once its frame has completed");
 }
 
-// device.hpp:60-63 and lifetime.hpp:37-41 (end_frame blocks on the oldest
-// frame when frames_in_flight frames are queued, and only then;
-// EndFrameResult, :124-138). With three in flight the first two end_frames
+// (device.hpp, Device::end_frame) and (lifetime.hpp, required_completion:
+// end_frame blocks on the oldest frame when frames_in_flight frames are
+// queued, and only then); (device.hpp, EndFrameResult). With three in flight
+// the first two end_frames
 // have no required completion, so neither waits. With one in flight the
 // device waits for frame submitted + 1 - 1 whenever it is not complete, so
 // every end_frame returns with completed >= submitted.
@@ -544,10 +550,11 @@ void frames_in_flight_blocks_on_the_oldest(const std::filesystem::path& /*artifa
   });
 }
 
-// synchronization.hpp:21-28 (a written fence is Pending until its frame is
-// submitted; poll is false before the GPU signals; wait returns after the
-// signal; then the state is Signaled) and :32-34 (reset returns the fence to
-// Unwritten); device.hpp:216 (wait_fence).
+// (synchronization.hpp, GpuFence, FenceState: a written fence is Pending
+// until its frame is submitted; poll is false before the GPU signals; wait
+// returns after the signal; then the state is Signaled) and
+// (synchronization.hpp, GpuFence::reset: reset returns the fence to
+// Unwritten); (device.hpp, Device::wait_fence).
 void fence_poll_false_then_true_and_wait_returns(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   const Ref<GpuFence> fence = take(device->create_fence("poll fence"), "create_fence");
@@ -565,10 +572,11 @@ void fence_poll_false_then_true_and_wait_returns(const std::filesystem::path& /*
   require(fence->state() == FenceState::Unwritten, "reset returns the fence to Unwritten");
 }
 
-// synchronization.hpp:29-31 and :119-121 with device.hpp:214-216
-// (wait_fence checks fence_wait_error first and rejects a fence whose
-// write's frame is not submitted, without blocking). One probe of the
-// wiring; fence_wait_error's mapping is its unit test's.
+// (synchronization.hpp, fence_wait_error, StagingError::FenceNotSubmitted)
+// with (device.hpp, Device::wait_fence: wait_fence checks fence_wait_error
+// first and rejects a fence whose write's frame is not submitted, without
+// blocking). One probe of the wiring; fence_wait_error's mapping is its unit
+// test's.
 void fence_wait_errors_named(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   const Ref<GpuFence> fence = take(device->create_fence("unsubmitted fence"), "create_fence");
@@ -582,11 +590,13 @@ void fence_wait_errors_named(const std::filesystem::path& /*artifacts*/) {
   device->wait_idle();
 }
 
-// queries.hpp:21-24 (an occlusion result is the number of samples that
-// passed, not a boolean) and :31-38 (Block before the ending frame is
-// submitted returns NotSubmitted without blocking; the value once that
-// frame has completed; NotEnded for a query not ended); :89 and device.hpp
-// query_result (IndexOutOfRange). The triangle covers 32 x 32 one-sample
+// (queries.hpp, QueryKind::Occlusion: an occlusion result is the number of
+// samples that passed, not a boolean) and
+// (queries.hpp, QueryError::NotSubmitted, QueryError::NotEnded: Block before
+// the ending frame is submitted returns NotSubmitted without blocking; the
+// value once that frame has completed; NotEnded for a query not ended);
+// (queries.hpp, QueryError::IndexOutOfRange) and
+// (device.hpp, Device::query_result). The triangle covers 32 x 32 one-sample
 // pixels.
 void occlusion_query_counts_covered_samples(const std::filesystem::path& artifacts) {
   const std::unique_ptr<Device> device = make_device(create_on_miss());
@@ -615,9 +625,10 @@ void occlusion_query_counts_covered_samples(const std::filesystem::path& artifac
           "an index past the pool is IndexOutOfRange");
 }
 
-// queries.hpp:17-20 (AbsoluteTime only with timestamp_queries, else
-// KindUnsupported, the device's check) and :101-113 (validate_query_pool,
-// probed once for its wiring with ZeroCount).
+// (queries.hpp, QueryError::KindUnsupported: AbsoluteTime only with
+// timestamp_queries, else KindUnsupported, the device's check) and
+// (queries.hpp, validate_query_pool: probed once for its wiring with
+// ZeroCount).
 void query_pool_errors_named(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   const QueryPoolResult zero =
@@ -630,10 +641,11 @@ void query_pool_errors_named(const std::filesystem::path& /*artifacts*/) {
           "an AbsoluteTime pool without the capability is KindUnsupported");
 }
 
-// command_list.hpp:67-72 and :93-98 (replay returns the first failure; the
-// ring has the device's budget and never grows: TransientBudgetExhausted when
-// the frame's ring is full, DrawBlockTooLarge for one block above the ring);
-// backend.hpp:199-203. The blocks are set inside a pass with the fixture
+// (command_list.hpp, CommandList::replay, ExecuteError: replay returns the
+// first failure; the ring has the device's budget and never grows:
+// TransientBudgetExhausted when the frame's ring is full, DrawBlockTooLarge
+// for one block above the ring); (backend.hpp, Context::set_draw_block). The
+// blocks are set inside a pass with the fixture
 // pipeline bound, so the validation layer has nothing to report during the
 // replay. The two codes are asserted in separate frames, so no precedence
 // between them is implied.
@@ -674,10 +686,11 @@ void transient_budget_exhaustion_is_named(const std::filesystem::path& artifacts
   device->wait_idle();
 }
 
-// resources.hpp:48-50 (only an Upload buffer locks: validate_lock's wiring,
-// probed with NotUploadBuffer) and :520-528 with device.hpp:180-181 (a
-// second lock is AlreadyLocked; unlock without lock is NotLocked; the lock
-// is a span of the range).
+// (resources.hpp, validate_lock: only an Upload buffer locks: validate_lock's
+// wiring, probed with NotUploadBuffer) and (resources.hpp, LockError, LockResult)
+// with (device.hpp, Device::lock_buffer, Device::unlock_buffer: a second lock
+// is AlreadyLocked; unlock without lock is NotLocked; the lock is a span of
+// the range).
 void lock_buffer_errors_named(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   BufferDescription plain{};
@@ -704,8 +717,8 @@ void lock_buffer_errors_named(const std::filesystem::path& /*artifacts*/) {
   require(device->unlock_buffer(*upload_buffer) == LockError::None, "unlock after lock");
 }
 
-// resources.hpp:259-260 (a null Ref passed to a view creation is
-// NullResource).
+// (resources.hpp, ResourceError::NullResource: a null Ref passed to a view
+// creation is NullResource).
 void view_of_null_resource_is_named(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   const ShaderResourceViewResult view =
@@ -714,8 +727,9 @@ void view_of_null_resource_is_named(const std::filesystem::path& /*artifacts*/) 
           "a view of a null texture is NullResource");
 }
 
-// device.hpp:50-56 (with PipelineMissPolicy::Error a miss returns CacheMiss;
-// precompile creates the description, after which the lookup returns it).
+// (device.hpp, PipelineMissPolicy::Error, Device::precompile: with
+// PipelineMissPolicy::Error a miss returns CacheMiss; precompile creates the
+// description, after which the lookup returns it).
 void pipeline_miss_policy_error_returns_cache_miss(const std::filesystem::path& artifacts) {
   DeviceDescription description{};
   description.miss_policy = PipelineMissPolicy::Error;
@@ -739,8 +753,8 @@ void pipeline_miss_policy_error_returns_cache_miss(const std::filesystem::path& 
           "the lookup returns the precompiled pipeline");
 }
 
-// device.hpp:53-55 (precompile creates in order and stops at the first
-// failure with its code and the description's debug name).
+// (device.hpp, Device::precompile: precompile creates in order and stops at
+// the first failure with its code and the description's debug name).
 void precompile_stops_at_first_failure(const std::filesystem::path& artifacts) {
   const std::unique_ptr<Device> device = make_device();
   const Fixtures fixtures = load_fixtures(artifacts);
@@ -769,9 +783,9 @@ void precompile_stops_at_first_failure(const std::filesystem::path& artifacts) {
           "the third description was not created");
 }
 
-// resources.hpp:44-47 (a buffer created with initial data holds it when
-// creation returns) read back through synchronization.hpp:35-40
-// (copy_to_staging, the fence, the lock).
+// (resources.hpp, Buffer: a buffer created with initial data holds it when
+// creation returns) read back through (synchronization.hpp, StagingBuffer:
+// copy_to_staging, the fence, the lock).
 void buffer_initial_data_is_uploaded(const std::filesystem::path& /*artifacts*/) {
   const std::unique_ptr<Device> device = make_device();
   std::vector<std::byte> bytes(256);
@@ -802,9 +816,9 @@ void buffer_initial_data_is_uploaded(const std::filesystem::path& /*artifacts*/)
   require(device->unlock_staging(*staging) == StagingError::None, "unlock_staging");
 }
 
-// pipeline_states.hpp:36-42 (the Metal backend creates pipelines with an
-// empty vertex layout only and returns VertexLayoutUnsupported for a
-// non-empty one).
+// (pipeline_states.hpp, PipelineError::VertexLayoutUnsupported: the Metal
+// backend creates pipelines with an empty vertex layout only and returns
+// VertexLayoutUnsupported for a non-empty one).
 void vertex_layout_is_unsupported_on_metal(const std::filesystem::path& artifacts) {
   const std::unique_ptr<Device> device = make_device(create_on_miss());
   const Fixtures fixtures = load_fixtures(artifacts);
@@ -824,9 +838,10 @@ void vertex_layout_is_unsupported_on_metal(const std::filesystem::path& artifact
           "a non-empty vertex layout is VertexLayoutUnsupported");
 }
 
-// pipeline_states.hpp:399-401 and :408-413 (the backend returns
-// ShaderLibraryRejected when the API rejects the shader library and
-// EntryPointNotFound when the function is not in it). The faulty artifacts
+// (pipeline_states.hpp, PipelineError::ShaderLibraryRejected) and
+// (pipeline_states.hpp, PipelineError::EntryPointNotFound): the backend
+// returns ShaderLibraryRejected when the API rejects the shader library and
+// EntryPointNotFound when the function is not in it. The faulty artifacts
 // keep the fixture's input hash, so this device creates no valid pipeline
 // first: the description cache would otherwise answer from its entry.
 void pipeline_library_errors_named(const std::filesystem::path& artifacts) {
@@ -861,10 +876,10 @@ void pipeline_library_errors_named(const std::filesystem::path& artifacts) {
 }
 
 #if BW_RHI_DEBUG
-// backend.hpp:342-350 (the validation layer reports a failure once with the
-// code, the resource's debug name and the command's name) and
-// transitions.hpp:38-40 and :221-232 (a copy source must be in CopySource at
-// use; AccessMissingAtUse). The probe that Device::create wires the layer.
+// (backend.hpp, wrap_with_validation: the validation layer reports a failure
+// once with the code, the resource's debug name and the command's name) and
+// (transitions.hpp, validate_use: a copy source must be in CopySource at use;
+// AccessMissingAtUse). The probe that Device::create wires the layer.
 void validation_rejects_undeclared_transition_by_name(const std::filesystem::path& /*artifacts*/) {
   std::vector<CapturedFailure> failures;
   const std::unique_ptr<Device> device = make_device(DeviceDescription{}, &failures);

@@ -46,13 +46,10 @@ namespace bw::rhi::metal {
 
 enum class StorageClass : std::uint8_t { Private, Shared };
 
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b
-// Engine/Source/Runtime/Apple/MetalRHI/Private/MetalBuffer.cpp:1579-1584:
-// METALHEAP_DEFAULT_BLOCKSIZE is 512 MiB on Mac. Departure: 64 MiB here. The
-// value is a tuning constant, not behavior: the pin's size serves an editor's
-// working set, and with two storage modes it commits a gigabyte before the
-// first resource; a resource larger than a block still gets a heap of its own
-// size, as the pin's max(Size, block) at :1729.
+// The heap block size, 64 MiB. The value is a tuning constant, not behavior:
+// with two storage modes a larger block commits a large amount of memory
+// before the first resource; a resource larger than a block gets a heap of its
+// own size.
 inline constexpr std::uint64_t kHeapBlockBytes = 64ULL * 1024ULL * 1024ULL;
 
 class HeapBlock;

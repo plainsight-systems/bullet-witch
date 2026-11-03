@@ -15,9 +15,7 @@
 // CP.2 / CONC.2: producer count is private, shared final release uses acq_rel.
 namespace bw::tasks {
 namespace {
-// Unreal f45729c0b6f097038e72b52d366a62baeca3275b:
-// TaskGraphInterfaces.h:451-465; ConcurrentLinearAllocator.h:198-287.
-// Mac inherits guaranteed alignment4096, selecting allocation-header path.
+// The Mac guaranteed alignment of 4096 selects the allocation-header path.
 constexpr std::size_t block_bytes = std::size_t{64} * 1024;
 constexpr unsigned initial_count = std::numeric_limits<unsigned>::max();
 struct Block final {
@@ -32,8 +30,8 @@ struct Allocation final {
   std::uint32_t size;
 };
 
-// TBlockAllocationCache::SwapBlock/Malloc/Free, ConcurrentLinearAllocator.h:61-115:
-// one completed block per thread; evict the previous block through FMemory.
+// One completed block per thread; evict the previous block through the memory
+// facade.
 struct CachedBlock final {
   void* pointer{};
   ~CachedBlock() { memory::release(pointer); }
@@ -47,16 +45,16 @@ void cache_block(Block* block) {
   memory::release(std::exchange(cached_block().pointer, block));
 }
 
-// FBlockHeader constructor, ConcurrentLinearAllocator.h:238-245 reserves both
-// block and allocation header. Mac non-fast block alignment is header alignment.
+// Reserves both block and allocation header. Mac non-fast block alignment is
+// header alignment.
 Block* construct_block(void* storage) {
   auto* result = new (storage) Block;
   result->next = reinterpret_cast<std::uintptr_t>(result) + sizeof(Block) + sizeof(Allocation);
   return result;
 }
 
-// FTLSCleanup, ConcurrentLinearAllocator.h:288-312: producer closes its current
-// block before exit, subtracting unused sentinel count once. Consumers may still
+// The producer closes its current block before exit, subtracting unused
+// sentinel count once. Consumers may still
 // own objects; only the final release can then cache/free the block.
 struct Producer final {
   Block* block{};
@@ -76,8 +74,8 @@ Producer& producer() {
   return current;
 }
 
-// Inline AllocateNewBlock, ConcurrentLinearAllocator.h:369-393, plus source
-// one-block cache. No oversized path: TaskGraph tag explicitly disables it.
+// Allocate a new block, using the one-block cache first. No oversized path:
+// task storage explicitly disables it.
 Block* fresh_block() {
   void* storage = std::exchange(cached_block().pointer, nullptr);
   if (storage == nullptr) {
@@ -87,8 +85,7 @@ Block* fresh_block() {
 }
 } // namespace
 
-// TLinearAllocatorBase::Malloc non-fast path, ConcurrentLinearAllocator.h:360-492:
-// align allocation, write preceding offset header, bump private count; on a full
+// Align allocation, write preceding offset header, bump private count; on a full
 // block reconcile shared count and reuse only when no outstanding objects remain.
 void* allocate_task_storage(std::size_t bytes, std::uint32_t alignment) {
   if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
@@ -115,13 +112,13 @@ void* allocate_task_storage(std::size_t bytes, std::uint32_t alignment) {
                      static_cast<std::uint32_t>(bytes)};
       return storage;
     }
-    // Source no-oversized-block check on the cold path (line478). Subtractions
-    // express the same bound without allowing unsigned size addition to wrap.
+    // No-oversized-block check on the cold path. Subtractions express the same
+    // bound without allowing unsigned size addition to wrap.
     constexpr auto header_bytes = sizeof(Block) + sizeof(Allocation);
     if (bytes > block_bytes - header_bytes || alignment > block_bytes - header_bytes - bytes) {
       platform::memory_check_failed("task fits source fixed block", __FILE__, __LINE__);
     }
-    // Source closes at exhaustion once; outstanding consumers keep the old
+    // Close at exhaustion once; outstanding consumers keep the old
     // block alive while producer switches to new storage.
     block->next = start + block_bytes;
     const auto excess = initial_count - block->allocated;
@@ -134,8 +131,7 @@ void* allocate_task_storage(std::size_t bytes, std::uint32_t alignment) {
   }
 }
 
-// TLinearAllocatorBase::Free non-fast path, ConcurrentLinearAllocator.h:530-546:
-// recover owning block from header offset; cross-thread last release reclaims
+// Recover owning block from header offset; cross-thread last release reclaims
 // only closed blocks (an active producer retains the sentinel reservation).
 void release_task_storage(void* pointer) {
   if (pointer == nullptr)
