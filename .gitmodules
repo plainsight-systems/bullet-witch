@@ -8,3 +8,7 @@
 [submodule "third_party/blake3"]
 	path = third_party/blake3
 	url = https://github.com/BLAKE3-team/BLAKE3
+[submodule "third_party/metal-cpp"]
+	path = third_party/metal-cpp
+	url = https://github.com/apple/metal-cpp
+	shallow = true

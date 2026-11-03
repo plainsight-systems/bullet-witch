@@ -1,11 +1,46 @@
-# Pinned third-party dependencies of the shader toolchain. Pins, licenses and
-# the DXC recipe: third_party/README.md. Architecture: docs/architecture/
-# shaders.md, "Dependencies".
-#
-# Two prerequisites are found through cache variables and are never searched
-# for: the DXC install prefix that third_party/build-dxc.sh produces, and, on
-# Apple platforms, the Metal Shader Converter install. A missing one stops
-# configure; there is no fallback.
+# Pinned third-party dependencies of the Metal RHI and of the shader toolchain.
+# Pins, licenses and the DXC recipe: third_party/README.md. Architecture:
+# docs/architecture/rhi.md and docs/architecture/shaders.md, "Dependencies".
+
+# Runtime dependencies of the Metal RHI, Apple only. Independent of the
+# BW_SHADER_TOOLCHAIN option: the RHI links them whether or not the shader
+# toolchain is built.
+if(APPLE)
+  # metal-cpp: headers only, submodule third_party/metal-cpp. Linking the
+  # target links the three frameworks its headers call into. Its
+  # implementation macros are defined in one translation unit of the Metal
+  # RHI, never here.
+  set(bw_metal_cpp_root "${PROJECT_SOURCE_DIR}/third_party/metal-cpp")
+  if(NOT EXISTS "${bw_metal_cpp_root}/Metal/Metal.hpp")
+    message(FATAL_ERROR
+      "third_party/metal-cpp has no Metal/Metal.hpp: the metal-cpp submodule "
+      "is not initialized. Run `git submodule update --init "
+      "--recommend-shallow third_party/metal-cpp`.")
+  endif()
+  add_library(bw_metal_cpp INTERFACE)
+  target_include_directories(bw_metal_cpp SYSTEM INTERFACE "${bw_metal_cpp_root}")
+  target_link_libraries(bw_metal_cpp INTERFACE
+    "-framework Foundation" "-framework Metal" "-framework QuartzCore")
+
+  # Vendored converter runtime shim: headers only, used by the Metal RHI.
+  add_library(bw_metal_irconverter_runtime INTERFACE)
+  target_include_directories(bw_metal_irconverter_runtime SYSTEM INTERFACE
+    "${PROJECT_SOURCE_DIR}/third_party/metal_irconverter_runtime")
+
+  # Build-time proof that metal-cpp and the shim compile together under
+  # IR_RUNTIME_METALCPP and the project's warning flags. Compiled as part of
+  # ALL, under the global CMAKE_CXX_CLANG_TIDY like every file in
+  # third_party/checks/.
+  add_library(bw_metal_cpp_include_check OBJECT
+    "${PROJECT_SOURCE_DIR}/third_party/checks/include_check_metal_cpp.cpp")
+  target_link_libraries(bw_metal_cpp_include_check PRIVATE bw_contracts
+    bw_metal_cpp bw_metal_irconverter_runtime)
+endif()
+
+# Shader toolchain. Two prerequisites are found through cache variables and are
+# never searched for: the DXC install prefix that third_party/build-dxc.sh
+# produces, and, on Apple platforms, the Metal Shader Converter install. A
+# missing one stops configure; there is no fallback.
 option(BW_SHADER_TOOLCHAIN "Build the shader compiler and its integration tests" ON)
 if(NOT BW_SHADER_TOOLCHAIN)
   return()
@@ -91,11 +126,6 @@ if(APPLE)
       INTERFACE_COMPILE_OPTIONS
         "SHELL:-isystem ${BW_METAL_SHADER_CONVERTER_ROOT}/include")
   endif()
-
-  # Vendored converter runtime shim: headers only, used by the Metal RHI.
-  add_library(bw_metal_irconverter_runtime INTERFACE)
-  target_include_directories(bw_metal_irconverter_runtime SYSTEM INTERFACE
-    "${PROJECT_SOURCE_DIR}/third_party/metal_irconverter_runtime")
 endif()
 
 # Compiled third-party libraries. Pinned upstream code keeps its own warning
@@ -148,8 +178,9 @@ target_link_libraries(bw_third_party_include_check PRIVATE bw_contracts
 if(APPLE)
   # The converter's C API is checked from C++, as the tool includes it.
   # metal_irconverter_runtime.h requires Metal.h (Objective-C) or metal-cpp's
-  # Metal.hpp to be included first; metal-cpp is not pinned, so the shim is
-  # checked from an Objective-C++ translation unit.
+  # Metal.hpp to be included first. The shim is checked under both: after
+  # Metal.h from the Objective-C++ translation unit here, after metal-cpp from
+  # bw_metal_cpp_include_check above.
   enable_language(OBJCXX)
   target_sources(bw_third_party_include_check PRIVATE
     "${PROJECT_SOURCE_DIR}/third_party/checks/include_check_apple.cpp"

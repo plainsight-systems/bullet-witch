@@ -30,6 +30,23 @@ set(BW_PUBLIC_HEADERS
   bw/rendering/shaders/root_layout.hpp
   bw/rendering/shaders/artifact.hpp
   bw/rendering/shaders/compiler_options.hpp
+  bw/rendering/rhi/build.hpp
+  bw/rendering/rhi/result.hpp
+  bw/rendering/rhi/access.hpp
+  bw/rendering/rhi/format.hpp
+  bw/rendering/rhi/lifetime.hpp
+  bw/rendering/rhi/descriptor_allocator.hpp
+  bw/rendering/rhi/memory_suballocator.hpp
+  bw/rendering/rhi/resources.hpp
+  bw/rendering/rhi/transitions.hpp
+  bw/rendering/rhi/binding_structure.hpp
+  bw/rendering/rhi/pipeline_states.hpp
+  bw/rendering/rhi/pipeline_cache.hpp
+  bw/rendering/rhi/synchronization.hpp
+  bw/rendering/rhi/queries.hpp
+  bw/rendering/rhi/command_list.hpp
+  bw/rendering/rhi/backend.hpp
+  bw/rendering/rhi/device.hpp
 )
 # The shader_compiler tool's headers exist as a target only with the shader
 # toolchain configured (tools/shader_compiler is added under it).
@@ -69,7 +86,7 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
   target_link_libraries(${check} PRIVATE bw_math bw_runtime_headers bw_memory_headers
     bw_tasks_headers bw_concurrency_headers bw_platform_memory_headers
     bw_platform_time_headers bw_macos_time_headers bw_platform_tasks_headers
-    bw_platform_diagnostics_headers bw_shaders_headers
+    bw_platform_diagnostics_headers bw_shaders_headers bw_rhi_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE

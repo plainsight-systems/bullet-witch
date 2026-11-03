@@ -1,9 +1,10 @@
 # Third-party dependencies
 
 The shader toolchain's dependencies (docs/architecture/shaders.md,
-"Dependencies"). Upstream source enters as git submodules pinned to a tag; the
-Metal Shader Converter runtime shim is a vendored copy because it ships in an
-installer, not a repository. Nothing here is modified.
+"Dependencies") and the Metal RHI's (docs/architecture/rhi.md). Upstream source
+enters as git submodules pinned to a tag; the Metal Shader Converter runtime
+shim is a vendored copy because it ships in an installer, not a repository.
+Nothing here is modified.
 
 | Name | Upstream | Tag | Commit | License | Enters the tree as |
 |---|---|---|---|---|---|
@@ -13,12 +14,16 @@ installer, not a repository. Nothing here is modified.
 | DirectX-Headers | https://github.com/microsoft/DirectX-Headers | DXC's pin | `980971e835876dc0cde415e8f9bc646e64667bf7` | MIT, `LICENSE` | DXC's nested submodule `external/DirectX-Headers` |
 | SPIRV-Reflect | https://github.com/KhronosGroup/SPIRV-Reflect | `vulkan-sdk-1.4.363.0` | `f3e261fda74ca81b44d1941931c6b7b5fe236d0e` | Apache 2.0, `LICENSE` | submodule `third_party/spirv-reflect`; `spirv_reflect.c` compiled as `bw_spirv_reflect` |
 | BLAKE3 | https://github.com/BLAKE3-team/BLAKE3 | `1.8.7` | `f3149ec5bb5449af877ba20377a11008ff499fa2` | CC0 1.0, or Apache 2.0, or Apache 2.0 with LLVM exceptions (`LICENSE_CC0`, `LICENSE_A2`, `LICENSE_A2LLVM`) | submodule `third_party/blake3`; the C implementation compiled as `bw_blake3` |
+| metal-cpp | https://github.com/apple/metal-cpp | `release/metal-cpp_macOS26_iOS26` | `f567ed836e4cbb85788c42115a2682bbe68097ee` | Apache 2.0, `LICENSE.txt` | submodule `third_party/metal-cpp`, shallow; headers only, consumed by the Metal RHI |
 | Metal Shader Converter runtime shim | Metal Shader Converter installer, `include/metal_irconverter_runtime/` | converter 4.0.3 | none (installer) | Apache 2.0, `metal_irconverter_runtime/LICENSE.txt` | vendored copy `third_party/metal_irconverter_runtime/`: `metal_irconverter_runtime.h`, `ir_tessellator_tables.h`, `ir_raytracing.h`, `LICENSE.txt` |
 
 SPIRV-Reflect's nested `third_party/googletest` stays uninitialized. DXC's
 `.gitmodules` still names `external/googletest`, but the tag records no
 gitlink for it, so there is nothing to initialize. Nothing here builds
 upstream tests.
+
+metal-cpp's tag is the largest release not past the SDK the project builds
+with (Xcode 26.2, SDK macOS 26.2). Later tags target macOS 26.4 and 27.
 
 The shim's version is the converter's `include/metal_irconverter/ir_version.h`
 (4.0.3). `checks/include_check_apple.cpp` fails the build when the installed
@@ -34,7 +39,7 @@ platforms only.
 ## Checking out
 
 ```sh
-git submodule update --init third_party/dxc third_party/spirv-reflect third_party/blake3
+git submodule update --init third_party/dxc third_party/spirv-reflect third_party/blake3 third_party/metal-cpp
 git -C third_party/dxc submodule update --init external/SPIRV-Tools external/SPIRV-Headers external/DirectX-Headers
 ```
 
@@ -57,26 +62,39 @@ in the checkout, which `.gitignore` already covers. The installed
 
 ## CMake
 
-`cmake/ThirdParty.cmake` declares the targets. With
-`BW_SHADER_TOOLCHAIN` ON (the default) configure stops with a named message
-when a prerequisite is missing:
+`cmake/ThirdParty.cmake` declares the targets. On Apple platforms
+`bw_metal_cpp` and `bw_metal_irconverter_runtime` are declared whatever the
+value of `BW_SHADER_TOOLCHAIN`: they are the Metal RHI's runtime dependencies.
+Configure stops with a named message when `third_party/metal-cpp` is not
+initialized.
+
+With `BW_SHADER_TOOLCHAIN` ON (the default) configure also stops with a named
+message when a toolchain prerequisite is missing:
 
 | Cache variable | Default | Must contain |
 |---|---|---|
 | `BW_DXC_PREFIX` | none | the prefix `build-dxc.sh` installed into |
 | `BW_METAL_SHADER_CONVERTER_ROOT` (Apple) | `/usr/local` | `lib/libmetalirconverter.dylib`, `include/metal_irconverter/metal_irconverter.h` |
 
-With `-DBW_SHADER_TOOLCHAIN=OFF` none of the targets below is declared and
-neither prerequisite is checked.
+With `-DBW_SHADER_TOOLCHAIN=OFF` no toolchain target is declared and neither
+prerequisite is checked.
 
-Targets: `bw_dxcompiler`, `bw_spirv_tools`, `bw_spirv_tools_opt`,
-`bw_metal_irconverter` (Apple) are imported from the prefixes above;
-`bw_spirv_reflect` and `bw_blake3` are compiled from the submodules;
-`bw_metal_irconverter_runtime` (Apple) is the shim's include directory. All
-their include directories are system directories, so the project's warning
+| Target | Declared | What it is |
+|---|---|---|
+| `bw_metal_cpp` | Apple, always | metal-cpp's include directory; links Foundation, Metal and QuartzCore |
+| `bw_metal_irconverter_runtime` | Apple, always | the shim's include directory |
+| `bw_dxcompiler`, `bw_spirv_tools`, `bw_spirv_tools_opt` | toolchain ON | imported from `BW_DXC_PREFIX` |
+| `bw_metal_irconverter` | Apple, toolchain ON | imported from `BW_METAL_SHADER_CONVERTER_ROOT` |
+| `bw_spirv_reflect`, `bw_blake3` | toolchain ON | compiled from the submodules |
+
+All their include directories are system directories, so the project's warning
 flags do not apply to upstream headers, and the compiled ones are excluded
-from clang-tidy. `checks/` holds the build-time include check that compiles
-every header through these targets. Every file under `checks/` is
+from clang-tidy. `checks/` holds the build-time include checks that compile
+every header through these targets: `include_check_metal_cpp.cpp` builds as
+`bw_metal_cpp_include_check` (Apple, always), the rest as
+`bw_third_party_include_check` (toolchain ON). The shim is checked twice, after
+Metal.h from `include_check_metal.mm` and after metal-cpp under
+`IR_RUNTIME_METALCPP`. Every file under `checks/` is
 first-party: it runs under clang-tidy (the Objective-C++ file included) and
 under the `format-check` gate; the submodule sources do neither.
 

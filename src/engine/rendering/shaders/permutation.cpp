@@ -83,10 +83,26 @@ struct FullscreenTriangle {
   }
 };
 
+// The fixture pixel shader the RHI integration tests pair with
+// FullscreenTriangle: it writes the interpolated color to target 0.
+struct FullscreenTriangleColor {
+  using Domain = PermutationDomain<>;
+  static constexpr std::string_view name = "fullscreen_triangle_color";
+  static constexpr std::string_view source_path = "fullscreen_triangle_color.hlsl";
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = ShaderStage::Pixel;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = nullptr;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
 // Every shader the engine builds. A renderer slice adds an entry here and its
 // HLSL under the shader root.
 constexpr std::array kRegistry{
     describe_shader<FullscreenTriangle>(),
+    describe_shader<FullscreenTriangleColor>(),
 };
 
 [[nodiscard]] consteval bool registry_names_unique() {

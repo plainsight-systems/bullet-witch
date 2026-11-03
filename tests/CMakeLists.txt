@@ -182,6 +182,7 @@ foreach(shader_case IN ITEMS parameter_block permutation root_layout artifact co
     set_tests_properties(unit.${shader_case}.${scenario} PROPERTIES TIMEOUT 10)
   endforeach()
 endforeach()
+add_subdirectory(unit/rendering/rhi)
 
 # Shader compiler tool: pure tool logic (unit) and the toolchain scenarios
 # (integration), each in its own directory and CMake file, built only with
@@ -190,6 +191,7 @@ if(BW_SHADER_TOOLCHAIN)
   add_subdirectory(unit/tools/shader_compiler)
   add_subdirectory(integration/rendering/shaders)
 endif()
+add_subdirectory(integration/rendering/rhi)
 
 # Integration: memory.
 add_executable(memory_tests integration/memory/memory_tests.cpp)
