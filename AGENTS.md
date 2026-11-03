@@ -92,8 +92,10 @@ Citations exist for review and do not ship in the tree.
   `research/local.md` in the main checkout. That file is untracked and
   machine-local; no absolute path of this machine goes in a tracked file.
   Read one file at a time with
-  `GIT_TERMINAL_PROMPT=0 git -C <checkout> show <revision>:<path>`. Never
-  check it out, fetch another ref or widen it.
+  `GIT_TERMINAL_PROMPT=0 git -C <checkout> show <revision>:<path>`, and
+  `ls-tree` to list paths. Never check it out, fetch another ref or widen
+  it: `git grep`, `git log -p` and `git diff` against it fetch blobs and
+  are not run.
 - Citation form, the same for every source:
   `// Source: <source>, <revision or year>, <path or section>:<lines>`.
 - In a slice worktree, every type and function that follows a source carries
