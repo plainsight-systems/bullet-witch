@@ -178,13 +178,22 @@ and fails by name below them.
 | Component | Lives in | Consumed by |
 |---|---|---|
 | Contract: device, resources, views, command list, context, pipeline states, transitions, fences, queries, viewport | `src/engine/rendering/rhi/public/bw/rendering/rhi` | render graph, scene renderer, tools |
-| Pipeline description cache and precompilation | `src/engine/rendering/rhi` | the contract's pipeline creation |
-| Descriptor index allocator | `src/engine/rendering/rhi` | views, backends |
+| Backend-neutral units: reference counting and the deferred delete queue, descriptor index allocator, memory suballocator, transition validation, binding structure, pipeline description cache and precompilation | headers in `src/engine/rendering/rhi/public/bw/rendering/rhi`, sources in `src/engine/rendering/rhi` | the device and the backends; tests assert each unit through its header |
 | Validation layer | `src/engine/rendering/rhi/validation` | debug and development builds, wrapping any backend |
 | Metal backend | `src/engine/rendering/rhi/backends/metal` | the contract |
 | Vulkan backend | `src/engine/rendering/rhi/backends/vulkan` | the contract |
 | Direct3D 12 backend | `src/engine/rendering/rhi/backends/d3d12` | the contract |
 | Window and layer | `src/platform/os/<os>` | the backend's viewport |
+
+The pure units have public headers because a test reaches a unit only
+through a public header, never a private include directory. All of the above
+except the window compiles into one library, `bw_rhi`: the validation layer
+is compiled in when the debug surface is on and absent otherwise, and the
+host's backend is compiled in behind the contract's factory. One library, so
+the device's call into the validation wrapper and the factory's call into the
+backend form no cycle between static libraries. Its one configuration switch
+is the debug surface, on for debug and development builds and off for
+shipping.
 
 ## Dependencies
 
