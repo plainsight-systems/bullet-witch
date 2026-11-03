@@ -1,8 +1,7 @@
 # Source layout and runtime tools
 
-The project-wide ownership map and tooling direction. The directory choices
-below are our project organization, not a claim that Unreal uses these exact
-paths. See [what we are building](overview.md) for the goal and the two rules.
+The project-wide ownership map and tooling direction. See
+[what we are building](overview.md) for the goal and the two rules.
 
 ## Destination tree
 

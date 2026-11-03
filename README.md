@@ -1,9 +1,19 @@
 # Bullet Witch
 
-A remaster of Bullet Witch, written as new source, with Unreal Engine's
-architecture as the guide. Purchased original game data is required and is
-never committed. There is no runnable game yet: the tree holds the headless
-engine loop and the memory and math foundations.
+![Bullet Witch title screen](https://media.plainsight-systems.com/bullet-witch/title-screen-2026-10-24-0dbf54587d10.png)
+
+Game imagery remains the property of its rights holders and is not covered by
+this repository's licenses.
+
+We're rebuilding Bullet Witch because we love it and want to see its vision
+fully realized. That means preserving the look, feel, and character that drew
+us to the game, while giving its world and systems room to become what the
+original hardware couldn't support.
+
+The remaster is new source. How it is built draws on modern engines, talks
+and papers; none of them is its specification, and the original game's data
+is the evidence for what the game is. Purchased original game data is
+required and is never committed.
 
 Start with [what we are building](docs/architecture/overview.md), then the
 [source layout](docs/architecture/source-layout.md).
@@ -40,4 +50,4 @@ The host runs the engine lifecycle with no world, window or game data;
 The [split license](LICENSE), [code license](LICENSE-CODE),
 [content license](LICENSE-CONTENT) and [NOTICE](NOTICE) are preserved
 verbatim. The NOTICE describes the prior project's dependencies, not this
-tree's. Unreal is a reference, not bundled source or a linked dependency.
+tree's.

@@ -5,7 +5,7 @@ A material is data that selects an authored material template, fixes its
 static switches, and supplies parameter values; it contains no shader code.
 The shading and blend model split, parameters versus permutations, and instances; its graph
 compiler is not reproduced, because the game's materials are a small family
-that authored templates cover. Citations live beside the code.
+that authored templates cover.
 
 ## Position
 

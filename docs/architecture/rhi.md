@@ -2,8 +2,7 @@
 
 The rendering hardware interface: one contract over Metal, Vulkan and
 Direct3D 12 that the renderer records against and never sees past. It is our
-own, sized to what the game needs. The
-guide's mechanisms are cited beside the code, not here.
+own, sized to what the game needs.
 
 ## Position
 

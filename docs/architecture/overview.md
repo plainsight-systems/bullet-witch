@@ -4,23 +4,24 @@ A remaster of Bullet Witch for modern platforms, macOS on ARM64 first, built
 as new source. The aim is the game its makers intended, free of the limits of
 its original hardware, not a reproduction of the shipped implementation. The
 original game's executable, scripts and assets are the evidence for what the
-game is. Unreal Engine's source, at one pinned commit, is the guide for how an
-engine subsystem should behave when the original's intent is unclear or when
-we need a design we know works.
+game is. How each subsystem is built comes from current engine practice:
+engines whose source we can read, talks and papers, taken as sources to learn
+from and depart from, never as a specification.
 
 ## The two rules that matter
 
 1. **Build the subset the game needs.** Every subsystem is sized by what the
-   Bullet Witch runtime calls, not by what Unreal offers. Editor, server,
-   tooling and multi-platform scaffolding are out unless the game reaches them.
-2. **Inside that subset, follow the guide.** Where Unreal is the reference for a
-   mechanism, its behavior, ordering and failure handling are followed as
-   written, with no standard-library stand-ins for its types. Where the subset
-   leaves a pinned step out, the omission is written down next to the code.
+   Bullet Witch runtime calls. Editor, server, tooling and multi-platform
+   scaffolding are out unless the game reaches them.
+2. **Inside that subset, know the source and own the design.** A mechanism
+   follows a source's behavior, ordering and failure handling where that is
+   what the game needs, and departs where it is not. What was followed, what
+   was left out and why lives in the slice's own records, not in the code and
+   not here.
 
-Neither rule is a reason to reproduce Unreal's build matrix, macro seams, hidden
-base members or unused overloads. If a review finds a difference nothing in the
-game executes, it is recorded as an omission, not built.
+Neither rule is a reason to reproduce a source's build matrix, macro seams,
+hidden base members or unused overloads. If a review finds a difference nothing
+in the game executes, it is recorded as an omission, not built.
 
 ## What the runtime is made of
 
