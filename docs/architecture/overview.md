@@ -27,8 +27,9 @@ in the game executes, it is recorded as an omission, not built.
 
 See [source layout](source-layout.md) for the destination tree, module
 ownership and dependency direction, [shaders](shaders.md) for the shader
-system, [rhi](rhi.md) for the rendering hardware interface, and
-[materials](materials.md) for the material system. In one line:
+system, [rhi](rhi.md) for the rendering hardware interface,
+[materials](materials.md) for the material system, and [content](content.md)
+for how assets reach the game. In one line:
 platform adapters under `src/platform`, engine systems under `src/engine`,
 Bullet Witch's own rules under `src/game`, and development tools apart from
 all three.

@@ -26,7 +26,7 @@ src/
       diagnostics/          # foundational reporting, including release needs
     runtime/                # EngineLoop, engine lifecycle and frame pacing
     world/                  # clocks/ticks, actors/components, admission/retirement
-    content/                # schemas, handles, packages, loading and residency
+    content/                # cooked format, asset ids, layers, loader, install search, download client
     input/                  # device-independent binding/context/action routing
     characters/             # possession, movement and reusable action mechanisms
     animation/              # skeleton/pose, blends, root motion, skeletal controls
@@ -75,8 +75,7 @@ src/
 
 tools/
   shader_compiler/          # drives DXC and the Metal Shader Converter; the only shader build path
-  import/                   # original-format readers and semantic conversion
-  cook/                     # target preparation and dependency packaging
+  content_converter/        # original-format readers and per-kind writers of the cooked format; the only reader of original formats
   character_viewer/
   ai_scenarios/
   capture/
@@ -91,11 +90,11 @@ cmake/                      # common build/quality policies; modules declare own
 Compiled shader artifacts are build outputs under `<build>/shaders/<target>/`
 and are never committed; see [shaders](shaders.md).
 
-The importer can have a Bullet Witch-specific format layer. The engine content
-loader consumes prepared schemas and handles; it must not absorb game-specific
-parsing and upgrade policy. Import and cook tools can share explicit libraries
-with each other and the runtime where appropriate; executable tool entry points
-are never runtime dependencies.
+The content converter holds the Bullet Witch-specific format readers. The
+engine content loader reads the cooked format only and never absorbs original
+parsing or upgrade policy; see [content](content.md). The converter shares the
+format and id code with the runtime and nothing else; executable tool entry
+points are never runtime dependencies.
 
 ## Ownership and dependency map
 
@@ -112,8 +111,8 @@ flowchart TD
     Services --> Core[Engine core]
     Renderer --> Core
     Core --> Platform[Platform contracts and target implementations]
-    Import[Import and cook tools] --> Prepared[Prepared external content]
-    Prepared --> Content[Engine content loading and residency]
+    Import[Content converter] --> Prepared[Cooked content in the caches]
+    Prepared --> Content[Engine content loader]
     Content --> World
     Publication --> Development[Debug snapshot and command seam]
     Inspector[2D simulation inspector] --> Development

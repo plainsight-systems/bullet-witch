@@ -12,13 +12,13 @@ that authored templates cover.
 Above the [shader system](shaders.md), which compiles the templates and
 owns their permutation domains and parameter blocks; beside the scene
 renderer, which owns lighting, shadows, fog and post-processing and consumes
-material attributes; fed by the importer, which maps the original game's
-material data onto templates and parameters. The RHI sees only uniform
+material attributes; fed by the content converter, which maps the original
+game's material data onto templates and parameters. The RHI sees only uniform
 buffers, descriptor indices and pipeline descriptions.
 
 ```mermaid
 flowchart LR
-    IMP["Importer: original material blocks and textures"] --> MA["Material assets: template, switches, parameters, texture references"]
+    IMP["Content converter: original material blocks and textures"] --> MA["Material assets: template, switches, parameters, texture references"]
     T["Material templates: authored HLSL plus parameter block declarations"] --> SS["Shader system: permutation domain, artifacts, parameter block layout"]
     MA --> CK["Cook: union of switch combinations used by content"]
     CK --> SS
@@ -46,7 +46,7 @@ flowchart LR
    checked at load.
 5. A material instance overrides parameter values of its parent at runtime
    without any compilation. An override of a static switch is not an
-   instance; it is a different material, resolved by the importer or cook.
+   instance; it is a different material, resolved by the converter.
 6. The attribute set a template writes is fixed per shading model and blend
    mode by one table in code. A template that writes an attribute its shading
    model does not read fails to compile, by name.
@@ -54,9 +54,9 @@ flowchart LR
    spherical harmonics, lightmaps, shadows and fog are scene and view data
    owned by the scene renderer; a material supplies attributes to the
    lighting model and nothing else.
-8. Materials never read the original game's formats. The importer maps
-   original material blocks onto templates, switches and parameters, and
-   records what it could not map by name.
+8. Materials never read the original game's formats. The content converter
+   maps original material blocks onto templates, switches and parameters,
+   and records what it could not map by name.
 
 ## Attributes
 
@@ -127,8 +127,8 @@ frame.
 
 ## Content mapping
 
-What the importer maps from the original game's material model onto this
-system. The original data decides the values; the mapping is ours.
+What the content converter maps from the original game's material model
+onto this system. The original data decides the values; the mapping is ours.
 
 | Original material data | Maps to |
 |---|---|
@@ -142,8 +142,8 @@ system. The original data decides the values; the mapping is ours.
 | Effect and post-process materials | renderer passes with their own parameter blocks, not materials |
 
 The 14 feature axes of the original collapse onto a handful of switches
-because several axes only add lighting inputs. The importer records every
-original field it leaves unmapped, by name, beside the imported asset.
+because several axes only add lighting inputs. The converter records every
+original field it leaves unmapped, by name, beside the converted asset.
 
 ## Components and ownership
 
@@ -152,15 +152,16 @@ original field it leaves unmapped, by name, beside the imported asset.
 | Material templates, HLSL and parameter block declarations | `src/engine/rendering/materials/templates` | shader system, scene renderer |
 | Material and instance types, parameter block fill | `src/engine/rendering/materials/public/bw/rendering/materials` | scene renderer, content loading |
 | Attribute activation table, shading and blend enumerations | `src/engine/rendering/materials/public/bw/rendering/materials` | templates at compile time, renderer at pass selection |
-| Cook: switch set closure and pipeline enumeration | `tools/cook` | shader system, RHI precompilation |
-| Import: original material block to material asset | `tools/import` | cook |
+| Switch set closure and pipeline enumeration | `tools/content_converter` | shader system, RHI precompilation |
+| Original material block to material asset | `tools/content_converter` | content loader |
 
 ## Boundaries
 
 Above: the scene renderer, which owns the lighting model, pass selection,
 post-processing and every lighting input. Below: the shader system, which
 compiles templates and lays out parameter blocks, and the RHI, which binds
-them. Beside: the importer, the only code that reads original material data.
+them. Beside: the content converter, the only code that reads original
+material data.
 User-made materials are new material assets over the same templates, which
 the self-describing artifacts and the closed-at-cook switch set already
 allow; a user-made template is a shader source and follows the shader
