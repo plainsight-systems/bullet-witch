@@ -372,9 +372,16 @@ template <class T, std::size_t N> struct MemberKind<Array<T, N>> {
   static constexpr const BlockLayout* nested = MemberKind<T>::nested;
 };
 
+// A trait rather than a requires-expression over a templated lambda, the
+// form every C++20 front end, including editors' indexers, evaluates. It
+// accepts Array<T, N> with any cv-qualification and nothing derived from
+// it; a block member is declared as the Array itself.
+template <class T> inline constexpr bool is_parameter_array_v = false;
+template <class T, std::size_t N> inline constexpr bool is_parameter_array_v<Array<T, N>> = true;
+
 template <class T>
-concept MemberType = ParameterValue<T> || ParameterBlock<T> ||
-                     requires(T t) { []<class U, std::size_t N>(Array<U, N>) {}(t); };
+concept MemberType =
+    ParameterValue<T> || ParameterBlock<T> || is_parameter_array_v<std::remove_cv_t<T>>;
 
 template <MemberType T>
 [[nodiscard]] constexpr MemberLayout describe_member(std::string_view name, std::size_t offset,
