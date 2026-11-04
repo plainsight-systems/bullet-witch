@@ -37,7 +37,7 @@ flowchart LR
 2. Every asset has a logical id derived from the original's path and split
    below container level: a texture inside a model container is its own
    asset. A replacement is a cooked asset with the same id in an earlier
-   layer; assets with no original counterpart take `remaster/` ids.
+   layer; assets with no original counterpart take `remaster.` ids.
 3. Layers resolve per id in one order: local overrides, then the published
    cache, then converted originals. The first layer that holds the id
    answers. Nothing above the loader can tell which layer answered.
@@ -133,25 +133,30 @@ consuming system's loader.
 
 | Original | Asset ids |
 |---|---|
-| `graphics/chara/PW0/model/mesh.cpr` | `graphics/chara/PW0/model/mesh`, `graphics/chara/PW0/model/material/<n>`, `graphics/chara/PW0/model/skeleton` |
-| `graphics/chara/PW0/texture/<name>` | `graphics/chara/PW0/texture/<name>` |
-| an asset we author with no original | `remaster/<path>` |
+| the mesh record of `graphics/chara/PW0/model/mesh.cpr` | `model.pw0.mesh`, `model.pw0.mesh.material.<n>`, `model.pw0.mesh.skeleton`, `model.pw0.mesh.shapes.<n>` |
+| a texture record in `graphics/chara/PW0/texture/texture.cpr` | `model.pw0.texture.dds.<name>` |
+| a texture shared between models | `shared_texture.<group>.dds.<name>` |
+| a record with no name of its own | the container path from the data root, lower-cased, dots for slashes, plus the record's short name |
+| an asset we author with no original | `remaster.<path>` |
 
-Ids are case-sensitive paths with forward slashes and no extension. The
-converter assigns them; the manifest and the overrides use the same ones.
+Ids are the names the original content already carries for its records,
+lower-cased: dotted, unique across the install, and indexed by its own
+catalog files. Assets the converter splits out of one record take that
+record's id plus a suffix. The converter assigns them; the manifest and the
+overrides use the same ones.
 
 ## Substitution
 
 A replacement is a cooked asset with the same id in an earlier layer. It may
-reference assets that have no original counterpart under `remaster/` ids,
+reference assets that have no original counterpart under `remaster.` ids,
 which exist only in the layer that ships them. Nothing is edited in place
 and nothing is re-converted.
 
 | Case | Authored source | Cooked asset the converter writes | What else changes |
 |---|---|---|---|
 | One texture, a 4K repaint of `graphics/chara/PW0/texture/pw0_body_d` | PNG or EXR | a texture with that same id | nothing: the mesh and material keep referencing the id |
-| One material, a new look on the same mesh | material text: template, switches, parameters, texture ids | a material with the same id | may reference new `remaster/` textures published with it |
-| A character model, re-authored on the original rig | glTF with the original skeleton's bone names | a mesh with the original mesh id, its skeleton id unchanged, its new textures and materials under `remaster/chara/PW0/...` | the original animations still bind |
+| One material, a new look on the same mesh | material text: template, switches, parameters, texture ids | a material with the same id | may reference new `remaster.` textures published with it |
+| A character model, re-authored on the original rig | glTF with the original skeleton's bone names | a mesh with the original mesh id, its skeleton id unchanged, its new textures and materials under `remaster.chara.pw0...` | the original animations still bind |
 | A character model with its own rig | glTF with skeleton and animations | mesh, skeleton and animations under new ids, the mesh id the original one | the game's reference to the character resolves to the new rig as a set |
 
 A pipeline that upgrades many assets states a rule instead of writing each
