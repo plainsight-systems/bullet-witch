@@ -20,6 +20,7 @@
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 
 #include <array>
@@ -100,7 +101,7 @@ inline std::string describe(const bw::rhi::RenderPassDescription& pass) {
   return args.str();
 }
 
-inline std::string describe(const bw::rhi::Viewport& viewport) {
+inline std::string describe(const bw::rhi::ViewportRect& viewport) {
   return (Args{} << viewport.x << viewport.y << viewport.width << viewport.height
                  << viewport.min_depth << viewport.max_depth)
       .str();
@@ -270,6 +271,14 @@ inline std::string describe(const bw::rhi::QueryPoolDescription& d) {
   return (Args{} << d.kind << static_cast<std::uint64_t>(d.count) << d.debug_name).str();
 }
 
+inline std::string describe(const bw::rhi::ViewportDescription& d) {
+  return (Args{} << d.window.kind << static_cast<const void*>(d.window.surface)
+                 << static_cast<std::uint64_t>(d.pixel_size.width)
+                 << static_cast<std::uint64_t>(d.pixel_size.height) << d.format
+                 << static_cast<std::uint64_t>(d.vsync) << d.debug_name)
+      .str();
+}
+
 struct Call {
   std::string name;
   std::string args;
@@ -278,8 +287,9 @@ struct Call {
 class RecordingContext final : public bw::rhi::Context {
 public:
   std::vector<Call> calls;
-  // What set_draw_block returns.
+  // What set_draw_block and begin_render_pass return.
   bw::rhi::ExecuteError draw_block_result{bw::rhi::ExecuteError::None};
+  bw::rhi::ExecuteError render_pass_result{bw::rhi::ExecuteError::None};
 
   void begin_transitions(const bw::rhi::TransitionBatch& batch) override {
     record("begin_transitions", describe(batch));
@@ -287,8 +297,9 @@ public:
   void end_transitions(const bw::rhi::TransitionBatch& batch) override {
     record("end_transitions", describe(batch));
   }
-  void begin_render_pass(const bw::rhi::RenderPassDescription& pass) override {
+  bw::rhi::ExecuteError begin_render_pass(const bw::rhi::RenderPassDescription& pass) override {
     record("begin_render_pass", describe(pass));
+    return render_pass_result;
   }
   void end_render_pass() override { record("end_render_pass", {}); }
   void set_graphics_pipeline(bw::rhi::GraphicsPipeline& pipeline) override {
@@ -297,7 +308,7 @@ public:
   void set_compute_pipeline(bw::rhi::ComputePipeline& pipeline) override {
     record("set_compute_pipeline", (Args{} << static_cast<const void*>(&pipeline)).str());
   }
-  void set_viewport(const bw::rhi::Viewport& viewport) override {
+  void set_viewport(const bw::rhi::ViewportRect& viewport) override {
     record("set_viewport", describe(viewport));
   }
   void set_scissor(const bw::rhi::ScissorRect& rect) override {
@@ -538,6 +549,25 @@ public:
     record("create_query_pool", describe(description));
     return bw::rhi::QueryPoolResult::failure(bw::rhi::QueryError::BackendRejected, kRejected);
   }
+  bw::rhi::ViewportResult
+  create_viewport(const bw::rhi::ViewportDescription& description) override {
+    record("create_viewport", describe(description));
+    return bw::rhi::ViewportResult::failure(bw::rhi::ViewportError::BackendRejected, kRejected);
+  }
+  bw::rhi::Status<bw::rhi::ViewportError> resize_viewport(bw::rhi::Viewport& viewport,
+                                                          bw::rhi::Extent2 pixel_size) override {
+    record("resize_viewport", (Args{} << static_cast<const void*>(&viewport)
+                                      << static_cast<std::uint64_t>(pixel_size.width)
+                                      << static_cast<std::uint64_t>(pixel_size.height))
+                                  .str());
+    return bw::rhi::Status<bw::rhi::ViewportError>{bw::rhi::ViewportError::BackendRejected,
+                                                   kRejected};
+  }
+  void set_vsync(bw::rhi::Viewport& viewport, bool vsync) override {
+    record(
+        "set_vsync",
+        (Args{} << static_cast<const void*>(&viewport) << static_cast<std::uint64_t>(vsync)).str());
+  }
   bw::rhi::LockResult lock_buffer(bw::rhi::Buffer& buffer, bw::rhi::BufferRange range) override {
     record("lock_buffer",
            (Args{} << static_cast<const void*>(&buffer) << range.offset << range.size).str());
@@ -649,6 +679,18 @@ public:
 
 private:
   ~TestQueryPool() override = default;
+};
+
+// A viewport the backend entries are called with; it holds no back buffer
+// and is never presented (the recording backend executes nothing).
+class TestViewport final : public bw::rhi::Viewport {
+public:
+  TestViewport(bw::rhi::DeferredDeleteQueue& queue,
+               const bw::rhi::ViewportDescription& description) noexcept
+      : Viewport(queue, description) {}
+
+private:
+  ~TestViewport() override = default;
 };
 
 // What the capturing reporter received: fixed capacity, so the noexcept

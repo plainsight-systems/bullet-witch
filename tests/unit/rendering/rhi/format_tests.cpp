@@ -2,7 +2,7 @@
 // per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/format.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 #include <cstdint>
@@ -10,7 +10,8 @@
 namespace {
 using bw::rhi::Extent2;
 using bw::rhi::Format;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // (format.hpp, format_info): every enumerator has a row, Unknown has
 // block_bytes 0. (format.hpp, row_bytes) and (format.hpp, slice_bytes):
@@ -43,8 +44,8 @@ void block_table_and_byte_counts() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"block_table_and_byte_counts", block_table_and_byte_counts},
+    Scenario{"block_table_and_byte_counts", block_table_and_byte_counts},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

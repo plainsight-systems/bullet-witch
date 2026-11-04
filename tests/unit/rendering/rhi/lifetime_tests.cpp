@@ -4,8 +4,9 @@
 
 #include "bw/rendering/rhi/descriptor_allocator.hpp"
 #include "bw/rendering/rhi/resources.hpp"
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 #include "test_objects.hpp"
+#include "unwrap.hpp"
 
 #include <array>
 #include <cstdint>
@@ -16,8 +17,9 @@ namespace {
 using bw::rhi::DeferredDeleteQueue;
 using bw::rhi::FrameProgress;
 using bw::rhi::Ref;
+using bw::testing::require;
 using bw_rhi_test::DestructionLog;
-using bw_rhi_test::require;
+using Scenario = bw::testing::Scenario<void>;
 using bw_rhi_test::TestResource;
 
 // (lifetime.hpp, Resource) and (lifetime.hpp, Resource::release): the first
@@ -193,18 +195,15 @@ void enqueue_during_destroy_at_or_below_frame_is_destroyed() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"ref_count_and_release_enqueues", ref_count_and_release_enqueues},
-    bw_rhi_test::Scenario{"nothing_destroyed_before_completion",
-                          nothing_destroyed_before_completion},
-    bw_rhi_test::Scenario{"destruction_order_is_enqueue_order", destruction_order_is_enqueue_order},
-    bw_rhi_test::Scenario{"view_keeps_resource_alive", view_keeps_resource_alive},
-    bw_rhi_test::Scenario{"frames_in_flight_wait_exactly_at_bound",
-                          frames_in_flight_wait_exactly_at_bound},
-    bw_rhi_test::Scenario{"queue_destroys_remaining_at_destruction",
-                          queue_destroys_remaining_at_destruction},
-    bw_rhi_test::Scenario{"enqueue_during_destroy_at_or_below_frame_is_destroyed",
-                          enqueue_during_destroy_at_or_below_frame_is_destroyed},
+    Scenario{"ref_count_and_release_enqueues", ref_count_and_release_enqueues},
+    Scenario{"nothing_destroyed_before_completion", nothing_destroyed_before_completion},
+    Scenario{"destruction_order_is_enqueue_order", destruction_order_is_enqueue_order},
+    Scenario{"view_keeps_resource_alive", view_keeps_resource_alive},
+    Scenario{"frames_in_flight_wait_exactly_at_bound", frames_in_flight_wait_exactly_at_bound},
+    Scenario{"queue_destroys_remaining_at_destruction", queue_destroys_remaining_at_destruction},
+    Scenario{"enqueue_during_destroy_at_or_below_frame_is_destroyed",
+             enqueue_during_destroy_at_or_below_frame_is_destroyed},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

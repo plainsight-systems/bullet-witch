@@ -4,7 +4,7 @@
 // and the validation layer, which this header-only test does not take.
 #include "bw/rendering/rhi/device.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 #include <cstdint>
@@ -12,7 +12,8 @@
 namespace {
 using bw::rhi::DeviceDescription;
 using bw::rhi::DeviceError;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // (device.hpp, validate_device_description): DescriptorCapacityInvalid, then
 // FramesInFlightInvalid outside 1..kMaxFramesInFlight, then
@@ -45,9 +46,8 @@ void device_description_validation_named() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"device_description_validation_named",
-                          device_description_validation_named},
+    Scenario{"device_description_validation_named", device_description_validation_named},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

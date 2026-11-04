@@ -78,6 +78,10 @@ enum class CompareFunction : std::uint8_t {
   Always,
 };
 enum class FillMode : std::uint8_t { Solid, Wireframe };
+// Front faces wind counter-clockwise in clip space on every backend, and
+// CullMode names the winding that is culled: Clockwise culls back faces,
+// CounterClockwise culls front faces. A backend whose API defaults differ
+// sets its winding to match.
 enum class CullMode : std::uint8_t { None, Clockwise, CounterClockwise };
 enum class DepthClipMode : std::uint8_t { Clip, Clamp };
 enum class StencilOp : std::uint8_t {

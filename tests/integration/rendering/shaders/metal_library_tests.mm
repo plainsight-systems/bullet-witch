@@ -17,12 +17,12 @@
 #include "bw/shader_compiler/logic.hpp"
 #include "shader_tool_process.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <filesystem>
-#include <iostream>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -34,11 +34,7 @@ namespace {
 using bw::shaders::PermutationId;
 using bw::tests::ToolPaths;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 // UTF-8 text of an NSString, empty for nil.
 std::string text_of(NSString* text) {
@@ -122,25 +118,22 @@ void metal_library_loads(const ToolPaths& paths) {
   }
 }
 
+using Scenario = bw::testing::Scenario<ToolPaths>;
+constexpr std::array scenarios{Scenario{"metal_library_loads", metal_library_loads}};
+
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 8) {
-    std::cerr << "Usage: metal_library_tests <scenario> <shader_compiler> <dxc library> "
-                 "<converter library> <shader root> <scratch dir> <targets>\n";
-    return 2;
-  }
-  if (std::string_view{argv[1]} != "metal_library_loads") {
-    std::cerr << "Unknown scenario\n";
-    return 2;
-  }
   @autoreleasepool {
-    try {
-      metal_library_loads(ToolPaths{argv[2], argv[3], argv[4], argv[5], argv[6]});
-      return 0;
-    } catch (const std::exception& error) {
-      std::cerr << "metal_library_loads: " << error.what() << '\n';
-      return 1;
-    }
+    return bw::testing::run_scenario(
+        argc, argv, scenarios,
+        "<shader_compiler> <dxc library> <converter library> <shader root> <scratch dir> <targets>",
+        [](std::span<char* const> rest, ToolPaths& paths) {
+          if (rest.size() != 6) {
+            return false;
+          }
+          paths = ToolPaths{rest[0], rest[1], rest[2], rest[3], rest[4]};
+          return true;
+        });
   }
 }

@@ -15,7 +15,11 @@ MetalBuffer::~MetalBuffer() {
   memory_->free(placement_);
 }
 
+// A back buffer owns neither a texture nor a heap range.
 MetalTexture::~MetalTexture() {
+  if (memory_ == nullptr) {
+    return;
+  }
   texture_->release();
   memory_->free(placement_);
 }

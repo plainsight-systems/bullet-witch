@@ -2,14 +2,15 @@
 // per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/access.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 
 namespace {
 using bw::rhi::Access;
 using bw::rhi::Pipeline;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // (access.hpp, is_valid_access) and (access.hpp, kMergeableMask): a legal
 // access is any set of read-only bits, one write-only bit, the mergeable set
@@ -62,9 +63,9 @@ void pipeline_bits() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"masks_and_valid_access", masks_and_valid_access},
-    bw_rhi_test::Scenario{"pipeline_bits", pipeline_bits},
+    Scenario{"masks_and_valid_access", masks_and_valid_access},
+    Scenario{"pipeline_bits", pipeline_bits},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

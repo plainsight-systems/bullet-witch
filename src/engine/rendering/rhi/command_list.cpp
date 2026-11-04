@@ -243,7 +243,7 @@ void CommandList::set_compute_pipeline(ComputePipeline& pipeline) {
   ++command_count_;
 }
 
-void CommandList::set_viewport(const Viewport& viewport) {
+void CommandList::set_viewport(const ViewportRect& viewport) {
   append(bytes_, Command::SetViewport, viewport);
   ++command_count_;
 }
@@ -395,7 +395,13 @@ Status<ExecuteError> CommandList::replay(Context& context) const {
       const std::span<const char> name =
           record.trailing<RenderPassPayload, char>(payload.name_length);
       pass.name = std::string_view{name.data(), name.size()};
-      context.begin_render_pass(pass);
+      // A back buffer that cannot be acquired opens no pass and ends the
+      // replay (command_list.hpp, Back buffers). The detail names the pass;
+      // the name views the list's own bytes, which outlive the call.
+      const ExecuteError error = context.begin_render_pass(pass);
+      if (error != ExecuteError::None) {
+        return Status<ExecuteError>{error, pass.name.empty() ? "begin_render_pass" : pass.name};
+      }
       break;
     }
     case Command::EndRenderPass:
@@ -408,7 +414,7 @@ Status<ExecuteError> CommandList::replay(Context& context) const {
       context.set_compute_pipeline(*record.payload<ObjectPayload<ComputePipeline>>().object);
       break;
     case Command::SetViewport:
-      context.set_viewport(record.payload<Viewport>());
+      context.set_viewport(record.payload<ViewportRect>());
       break;
     case Command::SetScissor:
       context.set_scissor(record.payload<ScissorRect>());

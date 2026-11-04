@@ -3,19 +3,17 @@
 #include "bw/platform/os/macos/platform_time.hpp"
 #include "bw/runtime/engine_loop.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 
 namespace {
-void require(bool condition, const char* message) {
-  if (!condition) {
-    std::fprintf(stderr, "%s\n", message);
-    std::exit(1);
-  }
-}
+using bw::testing::require;
 // Ownership lookup proves the executable's definitions, not libc++, served
 // the request. The byte and alignment policy is unit tested as new_request.
 void verify(void* pointer, bw::memory::NewRequest request) {
@@ -31,8 +29,15 @@ void verify_aligned(void* pointer, bw::memory::NewRequest request) {
 }
 struct StaticAllocation {
   StaticAllocation() : pointer(::operator new(37)) {}
+  // Runs after main, outside any scenario, so a failed requirement cannot
+  // reach the harness: it is reported here and ends the process with 1.
   ~StaticAllocation() {
-    verify(pointer, bw::memory::new_request(37));
+    try {
+      verify(pointer, bw::memory::new_request(37));
+    } catch (const std::exception& error) {
+      std::fprintf(stderr, "%s\n", error.what());
+      std::_Exit(1);
+    }
     ::operator delete(pointer);
     std::puts("late static delete reached engine heap");
   }
@@ -50,9 +55,9 @@ public:
   void tick(float, bool) override {}
   void pre_exit() override {}
 };
-} // namespace
 
-int main() {
+// The executable's contracts, one CTest entry.
+void contracts() {
   verify(early.pointer, bw::memory::new_request(37));
   for (std::size_t bytes : std::array<std::size_t, 3>{0, 17, 131073}) {
     const auto request = bw::memory::new_request(bytes);
@@ -108,5 +113,10 @@ int main() {
   loop.exit();
   // early's destructor runs after this completed EngineLoop Exit and main.
   // Its real heap lookup and global delete establish late-process ownership.
-  std::puts("global operator families, native lifecycle and early routing pass");
 }
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"global_allocation", contracts}};
+} // namespace
+
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

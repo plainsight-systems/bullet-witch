@@ -296,6 +296,11 @@ ResourceError validate_initial_data(const TextureDescription& description,
 ResourceError validate_texture(const TextureDescription& description, const TextureLimits& limits,
                                FormatCapability format_capability) noexcept {
   const TextureDescription& d = description;
+  // The back buffer mark is the viewport's own (viewport.hpp, invariant 2);
+  // a caller's description never carries it, whatever else is wrong with it.
+  if (has_usage(d.usage, TextureUsage::BackBuffer)) {
+    return ResourceError::BackBufferUsageReserved;
+  }
   if (d.extent.width == 0U || d.extent.height == 0U || d.extent.depth == 0U) {
     return ResourceError::ZeroSize;
   }

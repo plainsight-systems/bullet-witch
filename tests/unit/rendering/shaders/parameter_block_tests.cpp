@@ -3,13 +3,12 @@
 #include "bw/rendering/shaders/parameter_block.hpp"
 #include "bw/rendering/shaders/permutation.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <iostream>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -83,11 +82,7 @@ using bw::shaders::LayoutHash;
 using bw::shaders::MemberLayout;
 using bw::shaders::ParameterKind;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 const BlockLayout& inner_layout() { return BlockLayoutOf<InnerBlock>::value; }
 const BlockLayout& outer_layout() { return BlockLayoutOf<OuterBlock>::value; }
@@ -365,11 +360,7 @@ void binding_line_text() {
           "binding lines are exact");
 }
 
-using ScenarioFunction = void (*)();
-struct Scenario {
-  std::string_view name;
-  ScenarioFunction run;
-};
+using Scenario = bw::testing::Scenario<void>;
 constexpr std::array scenarios{
     Scenario{"dense_layout_offsets_equal_offsetof", dense_layout_offsets_equal_offsetof},
     Scenario{"hlsl_placement_matches_cpp_offsets", hlsl_placement_matches_cpp_offsets},
@@ -381,22 +372,4 @@ constexpr std::array scenarios{
 };
 } // namespace
 
-int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Provide one scenario name\n";
-    return 2;
-  }
-  for (const auto& scenario : scenarios) {
-    if (scenario.name == argv[1]) {
-      try {
-        scenario.run();
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

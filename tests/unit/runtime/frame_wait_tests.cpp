@@ -2,20 +2,17 @@
 // bw/runtime/engine.hpp. Pure arithmetic; no clock, loop or engine instance.
 #include "bw/runtime/engine.hpp"
 
+#include "bw/testing/harness.hpp"
+
+#include <array>
 #include <cmath>
-#include <iostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
 namespace {
 using bw::engine::requested_frame_wait;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 void near(float observed, float expected, float tolerance, std::string_view message) {
   require(std::abs(observed - expected) <= tolerance, message);
@@ -32,14 +29,9 @@ void run() {
   near(requested_frame_wait(30.0F, 0.0F), 1.0F / 30.0F, 1e-6F,
        "no work waits the whole cap interval");
 }
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"frame_wait", run}};
 } // namespace
 
-int main() {
-  try {
-    run();
-    return 0;
-  } catch (const std::exception& error) {
-    std::cerr << "frame_wait: " << error.what() << '\n';
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

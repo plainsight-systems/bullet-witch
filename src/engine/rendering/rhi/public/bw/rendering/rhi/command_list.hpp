@@ -35,6 +35,12 @@
 //   Threads: one thread records a given list at a time; different lists may
 //   be recorded on different threads at once. Replay happens on the thread
 //   that calls Device::execute, which is the one submission thread.
+//   Back buffers (viewport.hpp): a render pass whose color target is a
+//   viewport's back buffer acquires it from the surface at replay when it
+//   is the first such pass of the frame; the acquisition fails by name
+//   (ExecuteError::BackBufferUnavailable, BackBufferSizeMismatch), the
+//   replay stops there and the frame is not drawn. The back buffer is
+//   presented at end_frame, not by a command.
 //   Render passes: begin_render_pass and end_render_pass nest nothing;
 //   draws, the graphics pipeline, viewport, scissor, stencil reference,
 //   vertex and index buffer and occlusion query calls are legal only inside
@@ -68,7 +74,8 @@
 //   arguments and leaves the list intact; it returns the first failure a
 //   command reports and issues nothing after it (ExecuteError: the frame's
 //   transient ring is exhausted, or one draw block is larger than the ring;
-//   the ring never grows). The detail names the command. reset() empties
+//   the ring never grows; a back buffer could not be acquired). The detail
+//   names the command. reset() empties
 //   the list. A list is replayed at most once per recording.
 //
 // Algorithm: a vector of bytes holding (kind, size) headers followed by the
@@ -95,9 +102,15 @@ enum class ExecuteError : std::uint8_t {
   TransientBudgetExhausted,
   // One draw block alone exceeds the ring.
   DrawBlockTooLarge,
+  // begin_render_pass on a viewport's back buffer: the surface gave no
+  // drawable (viewport.hpp, invariant 4). The detail names the pass.
+  BackBufferUnavailable,
+  // The drawable's size differs from the back buffer's; the host resizes
+  // the viewport (viewport.hpp, invariant 5).
+  BackBufferSizeMismatch,
 };
 
-struct Viewport {
+struct ViewportRect {
   float x{};
   float y{};
   float width{};
@@ -177,7 +190,7 @@ public:
   // Pipeline and fixed state.
   void set_graphics_pipeline(GraphicsPipeline& pipeline);
   void set_compute_pipeline(ComputePipeline& pipeline);
-  void set_viewport(const Viewport& viewport);
+  void set_viewport(const ViewportRect& viewport);
   void set_scissor(const ScissorRect& rect);
   void set_stencil_reference(std::uint32_t reference);
 

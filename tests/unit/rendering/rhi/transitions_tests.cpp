@@ -4,7 +4,7 @@
 
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/lifetime.hpp"
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 #include "test_objects.hpp"
 
 #include <array>
@@ -17,7 +17,8 @@ using bw::rhi::Transition;
 using bw::rhi::TransitionError;
 using bw::rhi::TransitionPipelines;
 using bw::rhi::TransitionState;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 constexpr TransitionPipelines kGraphics{};
 
@@ -204,17 +205,16 @@ void redundant_is_not_an_error() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"unknown_before_resolves_from_tracked",
-                          unknown_before_resolves_from_tracked},
-    bw_rhi_test::Scenario{"legal_and_illegal_pairs", legal_and_illegal_pairs},
-    bw_rhi_test::Scenario{"double_begin_rejected", double_begin_rejected},
-    bw_rhi_test::Scenario{"unsolicited_end_rejected", unsolicited_end_rejected},
-    bw_rhi_test::Scenario{"pipelines_must_match", pipelines_must_match},
-    bw_rhi_test::Scenario{"end_writes_tracked_access", end_writes_tracked_access},
-    bw_rhi_test::Scenario{"use_requires_access_and_no_open_transition",
-                          use_requires_access_and_no_open_transition},
-    bw_rhi_test::Scenario{"redundant_is_not_an_error", redundant_is_not_an_error},
+    Scenario{"unknown_before_resolves_from_tracked", unknown_before_resolves_from_tracked},
+    Scenario{"legal_and_illegal_pairs", legal_and_illegal_pairs},
+    Scenario{"double_begin_rejected", double_begin_rejected},
+    Scenario{"unsolicited_end_rejected", unsolicited_end_rejected},
+    Scenario{"pipelines_must_match", pipelines_must_match},
+    Scenario{"end_writes_tracked_access", end_writes_tracked_access},
+    Scenario{"use_requires_access_and_no_open_transition",
+             use_requires_access_and_no_open_transition},
+    Scenario{"redundant_is_not_an_error", redundant_is_not_an_error},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

@@ -136,6 +136,10 @@ enum class TextureUsage : std::uint8_t {
   UnorderedAccess = 1U << 3U,
   CopySource = 1U << 4U,
   CopyDestination = 1U << 5U,
+  // The mark of a viewport's back buffer (viewport.hpp, invariant 2): set by
+  // the viewport's own texture, never by a caller; validate_texture rejects
+  // it with BackBufferUsageReserved.
+  BackBuffer = 1U << 6U,
 };
 [[nodiscard]] constexpr TextureUsage operator|(TextureUsage a, TextureUsage b) noexcept {
   // A flag combination is not an enumerator.
@@ -227,6 +231,8 @@ enum class ResourceError : std::uint8_t {
   DescriptorPoolExhausted,
   // The API rejected the request for a reason outside the checks above.
   BackendRejected,
+  // TextureUsage::BackBuffer in a caller's description (viewport.hpp).
+  BackBufferUsageReserved,
 };
 
 // The limits the texture validation checks against; from the capability
@@ -243,7 +249,8 @@ struct TextureLimits {
 // the device calls these before the backend and returns the same codes.
 // validate_texture checks that the format is known and supported, and checks
 // the extents against the maximum dimensions, the depth, the array size, the
-// samples and the mips. A buffer of size 0 is ZeroSize.
+// samples and the mips; a usage with BackBuffer is BackBufferUsageReserved,
+// checked first. A buffer of size 0 is ZeroSize.
 [[nodiscard]] ResourceError validate_buffer(const BufferDescription& description) noexcept;
 // Initial data checks (InitialDataMismatch or None): a buffer's data is
 // empty or exactly description.size bytes; a texture's data is empty or

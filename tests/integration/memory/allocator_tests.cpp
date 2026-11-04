@@ -3,6 +3,8 @@
 #include "bw/memory/allocator.hpp"
 #include "bw/platform/memory/allocator_platform.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <barrier>
 #include <cstddef>
@@ -10,14 +12,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <exception>
+#include <string>
+#include <string_view>
 #include <thread>
 
 namespace {
-void require(bool condition, const char* message) {
+using bw::testing::require;
+
+// The scenario's name, shared by the table and the worker-thread helper.
+constexpr std::string_view kScenario = "allocator";
+
+// A requirement checked on a worker thread, where a throw cannot reach the
+// harness: it prints "<scenario>: <message>" and ends the process with 1.
+// The line goes out in one write so failing threads do not interleave.
+void require_on_thread(bool condition, std::string_view message) {
   if (!condition) {
-    std::fprintf(stderr, "%s\n", message);
-    std::exit(1);
+    std::string line(kScenario);
+    line.append(": ").append(message).append("\n");
+    std::fwrite(line.data(), 1, line.size(), stderr);
+    std::_Exit(1);
   }
 }
 
@@ -79,8 +92,9 @@ void cross_thread_release_contract(bw::memory::Allocator& allocator) {
     std::array<unsigned char, 80> expected{};
     for (std::size_t index = 0; index < pointers.size(); ++index) {
       expected.fill(static_cast<unsigned char>(index));
-      require(std::memcmp(pointers[index], expected.data(), expected.size()) == 0,
-              "each allocation keeps its own payload after the allocating thread's cache clears");
+      require_on_thread(
+          std::memcmp(pointers[index], expected.data(), expected.size()) == 0,
+          "each allocation keeps its own payload after the allocating thread's cache clears");
       allocator.release(pointers[index]);
     }
     allocator.clear_current_thread_cache();
@@ -101,8 +115,8 @@ void many_threads_contract(bw::memory::Allocator& allocator) {
       ready.arrive_and_wait();
       std::array<unsigned char, 112> expected{};
       expected.fill(mark);
-      require(std::memcmp(payload, expected.data(), expected.size()) == 0,
-              "concurrent owners hold distinct storage");
+      require_on_thread(std::memcmp(payload, expected.data(), expected.size()) == 0,
+                        "concurrent owners hold distinct storage");
       allocator.release(payload);
       allocator.clear_current_thread_cache();
     });
@@ -124,9 +138,9 @@ void facade_contract() {
   bw::memory::mark_current_thread_cache_used();
   bw::memory::clear_current_thread_cache();
 }
-} // namespace
 
-int main() try {
+// The executable's contracts, one CTest entry.
+void contracts() {
   auto& allocator = bw::memory::general_allocator();
   require(&bw::memory::general_allocator() == &allocator, "one general allocator per process");
   require(allocator.internally_thread_safe(), "the general allocator is thread safe");
@@ -135,8 +149,10 @@ int main() try {
   cross_thread_release_contract(allocator);
   many_threads_contract(allocator);
   facade_contract();
-  std::puts("allocator contracts passed");
-} catch (const std::exception& error) {
-  std::fprintf(stderr, "Test infrastructure failure: %s\n", error.what());
-  return 1;
 }
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{kScenario, contracts}};
+} // namespace
+
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

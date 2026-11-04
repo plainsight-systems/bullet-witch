@@ -3,7 +3,7 @@
 #include "bw/rendering/rhi/binding_structure.hpp"
 
 #include "bw/rendering/shaders/root_layout.hpp"
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 #include <cstdint>
@@ -15,7 +15,8 @@ using bw::rhi::RootParameterKind;
 using bw::shaders::BindingUse;
 using bw::shaders::DescriptorArray;
 using bw::shaders::LayoutHash;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 constexpr std::uint32_t bit(DescriptorArray array) noexcept {
   return 1U << static_cast<std::uint32_t>(array);
@@ -118,11 +119,10 @@ void pipeline_binding_is_the_union() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"engine_layout_is_160_bytes_in_order",
-                          engine_layout_is_160_bytes_in_order},
-    bw_rhi_test::Scenario{"same_inputs_same_structure", same_inputs_same_structure},
-    bw_rhi_test::Scenario{"pipeline_binding_is_the_union", pipeline_binding_is_the_union},
+    Scenario{"engine_layout_is_160_bytes_in_order", engine_layout_is_160_bytes_in_order},
+    Scenario{"same_inputs_same_structure", same_inputs_same_structure},
+    Scenario{"pipeline_binding_is_the_union", pipeline_binding_is_the_union},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

@@ -152,3 +152,17 @@ changes and no invariant changes, the test must not need to change.
   pure function with a unit test; the integration test then keeps one probe
   that the path is wired.
 - Prefer one assertion per invariant over scenario sprawl.
+- A scenario is written only after its author names the change that this
+  scenario alone would catch. If a compile error, another scenario or
+  reading a one-line body catches it, the scenario is not written. One
+  table-driven scenario per invariant; never one executable per function.
+- A pure function pulled out of an OS-bound path is a row in the owning
+  module's existing test executable. A new executable is for a new public
+  header, not a new function.
+- Every test executable is a scenario table on
+  `tests/support/bw/testing/harness.hpp`. No test defines its own `require`
+  or `main`; a worker-thread check uses a local helper that exits 1.
+- A slice reports net lines of the test tree against net lines of the code
+  tree, whole trees against HEAD, measured by the architect, not taken from
+  an implementer's report. The ratio is expected to fall as plumbing ends;
+  a slice where it rises says why per scenario.

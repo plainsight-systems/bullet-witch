@@ -1,5 +1,6 @@
 #include "bw/rendering/rhi/device.hpp"
 
+#include "bw/platform/window/window.hpp"
 #include "bw/rendering/shaders/artifact.hpp"
 #include "bw/rendering/shaders/root_layout.hpp"
 
@@ -527,6 +528,42 @@ QueryResult Device::query_result(QueryPool& pool, std::uint32_t index, WaitPolic
   }
   const std::scoped_lock lock(mutex_);
   return backend_->query_result(pool, index, policy);
+}
+
+// ---- Viewports ---------------------------------------------------------------
+
+// device.hpp, Viewports: the two-argument validate_viewport against the
+// capability report's surface kind, then the backend. A refusal carries the
+// description's debug name as detail.
+ViewportResult Device::create_viewport(const ViewportDescription& description) {
+  const std::scoped_lock lock(mutex_);
+  const ViewportError error = validate_viewport(description, backend_->capabilities().surface_kind);
+  if (error != ViewportError::None) {
+    return ViewportResult::failure(error, description.debug_name);
+  }
+  return backend_->create_viewport(description);
+}
+
+// device.hpp, Viewports: validate_resize against the frame being recorded,
+// wait for every submitted frame, run the delete queue for them, then the
+// backend replaces the back buffer. The device's frame number is the frame
+// being recorded, the one a back buffer acquired now carries. The wait and
+// the queue run here under the device mutex rather than through
+// Device::wait_idle, which takes the same mutex.
+Status<ViewportError> Device::resize_viewport(Viewport& viewport, Extent2 pixel_size) {
+  const std::scoped_lock lock(mutex_);
+  const ViewportError error = validate_resize(viewport.frame_state(), frame_, pixel_size);
+  if (error != ViewportError::None) {
+    return Status<ViewportError>{error, viewport.description().debug_name};
+  }
+  backend_->wait_idle();
+  static_cast<void>(queue_.destroy_completed(backend_->completed_frame()));
+  return backend_->resize_viewport(viewport, pixel_size);
+}
+
+void Device::set_vsync(Viewport& viewport, bool vsync) {
+  const std::scoped_lock lock(mutex_);
+  backend_->set_vsync(viewport, vsync);
 }
 
 // ---- Execution and the frame boundary --------------------------------------

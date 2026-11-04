@@ -13,11 +13,15 @@
 //   converter's bind points are not 0, 1, 2, or when the binding structure
 //   is not the 160-byte layout the converter builds.
 //   Frames: one MTL::CommandBuffer per frame (metal_context.hpp). submit_frame
+//   presents every drawable the frame acquired on it (metal_viewport.hpp),
 //   commits it, then a second command buffer that signals the frame's value
 //   on the frame event; completed_frame is the event's value; the waits block
 //   in the event and never spin. Fences written in the frame become
 //   Submitted at its submit. take_gpu_fault reports, once, that either
 //   command buffer of a frame completed with an error.
+//   Viewports: the surface kind is MetalLayer; create_viewport configures
+//   the layer and makes the back buffer (metal_viewport.hpp);
+//   resize_viewport and set_vsync forward to the viewport.
 //   Failure details: a failure's detail is a view into this backend's last
 //   error text, valid until the next failing call of the backend; the device
 //   serializes the creation calls that produce one.
@@ -48,6 +52,7 @@
 namespace bw::rhi::metal {
 
 class MetalGpuFence;
+class MetalViewport;
 
 class MetalBackend final : public Backend {
 public:
@@ -93,6 +98,10 @@ public:
   [[nodiscard]] StagingBufferResult create_staging_buffer(std::uint64_t size,
                                                           std::string_view debug_name) override;
   [[nodiscard]] QueryPoolResult create_query_pool(const QueryPoolDescription& description) override;
+  [[nodiscard]] ViewportResult create_viewport(const ViewportDescription& description) override;
+  [[nodiscard]] Status<ViewportError> resize_viewport(Viewport& viewport,
+                                                      Extent2 pixel_size) override;
+  void set_vsync(Viewport& viewport, bool vsync) override;
 
   [[nodiscard]] LockResult lock_buffer(Buffer& buffer, BufferRange range) override;
   [[nodiscard]] LockError unlock_buffer(Buffer& buffer) override;
@@ -125,6 +134,10 @@ public:
   // A fence written in the frame being recorded; it becomes Submitted at
   // that frame's submit_frame.
   void track_fence(MetalGpuFence& fence);
+  // A viewport whose back buffer the frame being recorded acquired; its
+  // drawable is presented at that frame's submit_frame. Once per frame per
+  // viewport, however many passes bind it.
+  void track_viewport(MetalViewport& viewport);
 
 private:
   MetalBackend(const BackendOptions& options, MTL::Device* device, MTL::CommandQueue* queue,
@@ -165,6 +178,10 @@ private:
   std::unique_ptr<WritableResources> writable_{};
   std::unique_ptr<MetalContext> context_{};
   std::vector<MetalGpuFence*> fences_written_{};
+  // Observers: a viewport is destroyed by the delete queue only after the
+  // frame that acquired its back buffer completed, which is after that
+  // frame's submit_frame emptied this list.
+  std::vector<MetalViewport*> viewports_acquired_{};
   // Set by a completed handler when submitted work ended in error
   // (take_gpu_fault); shared with the handlers, which may outlive the backend.
   std::shared_ptr<std::atomic<bool>> gpu_fault_{std::make_shared<std::atomic<bool>>(false)};

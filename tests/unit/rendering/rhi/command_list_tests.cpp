@@ -11,8 +11,8 @@
 #include "bw/rendering/rhi/queries.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/shaders/artifact.hpp"
+#include "bw/testing/harness.hpp"
 #include "pipeline_objects.hpp"
-#include "test_main.hpp"
 #include "test_objects.hpp"
 
 #include <array>
@@ -31,7 +31,8 @@ using bw::rhi::ExecuteError;
 using bw::rhi::Ref;
 using bw::rhi::Transition;
 using bw::rhi::TransitionBatch;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // One call the Context received, with copies of the arguments a scenario
 // compares.
@@ -44,7 +45,7 @@ struct Call {
   std::uint64_t number{};
   std::uint32_t slot{};
   const void* object{};
-  bw::rhi::Viewport viewport{};
+  bw::rhi::ViewportRect viewport{};
   bw::rhi::ScissorRect scissor{};
   bw::rhi::DrawArguments draw{};
   bw::rhi::BufferCopy copy{};
@@ -59,8 +60,10 @@ struct Call {
 class RecordingContext final : public bw::rhi::Context {
 public:
   std::vector<Call> calls;
-  // set_draw_block returns failures[i] for its i-th call, None past the end.
+  // set_draw_block returns failures[i] for its i-th call, None past the end;
+  // begin_render_pass returns pass_result.
   std::vector<ExecuteError> failures;
+  ExecuteError pass_result{ExecuteError::None};
 
   void begin_transitions(const TransitionBatch& batch) override {
     calls.push_back(Call{.name = "begin_transitions",
@@ -70,9 +73,10 @@ public:
     calls.push_back(Call{.name = "end_transitions",
                          .transitions = {batch.transitions.begin(), batch.transitions.end()}});
   }
-  void begin_render_pass(const bw::rhi::RenderPassDescription& pass) override {
+  ExecuteError begin_render_pass(const bw::rhi::RenderPassDescription& pass) override {
     calls.push_back(
         Call{.name = "begin_render_pass", .text = std::string(pass.name), .pass = pass});
+    return pass_result;
   }
   void end_render_pass() override { calls.push_back(Call{.name = "end_render_pass"}); }
   void set_graphics_pipeline(bw::rhi::GraphicsPipeline& pipeline) override {
@@ -81,7 +85,7 @@ public:
   void set_compute_pipeline(bw::rhi::ComputePipeline& pipeline) override {
     calls.push_back(Call{.name = "set_compute_pipeline", .object = &pipeline});
   }
-  void set_viewport(const bw::rhi::Viewport& viewport) override {
+  void set_viewport(const bw::rhi::ViewportRect& viewport) override {
     calls.push_back(Call{.name = "set_viewport", .viewport = viewport});
   }
   void set_scissor(const bw::rhi::ScissorRect& rect) override {
@@ -257,7 +261,7 @@ void replay_in_order_with_copied_arguments() {
   pass.name = pass_name;
   list.begin_render_pass(pass);
   pass_name.assign("Overwritten");
-  list.set_viewport(bw::rhi::Viewport{1.0F, 2.0F, 64.0F, 32.0F, 0.0F, 1.0F});
+  list.set_viewport(bw::rhi::ViewportRect{1.0F, 2.0F, 64.0F, 32.0F, 0.0F, 1.0F});
   list.set_scissor(bw::rhi::ScissorRect{3, 4, 50, 20});
   list.set_stencil_reference(7);
   list.set_vertex_buffer(1, *buffer, 48);
@@ -411,6 +415,40 @@ void replay_stops_at_first_failure() {
           "a failure on the first command stops at once");
 }
 
+// (command_list.hpp, CommandList::replay: the first failure a command
+// reports is returned and nothing is issued after it; a back buffer that
+// could not be acquired is such a failure, and the detail names the pass);
+// (backend.hpp, Context::begin_render_pass: BackBufferUnavailable or
+// BackBufferSizeMismatch opens no pass). Each code the context returns is
+// returned unchanged; the commands after the pass are not issued.
+void replay_stops_at_render_pass_failure() {
+  bw::rhi::DeferredDeleteQueue queue;
+  const Ref<bw_rhi_test::TestTexture> target = bw_rhi_test::make<bw_rhi_test::TestTexture>(
+      queue, bw_rhi_test::render_target_description("Target"));
+  const std::array<Transition, 1> transitions{
+      Transition{target.get(), Access::Unknown, Access::RenderTarget}};
+  bw::rhi::RenderPassDescription pass{};
+  pass.color_count = 1;
+  pass.colors[0].texture = target.get();
+  pass.name = "Present pass";
+  for (const ExecuteError code :
+       {ExecuteError::BackBufferUnavailable, ExecuteError::BackBufferSizeMismatch}) {
+    CommandList list;
+    list.transition(TransitionBatch{transitions, {}});
+    list.begin_render_pass(pass);
+    list.draw(bw::rhi::DrawArguments{3});
+    list.end_render_pass();
+    RecordingContext context;
+    context.pass_result = code;
+    const bw::rhi::Status<ExecuteError> status = list.replay(context);
+    require(!status.ok() && status.error() == code, "the pass's failure is returned");
+    require(status.detail() == "Present pass", "the detail names the pass");
+    constexpr std::array<std::string_view, 3> issued{"begin_transitions", "end_transitions",
+                                                     "begin_render_pass"};
+    require(names_are(context, issued), "nothing is issued after the failing pass");
+  }
+}
+
 // (command_list.hpp, CommandList): resource pointers are copied as observers; the
 // list adds no references.
 void recording_adds_no_reference() {
@@ -543,15 +581,15 @@ void every_command_replays_with_copied_arguments() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"replay_in_order_with_copied_arguments",
-                          replay_in_order_with_copied_arguments},
-    bw_rhi_test::Scenario{"reset_empties_and_pass_tracking", reset_empties_and_pass_tracking},
-    bw_rhi_test::Scenario{"markers_record_in_debug", markers_record_in_debug},
-    bw_rhi_test::Scenario{"replay_stops_at_first_failure", replay_stops_at_first_failure},
-    bw_rhi_test::Scenario{"recording_adds_no_reference", recording_adds_no_reference},
-    bw_rhi_test::Scenario{"every_command_replays_with_copied_arguments",
-                          every_command_replays_with_copied_arguments},
+    Scenario{"replay_in_order_with_copied_arguments", replay_in_order_with_copied_arguments},
+    Scenario{"reset_empties_and_pass_tracking", reset_empties_and_pass_tracking},
+    Scenario{"markers_record_in_debug", markers_record_in_debug},
+    Scenario{"replay_stops_at_first_failure", replay_stops_at_first_failure},
+    Scenario{"replay_stops_at_render_pass_failure", replay_stops_at_render_pass_failure},
+    Scenario{"recording_adds_no_reference", recording_adds_no_reference},
+    Scenario{"every_command_replays_with_copied_arguments",
+             every_command_replays_with_copied_arguments},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

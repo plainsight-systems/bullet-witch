@@ -2,7 +2,7 @@
 // per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/result.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 #include <cstdint>
@@ -11,7 +11,8 @@
 namespace {
 using bw::rhi::Result;
 using bw::rhi::Status;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 enum class TestError : std::uint8_t { None, First, Second };
 
@@ -43,8 +44,8 @@ void success_failure_and_detail() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"success_failure_and_detail", success_failure_and_detail},
+    Scenario{"success_failure_and_detail", success_failure_and_detail},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

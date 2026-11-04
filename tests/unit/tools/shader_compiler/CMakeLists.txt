@@ -15,7 +15,7 @@ set(shader_compiler_logic_scenarios
   mach_o_uuid_walk
   enumeration_order)
 add_executable(shader_compiler_logic_tests shader_compiler_logic_tests.cpp)
-target_link_libraries(shader_compiler_logic_tests PRIVATE bw_shader_compiler_logic bw_shaders)
+target_link_libraries(shader_compiler_logic_tests PRIVATE bw_test_harness bw_shader_compiler_logic bw_shaders)
 foreach(scenario IN LISTS shader_compiler_logic_scenarios)
   add_test(NAME unit.shader_compiler.${scenario} COMMAND shader_compiler_logic_tests ${scenario})
   set_tests_properties(unit.shader_compiler.${scenario} PROPERTIES TIMEOUT 10)

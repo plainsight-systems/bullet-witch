@@ -2,13 +2,12 @@
 // scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/root_layout.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <iostream>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -20,11 +19,7 @@ using bw::shaders::RootElement;
 using bw::shaders::RootLayout;
 using bw::shaders::StaticSlot;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 RootLayout layout_with(std::uint32_t slot, std::string_view name, std::uint64_t hash) {
   RootLayout layout{};
@@ -223,11 +218,7 @@ void placement_table() {
   require(bw::shaders::kVulkanPushConstantBytes == 100U, "push constant block is 100 bytes");
 }
 
-using ScenarioFunction = void (*)();
-struct Scenario {
-  std::string_view name;
-  ScenarioFunction run;
-};
+using Scenario = bw::testing::Scenario<void>;
 constexpr std::array scenarios{
     Scenario{"hash_changes_when_slot_moves", hash_changes_when_slot_moves},
     Scenario{"find_static_slot", find_static_slot},
@@ -236,22 +227,4 @@ constexpr std::array scenarios{
 };
 } // namespace
 
-int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Provide one scenario name\n";
-    return 2;
-  }
-  for (const auto& scenario : scenarios) {
-    if (scenario.name == argv[1]) {
-      try {
-        scenario.run();
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

@@ -4,13 +4,14 @@
 // three elements, which is part of their contract.
 #include "bw/math/simd/register.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
@@ -24,11 +25,7 @@ static_assert(std::is_same_v<simd::Register, simd::Register4d>);
 static_assert(std::is_trivially_copyable_v<simd::Register4f>);
 static_assert(std::is_trivially_copyable_v<simd::Register4d>);
 
-void require(bool condition, const char* message) {
-  if (!condition) {
-    throw std::runtime_error{message};
-  }
-}
+using bw::testing::require;
 
 template <typename T> using Register = decltype(simd::broadcast(T{}));
 
@@ -127,20 +124,20 @@ void double_pair_routing() {
     require(simd::any_greater(simd::load(values.data()), zero), "every lane participates");
   }
 }
+
+// The executable's contracts, one CTest entry.
+void contracts() {
+  refinement<float>();
+  refinement<double>();
+  reductions<float>();
+  reductions<double>();
+  three_element_access<float>();
+  three_element_access<double>();
+  double_pair_routing();
+}
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"math_register", contracts}};
 } // namespace
 
-int main() {
-  try {
-    refinement<float>();
-    refinement<double>();
-    reductions<float>();
-    reductions<double>();
-    three_element_access<float>();
-    three_element_access<double>();
-    double_pair_routing();
-    return 0;
-  } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

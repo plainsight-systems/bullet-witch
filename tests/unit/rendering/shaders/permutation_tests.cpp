@@ -2,13 +2,12 @@
 // scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/shaders/permutation.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <iostream>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -23,11 +22,7 @@ using bw::shaders::PermutationId;
 using bw::shaders::ShaderDescription;
 using bw::shaders::ShaderStage;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 enum class Quality : std::uint8_t { Low, Medium, High, Ultra };
 
@@ -149,11 +144,7 @@ void registry_names_unique() {
           "find_shader returns null on a local registry");
 }
 
-using ScenarioFunction = void (*)();
-struct Scenario {
-  std::string_view name;
-  ScenarioFunction run;
-};
+using Scenario = bw::testing::Scenario<void>;
 constexpr std::array scenarios{
     Scenario{"id_round_trip_and_count", id_round_trip_and_count},
     Scenario{"defines_one_per_dimension_in_order", defines_one_per_dimension_in_order},
@@ -162,22 +153,4 @@ constexpr std::array scenarios{
 };
 } // namespace
 
-int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Provide one scenario name\n";
-    return 2;
-  }
-  for (const auto& scenario : scenarios) {
-    if (scenario.name == argv[1]) {
-      try {
-        scenario.run();
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

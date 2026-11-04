@@ -5,6 +5,8 @@
 #include "bw/memory/memory_failure.hpp"
 #include "bw/platform/os/macos/platform_memory.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -16,7 +18,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -25,11 +26,7 @@
 namespace {
 using bw::platform::macos::VirtualMemoryBlock;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 class MappingOwner {
 public:
@@ -198,18 +195,17 @@ void failure_semantics() {
           "a precondition failure is not reported as out of memory");
 #endif
 }
+
+// The executable's contracts, one CTest entry.
+void contracts() {
+  mapping_covers_rounded_extent();
+  decommit_keeps_the_address();
+  release_clears_only_owner_descriptor();
+  failure_semantics();
+}
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"memory", contracts}};
 } // namespace
 
-int main() {
-  try {
-    mapping_covers_rounded_extent();
-    decommit_keeps_the_address();
-    release_clears_only_owner_descriptor();
-    failure_semantics();
-    std::cout << "virtual memory contracts passed\n";
-    return 0;
-  } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

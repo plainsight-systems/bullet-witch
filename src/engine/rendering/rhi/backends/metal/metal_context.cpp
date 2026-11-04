@@ -2,14 +2,18 @@
 
 #include "bw/memory/alignment.hpp"
 #include "bw/rendering/rhi/access.hpp"
+#include "bw/rendering/rhi/pipeline_states.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 
 #include "metal_device.hpp"
 #include "metal_formats.hpp"
 #include "metal_objects.hpp"
+#include "metal_viewport.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -316,10 +320,63 @@ void MetalContext::end_transitions(const TransitionBatch& batch) {
 // The clear values are the textures' (resources.hpp, ClearValue). The
 // scissor is reset to the whole target with the viewport. The description's
 // load and store actions pass through unchanged.
-void MetalContext::begin_render_pass(const RenderPassDescription& pass) {
+// Back buffers first, all or nothing: each one among the color targets is
+// acquired from its viewport for the frame being recorded. On the first
+// failure, every drawable this pass acquired (not one an earlier pass of the
+// frame holds) is released unpresented and its viewport holds nothing
+// again; the error is returned before any encoder is ended or opened and
+// nothing is tracked (backend.hpp, begin_render_pass). A back buffer whose
+// viewport replaced or released it reaches no viewport and is
+// BackBufferUnavailable. Only after every acquisition succeeded is the
+// command buffer created, and only then are the viewports tracked for
+// present, so a tracked viewport always has the frame's command buffer
+// (metal_context.hpp, Back buffers).
+ExecuteError MetalContext::begin_render_pass(const RenderPassDescription& pass) {
   const AutoreleaseScope pool;
+  const std::uint64_t frame = backend_->recording_frame();
+  // Every back buffer's viewport among the color targets, and the subset
+  // whose drawable this pass acquired rather than reused.
+  std::array<MetalViewport*, kMaxRenderTargets> viewports{};
+  std::array<MetalViewport*, kMaxRenderTargets> acquired_here{};
+  std::size_t viewport_count = 0;
+  std::size_t acquired_count = 0;
+  ExecuteError error = ExecuteError::None;
+  for (std::uint32_t i = 0; i < pass.color_count; ++i) {
+    auto& texture = static_cast<MetalTexture&>(*pass.colors[i].texture);
+    if (!texture.is_back_buffer()) {
+      continue;
+    }
+    MetalViewport* viewport = texture.viewport();
+    if (viewport == nullptr) {
+      error = ExecuteError::BackBufferUnavailable;
+      break;
+    }
+    const bool fresh = decide_acquire(viewport->frame_state(), frame) == AcquireDecision::Acquire;
+    error = viewport->acquire(frame);
+    if (error != ExecuteError::None) {
+      break;
+    }
+    if (fresh) {
+      acquired_here[acquired_count] = viewport;
+      ++acquired_count;
+    }
+    viewports[viewport_count] = viewport;
+    ++viewport_count;
+  }
+  if (error != ExecuteError::None) {
+    for (std::size_t i = 0; i < acquired_count; ++i) {
+      CA::MetalDrawable* drawable = acquired_here[i]->take_drawable(frame);
+      if (drawable != nullptr) {
+        drawable->release();
+      }
+    }
+    return error;
+  }
   end_encoder();
   MTL::CommandBuffer* commands = command_buffer();
+  for (std::size_t i = 0; i < viewport_count; ++i) {
+    backend_->track_viewport(*viewports[i]);
+  }
   const ScopedRelease<MTL::RenderPassDescriptor> descriptor{
       MTL::RenderPassDescriptor::alloc()->init()};
   Extent2 extent{1, 1};
@@ -384,6 +441,7 @@ void MetalContext::begin_render_pass(const RenderPassDescription& pass) {
   render_encoder_->setViewport(MTL::Viewport{0.0, 0.0, static_cast<double>(extent.width),
                                              static_cast<double>(extent.height), 0.0, 1.0});
   render_encoder_->setScissorRect(MTL::ScissorRect{0, 0, extent.width, extent.height});
+  return ExecuteError::None;
 }
 
 // Ends the render encoder.
@@ -426,7 +484,7 @@ void MetalContext::set_compute_pipeline(ComputePipeline& pipeline) {
   compute_pipeline_ = &static_cast<MetalComputePipeline&>(pipeline);
 }
 
-void MetalContext::set_viewport(const Viewport& viewport) {
+void MetalContext::set_viewport(const ViewportRect& viewport) {
   if (render_encoder_ == nullptr) {
     return;
   }
@@ -573,7 +631,9 @@ void MetalContext::dispatch(const DispatchArguments& arguments) {
 // ---- Copies ------------------------------------------------------------------------
 
 // Every copy is a blit on the context's blit encoder; a blit encoder stays
-// open across consecutive copies.
+// open across consecutive copies. A back buffer's texture is its drawable's
+// while the frame holds one; a copy that names a back buffer holding none
+// records nothing.
 void MetalContext::copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy) {
   if (render_encoder_ != nullptr) {
     return;
@@ -585,7 +645,8 @@ void MetalContext::copy_buffer(Buffer& source, Buffer& destination, const Buffer
 
 void MetalContext::copy_texture(Texture& source, Texture& destination,
                                 const TextureCopyRegion& region) {
-  if (render_encoder_ != nullptr) {
+  if (render_encoder_ != nullptr || static_cast<MetalTexture&>(source).texture() == nullptr ||
+      static_cast<MetalTexture&>(destination).texture() == nullptr) {
     return;
   }
   const TextureDescription& d = source.description();
@@ -608,7 +669,7 @@ void MetalContext::copy_texture(Texture& source, Texture& destination,
 
 void MetalContext::copy_buffer_to_texture(Buffer& source, const BufferTextureRegion& region,
                                           Texture& destination) {
-  if (render_encoder_ != nullptr) {
+  if (render_encoder_ != nullptr || static_cast<MetalTexture&>(destination).texture() == nullptr) {
     return;
   }
   const TextureDescription& d = destination.description();
@@ -630,7 +691,7 @@ void MetalContext::copy_buffer_to_texture(Buffer& source, const BufferTextureReg
 void MetalContext::copy_texture_to_staging(Texture& source, std::uint8_t mip, std::uint16_t slice,
                                            StagingBuffer& destination,
                                            std::uint64_t destination_offset) {
-  if (render_encoder_ != nullptr) {
+  if (render_encoder_ != nullptr || static_cast<MetalTexture&>(source).texture() == nullptr) {
     return;
   }
   const TextureDescription& d = source.description();

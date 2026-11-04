@@ -10,6 +10,18 @@
 //   first. One encoder is open at a time: a render encoder from
 //   begin_render_pass to end_render_pass, else a blit encoder for copies or
 //   a compute encoder for dispatches, ended when another kind is needed.
+//   Back buffers (viewport.hpp): begin_render_pass acquires every back
+//   buffer among its color targets from its viewport before it touches the
+//   command buffer (metal_viewport.hpp, acquire), all or nothing: a failed
+//   acquisition releases, unpresented, every drawable the same pass
+//   acquired, leaves those viewports holding nothing, tracks nothing and is
+//   returned with no encoder opened or ended. When every acquisition
+//   succeeded, the frame's command buffer is created first and the
+//   viewports are then registered with the backend for present at
+//   submit_frame. Invariant: a viewport the backend tracks in a frame
+//   implies that frame has a command buffer, which finish_frame returns. A
+//   copy from a back buffer that holds no drawable records nothing (the
+//   validation layer names it, BackBufferNotAcquired).
 //   Binding (binding_structure.hpp): the context keeps the 160-byte top
 //   level argument buffer of the engine root layout: the three table
 //   addresses (constant for the device), the draw block's address, the
@@ -71,11 +83,11 @@ public:
 
   void begin_transitions(const TransitionBatch& batch) override;
   void end_transitions(const TransitionBatch& batch) override;
-  void begin_render_pass(const RenderPassDescription& pass) override;
+  [[nodiscard]] ExecuteError begin_render_pass(const RenderPassDescription& pass) override;
   void end_render_pass() override;
   void set_graphics_pipeline(GraphicsPipeline& pipeline) override;
   void set_compute_pipeline(ComputePipeline& pipeline) override;
-  void set_viewport(const Viewport& viewport) override;
+  void set_viewport(const ViewportRect& viewport) override;
   void set_scissor(const ScissorRect& rect) override;
   void set_stencil_reference(std::uint32_t reference) override;
   void set_vertex_buffer(std::uint32_t slot, Buffer& buffer, std::uint64_t offset) override;

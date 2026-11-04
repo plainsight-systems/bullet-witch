@@ -10,14 +10,13 @@
 #include "bw/shader_compiler/enumeration.hpp"
 #include "bw/shader_compiler/logic.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstdint>
-#include <exception>
 #include <functional>
-#include <iostream>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -71,11 +70,7 @@ using bw::shaders::ShaderDescription;
 using bw::shaders::ShaderStage;
 using bw::shaders::ShaderTarget;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 // Filled from the implementation once; see input_hash_items.
 constexpr std::string_view kReferenceInputHash =
@@ -663,10 +658,7 @@ void enumeration_order() {
   require(text == expected, "enumeration order");
 }
 
-struct Scenario {
-  std::string_view name{};
-  void (*run)(){};
-};
+using Scenario = bw::testing::Scenario<void>;
 
 constexpr std::array scenarios{
     Scenario{"constant_buffer_classification", constant_buffer_classification},
@@ -685,22 +677,4 @@ constexpr std::array scenarios{
 
 } // namespace
 
-int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Provide one scenario name\n";
-    return 2;
-  }
-  for (const auto& scenario : scenarios) {
-    if (scenario.name == argv[1]) {
-      try {
-        scenario.run();
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

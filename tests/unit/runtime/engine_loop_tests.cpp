@@ -4,12 +4,12 @@
 // prove the loop executes, measures and publishes that wait.
 #include "bw/runtime/engine_loop.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,11 +19,7 @@ using bw::engine::ApplicationTime;
 using bw::engine::Engine;
 using bw::engine::EngineLoop;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 void near(double observed, double expected, double tolerance, std::string_view message) {
   require(std::abs(observed - expected) <= tolerance, message);
@@ -253,11 +249,7 @@ void seconds_limit_ends_the_run() {
           "the limit ends the run before the engine's own exit");
 }
 
-using ScenarioFunction = void (*)();
-struct Scenario {
-  std::string_view name;
-  ScenarioFunction run;
-};
+using Scenario = bw::testing::Scenario<void>;
 constexpr std::array scenarios{
     Scenario{"defaults", defaults},
     Scenario{"lifecycle_order", lifecycle_order},
@@ -273,22 +265,4 @@ constexpr std::array scenarios{
 };
 } // namespace
 
-int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Provide one scenario name\n";
-    return 2;
-  }
-  for (const auto& scenario : scenarios) {
-    if (scenario.name == argv[1]) {
-      try {
-        scenario.run();
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }
