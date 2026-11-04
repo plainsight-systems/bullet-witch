@@ -45,8 +45,14 @@ set(BW_PUBLIC_HEADERS
   bw/rendering/rhi/synchronization.hpp
   bw/rendering/rhi/queries.hpp
   bw/rendering/rhi/command_list.hpp
+  bw/rendering/rhi/viewport.hpp
   bw/rendering/rhi/backend.hpp
   bw/rendering/rhi/device.hpp
+  bw/platform/window/window.hpp
+  bw/platform/os/macos/window.hpp
+  bw/rendering/geometry/vertex_streams.hpp
+  bw/rendering/geometry/pulled_mesh_fixture.hpp
+  bw/hosts/game_host_options.hpp
 )
 # The shader_compiler tool's headers exist as a target only with the shader
 # toolchain configured (tools/shader_compiler is added under it).
@@ -87,6 +93,8 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
     bw_tasks_headers bw_concurrency_headers bw_platform_memory_headers
     bw_platform_time_headers bw_macos_time_headers bw_platform_tasks_headers
     bw_platform_diagnostics_headers bw_shaders_headers bw_rhi_headers
+    bw_platform_window_headers bw_macos_window_headers bw_geometry_headers
+    bw_game_host_options_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE

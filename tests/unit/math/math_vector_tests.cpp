@@ -3,10 +3,11 @@
 #include "bw/math/vector/vector3.hpp"
 #include "bw/platform/math/math.hpp"
 
+#include "bw/testing/harness.hpp"
+
+#include <array>
 #include <cmath>
-#include <cstdio>
 #include <limits>
-#include <stdexcept>
 #include <type_traits>
 
 namespace {
@@ -27,11 +28,7 @@ static_assert(!std::is_convertible_v<Vector3d, Vector3f>);
 static_assert(std::is_constructible_v<Vector3d, Vector3f>);
 static_assert(std::is_constructible_v<Vector3f, Vector3d>);
 
-void require(bool condition, const char* message) {
-  if (!condition) {
-    throw std::runtime_error(message);
-  }
-}
+using bw::testing::require;
 
 template <typename T> void near(T actual, T expected, const char* message) {
   const T allowed = T{32} * std::numeric_limits<T>::epsilon() * std::fmax(T{1}, std::abs(expected));
@@ -107,17 +104,16 @@ void precision_contracts() {
   const Vector3d large{3.e100, 4.e100, 0.0};
   near(large.length(), 5.e100, "double length does not use float intermediary");
 }
+
+// The executable's contracts, one CTest entry.
+void contracts() {
+  numeric_contracts<float>();
+  numeric_contracts<double>();
+  precision_contracts();
+}
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"math_vector", contracts}};
 } // namespace
 
-int main() {
-  try {
-    numeric_contracts<float>();
-    numeric_contracts<double>();
-    precision_contracts();
-    std::puts("vector contracts passed");
-    return 0;
-  } catch (const std::exception& error) {
-    std::fprintf(stderr, "%s\n", error.what());
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

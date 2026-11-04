@@ -1,21 +1,17 @@
 // Unit test: public contracts of bw/math/rotation/quaternion_register.hpp.
 #include "bw/math/rotation/quaternion_register.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
-#include <stdexcept>
 #include <type_traits>
 
 namespace {
 namespace simd = bw::math::simd;
 
-void require(bool condition, const char* message) {
-  if (!condition) {
-    throw std::runtime_error{message};
-  }
-}
+using bw::testing::require;
 
 template <typename T> using Register = decltype(simd::broadcast(T{}));
 
@@ -88,20 +84,19 @@ template <typename T> void normalization() {
   close<T>(simd::normalize_quaternion(value<T>({T{0}, T{0}, T{0}, T{-2}})),
            {T{0}, T{0}, T{0}, T{-1}}, "normalization does not force positive W");
 }
+
+// The executable's contracts, one CTest entry.
+void contracts() {
+  products<float>();
+  products<double>();
+  rotations<float>();
+  rotations<double>();
+  normalization<float>();
+  normalization<double>();
+}
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"quaternion_register", contracts}};
 } // namespace
 
-int main() {
-  try {
-    products<float>();
-    products<double>();
-    rotations<float>();
-    rotations<double>();
-    normalization<float>();
-    normalization<double>();
-    std::cout << "quaternion register contracts passed\n";
-    return 0;
-  } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

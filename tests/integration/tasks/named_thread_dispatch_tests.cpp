@@ -2,18 +2,32 @@
 // Needs threads.
 #include "bw/tasks/named_thread_dispatch.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <semaphore>
+#include <string>
+#include <string_view>
 #include <thread>
 
 namespace {
-void require(bool value, const char* message) {
-  if (!value) {
-    std::fprintf(stderr, "%s\n", message);
-    std::abort();
+using bw::testing::require;
+
+// The scenario's name, shared by the table and the worker-thread helper.
+constexpr std::string_view kScenario = "named_thread_dispatch";
+
+// A requirement checked on a worker thread, where a throw cannot reach the
+// harness: it prints "<scenario>: <message>" and ends the process with 1.
+// The line goes out in one write so failing threads do not interleave.
+void require_on_thread(bool condition, std::string_view message) {
+  if (!condition) {
+    std::string line(kScenario);
+    line.append(": ").append(message).append("\n");
+    std::fwrite(line.data(), 1, line.size(), stderr);
+    std::_Exit(1);
   }
 }
 
@@ -41,7 +55,8 @@ void broadcast_ownership() {
     dispatch.attach_current_thread(role);
     attached.release();
     pump.acquire();
-    require(dispatch.process_until_idle() == 1, "an owner receives exactly one broadcast");
+    require_on_thread(dispatch.process_until_idle() == 1,
+                      "an owner receives exactly one broadcast");
     completed.release();
     dispatch.detach_current_thread();
   };
@@ -92,10 +107,15 @@ void priorities_and_fifo() {
   require(dispatch.process_until_idle() == 0, "an idle pump returns zero");
   dispatch.shutdown();
 }
-} // namespace
 
-int main() {
+// The executable's contracts, one CTest entry.
+void contracts() {
   broadcast_ownership();
   priorities_and_fifo();
-  std::puts("named-thread dispatch contracts passed");
 }
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{kScenario, contracts}};
+} // namespace
+
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

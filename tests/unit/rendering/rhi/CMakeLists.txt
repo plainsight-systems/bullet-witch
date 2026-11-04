@@ -34,7 +34,8 @@ set(rhi_resources_scenarios
   viewable_initial_tracked_access_and_kind
   array_for_by_dimension_and_kind
   initial_data_validation_named
-  lock_validation_named)
+  lock_validation_named
+  back_buffer_usage_reserved)
 set(rhi_transitions_scenarios
   unknown_before_resolves_from_tracked
   legal_and_illegal_pairs
@@ -59,27 +60,37 @@ set(rhi_pipeline_states_scenarios
   pipeline_validation_named
   graphics_pipeline_holds_states_and_drops_shaders
   compute_pipeline_copies_hash_and_group_size)
+set(rhi_viewport_scenarios
+  validate_viewport_named_in_order
+  validate_with_backend_kind
+  back_buffer_description
+  acquire_once_per_frame_release_at_boundary
+  size_mismatch_holds_nothing
+  resize_refused_while_acquired_then_applies
+  construction_state_and_name)
 set(rhi_command_list_scenarios
   replay_in_order_with_copied_arguments
   reset_empties_and_pass_tracking
   markers_record_in_debug
   replay_stops_at_first_failure
+  replay_stops_at_render_pass_failure
   recording_adds_no_reference
   every_command_replays_with_copied_arguments)
 
 foreach(rhi_header IN ITEMS result access format synchronization queries device)
   add_executable(rhi_${rhi_header}_tests ${rhi_header}_tests.cpp)
-  target_link_libraries(rhi_${rhi_header}_tests PRIVATE bw_rhi_headers)
+  target_link_libraries(rhi_${rhi_header}_tests PRIVATE bw_test_harness bw_rhi_headers)
 endforeach()
 foreach(rhi_header IN ITEMS lifetime descriptor_allocator memory_suballocator resources transitions
-                            binding_structure pipeline_cache pipeline_states command_list)
+                            binding_structure pipeline_cache pipeline_states command_list
+                            viewport)
   add_executable(rhi_${rhi_header}_tests ${rhi_header}_tests.cpp)
-  target_link_libraries(rhi_${rhi_header}_tests PRIVATE bw_rhi)
+  target_link_libraries(rhi_${rhi_header}_tests PRIVATE bw_test_harness bw_rhi)
 endforeach()
 foreach(rhi_header IN ITEMS result access format synchronization queries device lifetime
                             descriptor_allocator
                             memory_suballocator resources transitions binding_structure
-                            pipeline_cache pipeline_states command_list)
+                            pipeline_cache pipeline_states command_list viewport)
   foreach(scenario IN LISTS rhi_${rhi_header}_scenarios)
     add_test(NAME unit.rhi.${rhi_header}.${scenario} COMMAND rhi_${rhi_header}_tests ${scenario})
     set_tests_properties(unit.rhi.${rhi_header}.${scenario} PROPERTIES TIMEOUT 10)
@@ -114,9 +125,11 @@ if("BW_RHI_DEBUG=1" IN_LIST rhi_header_definitions)
     static_slot_out_of_range_is_named
     root_constants_out_of_range_is_named
     draw_block_not_set_is_named
-    static_slot_not_set_is_named)
+    static_slot_not_set_is_named
+    back_buffer_copy_before_acquire_named
+    back_buffer_not_presentable_named)
   add_executable(rhi_validation_tests validation_tests.cpp)
-  target_link_libraries(rhi_validation_tests PRIVATE bw_rhi)
+  target_link_libraries(rhi_validation_tests PRIVATE bw_test_harness bw_rhi)
   foreach(scenario IN LISTS rhi_validation_scenarios)
     add_test(NAME unit.rhi.validation.${scenario} COMMAND rhi_validation_tests ${scenario})
     set_tests_properties(unit.rhi.validation.${scenario} PROPERTIES TIMEOUT 10)

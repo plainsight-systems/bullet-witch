@@ -12,6 +12,7 @@
 #include "bw/rendering/rhi/result.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 #include "bw/rendering/shaders/root_layout.hpp"
 
 #include <array>
@@ -45,7 +46,9 @@
 //   against options.delete_queue so release goes through the queue.
 //   Execution: context() is the one context; it is driven by one thread at
 //   a time, the device's submission thread. submit_frame(frame) hands the
-//   work recorded since the last submit to the GPU and arranges for
+//   work recorded since the last submit to the GPU, presents every viewport
+//   back buffer acquired in the frame on that work's command buffer and
+//   releases it (viewport.hpp, invariants 2 and 3), and arranges for
 //   completed_frame() to reach `frame` when that work is done; the value is
 //   monotonic. wait_for_frame blocks without spinning until
 //   completed_frame() >= frame, with the precondition that frame has been
@@ -59,10 +62,18 @@
 //   transient rings of frames at or below it and compacts its pools; it
 //   never frees an RHI object (that is the delete queue's).
 //   Context operations are the commands of command_list.hpp with the same
-//   meanings; set_draw_block is the one that can fail, with the frame's
-//   transient budget, and reports it rather than growing the ring; a transition a backend's API
+//   meanings; two can fail: set_draw_block, with the frame's transient
+//   budget, which it reports rather than growing the ring, and
+//   begin_render_pass, when a back buffer among its targets cannot be
+//   acquired (viewport.hpp, invariant 4); a transition a backend's API
 //   tracks itself may execute as no work, but it writes the tracked access of every resource in the
 //   batch at end_transitions (transitions.hpp).
+//   Viewports: create_viewport receives a description the device validated
+//   (validate_viewport, and the surface kind against surface_kind) and
+//   creates the surface's state and the back buffer texture;
+//   resize_viewport is called after the device waited idle and replaces
+//   the back buffer; set_vsync applies the flag to the surface. Each
+//   backend takes one surface kind, reported in Capabilities.
 //
 // Core guidelines read: C.121 and C.122 (Backend and Context are pure
 // abstract classes with virtual destructors; no data), C.67 (copy
@@ -111,6 +122,9 @@ struct Capabilities {
   // Limits.
   TextureLimits texture_limits{};
   std::uint32_t uniform_buffer_alignment{};
+  // The native surface this backend's viewports render into
+  // (viewport.hpp; platform/window/window.hpp): MetalLayer for Metal.
+  platform::NativeSurfaceKind surface_kind{platform::NativeSurfaceKind::None};
   // The budgets the backend was created with (BackendOptions), reported
   // back so a caller reads one record.
   std::uint32_t frames_in_flight{};
@@ -164,11 +178,14 @@ public:
 
   virtual void begin_transitions(const TransitionBatch& batch) = 0;
   virtual void end_transitions(const TransitionBatch& batch) = 0;
-  virtual void begin_render_pass(const RenderPassDescription& pass) = 0;
+  // Acquires a back buffer among the targets when it is the frame's first
+  // pass that binds it; BackBufferUnavailable or BackBufferSizeMismatch
+  // opens no pass (viewport.hpp, invariant 4).
+  [[nodiscard]] virtual ExecuteError begin_render_pass(const RenderPassDescription& pass) = 0;
   virtual void end_render_pass() = 0;
   virtual void set_graphics_pipeline(GraphicsPipeline& pipeline) = 0;
   virtual void set_compute_pipeline(ComputePipeline& pipeline) = 0;
-  virtual void set_viewport(const Viewport& viewport) = 0;
+  virtual void set_viewport(const ViewportRect& viewport) = 0;
   virtual void set_scissor(const ScissorRect& rect) = 0;
   virtual void set_stencil_reference(std::uint32_t reference) = 0;
   virtual void set_vertex_buffer(std::uint32_t slot, Buffer& buffer, std::uint64_t offset) = 0;
@@ -256,6 +273,13 @@ public:
                                                                   std::string_view debug_name) = 0;
   [[nodiscard]] virtual QueryPoolResult
   create_query_pool(const QueryPoolDescription& description) = 0;
+  // Viewports (viewport.hpp). Preconditions: the description passed
+  // validate_viewport and its kind is surface_kind; resize_viewport runs
+  // after wait_idle with a size validate_resize accepted.
+  [[nodiscard]] virtual ViewportResult create_viewport(const ViewportDescription& description) = 0;
+  [[nodiscard]] virtual Status<ViewportError> resize_viewport(Viewport& viewport,
+                                                              Extent2 pixel_size) = 0;
+  virtual void set_vsync(Viewport& viewport, bool vsync) = 0;
 
   [[nodiscard]] virtual LockResult lock_buffer(Buffer& buffer, BufferRange range) = 0;
   [[nodiscard]] virtual LockError unlock_buffer(Buffer& buffer) = 0;
@@ -267,6 +291,7 @@ public:
 
   [[nodiscard]] virtual Context& context() noexcept = 0;
   // The completion value the submitted work signals is the frame number.
+  // Presents and releases the back buffers acquired in the frame.
   virtual void submit_frame(std::uint64_t frame) = 0;
   [[nodiscard]] virtual std::uint64_t completed_frame() const noexcept = 0;
   // Precondition: frame <= the last submitted frame.
@@ -330,6 +355,13 @@ enum class ValidationCode : std::uint8_t {
   RootConstantsOutOfRange,
   DrawBlockNotSet,
   StaticSlotNotSet,
+  // viewport.hpp, invariant 2: a copy from a back buffer no render pass of
+  // the frame has bound; checked before the copy source's access, so an
+  // unacquired back buffer is reported by this code whatever its access.
+  BackBufferNotAcquired,
+  // viewport.hpp, invariant 3: at submit_frame, an acquired back buffer
+  // whose tracked access is not Present.
+  BackBufferNotPresentable,
 };
 struct ValidationFailure {
   ValidationCode code{ValidationCode::None};

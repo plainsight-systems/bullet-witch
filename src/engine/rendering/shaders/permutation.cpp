@@ -1,5 +1,7 @@
 #include "bw/rendering/shaders/permutation.hpp"
 
+#include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
+#include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 
 #include <array>
@@ -96,11 +98,58 @@ struct FullscreenTriangleColor {
   }
 };
 
+// The presentation slice's fixture shaders (bw/rendering/geometry/pulled_mesh_fixture.hpp):
+// the pulled-vertex mesh, the decode probe and the pixel shader both share.
+// They leave with the fixture when the importer supplies content.
+struct PulledMesh {
+  using Domain = PermutationDomain<>;
+  static constexpr std::string_view name = geometry::kPulledMeshShader;
+  static constexpr std::string_view source_path = "pulled_mesh.hlsl";
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = ShaderStage::Vertex;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<PulledMeshDraw>::value;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
+// One permutation per element type, the define's value the enumerator's.
+struct VertexDecodeProbe {
+  using DecodeType = EnumDimension<"BW_DECODE_TYPE", geometry::VertexElementType,
+                                   geometry::kVertexElementTypeCount>;
+  using Domain = PermutationDomain<DecodeType>;
+  static_assert(DecodeType::define == geometry::kDecodeTypeDefine);
+  static constexpr std::string_view name = geometry::kVertexDecodeProbeShader;
+  static constexpr std::string_view source_path = "vertex_decode_probe.hlsl";
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = ShaderStage::Vertex;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<VertexDecodeProbeDraw>::value;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
+struct VertexColor {
+  using Domain = PermutationDomain<>;
+  static constexpr std::string_view name = geometry::kVertexColorShader;
+  static constexpr std::string_view source_path = "vertex_color.hlsl";
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = ShaderStage::Pixel;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = nullptr;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
 // Every shader the engine builds. A renderer slice adds an entry here and its
 // HLSL under the shader root.
 constexpr std::array kRegistry{
-    describe_shader<FullscreenTriangle>(),
-    describe_shader<FullscreenTriangleColor>(),
+    describe_shader<FullscreenTriangle>(), describe_shader<FullscreenTriangleColor>(),
+    describe_shader<PulledMesh>(),         describe_shader<VertexDecodeProbe>(),
+    describe_shader<VertexColor>(),
 };
 
 [[nodiscard]] consteval bool registry_names_unique() {

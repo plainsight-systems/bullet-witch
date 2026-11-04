@@ -3,17 +3,14 @@
 // the commit/decommit range precondition.
 #include "bw/platform/os/macos/platform_memory.hpp"
 
-#include <cstdio>
-#include <stdexcept>
+#include "bw/testing/harness.hpp"
+
+#include <array>
 
 namespace {
 using bw::platform::macos::VirtualMemoryBlock;
 
-void require(bool condition, const char* message) {
-  if (!condition) {
-    throw std::runtime_error{message};
-  }
-}
+using bw::testing::require;
 
 void default_descriptor() {
   VirtualMemoryBlock block;
@@ -38,15 +35,15 @@ void extent_and_range() {
   require(!block.contains_page_range(1, page), "misaligned offset");
   require(!block.contains_page_range(0, page + 1), "misaligned size");
 }
+
+// The executable's contracts, one CTest entry.
+void contracts() {
+  default_descriptor();
+  extent_and_range();
+}
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"virtual_memory_block", contracts}};
 } // namespace
 
-int main() {
-  try {
-    default_descriptor();
-    extent_and_range();
-    return 0;
-  } catch (const std::exception& error) {
-    std::fprintf(stderr, "%s\n", error.what());
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

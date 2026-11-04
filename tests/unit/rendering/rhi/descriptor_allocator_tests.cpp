@@ -3,7 +3,8 @@
 // asserts.
 #include "bw/rendering/rhi/descriptor_allocator.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
+#include "unwrap.hpp"
 
 #include <array>
 #include <cstdint>
@@ -15,7 +16,8 @@ using bw::rhi::DescriptorCapacities;
 using bw::rhi::DescriptorIndexAllocator;
 using bw::rhi::DescriptorPool;
 using bw::shaders::DescriptorArray;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // (descriptor_allocator.hpp, DescriptorIndexAllocator): allocate returns the lowest
 // free index; a freed index is reused by a later allocate, lowest first;
@@ -115,10 +117,10 @@ void pools_isolated_by_array() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"allocate_free_reuse_lowest_first", allocate_free_reuse_lowest_first},
-    bw_rhi_test::Scenario{"exhaustion_is_no_value", exhaustion_is_no_value},
-    bw_rhi_test::Scenario{"pools_isolated_by_array", pools_isolated_by_array},
+    Scenario{"allocate_free_reuse_lowest_first", allocate_free_reuse_lowest_first},
+    Scenario{"exhaustion_is_no_value", exhaustion_is_no_value},
+    Scenario{"pools_isolated_by_array", pools_isolated_by_array},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

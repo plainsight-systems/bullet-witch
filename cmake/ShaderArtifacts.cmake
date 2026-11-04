@@ -29,7 +29,8 @@ list(JOIN bw_shader_targets "," bw_shader_targets_csv)
 file(GLOB bw_shader_module_sources CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/*.cpp"
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/CMakeLists.txt"
-  "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/public/bw/rendering/shaders/*.hpp")
+  "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/public/bw/rendering/shaders/*.hpp"
+  "${PROJECT_SOURCE_DIR}/src/engine/rendering/geometry/public/bw/rendering/geometry/*.hpp")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/permutation.cpp"
   ${bw_shader_module_sources}

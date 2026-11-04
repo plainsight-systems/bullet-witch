@@ -8,12 +8,15 @@
 #include "metal_backend.hpp"
 #include "metal_formats.hpp"
 #include "metal_objects.hpp"
+#include "metal_viewport.hpp"
 
 #include <dispatch/dispatch.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -227,6 +230,7 @@ BackendResult MetalBackend::create(const BackendOptions& options) {
   capabilities.texture_limits = kApple7TextureLimits;
   capabilities.texture_limits.max_sample_count = max_sample_count(*device);
   capabilities.uniform_buffer_alignment = kBufferOffsetAlignment;
+  capabilities.surface_kind = platform::NativeSurfaceKind::MetalLayer;
   capabilities.frames_in_flight = options.frames_in_flight;
   capabilities.descriptors = options.descriptors;
   capabilities.transient_bytes_per_frame = options.transient_bytes_per_frame;
@@ -970,9 +974,37 @@ QueryResult MetalBackend::query_result(QueryPool& pool, std::uint32_t index, Wai
   return QueryResult::success(QueryValue{metal_pool.result(index)});
 }
 
+// ---- Viewports ---------------------------------------------------------------------
+
+// Preconditions (backend.hpp, Viewports): the description passed
+// validate_viewport and its kind is MetalLayer. Configuring a CAMetalLayer
+// reports no failure, so BackendRejected is not returned.
+ViewportResult MetalBackend::create_viewport(const ViewportDescription& description) {
+  return ViewportResult::success(
+      Ref<Viewport>(new MetalViewport(*options_.delete_queue, description, *device_)));
+}
+
+// Preconditions (backend.hpp, Viewports): the device waited idle and the
+// size is non-zero; the viewport is this backend's.
+Status<ViewportError> MetalBackend::resize_viewport(Viewport& viewport, Extent2 pixel_size) {
+  static_cast<MetalViewport&>(viewport).resize(pixel_size);
+  return Status<ViewportError>{};
+}
+
+void MetalBackend::set_vsync(Viewport& viewport, bool vsync) {
+  static_cast<MetalViewport&>(viewport).apply_vsync(vsync);
+}
+
 // ---- Frames ------------------------------------------------------------------------
 
 void MetalBackend::track_fence(MetalGpuFence& fence) { fences_written_.push_back(&fence); }
+
+void MetalBackend::track_viewport(MetalViewport& viewport) {
+  if (std::find(viewports_acquired_.begin(), viewports_acquired_.end(), &viewport) ==
+      viewports_acquired_.end()) {
+    viewports_acquired_.push_back(&viewport);
+  }
+}
 
 // Commits the frame's work command buffer, then a separate command buffer
 // that encodes encodeSignalEvent(frame event, frame) and is committed, with
@@ -985,6 +1017,20 @@ void MetalBackend::track_fence(MetalGpuFence& fence) { fences_written_.push_back
 // has been signaled and the backend destroyed. The error text has no channel
 // in the RHI and is not kept. The frame event is an MTL::SharedEvent whose
 // value the CPU reads and waits on (completed_frame, wait_for_frame).
+// Present (viewport.hpp, invariant 3): every drawable the frame acquired is
+// presented on the frame's work command buffer, after its work: a scheduled
+// handler calls present() and a completed handler releases the drawable,
+// which each handler holds by the +1 take_drawable returned (the work
+// buffer does not retain what it references).
+// Invariant (metal_context.hpp, Back buffers): a viewport is tracked only
+// after the pass that acquired it created the frame's work buffer, so
+// `work` is not null whenever a drawable is taken here. A drawable taken
+// with no work buffer is a programming error of this backend, not a GPU
+// fault: one line naming the invariant goes to stderr and the process
+// aborts rather than dereferencing a null buffer.
+// No semaphore is waited here: the device bounds frames in flight with the
+// frame event (lifetime.hpp, required_completion). Presenting does not show
+// the window; the window shows itself (platform/window/window.hpp).
 void MetalBackend::submit_frame(std::uint64_t frame) {
   const AutoreleaseScope pool;
   const std::shared_ptr<std::atomic<bool>> fault = gpu_fault_;
@@ -994,6 +1040,23 @@ void MetalBackend::submit_frame(std::uint64_t frame) {
     }
   };
   MTL::CommandBuffer* work = context_->finish_frame();
+  for (MetalViewport* viewport : viewports_acquired_) {
+    CA::MetalDrawable* drawable = viewport->take_drawable(frame);
+    if (drawable == nullptr) {
+      continue;
+    }
+    if (work == nullptr) {
+      std::fputs("bw::rhi::metal: a viewport was tracked for present in a frame with no "
+                 "command buffer (metal_context.hpp, Back buffers)\n",
+                 stderr);
+      std::abort();
+    }
+    const MTL::HandlerFunction present = [drawable](MTL::CommandBuffer*) { drawable->present(); };
+    const MTL::HandlerFunction release = [drawable](MTL::CommandBuffer*) { drawable->release(); };
+    work->addScheduledHandler(present);
+    work->addCompletedHandler(release);
+  }
+  viewports_acquired_.clear();
   if (work != nullptr) {
     work->addCompletedHandler(record_fault);
     work->commit();

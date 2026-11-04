@@ -11,13 +11,15 @@
 #include "bw/rendering/rhi/build.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
 #include <csignal>
 #include <cstddef>
-#include <iostream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -34,19 +36,17 @@ bool contains(std::string_view text, std::string_view part) {
   return text.find(part) != std::string_view::npos;
 }
 
-int fail(std::string_view message) {
-  std::cerr << "default_reporter_prints_and_aborts: " << message << '\n';
-  return 1;
-}
+// Fails the scenario; the harness names the scenario before the message.
+[[noreturn]] void fail(std::string_view message) { throw std::runtime_error(std::string(message)); }
 
-int default_reporter_prints_and_aborts() {
+void default_reporter_prints_and_aborts() {
   std::array<int, 2> pipe_ends{};
   if (pipe(pipe_ends.data()) != 0) {
-    return fail("pipe failed");
+    fail("pipe failed");
   }
   const pid_t child = fork();
   if (child < 0) {
-    return fail("fork failed");
+    fail("fork failed");
   }
   if (child == 0) {
     close(pipe_ends[0]);
@@ -75,40 +75,27 @@ int default_reporter_prints_and_aborts() {
   close(pipe_ends[0]);
   int status = 0;
   if (waitpid(child, &status, 0) != child) {
-    return fail("waitpid failed");
+    fail("waitpid failed");
   }
   if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGABRT) {
-    return fail("the child was not terminated by SIGABRT");
+    fail("the child was not terminated by SIGABRT");
   }
   if (output.empty() || output.back() != '\n' || output.find('\n') != output.size() - 1) {
-    return fail("expected exactly one line, got: " + output);
+    fail("expected exactly one line, got: " + output);
   }
   for (const std::string_view part :
        {std::string_view("Transition"), std::string_view("AccessMissingAtUse"),
         std::string_view("Probe resource"), std::string_view("copy_buffer")}) {
     if (!contains(output, part)) {
-      return fail("the line does not name '" + std::string(part) + "': " + output);
+      fail("the line does not name '" + std::string(part) + "': " + output);
     }
   }
-  return 0;
 }
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{
+    Scenario{"default_reporter_prints_and_aborts", default_reporter_prints_and_aborts}};
 
 } // namespace
 
-// The scenario builds strings, which may throw; main reports any exception
-// as a failure instead of letting it escape.
-int main(int argc, char** argv) {
-  try {
-    if (argc != 2) {
-      std::cerr << "Provide one scenario name\n";
-      return 2;
-    }
-    if (std::string_view(argv[1]) == "default_reporter_prints_and_aborts") {
-      return default_reporter_prints_and_aborts();
-    }
-    std::cerr << "Unknown scenario\n";
-    return 2;
-  } catch (...) {
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

@@ -11,3 +11,8 @@ add_library(bw_shaders
   permutation.cpp
   root_layout.cpp)
 target_link_libraries(bw_shaders PUBLIC bw_shaders_headers)
+# The registry names the presentation fixture's draw blocks
+# (bw/rendering/geometry/pulled_mesh_fixture.hpp). Header interface only and
+# private: the geometry header interface links bw_shaders_headers, not
+# bw_shaders, so there is no library cycle.
+target_link_libraries(bw_shaders PRIVATE bw_geometry_headers)

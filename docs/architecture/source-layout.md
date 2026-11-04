@@ -244,7 +244,7 @@ traces belong in ignored organized outputs, not among scenario source files.
 | Mac services | `src/platform/os/macos/{math,memory,time,tasks,diagnostics}/`; required native declarations have scoped public roots |
 | ARM64 SIMD | `src/platform/cpu/arm64/math/simd/` |
 | Selected generic math | `src/platform/generic/math/` |
-| Host and probe | `src/hosts/macos/engine_host.cpp`, `tools/runtime/engine_loop_probe.cpp` |
+| Host and probe | `src/hosts/macos/engine_host.cpp`, `src/hosts/macos/game_host.cpp`, the game host's option parse under `src/hosts/macos/public/bw/hosts/`, `tools/runtime/engine_loop_probe.cpp` |
 | Tests | `tests/unit/<owner>/`, `tests/integration/<owner>/` |
 
 ### Public and internal boundaries

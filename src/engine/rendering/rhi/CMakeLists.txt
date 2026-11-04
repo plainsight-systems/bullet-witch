@@ -3,7 +3,8 @@
 # public header interface; the module library, the validation layer and the
 # Metal backend are added by the implementation steps of the slice.
 bw_header_interface(bw_rhi_headers "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(bw_rhi_headers INTERFACE bw_shaders_headers bw_memory_headers)
+target_link_libraries(bw_rhi_headers INTERFACE bw_shaders_headers bw_memory_headers
+  bw_platform_window_headers)
 
 # The one configuration switch (public/bw/rendering/rhi/build.hpp): the debug
 # surface is compiled in for Debug and RelWithDebInfo and out for Release and
@@ -28,7 +29,8 @@ add_library(bw_rhi
   memory_suballocator.cpp
   pipeline_cache.cpp
   pipeline_states.cpp
-  resources.cpp)
+  resources.cpp
+  viewport.cpp)
 target_link_libraries(bw_rhi PUBLIC bw_rhi_headers bw_shaders)
 
 # The validation layer (public/bw/rendering/rhi/backend.hpp,
@@ -54,7 +56,8 @@ if(APPLE)
     backends/metal/metal_formats.cpp
     backends/metal/metal_implementation.cpp
     backends/metal/metal_memory.cpp
-    backends/metal/metal_objects.cpp)
+    backends/metal/metal_objects.cpp
+    backends/metal/metal_viewport.cpp)
   target_link_libraries(bw_rhi PRIVATE bw_metal_cpp bw_metal_irconverter_runtime)
   target_compile_definitions(bw_rhi PRIVATE BW_RHI_METAL=1)
   target_include_directories(bw_rhi PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

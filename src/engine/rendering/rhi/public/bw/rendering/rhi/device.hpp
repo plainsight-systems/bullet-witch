@@ -13,6 +13,7 @@
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/result.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -69,6 +70,17 @@
 //   objects and the cache, drains the queue, and destroys the backend.
 //   Locks, staging and queries forward to the backend after the checks
 //   their headers state.
+//   Viewports (viewport.hpp): create_viewport checks with the two-argument
+//   validate_viewport against the capability report's surface kind, then
+//   the backend. Every ViewportError the device's own checks return carries
+//   the viewport's debug name as detail (the description's for
+//   create_viewport); a BackendRejected passes through with the backend's
+//   text (viewport.hpp). resize_viewport
+//   validates with validate_resize against the frame being recorded, waits for every submitted
+//   frame (the one blocking wait a viewport has), runs the delete queue for them, and has the
+//   backend replace the back buffer. set_vsync applies between frames. All three are called on the
+//   thread that owns the window and the submission, the host's main thread; they hold the device
+//   mutex like every creation call.
 //
 // Core guidelines read: C.67 and I.11 (the device is not copyable and is
 // created into a unique_ptr), I.1 (every budget and policy is in the
@@ -196,6 +208,11 @@ public:
   [[nodiscard]] StagingError unlock_staging(StagingBuffer& staging);
   [[nodiscard]] QueryPoolResult create_query_pool(const QueryPoolDescription& description);
   [[nodiscard]] QueryResult query_result(QueryPool& pool, std::uint32_t index, WaitPolicy policy);
+
+  // Viewports (viewport.hpp).
+  [[nodiscard]] ViewportResult create_viewport(const ViewportDescription& description);
+  [[nodiscard]] Status<ViewportError> resize_viewport(Viewport& viewport, Extent2 pixel_size);
+  void set_vsync(Viewport& viewport, bool vsync);
 
   // Execution and the frame boundary.
   // Replays the list on the backend's context; returns the first failure

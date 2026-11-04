@@ -18,13 +18,13 @@
 #include "bw/shader_compiler/toolchain.hpp"
 #include "shader_tool_process.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <filesystem>
-#include <iostream>
 #include <map>
 #include <optional>
 #include <set>
@@ -43,11 +43,14 @@ using bw::shaders::PermutationId;
 using bw::shaders::ShaderTarget;
 using bw::tests::ToolPaths;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
+
+// The executable's arguments after the scenario name: the tool paths, then
+// the comma-separated targets.
+struct Arguments {
+  ToolPaths paths{};
+  std::vector<std::string> targets{};
+};
 
 const bw::shaders::ShaderDescription& fixture() {
   const bw::shaders::ShaderDescription* shader =
@@ -246,7 +249,9 @@ void require_offsets_equal_layout(const bw::shader_compiler::BoundBlock& block,
 // placement()); the code blocks per compiler_options.hpp build-time
 // algorithm step 4; compiler_options.hpp ExitCode for Success and the named
 // failures; --symbols per the grammar and toolchain.hpp.
-void fixture_on_three_targets(const ToolPaths& paths, const std::vector<std::string>& targets) {
+void fixture_on_three_targets(const Arguments& arguments) {
+  const ToolPaths& paths = arguments.paths;
+  const std::vector<std::string>& targets = arguments.targets;
   const bw::shaders::ShaderDescription& shader = fixture();
   const std::vector<PermutationId> permutations = build_set(shader);
   require(!permutations.empty(), "the fixture has permutations to build");
@@ -394,7 +399,9 @@ std::pair<std::string, std::vector<std::string>> parse_depfile(std::string text)
 // toolchain.hpp CompileProduct::includes states is first-inclusion order;
 // the generated include is never listed; the rule target is the artifact path
 // as given).
-void depfile_names_every_include(const ToolPaths& paths, const std::vector<std::string>& targets) {
+void depfile_names_every_include(const Arguments& arguments) {
+  const ToolPaths& paths = arguments.paths;
+  const std::vector<std::string>& targets = arguments.targets;
   const bw::shaders::ShaderDescription& shader = fixture();
   const std::filesystem::path root = fresh_directory(paths.scratch / "depfile_names_every_include");
   // Main source first, then includes in first-inclusion order.
@@ -435,10 +442,7 @@ std::vector<std::string> split_targets(std::string_view csv) {
   return targets;
 }
 
-struct Scenario {
-  std::string_view name{};
-  void (*run)(const ToolPaths&, const std::vector<std::string>&){};
-};
+using Scenario = bw::testing::Scenario<Arguments>;
 
 constexpr std::array scenarios{
     Scenario{"fixture_on_three_targets", fixture_on_three_targets},
@@ -448,23 +452,15 @@ constexpr std::array scenarios{
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 8) {
-    std::cerr << "Usage: shader_toolchain_tests <scenario> <shader_compiler> <dxc library> "
-                 "<converter library> <shader root> <scratch dir> <targets>\n";
-    return 2;
-  }
-  for (const auto& scenario : scenarios) {
-    if (scenario.name == argv[1]) {
-      try {
-        const ToolPaths paths{argv[2], argv[3], argv[4], argv[5], argv[6]};
-        scenario.run(paths, split_targets(argv[7]));
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
+  return bw::testing::run_scenario(
+      argc, argv, scenarios,
+      "<shader_compiler> <dxc library> <converter library> <shader root> <scratch dir> <targets>",
+      [](std::span<char* const> rest, Arguments& arguments) {
+        if (rest.size() != 6) {
+          return false;
+        }
+        arguments.paths = ToolPaths{rest[0], rest[1], rest[2], rest[3], rest[4]};
+        arguments.targets = split_targets(rest[5]);
+        return true;
+      });
 }

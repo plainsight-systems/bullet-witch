@@ -3,7 +3,9 @@
 // drives it through the public headers only, and asserts an invariant a
 // header states; the comment above each scenario names the lines. The shader
 // artifacts are the ones the build produced for the fixture shaders
-// (fullscreen_triangle permutation 0, fullscreen_triangle_color permutation 0).
+// (fullscreen_triangle permutation 0, fullscreen_triangle_color permutation 0;
+// for the vertex pulling scenarios pulled_mesh, vertex_decode_probe one
+// permutation per element type, and vertex_color).
 //
 // Arguments after the scenario name: the Metal artifact directory,
 // ${CMAKE_BINARY_DIR}/shaders/metal.
@@ -11,6 +13,10 @@
 // Every assertion holds whatever the GPU's timing: a state that is only
 // observable while a frame is still in flight (PollOnly NotReady, a Submitted
 // fence, EndFrameResult::waited true) is not asserted.
+#include "bw/platform/os/macos/window.hpp"
+#include "bw/platform/window/window.hpp"
+#include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
+#include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/backend.hpp"
 #include "bw/rendering/rhi/build.hpp"
@@ -24,20 +30,22 @@
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 #include "bw/rendering/shaders/artifact.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 #include "bw/rendering/shaders/permutation.hpp"
 #include "bw/rendering/shaders/root_layout.hpp"
+#include "bw/testing/harness.hpp"
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <iterator>
 #include <memory>
 #include <span>
@@ -71,11 +79,7 @@ namespace {
 
 using namespace bw::rhi;
 
-void require(bool condition, std::string_view message) {
-  if (!condition) {
-    throw std::runtime_error(std::string(message));
-  }
-}
+using bw::testing::require;
 
 template <class T, class E> T take(Result<T, E> result, std::string_view what) {
   if (!result.ok()) {
@@ -93,17 +97,18 @@ struct LoadedArtifact {
   bw::shaders::Artifact artifact{};
 };
 
-// Loads permutation 0 of a registry shader with the expectations the registry
-// gives (artifact.hpp, load_artifact). The artifact views the bytes, so the
-// result stays on the heap where the bytes do not move.
+// Loads a permutation of a registry shader, 0 unless named, with the
+// expectations the registry gives (artifact.hpp, load_artifact). The artifact
+// views the bytes, so the result stays on the heap where the bytes do not
+// move.
 std::unique_ptr<LoadedArtifact> load_fixture(const std::filesystem::path& directory,
-                                             std::string_view shader_name) {
+                                             std::string_view shader_name,
+                                             bw::shaders::PermutationId permutation = {}) {
   const bw::shaders::ShaderDescription* shader =
       bw::shaders::find_shader(bw::shaders::shader_registry(), shader_name);
   require(shader != nullptr, "the registry holds the fixture shader");
   const std::filesystem::path path =
-      directory /
-      bw::shaders::artifact_file_name(shader->name, bw::shaders::PermutationId{0}, shader->stage);
+      directory / bw::shaders::artifact_file_name(shader->name, permutation, shader->stage);
   std::ifstream stream(path, std::ios::binary);
   require(static_cast<bool>(stream), "the fixture artifact is readable: " + path.string());
   auto loaded = std::make_unique<LoadedArtifact>();
@@ -311,7 +316,7 @@ void record_triangle(CommandList& list, const TriangleScene& scene, Texture& tar
   pass.occlusion_queries = pool;
   list.begin_render_pass(pass);
   list.set_graphics_pipeline(*scene.pipeline);
-  list.set_viewport(Viewport{8.0F, 8.0F, 32.0F, 32.0F, 0.0F, 1.0F});
+  list.set_viewport(ViewportRect{8.0F, 8.0F, 32.0F, 32.0F, 0.0F, 1.0F});
   list.set_scissor(ScissorRect{8, 8, 32, 32});
   list.set_draw_block(fixture_draw_block(scene));
   if (pool != nullptr) {
@@ -875,6 +880,742 @@ void pipeline_library_errors_named(const std::filesystem::path& artifacts) {
           "an entry point the library lacks is EntryPointNotFound");
 }
 
+// ---- Viewports ------------------------------------------------------------------------
+//
+// The viewport scenarios open a real window in this process; locals declared
+// window, device, viewport tear down in reverse. Like every slice scenario
+// they use the default reporter, so any validation failure aborts the run.
+
+// A small window, so no screen clamps its pixel size, pumped until shown.
+std::unique_ptr<bw::platform::Window> open_window(std::string_view title) {
+  bw::platform::WindowDescription description{};
+  description.title = title;
+  description.width = 320;
+  description.height = 200;
+  bw::platform::WindowError error = bw::platform::WindowError::SystemRefused;
+  std::unique_ptr<bw::platform::Window> window =
+      bw::platform::macos::create_window(description, error);
+  require(error == bw::platform::WindowError::None && window != nullptr, "create_window succeeds");
+  for (int i = 0; i < 3; ++i) {
+    window->pump();
+    bw::platform::WindowEvent event{};
+    while (window->poll_event(event)) {
+    }
+  }
+  return window;
+}
+
+ViewportDescription window_viewport(const bw::platform::Window& window, std::string_view name) {
+  ViewportDescription description{};
+  description.window = window.native_handle();
+  description.pixel_size = Extent2{window.pixel_size().width, window.pixel_size().height};
+  description.debug_name = name;
+  return description;
+}
+
+bool extent_is(const Texture& texture, Extent2 size) {
+  const Extent3 extent = texture.description().extent;
+  return extent.width == size.width && extent.height == size.height && extent.depth == 1U;
+}
+
+void transition(CommandList& list, Texture& texture, Access before, Access after) {
+  const Transition one{&texture, before, after};
+  list.transition(TransitionBatch{std::span<const Transition>{&one, 1}});
+}
+
+void require_executes(Device& device, CommandList& list) {
+  const Status<ExecuteError> executed = device.execute(list);
+  require(executed.ok(), "execute succeeds: code " +
+                             std::to_string(static_cast<int>(executed.error())) + " " +
+                             std::string(executed.detail()));
+}
+
+// The back buffer from Present to RenderTarget, a clear pass, and back.
+void record_clear_frame(CommandList& list, Texture& back_buffer) {
+  transition(list, back_buffer, Access::Present, Access::RenderTarget);
+  list.begin_render_pass(clear_pass(back_buffer, "viewport clear"));
+  list.end_render_pass();
+  transition(list, back_buffer, Access::RenderTarget, Access::Present);
+}
+
+// One presented clear frame; the back buffer is reread, as resize replaces it.
+void present_clear_frame(Device& device, Viewport& viewport, bw::platform::Window& window) {
+  CommandList list;
+  record_clear_frame(list, viewport.back_buffer());
+  require_executes(device, list);
+  static_cast<void>(device.end_frame());
+  window.pump();
+  bw::platform::WindowEvent event{};
+  while (window.poll_event(event)) {
+  }
+}
+
+// (device.hpp, create_viewport, resize_viewport; viewport.hpp, invariants 2,
+// 3 and 5; resources.hpp, Viewable::tracked_access): at creation and after a
+// resize the back buffer is a texture of the viewport's size tracked in
+// Present, and frames transitioned back to Present before end_frame present
+// with no validation failure.
+void viewport_present_resize_present(const std::filesystem::path& /*artifacts*/) {
+  const std::unique_ptr<bw::platform::Window> window = open_window("viewport present resize");
+  const std::unique_ptr<Device> device = make_device(create_on_miss());
+  const ViewportDescription description = window_viewport(*window, "present viewport");
+  const Ref<Viewport> viewport = take(device->create_viewport(description), "create_viewport");
+  const Extent2 resized{description.pixel_size.width / 2U, description.pixel_size.height / 2U};
+  for (const Extent2 size : {description.pixel_size, resized}) {
+    if (size == resized) {
+      require(device->resize_viewport(*viewport, resized).ok(),
+              "resize_viewport between frames succeeds");
+    }
+    require(viewport->size() == size, "the viewport has the window's or the new size");
+    require(extent_is(viewport->back_buffer(), size), "the back buffer has the viewport's size");
+    require(viewport->back_buffer().tracked_access().access == Access::Present,
+            "the back buffer is tracked in Present at creation and after the resize");
+    for (int frame = 0; frame < 3; ++frame) {
+      present_clear_frame(*device, *viewport, *window);
+    }
+  }
+  require(extent_is(viewport->back_buffer(), resized),
+          "the back buffer keeps the new size across frames");
+}
+
+// The device's viewport wiring, one probe each (the check order is
+// validate_viewport's unit test). (device.hpp, Viewports): another backend's
+// surface kind is SurfaceKindUnsupported, named by the description's debug
+// name. (device.hpp, resize_viewport; viewport.hpp, invariant 5): a resize
+// while the back buffer is acquired in the frame is ResizeDuringFrame, named
+// by the viewport's debug name, and changes nothing.
+void viewport_errors_named(const std::filesystem::path& /*artifacts*/) {
+  const std::unique_ptr<bw::platform::Window> window = open_window("viewport errors");
+  const std::unique_ptr<Device> device = make_device(create_on_miss());
+
+  // The kind after MetalLayer stands for a later backend's surface; the
+  // enumeration has a fixed underlying type, so the value is well defined.
+  ViewportDescription other_kind = window_viewport(*window, "other kind");
+  // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+  other_kind.window.kind = static_cast<bw::platform::NativeSurfaceKind>(
+      static_cast<std::uint8_t>(bw::platform::NativeSurfaceKind::MetalLayer) + 1U);
+  const ViewportResult kind = device->create_viewport(other_kind);
+  require(!kind.ok() && kind.error() == ViewportError::SurfaceKindUnsupported,
+          "a surface kind other than the backend's is SurfaceKindUnsupported");
+  require(kind.detail() == other_kind.debug_name,
+          "the refusal carries the description's debug name");
+
+  const Ref<Viewport> viewport = take(
+      device->create_viewport(window_viewport(*window, "resize during frame")), "create_viewport");
+  const Extent2 size = viewport->size();
+  Texture* const back_buffer = &viewport->back_buffer();
+  CommandList list;
+  record_clear_frame(list, *back_buffer);
+  require_executes(*device, list);
+  const Status<ViewportError> resize =
+      device->resize_viewport(*viewport, Extent2{size.width / 2U, size.height / 2U});
+  require(resize.error() == ViewportError::ResizeDuringFrame,
+          "a resize while the back buffer is acquired in the frame is ResizeDuringFrame");
+  require(resize.detail() == viewport->description().debug_name,
+          "the refusal carries the viewport's debug name");
+  require(viewport->size() == size && &viewport->back_buffer() == back_buffer,
+          "the refused resize changes nothing");
+  static_cast<void>(device->end_frame());
+}
+
+// ---- Shared draw and readback pieces for the slice's scenarios -----------------------
+
+// Little-endian loads and stores, the order every target's raw buffer load reads.
+void put_u16(std::vector<std::byte>& bytes, std::size_t offset, std::uint16_t value) {
+  bytes[offset] = static_cast<std::byte>(value & 0xFFU);
+  bytes[offset + 1U] = static_cast<std::byte>(value >> 8U);
+}
+void put_f32(std::vector<std::byte>& bytes, std::size_t offset, float value) {
+  const auto bits = std::bit_cast<std::uint32_t>(value);
+  put_u16(bytes, offset, static_cast<std::uint16_t>(bits & 0xFFFFU));
+  put_u16(bytes, offset + 2U, static_cast<std::uint16_t>(bits >> 16U));
+}
+std::uint32_t get_u32(std::span<const std::byte> bytes, std::size_t offset) {
+  std::uint32_t value = 0;
+  for (std::size_t i = 0; i < 4; ++i) {
+    value |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
+  }
+  return value;
+}
+
+// A render target that is also a copy source, cleared to `clear`.
+Ref<Texture> make_target(Device& device, Extent3 extent, Format format, std::array<float, 4> clear,
+                         std::string_view name) {
+  TextureDescription description = target_description(clear, name);
+  description.extent = extent;
+  description.format = format;
+  return take(device.create_texture(description), "create_texture");
+}
+
+// A pipeline of `fixtures` into one `format` target, depth off, culling
+// `cull`; the pipeline holds its state objects.
+Ref<GraphicsPipeline> make_pipeline(Device& device, const Fixtures& fixtures, Format format,
+                                    CullMode cull) {
+  RasterizerDescription rasterizer{};
+  rasterizer.cull = cull;
+  DepthStencilDescription depth_off{};
+  depth_off.depth_write = false;
+  depth_off.depth_test = CompareFunction::Always;
+  const Ref<RasterizerState> rasterizer_state =
+      take(device.rasterizer_state(rasterizer), "rasterizer_state");
+  const Ref<DepthStencilState> depth_stencil =
+      take(device.depth_stencil_state(depth_off), "depth_stencil_state");
+  const Ref<BlendState> blend = take(device.blend_state(BlendDescription{}), "blend_state");
+  GraphicsPipelineDescription description =
+      fixture_pipeline_description(fixtures, *rasterizer_state, *depth_stencil, *blend);
+  description.targets.color_formats[0] = format;
+  return take(device.graphics_pipeline(description), "graphics_pipeline");
+}
+
+// Opens a clear pass on `target` with `pipeline`, viewport and scissor `rect`
+// and `block`; the caller draws and ends the pass.
+template <class Block>
+void begin_draw(CommandList& list, Texture& target, GraphicsPipeline& pipeline, ScissorRect rect,
+                const Block& block) {
+  list.begin_render_pass(clear_pass(target, "draw"));
+  list.set_graphics_pipeline(pipeline);
+  list.set_viewport(ViewportRect{static_cast<float>(rect.x), static_cast<float>(rect.y),
+                                 static_cast<float>(rect.width), static_cast<float>(rect.height),
+                                 0.0F, 1.0F});
+  list.set_scissor(rect);
+  list.set_draw_block(block);
+}
+
+// Mip 0 of `target` staged after the commands in `list`: RenderTarget to
+// CopySource, the copy and a fence, then a transition to `after` unless it is
+// CopySource; executed, ended, locked blocking and copied out before unlock.
+struct StagedTexture {
+  std::vector<std::byte> bytes;
+  StagingLayout layout{};
+};
+StagedTexture stage_texture(Device& device, CommandList& list, Texture& target,
+                            Access after = Access::CopySource) {
+  StagedTexture staged{};
+  staged.layout = staging_layout(target.description(), 0);
+  const Ref<StagingBuffer> staging =
+      take(device.create_staging_buffer(staged.layout.total_bytes, "readback"), "staging buffer");
+  const Ref<GpuFence> fence = take(device.create_fence("readback fence"), "create_fence");
+  transition(list, target, Access::RenderTarget, Access::CopySource);
+  list.copy_texture_to_staging(target, 0, 0, *staging, 0);
+  list.write_fence(*fence);
+  if (after != Access::CopySource) {
+    transition(list, target, Access::CopySource, after);
+  }
+  require_executes(device, list);
+  static_cast<void>(device.end_frame());
+  const StagingLock lock =
+      take(device.lock_staging(*staging, *fence, WaitPolicy::Block), "lock_staging(Block)");
+  require(lock.bytes.size() == staged.layout.total_bytes, "the lock spans the staging buffer");
+  staged.bytes.assign(lock.bytes.begin(), lock.bytes.end());
+  require(device.unlock_staging(*staging) == StagingError::None, "unlock_staging");
+  return staged;
+}
+
+// Texel (x, y) of a staged RGBA8-sized target is `expected` within one unit.
+void require_texel(const StagedTexture& staged, std::uint32_t x, std::uint32_t y,
+                   const std::array<long, 4>& expected, std::string_view what) {
+  const std::size_t offset = std::size_t{y} * staged.layout.row_pitch + std::size_t{x} * 4U;
+  for (std::size_t c = 0; c < 4; ++c) {
+    const auto actual = static_cast<long>(staged.bytes[offset + c]);
+    if (actual - expected[c] < -1 || actual - expected[c] > 1) {
+      throw std::runtime_error("texel (" + std::to_string(x) + ", " + std::to_string(y) +
+                               ") channel " + std::to_string(c) + " is " + std::to_string(actual) +
+                               ", not " + std::string(what) + " " + std::to_string(expected[c]));
+    }
+  }
+}
+
+// A linear [0, 1] value as the 8-bit sRGB encoding an sRGB target stores.
+long srgb8(float linear) {
+  const float encoded =
+      linear <= 0.0031308F ? linear * 12.92F : 1.055F * std::pow(linear, 1.0F / 2.4F) - 0.055F;
+  return std::lround(encoded * 255.0F);
+}
+
+// (viewport.hpp, invariant 2): the back buffer is a copy source. The fixture
+// triangle drawn into (8, 8, 32, 32), copied to staging between CopySource
+// and Present: inside it the fixture color, outside the back buffer's clear
+// value, opaque black; B8G8R8A8UnormSrgb stores blue, green, red, alpha with
+// color sRGB-encoded.
+void back_buffer_copies_to_staging(const std::filesystem::path& artifacts) {
+  const std::unique_ptr<bw::platform::Window> window = open_window("back buffer copy");
+  const std::unique_ptr<Device> device = make_device(create_on_miss());
+  const TriangleScene scene = make_triangle_scene(*device, artifacts);
+  const Ref<GraphicsPipeline> pipeline =
+      make_pipeline(*device, scene.fixtures, Format::B8G8R8A8UnormSrgb, CullMode::None);
+  const Ref<Viewport> viewport =
+      take(device->create_viewport(window_viewport(*window, "copy viewport")), "create_viewport");
+  Texture& back_buffer = viewport->back_buffer();
+  require(back_buffer.description().extent.width > 64U &&
+              back_buffer.description().extent.height > 64U,
+          "the back buffer is larger than the probed texels");
+  CommandList list;
+  transition(list, back_buffer, Access::Present, Access::RenderTarget);
+  begin_draw(list, back_buffer, *pipeline, ScissorRect{8, 8, 32, 32}, fixture_draw_block(scene));
+  list.draw(DrawArguments{3, 1, 0, 0});
+  list.end_render_pass();
+  const StagedTexture staged = stage_texture(*device, list, back_buffer, Access::Present);
+  require_texel(staged, 20, 20, {srgb8(0.25F), srgb8(0.5F), srgb8(1.0F), 255},
+                "the fixture color in BGRA sRGB");
+  require_texel(staged, 60, 60, {0, 0, 0, 255}, "opaque black");
+}
+
+// ---- Vertex pulling ------------------------------------------------------------------
+//
+// The decode probe writes one attribute of one vertex into one pixel of a
+// one-row float4 target; the cube draws into an RGBA8 target. Every draw
+// validates its layout and range first, as vertex_streams.hpp requires.
+
+using bw::geometry::VertexAttribute;
+using bw::geometry::VertexAttributeDescription;
+using bw::geometry::VertexElementType;
+using bw::geometry::VertexStreamError;
+using bw::geometry::VertexStreamLayout;
+
+// A pulled-vertex draw on a fresh device: `shader` and vertex_color into a
+// width x height `format` target; `vertices` read from `base_vertex`, `count`
+// drawn from first vertex 0, through the 16-bit `indices` when there are any.
+struct PulledDraw {
+  std::string_view shader;
+  bw::shaders::PermutationId permutation{};
+  Format format{};
+  CullMode cull{};
+  std::uint32_t width{};
+  std::uint32_t height{};
+  std::array<float, 4> clear{};
+  VertexStreamLayout layout{};
+  std::array<std::vector<std::byte>, bw::geometry::kMaxVertexStreams> streams{};
+  std::uint32_t base_vertex{};
+  std::uint32_t vertices{};
+  std::uint32_t count{};
+  std::vector<std::uint16_t> indices;
+};
+
+// Validates the layout and the vertex range, records `block` with its
+// VertexStreams filled, and returns the staged target.
+template <class Block>
+StagedTexture draw_pulled(const std::filesystem::path& artifacts, const PulledDraw& draw,
+                          Block block) {
+  require(bw::geometry::validate_vertex_stream_layout(draw.layout) == VertexStreamError::None,
+          "the draw's layout validates");
+  const std::array<std::uint64_t, 2> stream_bytes{draw.streams[0].size(), draw.streams[1].size()};
+  require(bw::geometry::validate_vertex_range(
+              draw.layout, std::span(stream_bytes).first(draw.layout.stream_count),
+              draw.base_vertex, draw.vertices) == VertexStreamError::None,
+          "the draw's vertex range is within the stream buffers");
+  const std::unique_ptr<Device> device = make_device(create_on_miss());
+  const Fixtures fixtures{load_fixture(artifacts, draw.shader, draw.permutation),
+                          load_fixture(artifacts, bw::geometry::kVertexColorShader)};
+  const Ref<GraphicsPipeline> pipeline = make_pipeline(*device, fixtures, draw.format, draw.cull);
+  // Each stream a buffer with initial data reached through a raw view.
+  std::array<Ref<Buffer>, bw::geometry::kMaxVertexStreams> buffers{};
+  std::array<Ref<ShaderResourceView>, bw::geometry::kMaxVertexStreams> views{};
+  std::array<bw::geometry::VertexStreamBinding, bw::geometry::kMaxVertexStreams> bindings{};
+  for (std::size_t s = 0; s < draw.layout.stream_count; ++s) {
+    BufferDescription description{};
+    description.size = draw.streams[s].size();
+    description.usage = BufferUsage::ShaderResource;
+    description.initial_access = Access::ShaderResourceNonPixel;
+    description.debug_name = s == 0U ? "stream 0" : "stream 1";
+    buffers[s] = take(device->create_buffer(description, draw.streams[s]), "create a stream");
+    views[s] = take(device->create_shader_resource_view(buffers[s], BufferViewDescription{}),
+                    "create a stream's view");
+    bindings[s] = bw::geometry::VertexStreamBinding{
+        views[s]->buffer_index(),
+        static_cast<std::uint32_t>(draw.streams[s].size() / draw.layout.streams[s].stride)};
+  }
+  block.streams = bw::geometry::make_vertex_streams(
+      draw.layout, std::span(bindings).first(draw.layout.stream_count), draw.base_vertex);
+  const Ref<Texture> target = make_target(*device, Extent3{draw.width, draw.height, 1}, draw.format,
+                                          draw.clear, "pulled draw target");
+  CommandList list;
+  begin_draw(list, *target, *pipeline, ScissorRect{0, 0, draw.width, draw.height}, block);
+  Ref<Buffer> indices;
+  if (draw.indices.empty()) {
+    list.draw(DrawArguments{draw.count, 1, 0, 0});
+  } else {
+    BufferDescription description{};
+    description.size = draw.indices.size() * sizeof(std::uint16_t);
+    description.stride = sizeof(std::uint16_t);
+    description.usage = BufferUsage::Index;
+    description.initial_access = Access::VertexOrIndexBuffer;
+    description.debug_name = "indices";
+    indices = take(device->create_buffer(description, std::as_bytes(std::span(draw.indices))),
+                   "create the index buffer");
+    list.set_index_buffer(*indices, IndexFormat::Uint16, 0);
+    list.draw_indexed(DrawIndexedArguments{draw.count, 1, 0, 0, 0});
+  }
+  list.end_render_pass();
+  return stage_texture(*device, list, *target);
+}
+
+// A decode probe draw and its block: the attribute slot and the probe count.
+struct DecodeDraw {
+  PulledDraw pulled;
+  VertexDecodeProbeDraw block{};
+};
+
+using DecodeType = bw::shaders::EnumDimension<"BW_DECODE_TYPE", VertexElementType,
+                                              bw::geometry::kVertexElementTypeCount>;
+
+// kProbeCount probes of `attribute` as `type` at byte 4 of stream 0, four 0xA5
+// filler bytes either side so a wrong offset or stride decodes a rejected
+// value; `vertices` vertices written by `write(bytes, offset, vertex)`; the
+// target cleared to -9, which no probe decodes; 6 * kProbeCount drawn.
+constexpr std::uint32_t kProbeCount = 12;
+constexpr std::uint32_t kProbeOffset = 4;
+template <class Write>
+DecodeDraw single_stream_draw(VertexAttribute attribute, VertexElementType type,
+                              std::uint32_t vertices, Write&& write) {
+  bw::shaders::PermutationDomain<DecodeType> domain{};
+  domain.set<DecodeType>(type);
+  const std::uint32_t stride = kProbeOffset + bw::geometry::element_bytes(type) + 4U;
+  constexpr std::array<float, 4> kUncovered{-9.0F, -9.0F, -9.0F, -9.0F};
+  DecodeDraw draw{PulledDraw{bw::geometry::kVertexDecodeProbeShader, domain.id(),
+                             Format::R32G32B32A32Float, CullMode::None, kProbeCount, 1, kUncovered,
+                             VertexStreamLayout{}, std::array<std::vector<std::byte>, 2>{}, 0,
+                             kProbeCount, 6U * kProbeCount, std::vector<std::uint16_t>{}},
+                  VertexDecodeProbeDraw{}};
+  draw.pulled.layout.attributes[0] = VertexAttributeDescription{attribute, type, 0, kProbeOffset};
+  draw.pulled.layout.attribute_count = 1;
+  draw.pulled.layout.streams[0].stride = stride;
+  draw.pulled.layout.stream_count = 1;
+  draw.pulled.streams[0].assign(std::size_t{vertices} * stride, std::byte{0xA5});
+  draw.block.attribute = static_cast<std::uint32_t>(attribute);
+  draw.block.width = kProbeCount;
+  for (std::uint32_t i = 0; i < vertices; ++i) {
+    write(draw.pulled.streams[0], std::size_t{i} * stride + kProbeOffset, i);
+  }
+  return draw;
+}
+
+// Probe p decodes `expected(p)` within `tolerance` (0 is exact) in all lanes.
+template <class Expected>
+void require_decoded(const std::filesystem::path& artifacts, const DecodeDraw& draw,
+                     Expected&& expected, float tolerance, std::string_view what) {
+  const StagedTexture staged = draw_pulled(artifacts, draw.pulled, draw.block);
+  for (std::uint32_t p = 0; p < draw.block.width; ++p) {
+    const std::array<float, 4> want = expected(p);
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+      const auto actual =
+          std::bit_cast<float>(get_u32(staged.bytes, std::size_t{p} * 16U + lane * 4U));
+      if (!(std::fabs(actual - want[lane]) <= tolerance)) {
+        throw std::runtime_error("probe " + std::to_string(p) + " lane " + std::to_string(lane) +
+                                 " is " + std::to_string(actual) + ", not " + std::string(what) +
+                                 " " + std::to_string(want[lane]));
+      }
+    }
+  }
+}
+
+// Vertex i's float3 (w 0): negative, large and fractional, never zero or subnormal.
+std::array<float, 4> float3_value(std::uint32_t i) {
+  const auto f = static_cast<float>(i);
+  return {-3.25F + 1.5F * f, 1000.125F * (f + 1.0F), 0.1F * (f + 1.0F) - 0.75F, 0.0F};
+}
+void write_float3(std::vector<std::byte>& bytes, std::size_t at, std::uint32_t i) {
+  for (std::size_t c = 0; c < 3; ++c) {
+    put_f32(bytes, at + c * 4U, float3_value(i)[c]);
+  }
+}
+
+// The short4n lanes cycle through the boundary values -32768, -32767, 0 and 32767.
+constexpr std::array<std::int16_t, 8> kShortValues{-32768, -32767, -16384, -1, 0, 1, 16384, 32767};
+std::int16_t short_lane(std::uint32_t i, std::size_t lane) {
+  return kShortValues[(i + lane * 3U) % kShortValues.size()];
+}
+float snorm16(std::int16_t value) { return std::max(-1.0F, static_cast<float>(value) / 32767.0F); }
+void write_short4n(std::vector<std::byte>& bytes, std::size_t at, std::uint32_t i) {
+  for (std::size_t lane = 0; lane < 4; ++lane) {
+    put_u16(bytes, at + lane * 2U, static_cast<std::uint16_t>(short_lane(i, lane)));
+  }
+}
+std::array<float, 4> short4n_value(std::uint32_t i) {
+  return {snorm16(short_lane(i, 0)), snorm16(short_lane(i, 1)), snorm16(short_lane(i, 2)),
+          snorm16(short_lane(i, 3))};
+}
+
+// Halves exactly representable as floats, the extremes included: bits, values.
+constexpr std::array<std::uint16_t, 8> kHalfBits{0x0000, 0x3C00, 0xC100, 0x3555,
+                                                 0x7BFF, 0x0400, 0x63D1, 0xC7C0};
+constexpr std::array<float, 8> kHalfValues{
+    0.0F, 1.0F, -2.5F, 0.333251953125F, 65504.0F, 6.103515625e-05F, 1000.5F, -7.75F};
+std::size_t half_lane(std::uint32_t i, std::size_t lane) { return (i + lane * 5U) % 8U; }
+
+// The ubyte lanes cycle through 0, 1, 127, 128 and 255 among others.
+constexpr std::array<std::uint8_t, 8> kByteValues{0, 1, 127, 128, 255, 2, 64, 200};
+std::uint8_t byte_lane(std::uint32_t i, std::size_t lane) {
+  return kByteValues[(i + lane * 3U) % kByteValues.size()];
+}
+void write_bytes4(std::vector<std::byte>& bytes, std::size_t at, std::uint32_t i) {
+  for (std::size_t lane = 0; lane < 4; ++lane) {
+    bytes[at + lane] = static_cast<std::byte>(byte_lane(i, lane));
+  }
+}
+std::array<float, 4> bytes4_value(std::uint32_t i, float scale) {
+  return {static_cast<float>(byte_lane(i, 0)) * scale, static_cast<float>(byte_lane(i, 1)) * scale,
+          static_cast<float>(byte_lane(i, 2)) * scale, static_cast<float>(byte_lane(i, 3)) * scale};
+}
+
+// (vertex_fetch.hlsli, element decode: float3, three floats as stored)
+// through (pulled_mesh_fixture.hpp, VertexDecodeProbeDraw: the lanes the
+// element type does not fill are 0): probe p is vertex p's float3, exactly, w 0.
+void decode_float3(const std::filesystem::path& artifacts) {
+  require_decoded(artifacts,
+                  single_stream_draw(VertexAttribute::Position, VertexElementType::Float3,
+                                     kProbeCount, write_float3),
+                  float3_value, 0.0F, "the stored float3 with w 0");
+}
+
+// (vertex_fetch.hlsli, element decode: short4n, each max(-1, c / 32767))
+// through (pulled_mesh_fixture.hpp, VertexDecodeProbeDraw): within 1/32767.
+void decode_short4n(const std::filesystem::path& artifacts) {
+  require_decoded(artifacts,
+                  single_stream_draw(VertexAttribute::Normal, VertexElementType::Short4Norm,
+                                     kProbeCount, write_short4n),
+                  short4n_value, 1.0F / 32767.0F, "max(-1, c / 32767)");
+}
+
+// (vertex_fetch.hlsli, element decode: half2, low half first) through
+// (pulled_mesh_fixture.hpp, VertexDecodeProbeDraw: a half2 in xy, zw 0): exact.
+void decode_half2(const std::filesystem::path& artifacts) {
+  const auto write = [](std::vector<std::byte>& bytes, std::size_t at, std::uint32_t i) {
+    put_u16(bytes, at, kHalfBits[half_lane(i, 0)]);
+    put_u16(bytes, at + 2U, kHalfBits[half_lane(i, 1)]);
+  };
+  require_decoded(
+      artifacts,
+      single_stream_draw(VertexAttribute::TexCoord1, VertexElementType::Half2, kProbeCount, write),
+      [](std::uint32_t p) {
+        return std::array<float, 4>{kHalfValues[half_lane(p, 0)], kHalfValues[half_lane(p, 1)],
+                                    0.0F, 0.0F};
+      },
+      0.0F, "the stored halves exactly with zw 0");
+}
+
+// (vertex_fetch.hlsli, element decode: ubyte4, low byte first) through
+// (pulled_mesh_fixture.hpp, VertexDecodeProbeDraw: a ubyte4 as float(uint)): exact.
+void decode_ubyte4(const std::filesystem::path& artifacts) {
+  require_decoded(
+      artifacts,
+      single_stream_draw(VertexAttribute::BoneSlots, VertexElementType::UByte4, kProbeCount,
+                         write_bytes4),
+      [](std::uint32_t p) { return bytes4_value(p, 1.0F); }, 0.0F, "the stored bytes as integers");
+}
+
+// (vertex_fetch.hlsli, element decode: ubyte4n, each c / 255) through
+// (pulled_mesh_fixture.hpp, VertexDecodeProbeDraw): within half of 1/255.
+void decode_ubyte4n(const std::filesystem::path& artifacts) {
+  require_decoded(
+      artifacts,
+      single_stream_draw(VertexAttribute::Color0, VertexElementType::UByte4Norm, kProbeCount,
+                         write_bytes4),
+      [](std::uint32_t p) { return bytes4_value(p, 1.0F / 255.0F); }, 0.5F / 255.0F, "c / 255");
+}
+
+// (vertex_streams.hpp, VertexStreams buffer1, stride1; attribute_word: the
+// stream in the high 16 bits): the short4n moves to stream 1 (byte 4, stride
+// 16); stream 0 holds float3 positions at stride 12; the probe reads stream 1.
+void decode_from_second_stream(const std::filesystem::path& artifacts) {
+  DecodeDraw draw = single_stream_draw(VertexAttribute::Tangent, VertexElementType::Short4Norm,
+                                       kProbeCount, write_short4n);
+  VertexStreamLayout& layout = draw.pulled.layout;
+  layout.attributes[0].stream = 1;
+  layout.attributes[1] =
+      VertexAttributeDescription{VertexAttribute::Position, VertexElementType::Float3, 0, 0};
+  layout.attribute_count = 2;
+  layout.streams[1] = layout.streams[0];
+  layout.streams[0].stride = 12;
+  layout.stream_count = 2;
+  draw.pulled.streams[1] = std::move(draw.pulled.streams[0]);
+  draw.pulled.streams[0].assign(std::size_t{kProbeCount} * 12U, std::byte{});
+  for (std::uint32_t i = 0; i < kProbeCount; ++i) {
+    write_float3(draw.pulled.streams[0], std::size_t{i} * 12U, i);
+  }
+  require_decoded(artifacts, draw, short4n_value, 1.0F / 32767.0F, "max(-1, c / 32767)");
+}
+
+// (vertex_streams.hpp, Vertex index: the API gets base vertex 0, the block the
+// draw's base, the shader reads SV_VertexID + base_vertex): with block base
+// kBase and first vertex 0, probe p reads vertex p + kBase (SV_VertexID from 0).
+void decode_with_base_vertex(const std::filesystem::path& artifacts) {
+  constexpr std::uint32_t kBase = 5;
+  DecodeDraw draw = single_stream_draw(VertexAttribute::Position, VertexElementType::Float3,
+                                       kBase + kProbeCount, write_float3);
+  draw.pulled.base_vertex = kBase;
+  require_decoded(
+      artifacts, draw, [](std::uint32_t p) { return float3_value(p + kBase); }, 0.0F,
+      "vertex p + base's float3");
+}
+
+// ---- The fixture cube against a software reference ------------------------------------
+
+using Vec4 = std::array<float, 4>;
+using Mat4 = std::array<Vec4, 4>;
+using Vec3 = std::array<float, 3>;
+using Point = std::array<float, 2>;
+
+// Row vectors, as the shader's mul(float4(p, 1), world_to_clip): out = v * m.
+Vec4 transform(const Vec4& v, const Mat4& m) {
+  Vec4 out{};
+  for (std::size_t j = 0; j < 4; ++j) {
+    out[j] = v[0] * m[0][j] + v[1] * m[1][j] + v[2] * m[2][j] + v[3] * m[3][j];
+  }
+  return out;
+}
+float dot3(const Vec3& a, const Vec3& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+Vec3 normalized(const Vec3& v) {
+  const float length = std::sqrt(dot3(v, v));
+  return {v[0] / length, v[1] / length, v[2] / length};
+}
+
+// A right-handed view from (3.0, 2.4, 4.2) at the origin with +y up, times a
+// perspective of 40 degrees, aspect 1, near 0.1, far 100, depth in [0, 1]; row
+// r of view * projection is (v0 f, v1 f, v2 a + v3 b, -v2) for view row v.
+// The camera sees the +x, +y and +z faces.
+Mat4 cube_world_to_clip() {
+  const Vec3 eye{3.0F, 2.4F, 4.2F};
+  const Vec3 z = normalized(eye);
+  const Vec3 x = normalized({z[2], 0.0F, -z[0]});
+  const Vec3 y{z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]};
+  const float f = 1.0F / std::tan(40.0F * 3.14159265358979F / 360.0F);
+  const float a = 100.0F / (0.1F - 100.0F);
+  const float b = 0.1F * 100.0F / (0.1F - 100.0F);
+  Mat4 m{};
+  for (std::size_t r = 0; r < 4; ++r) {
+    const Vec4 v = r < 3U ? Vec4{x[r], y[r], z[r], 0.0F}
+                          : Vec4{-dot3(x, eye), -dot3(y, eye), -dot3(z, eye), 1.0F};
+    m[r] = {v[0] * f, v[1] * f, v[2] * a + v[3] * b, -v[2]};
+  }
+  return m;
+}
+
+// Distance from p to the segment ab, in pixels.
+float segment_distance(const Point& p, const Point& a, const Point& b) {
+  const Point ab{b[0] - a[0], b[1] - a[1]};
+  const float length2 = ab[0] * ab[0] + ab[1] * ab[1];
+  const float t =
+      length2 > 0.0F
+          ? std::clamp(((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / length2, 0.0F, 1.0F)
+          : 0.0F;
+  return std::hypot(p[0] - (a[0] + t * ab[0]), p[1] - (a[1] + t * ab[1]));
+}
+
+// (pulled_mesh_fixture.hpp, make_fixture_cube, PulledMeshDraw: clip position
+// is the row vector (p, 1) times world_to_clip; COLOR0 = float4(color.rgb *
+// shade, 1) with the header's shade and light, the normal in object space).
+// Drawn indexed into a 128 x 128 RGBA8 target cleared to opaque black, culling
+// clockwise, without depth, against a software reference of the 12 triangles:
+// front-facing is counter-clockwise in device coordinates (x right, y up), the
+// faces CullMode::Clockwise keeps (pipeline_states.hpp, CullMode); window x =
+// (x + 1) / 2 * 128, y = (1 - y) / 2 * 128, texel centers at +0.5; a center in
+// a front-facing triangle takes its shaded color, others the clear color,
+// rounded to 8 bits. Texels within one texel of a projected edge are skipped,
+// so the fill rule does not matter; the rest match within one unit, and each
+// of the three visible faces covers at least 200 compared texels.
+void cube_offscreen_matches_reference(const std::filesystem::path& artifacts) {
+  constexpr std::uint32_t kSize = 128;
+  const bw::geometry::FixtureCube cube = bw::geometry::make_fixture_cube();
+  const Mat4 world_to_clip = cube_world_to_clip();
+  PulledMeshDraw block{};
+  for (std::size_t r = 0; r < 4; ++r) {
+    block.world_to_clip.rows[r] = bw::shaders::Float4{world_to_clip[r][0], world_to_clip[r][1],
+                                                      world_to_clip[r][2], world_to_clip[r][3]};
+  }
+  constexpr std::array<float, 4> kBlack{0.0F, 0.0F, 0.0F, 1.0F};
+  const StagedTexture staged =
+      draw_pulled(artifacts,
+                  PulledDraw{bw::geometry::kPulledMeshShader, bw::shaders::PermutationId{},
+                             Format::R8G8B8A8Unorm, CullMode::Clockwise, kSize, kSize, kBlack,
+                             cube.layout, std::array{cube.stream0, cube.stream1}, 0,
+                             cube.vertex_count, cube.index_count, cube.indices},
+                  block);
+
+  // The reference triangles: window corners, signed window-space area (y down,
+  // so negative is counter-clockwise in device coordinates, front-facing),
+  // shaded color and face normal.
+  struct Triangle {
+    std::array<Point, 3> window{};
+    float area{};
+    std::array<long, 4> rgba{};
+    Vec3 normal{};
+  };
+  const Vec3 light = normalized({0.4F, 0.8F, 0.45F});
+  std::array<Triangle, 12> triangles{};
+  for (std::size_t t = 0; t < triangles.size(); ++t) {
+    std::array<Point, 3>& w = triangles[t].window;
+    for (std::size_t k = 0; k < 3; ++k) {
+      const std::size_t v = cube.indices[t * 3U + k];
+      const Vec4 clip = transform({std::bit_cast<float>(get_u32(cube.stream1, v * 12U)),
+                                   std::bit_cast<float>(get_u32(cube.stream1, v * 12U + 4U)),
+                                   std::bit_cast<float>(get_u32(cube.stream1, v * 12U + 8U)), 1.0F},
+                                  world_to_clip);
+      require(clip[3] > 0.0F && std::fabs(clip[0]) < clip[3] && std::fabs(clip[1]) < clip[3] &&
+                  clip[2] > 0.0F && clip[2] < clip[3],
+              "every cube vertex is inside the view volume, so nothing is clipped");
+      w[k] = {(clip[0] / clip[3] + 1.0F) * 0.5F * static_cast<float>(kSize),
+              (1.0F - clip[1] / clip[3]) * 0.5F * static_cast<float>(kSize)};
+    }
+    triangles[t].area =
+        (w[1][0] - w[0][0]) * (w[2][1] - w[0][1]) - (w[2][0] - w[0][0]) * (w[1][1] - w[0][1]);
+    const std::size_t first = std::size_t{cube.indices[t * 3U]} * 24U;
+    for (std::size_t c = 0; c < 3; ++c) {
+      triangles[t].normal[c] =
+          snorm16(static_cast<std::int16_t>(get_u32(cube.stream0, first + c * 2U) & 0xFFFFU));
+    }
+    const float shade = 0.25F + 0.75F * std::clamp(dot3(triangles[t].normal, light), 0.0F, 1.0F);
+    for (std::size_t c = 0; c < 3; ++c) {
+      const float color = static_cast<float>(cube.stream0[first + 12U + c]) / 255.0F;
+      triangles[t].rgba[c] = std::lround(color * shade * 255.0F);
+    }
+    triangles[t].rgba[3] = 255;
+  }
+
+  // A center is inside a triangle when it is on the same side of all three
+  // edges, whatever the triangle's orientation in y-down window space.
+  std::array<std::uint32_t, 12> compared{};
+  for (std::uint32_t j = 0; j < kSize; ++j) {
+    for (std::uint32_t i = 0; i < kSize; ++i) {
+      const Point p{static_cast<float>(i) + 0.5F, static_cast<float>(j) + 0.5F};
+      bool near_edge = false;
+      std::array<bool, 12> inside{};
+      for (std::size_t t = 0; t < triangles.size(); ++t) {
+        std::array<float, 3> e{};
+        for (std::size_t k = 0; k < 3; ++k) {
+          const Point& a = triangles[t].window[k];
+          const Point& b = triangles[t].window[(k + 1U) % 3U];
+          e[k] = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+          near_edge = near_edge || segment_distance(p, a, b) <= 1.0F;
+        }
+        inside[t] = (e[0] > 0.0F && e[1] > 0.0F && e[2] > 0.0F) ||
+                    (e[0] < 0.0F && e[1] < 0.0F && e[2] < 0.0F);
+      }
+      if (near_edge) {
+        continue;
+      }
+      std::array<long, 4> expected{0, 0, 0, 255};
+      for (std::size_t t = 0; t < triangles.size(); ++t) {
+        if (triangles[t].area < 0.0F && inside[t]) {
+          expected = triangles[t].rgba;
+          ++compared[t];
+        }
+      }
+      require_texel(staged, i, j, expected, "the reference");
+    }
+  }
+  // A face is the two triangles sharing a normal, so three faces of at least
+  // 200 compared texels count six triangles.
+  std::uint32_t triangles_of_seen_faces = 0;
+  for (const Triangle& t : triangles) {
+    std::uint32_t face_texels = 0;
+    for (std::size_t u = 0; u < triangles.size(); ++u) {
+      face_texels += triangles[u].normal == t.normal ? compared[u] : 0U;
+    }
+    triangles_of_seen_faces += face_texels >= 200U ? 1U : 0U;
+  }
+  require(triangles_of_seen_faces == 6U, "three faces each cover at least 200 compared texels");
+}
+
 #if BW_RHI_DEBUG
 // (backend.hpp, wrap_with_validation: the validation layer reports a failure
 // once with the code, the resource's debug name and the command's name) and
@@ -907,11 +1648,7 @@ void validation_rejects_undeclared_transition_by_name(const std::filesystem::pat
 }
 #endif
 
-using ScenarioFunction = void (*)(const std::filesystem::path&);
-struct Scenario {
-  std::string_view name;
-  ScenarioFunction run;
-};
+using Scenario = bw::testing::Scenario<std::filesystem::path>;
 
 constexpr std::array kScenarios{
     Scenario{"device_creation_and_required_capabilities",
@@ -936,6 +1673,17 @@ constexpr std::array kScenarios{
     Scenario{"buffer_initial_data_is_uploaded", &buffer_initial_data_is_uploaded},
     Scenario{"vertex_layout_is_unsupported_on_metal", &vertex_layout_is_unsupported_on_metal},
     Scenario{"pipeline_library_errors_named", &pipeline_library_errors_named},
+    Scenario{"viewport_present_resize_present", &viewport_present_resize_present},
+    Scenario{"viewport_errors_named", &viewport_errors_named},
+    Scenario{"back_buffer_copies_to_staging", &back_buffer_copies_to_staging},
+    Scenario{"decode_float3", &decode_float3},
+    Scenario{"decode_short4n", &decode_short4n},
+    Scenario{"decode_half2", &decode_half2},
+    Scenario{"decode_ubyte4", &decode_ubyte4},
+    Scenario{"decode_ubyte4n", &decode_ubyte4n},
+    Scenario{"decode_from_second_stream", &decode_from_second_stream},
+    Scenario{"decode_with_base_vertex", &decode_with_base_vertex},
+    Scenario{"cube_offscreen_matches_reference", &cube_offscreen_matches_reference},
 #if BW_RHI_DEBUG
     Scenario{"validation_rejects_undeclared_transition_by_name",
              &validation_rejects_undeclared_transition_by_name},
@@ -945,22 +1693,10 @@ constexpr std::array kScenarios{
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 3) {
-    std::cerr << "Usage: rhi_metal_tests <scenario> <metal artifact directory>\n";
-    return 2;
-  }
-  const std::string_view requested = argv[1];
-  for (const Scenario& scenario : kScenarios) {
-    if (scenario.name == requested) {
-      try {
-        scenario.run(std::filesystem::path{argv[2]});
-        return 0;
-      } catch (const std::exception& error) {
-        std::cerr << scenario.name << ": " << error.what() << '\n';
-        return 1;
-      }
-    }
-  }
-  std::cerr << "Unknown scenario\n";
-  return 2;
+  return bw::testing::run_scenario(argc, argv, kScenarios, "<metal artifact directory>",
+                                   [](std::span<char* const> rest, std::filesystem::path& out) {
+                                     out = rest.size() == 1U ? std::filesystem::path(rest[0])
+                                                             : std::filesystem::path();
+                                     return rest.size() == 1U;
+                                   });
 }

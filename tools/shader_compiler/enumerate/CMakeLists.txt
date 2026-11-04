@@ -21,6 +21,10 @@ include("${BW_SOURCE_ROOT}/cmake/Modules.cmake")
 # policy and clang-tidy.
 add_library(bw_contracts INTERFACE)
 bw_header_interface(bw_memory_headers "${BW_SOURCE_ROOT}/src/engine/core/memory")
+# The registry names the fixture draw blocks of the geometry module
+# (src/engine/rendering/shaders/permutation.cpp), so the shader module's
+# private header dependency is declared here as the main build declares it.
+bw_header_interface(bw_geometry_headers "${BW_SOURCE_ROOT}/src/engine/rendering/geometry")
 add_subdirectory("${BW_SOURCE_ROOT}/src/engine/rendering/shaders" engine_shaders)
 
 add_executable(shader_enumerate main.cpp "${BW_SOURCE_ROOT}/tools/shader_compiler/enumeration.cpp")

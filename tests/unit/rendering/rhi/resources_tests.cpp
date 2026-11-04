@@ -5,8 +5,9 @@
 #include "bw/rendering/rhi/build.hpp"
 #include "bw/rendering/rhi/descriptor_allocator.hpp"
 #include "bw/rendering/rhi/lifetime.hpp"
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 #include "test_objects.hpp"
+#include "unwrap.hpp"
 
 #include <array>
 #include <cstddef>
@@ -28,7 +29,8 @@ using bw::rhi::TextureLimits;
 using bw::rhi::TexturePlane;
 using bw::rhi::TextureUsage;
 using bw::rhi::TextureViewDescription;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 constexpr TextureLimits kLimits{4096, 2048, 4096, 256, 8};
 constexpr FormatCapability kColor = FormatCapability::Texture | FormatCapability::RenderTarget |
@@ -55,6 +57,22 @@ TextureDescription valid_texture() {
 
 ResourceError check(const TextureDescription& d, FormatCapability capability = kColor) {
   return bw::rhi::validate_texture(d, kLimits, capability);
+}
+
+// (resources.hpp, validate_texture, ResourceError::BackBufferUsageReserved,
+// TextureUsage::BackBuffer): a caller's description with the back buffer
+// mark is rejected by that code, checked before every other rule; the same
+// description without the mark passes.
+void back_buffer_usage_reserved() {
+  TextureDescription d = valid_texture();
+  d.usage = d.usage | TextureUsage::BackBuffer;
+  require(check(d) == ResourceError::BackBufferUsageReserved, "the mark on a valid description");
+  d.extent.width = 0;
+  d.debug_name = {};
+  d.format = Format::Unknown;
+  require(check(d, FormatCapability::None) == ResourceError::BackBufferUsageReserved,
+          "BackBufferUsageReserved before ZeroSize, MissingDebugName and UnsupportedFormat");
+  require(check(valid_texture()) == ResourceError::None, "without the mark");
 }
 
 // (resources.hpp, validate_buffer) and (resources.hpp, ResourceError): usage
@@ -470,18 +488,18 @@ void lock_validation_named() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"buffer_validation_named_in_order", buffer_validation_named_in_order},
-    bw_rhi_test::Scenario{"texture_validation_named_in_order", texture_validation_named_in_order},
-    bw_rhi_test::Scenario{"view_validation_named", view_validation_named},
-    bw_rhi_test::Scenario{"subresource_arithmetic", subresource_arithmetic},
-    bw_rhi_test::Scenario{"debug_name_copied_and_bounded", debug_name_copied_and_bounded},
-    bw_rhi_test::Scenario{"view_returns_slot_on_destruction", view_returns_slot_on_destruction},
-    bw_rhi_test::Scenario{"viewable_initial_tracked_access_and_kind",
-                          viewable_initial_tracked_access_and_kind},
-    bw_rhi_test::Scenario{"array_for_by_dimension_and_kind", array_for_by_dimension_and_kind},
-    bw_rhi_test::Scenario{"initial_data_validation_named", initial_data_validation_named},
-    bw_rhi_test::Scenario{"lock_validation_named", lock_validation_named},
+    Scenario{"buffer_validation_named_in_order", buffer_validation_named_in_order},
+    Scenario{"texture_validation_named_in_order", texture_validation_named_in_order},
+    Scenario{"view_validation_named", view_validation_named},
+    Scenario{"subresource_arithmetic", subresource_arithmetic},
+    Scenario{"debug_name_copied_and_bounded", debug_name_copied_and_bounded},
+    Scenario{"view_returns_slot_on_destruction", view_returns_slot_on_destruction},
+    Scenario{"viewable_initial_tracked_access_and_kind", viewable_initial_tracked_access_and_kind},
+    Scenario{"array_for_by_dimension_and_kind", array_for_by_dimension_and_kind},
+    Scenario{"initial_data_validation_named", initial_data_validation_named},
+    Scenario{"lock_validation_named", lock_validation_named},
+    Scenario{"back_buffer_usage_reserved", back_buffer_usage_reserved},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

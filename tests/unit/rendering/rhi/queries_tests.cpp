@@ -2,7 +2,7 @@
 // per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/queries.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 
@@ -10,7 +10,8 @@ namespace {
 using bw::rhi::QueryError;
 using bw::rhi::QueryKind;
 using bw::rhi::QueryPoolDescription;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // (queries.hpp, validate_query_pool): ZeroCount, then MissingDebugName; the
 // kind is the device's check (it needs the capability report).
@@ -30,8 +31,8 @@ void query_pool_validation_named() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"query_pool_validation_named", query_pool_validation_named},
+    Scenario{"query_pool_validation_named", query_pool_validation_named},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

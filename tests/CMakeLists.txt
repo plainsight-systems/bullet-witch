@@ -2,37 +2,43 @@
 # under test; integration tests may use the OS, threads or another module.
 # No test target receives a private include directory.
 
+# The one test harness (support/bw/testing/harness.hpp): require, the
+# scenario table and run_scenario with the exit-code contract. Every test
+# executable links it; no test defines its own main or require.
+add_library(bw_test_harness INTERFACE)
+target_include_directories(bw_test_harness INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+
 # Unit: math.
 foreach(math_case IN ITEMS math_vector math_register quaternion_register quaternion)
   add_executable(${math_case}_tests unit/math/${math_case}_tests.cpp)
-  target_link_libraries(${math_case}_tests PRIVATE bw_math)
-  add_test(NAME unit.${math_case} COMMAND ${math_case}_tests)
+  target_link_libraries(${math_case}_tests PRIVATE bw_test_harness bw_math)
+  add_test(NAME unit.${math_case} COMMAND ${math_case}_tests ${math_case})
   set_tests_properties(unit.${math_case} PROPERTIES TIMEOUT 15)
 endforeach()
 
 # Unit: memory policy and alignment arithmetic (header only).
 foreach(memory_case IN ITEMS alignment new_request)
   add_executable(${memory_case}_tests unit/memory/${memory_case}_tests.cpp)
-  target_link_libraries(${memory_case}_tests PRIVATE bw_memory_headers)
+  target_link_libraries(${memory_case}_tests PRIVATE bw_test_harness bw_memory_headers)
   add_test(NAME unit.${memory_case} COMMAND ${memory_case}_tests)
   set_tests_properties(unit.${memory_case} PROPERTIES TIMEOUT 15)
 endforeach()
 
 # Unit: virtual memory block descriptor, no mapping made.
 add_executable(virtual_memory_block_tests unit/platform/virtual_memory_block_tests.cpp)
-target_link_libraries(virtual_memory_block_tests PRIVATE bw_memory bw_macos_memory_headers)
-add_test(NAME unit.virtual_memory_block COMMAND virtual_memory_block_tests)
+target_link_libraries(virtual_memory_block_tests PRIVATE bw_test_harness bw_memory bw_macos_memory_headers)
+add_test(NAME unit.virtual_memory_block COMMAND virtual_memory_block_tests virtual_memory_block)
 set_tests_properties(unit.virtual_memory_block PROPERTIES TIMEOUT 15)
 
 # Unit: word mutex uncontended protocol.
 add_executable(word_mutex_tests unit/concurrency/word_mutex_tests.cpp)
-target_link_libraries(word_mutex_tests PRIVATE bw_allocator bw_concurrency_headers)
-add_test(NAME unit.word_mutex COMMAND word_mutex_tests)
+target_link_libraries(word_mutex_tests PRIVATE bw_test_harness bw_allocator bw_concurrency_headers)
+add_test(NAME unit.word_mutex COMMAND word_mutex_tests word_mutex)
 set_tests_properties(unit.word_mutex PROPERTIES TIMEOUT 15)
 
 # Unit: engine loop on a recording clock, one scenario per entry.
 add_executable(engine_loop_tests unit/runtime/engine_loop_tests.cpp)
-target_link_libraries(engine_loop_tests PRIVATE bw_runtime)
+target_link_libraries(engine_loop_tests PRIVATE bw_test_harness bw_runtime)
 foreach(scenario IN ITEMS
   defaults
   lifecycle_order
@@ -51,8 +57,8 @@ endforeach()
 
 # Unit: frame wait arithmetic.
 add_executable(frame_wait_tests unit/runtime/frame_wait_tests.cpp)
-target_link_libraries(frame_wait_tests PRIVATE bw_runtime)
-add_test(NAME unit.frame_wait COMMAND frame_wait_tests)
+target_link_libraries(frame_wait_tests PRIVATE bw_test_harness bw_runtime)
+add_test(NAME unit.frame_wait COMMAND frame_wait_tests frame_wait)
 set_tests_properties(unit.frame_wait PROPERTIES TIMEOUT 15)
 
 # Unit: shader system public contracts, one executable per header plus the
@@ -176,13 +182,19 @@ bw_shader_compile_probes()
 
 foreach(shader_case IN ITEMS parameter_block permutation root_layout artifact compiler_options)
   add_executable(${shader_case}_tests unit/rendering/shaders/${shader_case}_tests.cpp)
-  target_link_libraries(${shader_case}_tests PRIVATE bw_shaders)
+  target_link_libraries(${shader_case}_tests PRIVATE bw_test_harness bw_shaders)
   foreach(scenario IN LISTS shader_${shader_case}_scenarios)
     add_test(NAME unit.${shader_case}.${scenario} COMMAND ${shader_case}_tests ${scenario})
     set_tests_properties(unit.${shader_case}.${scenario} PROPERTIES TIMEOUT 10)
   endforeach()
 endforeach()
+add_subdirectory(unit/rendering/geometry)
 add_subdirectory(unit/rendering/rhi)
+add_subdirectory(unit/platform/window)
+# game_host's command line, the pure parse the Apple host links.
+if(APPLE)
+  add_subdirectory(unit/hosts)
+endif()
 
 # Shader compiler tool: pure tool logic (unit) and the toolchain scenarios
 # (integration), each in its own directory and CMake file, built only with
@@ -192,33 +204,38 @@ if(BW_SHADER_TOOLCHAIN)
   add_subdirectory(integration/rendering/shaders)
 endif()
 add_subdirectory(integration/rendering/rhi)
+add_subdirectory(integration/platform/window)
+# The game host draws on the Metal device with the build's shader artifacts.
+if(APPLE AND BW_SHADER_TOOLCHAIN)
+  add_subdirectory(integration/hosts)
+endif()
 
 # Integration: memory.
 add_executable(memory_tests integration/memory/memory_tests.cpp)
-target_link_libraries(memory_tests PRIVATE bw_memory bw_macos_memory_headers Threads::Threads)
-add_test(NAME integration.memory COMMAND memory_tests)
+target_link_libraries(memory_tests PRIVATE bw_test_harness bw_memory bw_macos_memory_headers Threads::Threads)
+add_test(NAME integration.memory COMMAND memory_tests memory)
 set_tests_properties(integration.memory PROPERTIES TIMEOUT 60)
 
 add_executable(allocator_tests integration/memory/allocator_tests.cpp)
-target_link_libraries(allocator_tests PRIVATE bw_allocator bw_platform_memory_headers Threads::Threads)
-add_test(NAME integration.allocator COMMAND allocator_tests)
+target_link_libraries(allocator_tests PRIVATE bw_test_harness bw_allocator bw_platform_memory_headers Threads::Threads)
+add_test(NAME integration.allocator COMMAND allocator_tests allocator)
 set_tests_properties(integration.allocator PROPERTIES TIMEOUT 60)
 
 add_executable(allocator_sync_tests integration/memory/allocator_sync_tests.cpp)
-target_link_libraries(allocator_sync_tests PRIVATE bw_allocator bw_concurrency_headers
+target_link_libraries(allocator_sync_tests PRIVATE bw_test_harness bw_allocator bw_concurrency_headers
   bw_platform_memory_headers Threads::Threads)
-add_test(NAME integration.allocator_sync COMMAND allocator_sync_tests)
+add_test(NAME integration.allocator_sync COMMAND allocator_sync_tests allocator_sync)
 set_tests_properties(integration.allocator_sync PROPERTIES TIMEOUT 60)
 
 # Integration: runtime.
 add_executable(global_allocation_tests integration/runtime/global_allocation_tests.cpp
   ${PROJECT_SOURCE_DIR}/src/engine/core/memory/global_allocation.cpp)
-target_link_libraries(global_allocation_tests PRIVATE bw_runtime bw_memory_headers)
-add_test(NAME integration.global_allocation COMMAND global_allocation_tests)
+target_link_libraries(global_allocation_tests PRIVATE bw_test_harness bw_runtime bw_memory_headers)
+add_test(NAME integration.global_allocation COMMAND global_allocation_tests global_allocation)
 set_tests_properties(integration.global_allocation PROPERTIES TIMEOUT 15)
 
 # Integration: tasks.
 add_executable(named_thread_dispatch_tests integration/tasks/named_thread_dispatch_tests.cpp)
-target_link_libraries(named_thread_dispatch_tests PRIVATE bw_allocator bw_tasks_headers Threads::Threads)
-add_test(NAME integration.named_thread_dispatch COMMAND named_thread_dispatch_tests)
+target_link_libraries(named_thread_dispatch_tests PRIVATE bw_test_harness bw_allocator bw_tasks_headers Threads::Threads)
+add_test(NAME integration.named_thread_dispatch COMMAND named_thread_dispatch_tests named_thread_dispatch)
 set_tests_properties(integration.named_thread_dispatch PROPERTIES TIMEOUT 60)

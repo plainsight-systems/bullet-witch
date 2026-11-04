@@ -19,9 +19,10 @@
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 #include "bw/rendering/shaders/root_layout.hpp"
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 #include "test_objects.hpp"
 #include "validation_objects.hpp"
 
@@ -46,7 +47,8 @@ using bw::rhi::TransitionError;
 using bw::rhi::TransitionPipelines;
 using bw::rhi::ValidationCode;
 using bw::rhi::ValidationFailure;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 using bw_rhi_validation_test::Args;
 using bw_rhi_validation_test::describe;
 
@@ -147,6 +149,12 @@ void require_reported(const Fixture& f, std::size_t before, ValidationCode code,
 
 void require_quiet(const Fixture& f, std::size_t before, std::string_view step) {
   require(f.captured.count == before, std::string("no failure expected from ") + std::string(step));
+}
+
+// backend.hpp, Context::begin_render_pass: the layer returns the inner's
+// result; the recording context opens every pass unless told otherwise.
+void opened(bw::rhi::ExecuteError result) {
+  require(result == bw::rhi::ExecuteError::None, "begin_render_pass returns the inner's None");
 }
 
 // The inner context received exactly one more call, named `name`.
@@ -308,9 +316,9 @@ void render_pass_nesting_named() {
   f.context().draw(bw::rhi::DrawArguments{3});
   require_reported(f, 1, ValidationCode::CommandOutsideRenderPass, TransitionError::None, "",
                    "draw");
-  f.context().begin_render_pass(pass);
+  opened(f.context().begin_render_pass(pass));
   require_quiet(f, 2, "first begin_render_pass");
-  f.context().begin_render_pass(pass);
+  opened(f.context().begin_render_pass(pass));
   require_reported(f, 2, ValidationCode::NestedRenderPass, TransitionError::None, "Main pass",
                    "begin_render_pass");
   f.context().copy_buffer(*source, *destination, bw::rhi::BufferCopy{0, 0, 16});
@@ -335,7 +343,7 @@ void render_pass_description_invalid_named() {
   require(bw::rhi::validate_render_pass(pass) != bw::rhi::RenderPassError::None,
           "the description is one validate_render_pass rejects");
   const std::size_t calls = f.context_calls();
-  f.context().begin_render_pass(pass);
+  opened(f.context().begin_render_pass(pass));
   require_reported(f, 0, ValidationCode::RenderPassInvalid, TransitionError::None, "Main pass",
                    "begin_render_pass");
   require_forwarded(f, calls, "begin_render_pass");
@@ -352,7 +360,7 @@ void pipeline_targets_mismatch_and_no_pipeline_named() {
   const auto matching = graphics_pipeline(f, "Matching");
   const auto mismatched =
       graphics_pipeline(f, "Mismatched", {}, bw::rhi::Format::R16G16B16A16Float);
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().draw(bw::rhi::DrawArguments{3});
   require_reported(f, 0, ValidationCode::NoPipelineBound, TransitionError::None, "", "draw");
   f.context().set_graphics_pipeline(*mismatched);
@@ -363,7 +371,7 @@ void pipeline_targets_mismatch_and_no_pipeline_named() {
   require_quiet(f, 2, "matching pipeline and draw");
   f.context().end_render_pass();
   // A new pass starts with no pipeline set.
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().draw(bw::rhi::DrawArguments{3});
   require_reported(f, 2, ValidationCode::NoPipelineBound, TransitionError::None, "", "draw");
 }
@@ -384,7 +392,7 @@ void draw_block_layout_mismatch_named() {
   const auto blockless = graphics_pipeline(f, "Blockless");
   const std::array<std::byte, 16> bytes{};
 
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().set_graphics_pipeline(*pipeline);
   static_cast<void>(f.context().set_draw_block(bytes, bw::shaders::LayoutHash{0x9999U}));
   require_reported(f, 0, ValidationCode::DrawBlockLayoutMismatch, TransitionError::None, "Pipeline",
@@ -436,13 +444,13 @@ void query_outside_pass_and_index_named() {
   f.context().begin_query(*pool, 0);
   require_reported(f, 0, ValidationCode::QueryOutsidePass, TransitionError::None, "Occlusion",
                    "begin_query");
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().begin_query(*pool, 0);
   require_reported(f, 1, ValidationCode::QueryOutsidePass, TransitionError::None, "Occlusion",
                    "begin_query");
   f.context().end_render_pass();
 
-  f.context().begin_render_pass(pass_for(*target, pool.get()));
+  opened(f.context().begin_render_pass(pass_for(*target, pool.get())));
   f.context().begin_query(*pool, 2);
   require_reported(f, 2, ValidationCode::QueryIndexOutOfRange, TransitionError::None, "Occlusion",
                    "begin_query");
@@ -478,12 +486,12 @@ void use_checks_cover_every_named_use() {
   depth_pass.name = "Depth pass";
   require(bw::rhi::validate_render_pass(depth_pass) == bw::rhi::RenderPassError::None,
           "the depth-only pass is valid");
-  f.context().begin_render_pass(depth_pass);
+  opened(f.context().begin_render_pass(depth_pass));
   require_reported(f, 0, ValidationCode::Transition, TransitionError::AccessMissingAtUse, "Depth",
                    "begin_render_pass");
   f.context().end_render_pass();
 
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   require_quiet(f, 1, "color target in RenderTarget");
   f.context().set_vertex_buffer(0, *vertices, 0);
   require_reported(f, 1, ValidationCode::Transition, TransitionError::AccessMissingAtUse,
@@ -558,7 +566,7 @@ void inside_only_and_outside_only_commands_named() {
   const std::array<std::byte, 16> bytes{};
   const std::array<std::uint32_t, 2> words{1, 2};
 
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().dispatch(bw::rhi::DispatchArguments{});
   require_reported(f, 0, ValidationCode::CommandInsideRenderPass, TransitionError::None, "",
                    "dispatch");
@@ -602,12 +610,12 @@ void render_pass_open_at_submit_is_named() {
   std::string name = "Open pass";
   bw::rhi::RenderPassDescription pass = pass_for(*target);
   pass.name = name;
-  f.context().begin_render_pass(pass);
+  opened(f.context().begin_render_pass(pass));
   name.assign("Overwritten");
   f.backend->submit_frame(1);
   require_reported(f, 0, ValidationCode::RenderPassOpenAtSubmit, TransitionError::None, "Open pass",
                    "submit_frame");
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().end_render_pass();
   f.backend->submit_frame(2);
   require_quiet(f, 1, "a frame whose pass ended");
@@ -628,6 +636,108 @@ void query_kind_mismatch_is_named() {
   require_forwarded(f, calls, "begin_query");
   f.context().end_query(*timestamps, 0);
   require_quiet(f, 1, "end_query on the timestamp pool outside a pass");
+}
+
+// A back buffer as a viewport makes it (viewport.hpp, back_buffer_description).
+Ref<bw_rhi_test::TestTexture> back_buffer(Fixture& f) {
+  return bw_rhi_test::make<bw_rhi_test::TestTexture>(
+      f.queue, bw::rhi::back_buffer_description(bw::rhi::Extent2{64, 32},
+                                                bw::rhi::Format::B8G8R8A8UnormSrgb, "Back buffer"));
+}
+
+// One declared transition to `after`, begun and ended.
+void declare(Fixture& f, bw::rhi::Viewable& resource, Access after) {
+  const std::array transitions{Transition{&resource, Access::Unknown, after}};
+  f.context().begin_transitions(TransitionBatch{transitions, {}});
+  f.context().end_transitions(TransitionBatch{transitions, {}});
+}
+
+// (backend.hpp, ValidationCode::BackBufferNotAcquired) and (viewport.hpp,
+// invariant 2: a copy from the back buffer before any pass of the frame
+// bound it is a validation failure). Named by the back buffer and the copy,
+// then forwarded; in Present access it is this failure and not a missing
+// CopySource, and after the refused pass, with CopySource declared, it is
+// still this failure (backend.hpp, BackBufferNotAcquired: checked before the
+// copy source's access, so an unacquired back buffer is reported by this
+// code whatever its access). A pass the inner refused (backend.hpp,
+// Context::begin_render_pass: the failure is returned) bound nothing; after
+// a pass of the frame opened on it the copy is accepted; the next frame
+// starts with nothing acquired.
+void back_buffer_copy_before_acquire_named() {
+  Fixture f;
+  const auto target = back_buffer(f);
+  const auto staging = bw_rhi_test::make<bw_rhi_validation_test::TestStagingBuffer>(f.queue);
+  const auto copy = [&](bw::rhi::Context& c) {
+    c.copy_texture_to_staging(*target, 0, 0, *staging, 0);
+  };
+  const std::size_t calls = f.context_calls();
+  copy(f.context());
+  require_reported(f, 0, ValidationCode::BackBufferNotAcquired, TransitionError::None,
+                   "Back buffer", "copy_texture_to_staging");
+  require_forwarded(f, calls, "copy_texture_to_staging");
+
+  declare(f, *target, Access::RenderTarget);
+  f.inner->recording_context().render_pass_result = bw::rhi::ExecuteError::BackBufferUnavailable;
+  require(f.context().begin_render_pass(pass_for(*target)) ==
+              bw::rhi::ExecuteError::BackBufferUnavailable,
+          "the inner's failure is returned");
+  f.inner->recording_context().render_pass_result = bw::rhi::ExecuteError::None;
+  declare(f, *target, Access::CopySource);
+  copy(f.context());
+  require_reported(f, 1, ValidationCode::BackBufferNotAcquired, TransitionError::None,
+                   "Back buffer", "copy_texture_to_staging");
+
+  declare(f, *target, Access::RenderTarget);
+  opened(f.context().begin_render_pass(pass_for(*target)));
+  f.context().end_render_pass();
+  declare(f, *target, Access::CopySource);
+  copy(f.context());
+  require_quiet(f, 2, "a copy after a pass of the frame bound the back buffer");
+  declare(f, *target, Access::Present);
+  f.backend->submit_frame(1);
+  require_quiet(f, 2, "submit_frame of a presentable back buffer");
+
+  declare(f, *target, Access::CopySource);
+  copy(f.context());
+  require_reported(f, 2, ValidationCode::BackBufferNotAcquired, TransitionError::None,
+                   "Back buffer", "copy_texture_to_staging");
+}
+
+// (backend.hpp, ValidationCode::BackBufferNotPresentable) and (viewport.hpp,
+// invariant 3: an acquired back buffer whose tracked access is not Present
+// at end_frame is a validation failure): named by the back buffer at
+// submit_frame, once, and submit_frame is forwarded. A back buffer declared
+// Present is quiet; one no pass of the frame bound is not checked; a pass the
+// inner refused leaves neither an acquired back buffer nor an open pass.
+void back_buffer_not_presentable_named() {
+  Fixture f;
+  const auto target = back_buffer(f);
+  declare(f, *target, Access::RenderTarget);
+  opened(f.context().begin_render_pass(pass_for(*target)));
+  f.context().end_render_pass();
+  const std::size_t calls = f.inner->calls.size();
+  f.backend->submit_frame(1);
+  require_reported(f, 0, ValidationCode::BackBufferNotPresentable, TransitionError::None,
+                   "Back buffer", "submit_frame");
+  require(f.inner->calls.size() == calls + 1 && f.inner->calls.back().name == "submit_frame",
+          "submit_frame forwarded");
+
+  opened(f.context().begin_render_pass(pass_for(*target)));
+  f.context().end_render_pass();
+  declare(f, *target, Access::Present);
+  f.backend->submit_frame(2);
+  require_quiet(f, 1, "a back buffer declared Present");
+
+  declare(f, *target, Access::RenderTarget);
+  f.backend->submit_frame(3);
+  require_quiet(f, 1, "a back buffer no pass of the frame bound");
+
+  f.inner->recording_context().render_pass_result = bw::rhi::ExecuteError::BackBufferSizeMismatch;
+  require(f.context().begin_render_pass(pass_for(*target)) ==
+              bw::rhi::ExecuteError::BackBufferSizeMismatch,
+          "the inner's failure is returned");
+  f.backend->submit_frame(4);
+  require_quiet(f, 1, "a refused pass: nothing acquired, no pass open");
 }
 
 // Issues one command through the layer's context; requires the inner context
@@ -788,6 +898,28 @@ void every_backend_entry_forwarded(Fixture& f) {
   backend_forwarded(f, "create_query_pool", describe(pool_description), [&](bw::rhi::Backend& b) {
     require_inner_result(b.create_query_pool(pool_description), "query pool");
   });
+  int surface = 0;
+  bw::rhi::ViewportDescription viewport_description{};
+  viewport_description.window =
+      bw::platform::NativeWindowHandle{bw::platform::NativeSurfaceKind::MetalLayer, &surface};
+  viewport_description.pixel_size = bw::rhi::Extent2{640, 360};
+  viewport_description.debug_name = "Viewport";
+  backend_forwarded(f, "create_viewport", describe(viewport_description), [&](bw::rhi::Backend& b) {
+    require_inner_result(b.create_viewport(viewport_description), "viewport");
+  });
+  const auto viewport =
+      bw_rhi_test::make<bw_rhi_validation_test::TestViewport>(f.queue, viewport_description);
+  backend_forwarded(f, "resize_viewport",
+                    (Args{} << static_cast<const void*>(viewport.get()) << std::uint64_t{800}
+                            << std::uint64_t{600})
+                        .str(),
+                    [&](bw::rhi::Backend& b) {
+                      require_inner_result(b.resize_viewport(*viewport, bw::rhi::Extent2{800, 600}),
+                                           "resize");
+                    });
+  backend_forwarded(f, "set_vsync",
+                    (Args{} << static_cast<const void*>(viewport.get()) << std::uint64_t{0}).str(),
+                    [&](bw::rhi::Backend& b) { b.set_vsync(*viewport, false); });
   backend_forwarded(
       f, "lock_buffer",
       (Args{} << static_cast<const void*>(source.get()) << std::uint64_t{8} << std::uint64_t{64})
@@ -881,7 +1013,7 @@ void every_call_forwarded_once_with_same_arguments() {
   texture_region.source_origin = bw::rhi::Offset3{1, 2, 0};
   texture_region.extent = bw::rhi::Extent3{8, 4, 1};
   const bw::rhi::BufferTextureRegion buffer_region{16, 256, 0, 0, 0};
-  const bw::rhi::Viewport viewport{1.0F, 2.0F, 64.0F, 32.0F, 0.0F, 1.0F};
+  const bw::rhi::ViewportRect viewport{1.0F, 2.0F, 64.0F, 32.0F, 0.0F, 1.0F};
   const bw::rhi::ScissorRect scissor{3, 4, 50, 20};
   const bw::rhi::DrawArguments draw{3, 2, 1, 0};
   const bw::rhi::DrawIndexedArguments draw_indexed{6, 1, 2, -1, 0};
@@ -936,7 +1068,8 @@ void every_call_forwarded_once_with_same_arguments() {
       0, [&](C& c) { c.set_static_block(1, *source, 32); });
   forwarded(f, "dispatch", describe(groups), 0, [&](C& c) { c.dispatch(groups); });
   forwarded(f, "write_fence", pointer(*fence), 0, [&](C& c) { c.write_fence(*fence); });
-  forwarded(f, "begin_render_pass", describe(pass), 0, [&](C& c) { c.begin_render_pass(pass); });
+  forwarded(f, "begin_render_pass", describe(pass), 0,
+            [&](C& c) { opened(c.begin_render_pass(pass)); });
   forwarded(f, "set_graphics_pipeline", pointer(*graphics), 0,
             [&](C& c) { c.set_graphics_pipeline(*graphics); });
   forwarded(f, "set_viewport", describe(viewport), 0, [&](C& c) { c.set_viewport(viewport); });
@@ -1052,9 +1185,9 @@ void every_call_forwarded_once_with_same_arguments() {
   forwarded(g, "end_transitions", describe(unopened_batch), 1,
             [&](C& c) { c.end_transitions(unopened_batch); });
   forwarded(g, "begin_render_pass", describe(pass_g), 0,
-            [&](C& c) { c.begin_render_pass(pass_g); });
+            [&](C& c) { opened(c.begin_render_pass(pass_g)); });
   forwarded(g, "begin_render_pass", describe(pass_g), 1,
-            [&](C& c) { c.begin_render_pass(pass_g); });
+            [&](C& c) { opened(c.begin_render_pass(pass_g)); });
   forwarded(g, "set_compute_pipeline", pointer(*compute_g), 1,
             [&](C& c) { c.set_compute_pipeline(*compute_g); });
   forwarded(g, "write_fence", pointer(*fence_g), 1, [&](C& c) { c.write_fence(*fence_g); });
@@ -1105,7 +1238,7 @@ void draw_block_not_set_is_named() {
   const auto target = texture(f, "Target", Access::RenderTarget);
   const auto pipeline = graphics_pipeline(f, "Pipeline", draw_block_binding(0x10U));
   const std::array<std::byte, 16> bytes{};
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().set_graphics_pipeline(*pipeline);
   f.context().draw(bw::rhi::DrawArguments{3});
   require_reported(f, 0, ValidationCode::DrawBlockNotSet, TransitionError::None, "Pipeline",
@@ -1115,7 +1248,7 @@ void draw_block_not_set_is_named() {
   require_quiet(f, 1, "a draw after set_draw_block");
   f.context().end_render_pass();
   f.backend->submit_frame(1);
-  f.context().begin_render_pass(pass_for(*target));
+  opened(f.context().begin_render_pass(pass_for(*target)));
   f.context().set_graphics_pipeline(*pipeline);
   f.context().draw(bw::rhi::DrawArguments{3});
   require_reported(f, 1, ValidationCode::DrawBlockNotSet, TransitionError::None, "Pipeline",
@@ -1144,7 +1277,7 @@ void static_slot_not_set_is_named() {
   require_quiet(f, 1, "a dispatch after its static slot is set");
 }
 
-constexpr std::array<bw_rhi_test::Scenario, 22> kScenarios{{
+constexpr std::array<Scenario, 24> kScenarios{{
     {"undeclared_transition_rejected_by_name", undeclared_transition_rejected_by_name},
     {"redundant_transition_reported_and_forwarded", redundant_transition_reported_and_forwarded},
     {"double_begin_and_unsolicited_end_named", double_begin_and_unsolicited_end_named},
@@ -1169,8 +1302,10 @@ constexpr std::array<bw_rhi_test::Scenario, 22> kScenarios{{
     {"root_constants_out_of_range_is_named", root_constants_out_of_range_is_named},
     {"draw_block_not_set_is_named", draw_block_not_set_is_named},
     {"static_slot_not_set_is_named", static_slot_not_set_is_named},
+    {"back_buffer_copy_before_acquire_named", back_buffer_copy_before_acquire_named},
+    {"back_buffer_not_presentable_named", back_buffer_not_presentable_named},
 }};
 
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, kScenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, kScenarios); }

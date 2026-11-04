@@ -1,20 +1,15 @@
 // Integration test: allocator synchronization primitives under real threads.
 #include "bw/concurrency/word_mutex.hpp"
 #include "bw/platform/memory/allocator_sync.hpp"
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <cstdio>
-#include <exception>
-#include <stdexcept>
 #include <thread>
 
 namespace {
-void require(bool condition, const char* message) {
-  if (!condition) {
-    throw std::runtime_error(message);
-  }
-}
+using bw::testing::require;
 
 void recursive_owner() {
   bw::platform::AllocatorRecursiveMutex mutex;
@@ -89,14 +84,16 @@ void queued_wait_and_contention() {
   require(stayed_blocked, "contenders cannot pass held lock");
   require(counter == 80000 && acquired.load() == counter, "all updates are protected");
 }
-} // namespace
 
-int main() try {
+// The executable's contracts, one CTest entry.
+void contracts() {
   recursive_owner();
   stack_event_lifetime();
   queued_wait_and_contention();
-  std::puts("Allocator synchronization contracts passed");
-} catch (const std::exception& error) {
-  std::fprintf(stderr, "Synchronization contract failure: %s\n", error.what());
-  return 1;
 }
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"allocator_sync", contracts}};
+} // namespace
+
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

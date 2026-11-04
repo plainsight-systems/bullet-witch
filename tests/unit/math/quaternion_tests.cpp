@@ -1,12 +1,12 @@
 // Unit test: public contracts of bw/math/rotation/quaternion.hpp.
 #include "bw/math/rotation/quaternion.hpp"
 
+#include "bw/testing/harness.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdio>
 #include <limits>
-#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -31,11 +31,7 @@ static_assert(
     std::is_same_v<decltype(std::declval<Quaternion4f&>() *= std::declval<const Quaternion4f&>()),
                    Quaternion4f>);
 
-void require(bool condition, const char* message) {
-  if (!condition) {
-    throw std::runtime_error{message};
-  }
-}
+using bw::testing::require;
 
 template <typename T>
 void exact(const Quaternion4<T>& value, std::array<T, 4> expected, const char* message) {
@@ -119,17 +115,16 @@ void precision_contracts() {
   explicit_double.normalize(1.e-8);
   exact(explicit_double, {0., 0., 0., 1.}, "explicit double tolerance selects identity");
 }
+
+// The executable's contracts, one CTest entry.
+void contracts() {
+  value_contracts<float>();
+  value_contracts<double>();
+  precision_contracts();
+}
+
+using Scenario = bw::testing::Scenario<void>;
+constexpr std::array scenarios{Scenario{"quaternion", contracts}};
 } // namespace
 
-int main() {
-  try {
-    value_contracts<float>();
-    value_contracts<double>();
-    precision_contracts();
-    std::puts("quaternion contracts passed");
-    return 0;
-  } catch (const std::exception& error) {
-    std::fprintf(stderr, "%s\n", error.what());
-    return 1;
-  }
-}
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

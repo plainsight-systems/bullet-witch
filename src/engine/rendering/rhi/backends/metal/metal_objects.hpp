@@ -44,18 +44,43 @@ private:
   bool locked_{};
 };
 
+class MetalViewport;
+
+// Two kinds. A created texture owns its Metal texture and heap range. A
+// viewport's back buffer (TextureUsage::BackBuffer, viewport.hpp) owns no
+// Metal texture: texture() is null until the frame's first pass that binds
+// it acquires a drawable, then the drawable's texture, borrowed while the
+// viewport holds the drawable, and null again at the frame's end.
+// viewport() is the viewport whose back buffer this is, an observer the
+// viewport clears when it replaces the back buffer or is destroyed, so a
+// stale back buffer reaches no viewport.
 class MetalTexture final : public Texture {
 public:
   MetalTexture(DeferredDeleteQueue& queue, const TextureDescription& description,
                MTL::Texture* texture, HeapPlacement placement, ResourceMemory& memory) noexcept
       : Texture(queue, description), texture_(texture), placement_(placement), memory_(&memory) {}
+  // A back buffer of `viewport`; the description carries the BackBuffer mark.
+  MetalTexture(DeferredDeleteQueue& queue, const TextureDescription& description,
+               MetalViewport& viewport) noexcept
+      : Texture(queue, description), texture_(nullptr), placement_{}, memory_(nullptr),
+        viewport_(&viewport) {}
   [[nodiscard]] MTL::Texture* texture() const noexcept { return texture_; }
+  [[nodiscard]] bool is_back_buffer() const noexcept { return memory_ == nullptr; }
+  // Back buffer only.
+  [[nodiscard]] MetalViewport* viewport() const noexcept { return viewport_; }
+  void set_drawable_texture(MTL::Texture* texture) noexcept { texture_ = texture; }
+  void detach_viewport() noexcept {
+    viewport_ = nullptr;
+    texture_ = nullptr;
+  }
 
 private:
   ~MetalTexture() override;
   MTL::Texture* texture_;
   HeapPlacement placement_;
+  // Null for a back buffer.
   ResourceMemory* memory_;
+  MetalViewport* viewport_{};
 };
 
 // A view keeps its resource alive through View's Ref; texture_view is the

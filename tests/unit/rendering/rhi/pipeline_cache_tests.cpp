@@ -5,8 +5,8 @@
 #include "bw/rendering/rhi/lifetime.hpp"
 #include "bw/rendering/rhi/pipeline_states.hpp"
 #include "bw/rendering/shaders/permutation.hpp"
+#include "bw/testing/harness.hpp"
 #include "pipeline_objects.hpp"
-#include "test_main.hpp"
 #include "test_objects.hpp"
 
 #include <array>
@@ -21,7 +21,8 @@ using bw::rhi::PipelineKey;
 using bw::rhi::Ref;
 using bw::shaders::Artifact;
 using bw::shaders::ShaderStage;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 // Shaders and state objects for one description; two Sets built the same
 // way name equal content through different objects.
@@ -195,12 +196,11 @@ void precompile_set_from_enumeration() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"key_stable_under_pointer_identity", key_stable_under_pointer_identity},
-    bw_rhi_test::Scenario{"key_changes_on_shader_hash_or_state",
-                          key_changes_on_shader_hash_or_state},
-    bw_rhi_test::Scenario{"find_insert_no_replace", find_insert_no_replace},
-    bw_rhi_test::Scenario{"precompile_set_from_enumeration", precompile_set_from_enumeration},
+    Scenario{"key_stable_under_pointer_identity", key_stable_under_pointer_identity},
+    Scenario{"key_changes_on_shader_hash_or_state", key_changes_on_shader_hash_or_state},
+    Scenario{"find_insert_no_replace", find_insert_no_replace},
+    Scenario{"precompile_set_from_enumeration", precompile_set_from_enumeration},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

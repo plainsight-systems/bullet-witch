@@ -2,7 +2,7 @@
 // scenario per CTest entry. Each scenario names the header declaration it asserts.
 #include "bw/rendering/rhi/synchronization.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
 
 #include <array>
 
@@ -10,7 +10,8 @@ namespace {
 using bw::rhi::Format;
 using bw::rhi::TextureDescription;
 using bw::rhi::TextureDimension;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 
 TextureDescription texture(Format format, bw::rhi::Extent3 extent, TextureDimension dimension) {
   TextureDescription description{};
@@ -69,9 +70,9 @@ void fence_wait_error_by_state() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"staging_layout_pitch_and_bytes", staging_layout_pitch_and_bytes},
-    bw_rhi_test::Scenario{"fence_wait_error_by_state", fence_wait_error_by_state},
+    Scenario{"staging_layout_pitch_and_bytes", staging_layout_pitch_and_bytes},
+    Scenario{"fence_wait_error_by_state", fence_wait_error_by_state},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

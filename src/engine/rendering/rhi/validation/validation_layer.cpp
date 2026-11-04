@@ -18,7 +18,8 @@
 // commands report at most one failure for the command
 // (CommandInsideRenderPass) and at most one per Transition of the batch,
 // with that transition's resource name (backend.hpp); submit_frame reports
-// an open render pass and open markers, each once.
+// an open render pass and open markers, each once, then each acquired back
+// buffer that is not in Present access, once per back buffer.
 // Every string in a ValidationFailure views storage that outlives the
 // reporter call: a resource's own debug name, a pipeline's or pool's own copy
 // of its name, the pass description's name during begin_render_pass, the
@@ -50,6 +51,15 @@
 // an entry the layer cannot recognize as stale; that is the caller's error
 // (transitions.hpp, begin and end) and the layer cannot see it.
 //
+// Back buffers (viewport.hpp, invariants 2 and 3). The layer keeps the set
+// of back buffers a render pass of the frame bound and the inner context
+// opened: those are the ones the backend acquired. A copy from a back buffer
+// outside the set is BackBufferNotAcquired; at submit_frame every back
+// buffer in the set whose tracked access is not Present is
+// BackBufferNotPresentable; the set is emptied at submit_frame, the
+// frame's end. The set holds observers: a back buffer stays alive through
+// its viewport for the frame that names it (lifetime.hpp).
+//
 // Threads: the context is driven by the one submission thread
 // (backend.hpp); submit_frame is called on it too. The creation entries
 // touch no layer state and forward directly. No exceptions are thrown; the
@@ -65,9 +75,11 @@
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
+#include "bw/rendering/rhi/viewport.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 #include "bw/rendering/shaders/root_layout.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -77,6 +89,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #if !BW_RHI_DEBUG
 #error "validation_layer.cpp is compiled only with BW_RHI_DEBUG 1"
@@ -128,6 +141,10 @@ namespace {
     return "DrawBlockNotSet";
   case ValidationCode::StaticSlotNotSet:
     return "StaticSlotNotSet";
+  case ValidationCode::BackBufferNotAcquired:
+    return "BackBufferNotAcquired";
+  case ValidationCode::BackBufferNotPresentable:
+    return "BackBufferNotPresentable";
   }
   return "Unknown";
 }
@@ -260,12 +277,17 @@ public:
   // ---- Render passes -------------------------------------------------------
 
   // Order: NestedRenderPass; RenderPassInvalid; each color target's use
-  // (RenderTarget), then the depth target's (depth_target_access). The pass
-  // is entered in every case: an invalid pass stores no target layout
-  // (render_target_layout's precondition), so PipelineTargetsMismatch is
-  // not checked inside it. The bound graphics pipeline resets: "set in this
-  // pass" (command_list.hpp).
-  void begin_render_pass(const RenderPassDescription& pass) override {
+  // (RenderTarget), then the depth target's (depth_target_access). The
+  // checks run, then the pass is forwarded and the inner's result returned
+  // unchanged. The pass is entered when the inner opened it, valid or not:
+  // an invalid pass stores no target layout (render_target_layout's
+  // precondition), so PipelineTargetsMismatch is not checked inside it. A
+  // pass the inner refused (a back buffer it could not acquire,
+  // backend.hpp) is not entered: the replay ends there (command_list.hpp,
+  // replay), so no end_render_pass follows it. The bound graphics pipeline
+  // resets: "set in this pass" (command_list.hpp). The back buffers among
+  // the color targets of an opened pass join the frame's acquired set.
+  ExecuteError begin_render_pass(const RenderPassDescription& pass) override {
     const RenderPassError error = validate_render_pass(pass);
     if (inside_pass_) {
       report(ValidationFailure{.code = ValidationCode::NestedRenderPass,
@@ -278,13 +300,18 @@ public:
     } else {
       check_targets(pass);
     }
+    const ExecuteError result = inner_->begin_render_pass(pass);
+    if (result != ExecuteError::None) {
+      return result;
+    }
     inside_pass_ = true;
     pass_name_ = DebugName(pass.name);
     layout_valid_ = error == RenderPassError::None;
     layout_ = layout_valid_ ? render_target_layout(pass) : RenderTargetLayout{};
     occlusion_pool_ = pass.occlusion_queries;
     graphics_pipeline_ = nullptr;
-    inner_->begin_render_pass(pass);
+    note_acquired(pass);
+    return result;
   }
 
   void end_render_pass() override {
@@ -331,7 +358,7 @@ public:
     inner_->set_compute_pipeline(pipeline);
   }
 
-  void set_viewport(const Viewport& viewport) override {
+  void set_viewport(const ViewportRect& viewport) override {
     report_if_outside_pass("set_viewport", {});
     inner_->set_viewport(viewport);
   }
@@ -448,9 +475,12 @@ public:
 
   // ---- Copies --------------------------------------------------------------
 
-  // Order for every copy: CommandInsideRenderPass; the source's use
-  // (CopySource); the destination's use (CopyDestination). A staging
-  // buffer is not a Viewable and carries no tracked access.
+  // Order for every copy: CommandInsideRenderPass; BackBufferNotAcquired (a
+  // back buffer source no pass of the frame bound; checked before the use,
+  // so an unacquired back buffer in Present access is named as such and not
+  // as a missing CopySource access); the source's use (CopySource); the
+  // destination's use (CopyDestination). A staging buffer is not a Viewable
+  // and carries no tracked access.
   // The signature is Context's (backend.hpp).
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   void copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy) override {
@@ -557,6 +587,17 @@ public:
           ValidationFailure{.code = ValidationCode::MarkerUnbalanced, .command = "submit_frame"});
       marker_depth_ = 0U;
     }
+    // viewport.hpp, invariant 3: the caller declared Present before the
+    // boundary. Reported per back buffer; the backend presents it all the
+    // same.
+    for (const Texture* back_buffer : acquired_back_buffers_) {
+      if (state_of(*back_buffer).tracked.access != Access::Present) {
+        report(ValidationFailure{.code = ValidationCode::BackBufferNotPresentable,
+                                 .resource_name = back_buffer->debug_name(),
+                                 .command = "submit_frame"});
+      }
+    }
+    acquired_back_buffers_.clear();
     // Bindings do not survive end_frame (command_list.hpp, Blocks).
     draw_block_set_ = false;
     static_slots_set_ = 0U;
@@ -655,6 +696,12 @@ private:
     if (report_if_inside_pass(command, source.debug_name())) {
       return;
     }
+    if (is_back_buffer(source) && !acquired(static_cast<const Texture&>(source))) {
+      report(ValidationFailure{.code = ValidationCode::BackBufferNotAcquired,
+                               .resource_name = source.debug_name(),
+                               .command = command});
+      return;
+    }
     if (check_use(source, Access::CopySource, command)) {
       return;
     }
@@ -691,6 +738,28 @@ private:
     if (missing != 0U) {
       report(ValidationFailure{
           .code = ValidationCode::StaticSlotNotSet, .resource_name = name, .command = command});
+    }
+  }
+
+  [[nodiscard]] static bool is_back_buffer(const Viewable& resource) noexcept {
+    return resource.is_texture() &&
+           has_usage(static_cast<const Texture&>(resource).description().usage,
+                     TextureUsage::BackBuffer);
+  }
+
+  [[nodiscard]] bool acquired(const Texture& back_buffer) const noexcept {
+    return std::find(acquired_back_buffers_.begin(), acquired_back_buffers_.end(), &back_buffer) !=
+           acquired_back_buffers_.end();
+  }
+
+  // The back buffers among an opened pass's color targets join the frame's
+  // acquired set, once each.
+  void note_acquired(const RenderPassDescription& pass) {
+    for (std::uint32_t i = 0; i < pass.color_count; ++i) {
+      const Texture* texture = pass.colors[i].texture;
+      if (texture != nullptr && is_back_buffer(*texture) && !acquired(*texture)) {
+        acquired_back_buffers_.push_back(texture);
+      }
     }
   }
 
@@ -731,6 +800,10 @@ private:
   // block, and one bit per static slot.
   bool draw_block_set_{};
   std::uint8_t static_slots_set_{};
+  // The back buffers acquired in the frame (observers; see the file
+  // comment). A frame binds one back buffer per viewport, so the set is a
+  // short vector searched linearly.
+  std::vector<const Texture*> acquired_back_buffers_{};
 };
 
 class ValidationBackend final : public Backend {
@@ -809,6 +882,15 @@ public:
   QueryPoolResult create_query_pool(const QueryPoolDescription& description) override {
     return inner_->create_query_pool(description);
   }
+  // The device validated the description and the resize (backend.hpp,
+  // Viewports); the layer adds no check.
+  ViewportResult create_viewport(const ViewportDescription& description) override {
+    return inner_->create_viewport(description);
+  }
+  Status<ViewportError> resize_viewport(Viewport& viewport, Extent2 pixel_size) override {
+    return inner_->resize_viewport(viewport, pixel_size);
+  }
+  void set_vsync(Viewport& viewport, bool vsync) override { inner_->set_vsync(viewport, vsync); }
 
   LockResult lock_buffer(Buffer& buffer, BufferRange range) override {
     return inner_->lock_buffer(buffer, range);

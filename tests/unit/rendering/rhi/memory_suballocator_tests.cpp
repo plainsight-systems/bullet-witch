@@ -3,7 +3,8 @@
 // asserts.
 #include "bw/rendering/rhi/memory_suballocator.hpp"
 
-#include "test_main.hpp"
+#include "bw/testing/harness.hpp"
+#include "unwrap.hpp"
 
 #include <array>
 #include <cstdint>
@@ -11,7 +12,8 @@
 namespace {
 using bw::rhi::Allocation;
 using bw::rhi::BlockSuballocator;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 using bw_rhi_test::unwrap;
 
 // (memory_suballocator.hpp, BlockSuballocator::allocate) and
@@ -81,11 +83,10 @@ void exhaustion_is_no_value() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"first_fit_split_merge", first_fit_split_merge},
-    bw_rhi_test::Scenario{"alignment_padding_belongs_to_allocation",
-                          alignment_padding_belongs_to_allocation},
-    bw_rhi_test::Scenario{"exhaustion_is_no_value", exhaustion_is_no_value},
+    Scenario{"first_fit_split_merge", first_fit_split_merge},
+    Scenario{"alignment_padding_belongs_to_allocation", alignment_padding_belongs_to_allocation},
+    Scenario{"exhaustion_is_no_value", exhaustion_is_no_value},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

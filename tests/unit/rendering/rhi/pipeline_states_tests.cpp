@@ -5,8 +5,8 @@
 #include "bw/rendering/rhi/lifetime.hpp"
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/shaders/artifact.hpp"
+#include "bw/testing/harness.hpp"
 #include "pipeline_objects.hpp"
-#include "test_main.hpp"
 #include "test_objects.hpp"
 
 #include <array>
@@ -23,7 +23,8 @@ using bw::rhi::RenderPassError;
 using bw::rhi::StoreAction;
 using bw::rhi::TextureDescription;
 using bw::rhi::TextureUsage;
-using bw_rhi_test::require;
+using bw::testing::require;
+using Scenario = bw::testing::Scenario<void>;
 using bw_rhi_test::TestTexture;
 
 TextureDescription depth_description(Format format) {
@@ -323,14 +324,14 @@ void compute_pipeline_copies_hash_and_group_size() {
 }
 
 constexpr std::array scenarios{
-    bw_rhi_test::Scenario{"render_pass_validation_named", render_pass_validation_named},
-    bw_rhi_test::Scenario{"render_target_layout_derived", render_target_layout_derived},
-    bw_rhi_test::Scenario{"pipeline_validation_named", pipeline_validation_named},
-    bw_rhi_test::Scenario{"graphics_pipeline_holds_states_and_drops_shaders",
-                          graphics_pipeline_holds_states_and_drops_shaders},
-    bw_rhi_test::Scenario{"compute_pipeline_copies_hash_and_group_size",
-                          compute_pipeline_copies_hash_and_group_size},
+    Scenario{"render_pass_validation_named", render_pass_validation_named},
+    Scenario{"render_target_layout_derived", render_target_layout_derived},
+    Scenario{"pipeline_validation_named", pipeline_validation_named},
+    Scenario{"graphics_pipeline_holds_states_and_drops_shaders",
+             graphics_pipeline_holds_states_and_drops_shaders},
+    Scenario{"compute_pipeline_copies_hash_and_group_size",
+             compute_pipeline_copies_hash_and_group_size},
 };
 } // namespace
 
-int main(int argc, char** argv) { return bw_rhi_test::run_scenario(argc, argv, scenarios); }
+int main(int argc, char** argv) { return bw::testing::run_scenario(argc, argv, scenarios); }

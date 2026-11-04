@@ -18,7 +18,7 @@ set(bw_shader_test_arguments
   "${bw_shader_test_targets}")
 
 add_executable(shader_toolchain_tests shader_toolchain_tests.cpp)
-target_link_libraries(shader_toolchain_tests PRIVATE bw_shader_compiler_toolchain)
+target_link_libraries(shader_toolchain_tests PRIVATE bw_test_harness bw_shader_compiler_toolchain)
 add_dependencies(shader_toolchain_tests shader_compiler)
 foreach(scenario IN ITEMS fixture_on_three_targets depfile_names_every_include)
   add_test(NAME integration.shader_toolchain.${scenario}
@@ -30,7 +30,7 @@ if(APPLE)
   # Objective-C++: Metal is an Objective-C API. OBJCXX is enabled by
   # cmake/ThirdParty.cmake on Apple platforms.
   add_executable(metal_library_tests metal_library_tests.mm)
-  target_link_libraries(metal_library_tests PRIVATE bw_shader_compiler_logic
+  target_link_libraries(metal_library_tests PRIVATE bw_test_harness bw_shader_compiler_logic
     "-framework Foundation" "-framework Metal")
   target_compile_options(metal_library_tests PRIVATE -fobjc-arc)
   set_target_properties(metal_library_tests PROPERTIES

@@ -9,8 +9,6 @@
 #include "bw/rendering/rhi/lifetime.hpp"
 #include "bw/rendering/rhi/resources.hpp"
 
-#include "test_main.hpp"
-
 #include <array>
 #include <cstddef>
 #include <string_view>
