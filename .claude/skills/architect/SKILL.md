@@ -21,6 +21,12 @@ step of a source that reaches a facility outside it is omitted and listed,
 not built. If the plan's scope and this statement disagree, stop and report the
 difference; do not pick one.
 
+The architect does not rule work in or out of a slice on its own. When a
+piece of work turns up that the plan does not name (a repo-wide change, a
+follow-up, a fix outside the ownership list), state what you think the
+scope is and ask; the user decides where it runs. "Not this slice" is a
+question, never a finding.
+
 ## 2. Research
 
 Use the `researcher` agent; do not read a source wholesale yourself.
