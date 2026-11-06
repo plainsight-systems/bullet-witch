@@ -1,5 +1,8 @@
 #ifndef BW_PLATFORM_GENERIC_MATH_INL
 #define BW_PLATFORM_GENERIC_MATH_INL
+// The tail of bw/platform/math/math.hpp. Opened alone it includes that header,
+// which leaves this file out while the guard above is defined.
+#include "bw/platform/math/math.hpp"
 
 // Read F.20/ES.23 and SIMD.1/3: return values, exact precision, no runtime dispatch.
 
@@ -21,6 +24,18 @@ inline double square_root(double value) { return std::sqrt(value); }
 inline float inverse_square_root(float value) { return 1.0F / std::sqrt(value); }
 inline double inverse_square_root(double value) { return 1.0 / std::sqrt(value); }
 
+// sine, cosine, tangent and arc_tangent
+// Call the precision-matched native function, radians; native domain
+// behavior, no clamping.
+inline float sine(float radians) { return std::sin(radians); }
+inline double sine(double radians) { return std::sin(radians); }
+inline float cosine(float radians) { return std::cos(radians); }
+inline double cosine(double radians) { return std::cos(radians); }
+inline float tangent(float radians) { return std::tan(radians); }
+inline double tangent(double radians) { return std::tan(radians); }
+inline float arc_tangent(float value) { return std::atan(value); }
+inline double arc_tangent(double value) { return std::atan(value); }
+
 // is_finite(float) and is_finite(double)
 // Bit-cast float/double to matching unsigned integer width; mask exponent bits;
 // return false when every exponent bit is one. NaNs and infinities are false,
@@ -33,5 +48,4 @@ inline bool is_finite(double value) {
 }
 
 } // namespace bw::platform::math
-
 #endif // BW_PLATFORM_GENERIC_MATH_INL

@@ -101,6 +101,8 @@ template <> const Vector3<double> Vector3<double>::zero;
 
 } // namespace bw::math
 
+#ifndef BW_CORE_MATH_VECTOR3_INL
 #include "bw/math/vector/vector3.inl"
+#endif
 
 #endif // BW_CORE_MATH_VECTOR3_HPP

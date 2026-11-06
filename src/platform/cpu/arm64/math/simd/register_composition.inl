@@ -1,5 +1,8 @@
 #ifndef BW_PLATFORM_ARM64_REGISTER_COMPOSITION_INL
 #define BW_PLATFORM_ARM64_REGISTER_COMPOSITION_INL
+// The tail of bw/math/simd/register.hpp. Opened alone it includes that header,
+// which leaves this file out while the guard above is defined.
+#include "bw/math/simd/register.hpp"
 
 // Read Per.11/F.20/GEN.6/SIMD.1: compile-time routing, owned value results and
 // header-visible native kernels. The selected algorithm requires

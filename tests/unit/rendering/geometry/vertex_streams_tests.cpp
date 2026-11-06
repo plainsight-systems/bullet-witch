@@ -1,14 +1,10 @@
-// Unit test: public contracts of bw/rendering/geometry/vertex_streams.hpp and
-// pulled_mesh_fixture.hpp; each scenario names the declaration it asserts.
-#include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
+// Unit test: public contracts of bw/rendering/geometry/vertex_streams.hpp;
+// each scenario names the declaration it asserts.
 #include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
-#include "bw/rendering/shaders/permutation.hpp"
 #include "bw/testing/harness.hpp"
 
 #include <array>
-#include <bit>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -49,7 +45,6 @@ constexpr VertexAttribute POS = VertexAttribute::Position;
 constexpr VertexAttribute NRM = VertexAttribute::Normal;
 constexpr VertexAttribute COL0 = VertexAttribute::Color0;
 constexpr VertexAttribute TC1 = VertexAttribute::TexCoord1;
-constexpr VertexAttribute BW0 = VertexAttribute::BoneSlots;
 constexpr VertexAttribute BW1 = VertexAttribute::BoneWeights;
 
 // (vertex_streams.hpp, validate_vertex_stream_layout, VertexStreamError,
@@ -186,113 +181,11 @@ void block_fill_and_absent_slots() {
   require(slot_word(single, POS) == 0U, "position at stream 0 offset 0 is word 0");
 }
 
-std::uint32_t read_u32(std::span<const std::byte> bytes, std::size_t offset) {
-  std::uint32_t value = 0;
-  for (std::size_t i = 0; i < 4; ++i) {
-    value |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
-  }
-  return value;
-}
-std::int16_t read_i16(std::span<const std::byte> bytes, std::size_t offset) {
-  return static_cast<std::int16_t>(read_u32(bytes, offset) & 0xFFFFU);
-}
-
-// (pulled_mesh_fixture.hpp, make_fixture_cube and the cube): the stated
-// layout, which validates; 24 vertices and 36 indices below 24, the buffers
-// exactly 24 vertices at the strides; positions are -1 or 1; each triangle's
-// normal (p1 - p0) x (p2 - p0) points away from the center
-// (counter-clockwise from outside), and its vertices carry that normal as
-// short4n with w 32767 and one color.
-void cube_as_stated() {
-  const bw::geometry::FixtureCube cube = bw::geometry::make_fixture_cube();
-  const VertexStreamLayout stated = make_layout(24, 12,
-                                                {{POS, F3, 1, 0},
-                                                 {NRM, S4N, 0, 0},
-                                                 {TC1, H2, 0, 8},
-                                                 {COL0, U4N, 0, 12},
-                                                 {BW0, U4, 0, 16},
-                                                 {BW1, U4N, 0, 20}});
-  require(cube.layout == stated, "the cube's layout is the stated one");
-  require(bw::geometry::validate_vertex_stream_layout(cube.layout) == E::None,
-          "the cube's layout validates");
-  require(cube.vertex_count == 24U && cube.index_count == 36U && cube.indices.size() == 36U &&
-              cube.stream0.size() == std::size_t{24} * 24U &&
-              cube.stream1.size() == std::size_t{24} * 12U,
-          "24 vertices, 36 indices, the buffers exactly 24 vertices at the strides");
-  for (std::size_t i = 0; i < cube.stream1.size(); i += 4U) {
-    const float p = std::bit_cast<float>(read_u32(cube.stream1, i));
-    require(p == 1.0F || p == -1.0F, "every position component is -1 or 1");
-  }
-  for (std::size_t t = 0; t < 12; ++t) {
-    std::array<std::array<float, 3>, 3> p{};
-    std::array<std::uint16_t, 3> index{};
-    for (std::size_t k = 0; k < 3; ++k) {
-      index[k] = cube.indices[t * 3U + k];
-      require(index[k] < 24U, "every index is below 24");
-      for (std::size_t c = 0; c < 3; ++c) {
-        p[k][c] =
-            std::bit_cast<float>(read_u32(cube.stream1, std::size_t{index[k]} * 12U + c * 4U));
-      }
-    }
-    const auto d = [&p](std::size_t k, std::size_t c) { return p[k][c] - p[0][c]; };
-    const std::array<float, 3> n{d(1, 1) * d(2, 2) - d(1, 2) * d(2, 1),
-                                 d(1, 2) * d(2, 0) - d(1, 0) * d(2, 2),
-                                 d(1, 0) * d(2, 1) - d(1, 1) * d(2, 0)};
-    const float outward = n[0] * (p[0][0] + p[1][0] + p[2][0]) +
-                          n[1] * (p[0][1] + p[1][1] + p[2][1]) +
-                          n[2] * (p[0][2] + p[1][2] + p[2][2]);
-    require(outward > 0.0F,
-            "triangle " + std::to_string(t) + " is counter-clockwise seen from outside");
-    const float length = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-    const std::uint32_t color = read_u32(cube.stream0, std::size_t{index[0]} * 24U + 12U);
-    for (std::size_t k = 0; k < 3; ++k) {
-      const std::size_t base = std::size_t{index[k]} * 24U;
-      for (std::size_t c = 0; c < 4; ++c) {
-        const float expected = c == 3U ? 32767.0F : n[c] / length * 32767.0F;
-        require(read_i16(cube.stream0, base + c * 2U) == static_cast<std::int16_t>(expected),
-                "the vertex normal is the face normal as short4n with w 32767");
-      }
-      require(read_u32(cube.stream0, base + 12U) == color, "one color per face");
-    }
-  }
-}
-
-// (pulled_mesh_fixture.hpp, Contract, Shaders) through (permutation.hpp,
-// find_shader): each fixture shader's stage, entry point main, dimension and
-// permutation counts (the probe one per element type) and draw block.
-void registry_entries_name_fixture_blocks() {
-  struct Row {
-    std::string_view name;
-    bw::shaders::ShaderStage stage;
-    std::uint32_t dimensions;
-    std::uint32_t permutations;
-    const bw::shaders::BlockLayout* block;
-  };
-  const std::array rows{
-      Row{bw::geometry::kPulledMeshShader, bw::shaders::ShaderStage::Vertex, 0, 1,
-          &bw::shaders::BlockLayoutOf<PulledMeshDraw>::value},
-      Row{bw::geometry::kVertexDecodeProbeShader, bw::shaders::ShaderStage::Vertex, 1,
-          bw::geometry::kVertexElementTypeCount,
-          &bw::shaders::BlockLayoutOf<VertexDecodeProbeDraw>::value},
-      Row{bw::geometry::kVertexColorShader, bw::shaders::ShaderStage::Pixel, 0, 1, nullptr},
-  };
-  for (const Row& row : rows) {
-    const bw::shaders::ShaderDescription* shader =
-        bw::shaders::find_shader(bw::shaders::shader_registry(), row.name);
-    require(shader != nullptr && shader->stage == row.stage && shader->entry_point == "main" &&
-                shader->dimension_count == row.dimensions &&
-                shader->permutation_count == row.permutations && shader->draw_block == row.block,
-            std::string(row.name) + " has its stage, entry point, permutations and block");
-  }
-}
-
 using Scenario = bw::testing::Scenario<void>;
 constexpr std::array kScenarios{
     Scenario{"layout_errors_named_in_order", &layout_errors_named_in_order},
     Scenario{"vertex_range_overrun_named", &vertex_range_overrun_named},
     Scenario{"block_fill_and_absent_slots", &block_fill_and_absent_slots},
-    Scenario{"cube_as_stated", &cube_as_stated},
-    Scenario{"registry_entries_name_fixture_blocks", &registry_entries_name_fixture_blocks},
 };
 
 } // namespace

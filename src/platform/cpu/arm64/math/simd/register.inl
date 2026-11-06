@@ -1,5 +1,8 @@
 #ifndef BW_PLATFORM_ARM64_REGISTER_INL
 #define BW_PLATFORM_ARM64_REGISTER_INL
+// The tail of bw/math/simd/register.hpp. Opened alone it includes that header,
+// which leaves this file out while the guard above is defined.
+#include "bw/math/simd/register.hpp"
 
 // Read F.20/I.1 and SIMD.3/GEN.6: register results own values; native intrinsics
 // stay in the silicon layer. Header-visible operations have no runtime dispatch.
@@ -171,5 +174,4 @@ inline Register4f narrow(Register4d value) {
 }
 
 } // namespace bw::math::simd
-
 #endif // BW_PLATFORM_ARM64_REGISTER_INL

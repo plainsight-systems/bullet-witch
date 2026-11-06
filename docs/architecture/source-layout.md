@@ -234,7 +234,7 @@ traces belong in ignored organized outputs, not among scenario source files.
 
 | Owner | Physical organization |
 |---|---|
-| Math | `src/engine/core/math/public/bw/math/{vector,simd}/`; out-of-line definitions in `math/vector/` |
+| Math | `src/engine/core/math/public/bw/math/{vector,rotation,matrix,simd}/`; out-of-line definitions in `math/vector/` and `math/rotation/` |
 | Memory facade | `src/engine/core/memory/public/bw/memory/` |
 | Allocator internals | `src/engine/core/memory/binned/`, plus private checks/crash machinery at the memory owner |
 | Concurrency, tasks, diagnostics | `src/engine/core/<owner>/public/bw/<owner>/` and owner-local implementation files |
@@ -243,7 +243,7 @@ traces belong in ignored organized outputs, not among scenario source files.
 | Mac services | `src/platform/os/macos/{math,memory,time,tasks,diagnostics}/`; required native declarations have scoped public roots |
 | ARM64 SIMD | `src/platform/cpu/arm64/math/simd/` |
 | Selected generic math | `src/platform/generic/math/` |
-| Host and probe | `src/hosts/macos/engine_host.cpp`, `src/hosts/macos/game_host.cpp`, the game host's option parse under `src/hosts/macos/public/bw/hosts/`, `tools/runtime/engine_loop_probe.cpp` |
+| Host and probe | `src/hosts/macos/engine_host.cpp`, `src/hosts/macos/game_host.cpp`, the option table and the game host's rows under `src/hosts/macos/public/bw/hosts/`, `tools/runtime/engine_loop_probe.cpp` |
 | Tests | `tests/unit/<owner>/`, `tests/integration/<owner>/` |
 
 ### Public and internal boundaries

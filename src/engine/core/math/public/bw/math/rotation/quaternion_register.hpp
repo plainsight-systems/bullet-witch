@@ -36,7 +36,11 @@ Register4f quaternion_inverse_rotate(Register4f unit_quaternion, Register4f vect
 Register4d quaternion_inverse_rotate(Register4d unit_quaternion, Register4d vector_w0);
 } // namespace bw::math::simd
 
+#ifndef BW_MATH_ROTATION_QUATERNION_REGISTER_INL
 #include "bw/math/rotation/quaternion_register.inl"
+#endif
+#ifndef BW_PLATFORM_MATH_QUATERNION_REGISTER_INL
 #include "bw/platform/math/quaternion_register.inl"
+#endif
 
 #endif // BW_MATH_ROTATION_QUATERNION_REGISTER_HPP

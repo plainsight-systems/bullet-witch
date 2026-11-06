@@ -7,6 +7,7 @@ set(BW_PUBLIC_HEADERS
   bw/math/simd/register.hpp
   bw/platform/math/register_types.hpp
   bw/math/vector/vector3.hpp
+  bw/math/matrix/matrix4.hpp
   bw/diagnostics/math_diagnostic.hpp
   bw/platform/math/math.hpp
   bw/platform/diagnostics/diagnostic_output.hpp
@@ -52,7 +53,35 @@ set(BW_PUBLIC_HEADERS
   bw/platform/os/macos/window.hpp
   bw/rendering/geometry/vertex_streams.hpp
   bw/rendering/geometry/pulled_mesh_fixture.hpp
+  bw/hosts/option_table.hpp
   bw/hosts/game_host_options.hpp
+  bw/content/asset_id.hpp
+  bw/content/cooked_asset.hpp
+  bw/content/layers.hpp
+  bw/content/loader.hpp
+  bw/content/vdf.hpp
+  bw/content/install.hpp
+  bw/rendering/geometry/mesh_asset.hpp
+  bw/rendering/geometry/morph_targets_asset.hpp
+  bw/rendering/geometry/textured_mesh_fixture.hpp
+  bw/rendering/geometry/mesh_resources.hpp
+  bw/rendering/shaders/artifact_file.hpp
+  bw/rendering/scene/view.hpp
+  bw/rendering/model_resources.hpp
+  bw/rendering/textured_model_fixture.hpp
+  bw/rendering/pulled_cube_fixture.hpp
+  bw/rendering/target_pass.hpp
+  bw/rendering/texture_asset.hpp
+  bw/rendering/materials/material_asset.hpp
+  bw/animation/skeleton_asset.hpp
+  bw/content_converter/cpr_container.hpp
+  bw/content_converter/rat_index.hpp
+  bw/content_converter/asset_data.hpp
+  bw/content_converter/mesh_reader.hpp
+  bw/content_converter/skeleton_reader.hpp
+  bw/content_converter/texture_reader.hpp
+  bw/content_converter/material_mapping.hpp
+  bw/content_converter/conversion.hpp
 )
 # The shader_compiler tool's headers exist as a target only with the shader
 # toolchain configured (tools/shader_compiler is added under it).
@@ -73,9 +102,14 @@ set(BW_INTERNAL_HEADERS
   src/engine/core/memory/binned/binned_size_classes.hpp
   src/engine/core/memory/binned/binned_thread_cache.hpp
   src/platform/os/macos/memory/public/bw/platform/os/macos/allocator_sync.hpp
+  src/engine/content/file_bytes.hpp
 )
+# Each unit sits at its header's own path with the extension changed, so an
+# editor that borrows a compile command by path similarity (clangd, for a
+# header or an .inl that has none of its own) picks the unit that sees every
+# public include root.
 foreach(header IN LISTS BW_PUBLIC_HEADERS)
-  string(REPLACE "/" "_" unit "${header}")
+  string(REGEX REPLACE "\\.hpp$" "" unit "${header}")
   file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/contracts/public/${unit}.cpp"
     CONTENT "#include \"${header}\"\n")
   list(APPEND BW_PUBLIC_HEADER_UNITS "${CMAKE_BINARY_DIR}/contracts/public/${unit}.cpp")
@@ -94,7 +128,9 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
     bw_platform_time_headers bw_macos_time_headers bw_platform_tasks_headers
     bw_platform_diagnostics_headers bw_shaders_headers bw_rhi_headers
     bw_platform_window_headers bw_macos_window_headers bw_geometry_headers
-    bw_game_host_options_headers
+    bw_game_host_options_headers bw_content_headers bw_animation_headers
+    bw_texture_asset_headers bw_materials_headers bw_content_converter_headers
+    bw_scene_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE

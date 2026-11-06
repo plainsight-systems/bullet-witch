@@ -189,8 +189,25 @@ foreach(shader_case IN ITEMS parameter_block permutation root_layout artifact co
   endforeach()
 endforeach()
 add_subdirectory(unit/rendering/geometry)
+add_subdirectory(unit/rendering)
+add_subdirectory(unit/rendering/materials)
+add_subdirectory(unit/animation)
 add_subdirectory(unit/rendering/rhi)
 add_subdirectory(unit/platform/window)
+# Content: the module's pure contracts (unit) and its file system paths over
+# temporary trees and the player's install (integration). BW_GAME_DATA is the
+# install root, given on the configure command line and never written into a
+# tracked file; empty registers the scenarios that need it DISABLED.
+set(BW_GAME_DATA "" CACHE PATH
+  "Root of the player's Bullet Witch install for the integration scenarios that read it")
+# The PW0 cache the fixture pw0_cache converts once
+# (integration/tools/content_converter); the scenarios that read converted
+# PW0 assets require the fixture and are given this path.
+set(BW_PW0_TEST_CACHE "${CMAKE_BINARY_DIR}/tests/pw0_cache")
+add_subdirectory(unit/content)
+add_subdirectory(unit/tools/content_converter)
+add_subdirectory(integration/content)
+add_subdirectory(integration/tools/content_converter)
 # game_host's command line, the pure parse the Apple host links.
 if(APPLE)
   add_subdirectory(unit/hosts)

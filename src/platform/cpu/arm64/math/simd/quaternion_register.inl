@@ -1,5 +1,8 @@
 #ifndef BW_PLATFORM_ARM64_QUATERNION_REGISTER_INL
 #define BW_PLATFORM_ARM64_QUATERNION_REGISTER_INL
+// The tail of bw/math/rotation/quaternion_register.hpp. Opened alone it includes that header,
+// which leaves this file out while the guard above is defined.
+#include "bw/math/rotation/quaternion_register.hpp"
 
 #include <array>
 

@@ -4,7 +4,9 @@ The shader toolchain's dependencies (docs/architecture/shaders.md,
 "Dependencies") and the Metal RHI's (docs/architecture/rhi.md). Upstream source
 enters as git submodules pinned to a tag; the Metal Shader Converter runtime
 shim is a vendored copy because it ships in an installer, not a repository.
-Nothing here is modified.
+The content converter's block encoders and PNG decoder enter as vendored
+copies of named files at a commit, unmodified, compiled only into the
+converter. Nothing here is modified.
 
 | Name | Upstream | Tag | Commit | License | Enters the tree as |
 |---|---|---|---|---|---|
@@ -16,6 +18,8 @@ Nothing here is modified.
 | BLAKE3 | https://github.com/BLAKE3-team/BLAKE3 | `1.8.7` | `f3149ec5bb5449af877ba20377a11008ff499fa2` | CC0 1.0, or Apache 2.0, or Apache 2.0 with LLVM exceptions (`LICENSE_CC0`, `LICENSE_A2`, `LICENSE_A2LLVM`) | submodule `third_party/blake3`; the C implementation compiled as `bw_blake3` |
 | metal-cpp | https://github.com/apple/metal-cpp | `release/metal-cpp_macOS26_iOS26` | `f567ed836e4cbb85788c42115a2682bbe68097ee` | Apache 2.0, `LICENSE.txt` | submodule `third_party/metal-cpp`, shallow; headers only, consumed by the Metal RHI |
 | Metal Shader Converter runtime shim | Metal Shader Converter installer, `include/metal_irconverter_runtime/` | converter 4.0.3 | none (installer) | Apache 2.0, `metal_irconverter_runtime/LICENSE.txt` | vendored copy `third_party/metal_irconverter_runtime/`: `metal_irconverter_runtime.h`, `ir_tessellator_tables.h`, `ir_raytracing.h`, `LICENSE.txt` |
+| bc7enc_rdo | https://github.com/richgel999/bc7enc_rdo | none | `b9438627eef73a1157e84201b6fa6eb2ffd6d9f0` | MIT or Unlicense (public domain), at the user's choice, `bc7enc_rdo/LICENSE` | vendored copy `third_party/bc7enc_rdo/`: `rgbcx.h`, `rgbcx.cpp`, `rgbcx_table4.h`, `rgbcx_table4_small.h`, `bc7enc.h`, `bc7enc.cpp`, `bc7decomp.h`, `bc7decomp.cpp`, `LICENSE`; compiled as `bw_bc7enc` |
+| LodePNG | https://github.com/lvandeve/lodepng | none | `7b2893e35891c0c85bee5595caafaf3c2044b409` | zlib, `lodepng/LICENSE` | vendored copy `third_party/lodepng/`: `lodepng.h`, `lodepng.cpp`, `LICENSE`; compiled as `bw_lodepng` |
 
 SPIRV-Reflect's nested `third_party/googletest` stays uninitialized. DXC's
 `.gitmodules` still names `external/googletest`, but the tag records no

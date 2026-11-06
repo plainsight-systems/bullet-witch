@@ -1,5 +1,8 @@
 #ifndef BW_MATH_ROTATION_QUATERNION_INL
 #define BW_MATH_ROTATION_QUATERNION_INL
+// The tail of bw/math/rotation/quaternion.hpp. Opened alone it includes that header,
+// which leaves this file out while the guard above is defined.
+#include "bw/math/rotation/quaternion.hpp"
 
 #include "bw/diagnostics/math_diagnostic.hpp"
 #include "bw/platform/math/math.hpp"
@@ -50,6 +53,15 @@ template <typename T> inline Quaternion4<T>::Quaternion4(Register value) {
 // Expose the protected register constructor through a value factory.
 template <typename T> inline Quaternion4<T> Quaternion4<T>::from_register(Register value) {
   return Quaternion4{value};
+}
+
+// Half angle through the platform sine and cosine, then the diagnosing
+// component constructor.
+template <typename T>
+inline Quaternion4<T> Quaternion4<T>::from_axis_angle(const Vector3<T>& axis, T radians) {
+  const T half = radians / T{2};
+  const T s = platform::math::sine(half);
+  return Quaternion4{axis.x * s, axis.y * s, axis.z * s, platform::math::cosine(half)};
 }
 
 // Aligned inputs, native product, store, diagnose.

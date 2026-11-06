@@ -36,7 +36,11 @@ One line per finding:
 - failure: a failure path is missing, silent, or shaped like success
 - test: a test asserts something other than a public contract (private
   includes, a one-line wrapper over a platform call, internal structure,
-  locking or algorithm steps), or an invariant in the header has no test
+  locking or algorithm steps), or an invariant in the header has no test;
+  equally a test the Testing section says is not written: a scenario not on
+  the plan's test list, one whose change another scenario, the compiler or
+  a one-line body also catches, a second row for one error name, a test
+  that makes again an input a fixture holds
 - facade: a stub, placeholder, simulated integration or logging-and-continuing
   path on a real code path
 - omission: a step of a cited source is left out with no note beside the

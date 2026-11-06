@@ -30,6 +30,9 @@ is missing instead of guessing.
   comments only: remove every citation and omission note whatever the source,
   keep each explanation in our words naming no source, and change no code,
   include, identifier, test or build logic.
+- The plan's test list is closed. Write the scenarios it names and no
+  others; one you think is missing goes under "Needs outside ownership"
+  with the change it alone would catch.
 - No stubs, placeholders or success paths that are not real. If a step cannot
   be finished, leave it visibly unfinished and say so in the report.
 - Do not commit, stash, reset or push.
@@ -46,8 +49,9 @@ cmake --build <build dir> --target format-check
 ```
 
 The build runs clang-tidy and the header checks; a warning is an error. Run
-the tests the plan names for this step. A build that succeeds is not
-verification.
+the tests the plan names for this step. The `ctest` row of the Verified
+table carries the wall time and any test over 10 s. A build that succeeds
+is not verification.
 
 ## Report format
 

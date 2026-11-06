@@ -39,6 +39,11 @@ template <typename T> struct alignas(16) Quaternion4 {
 
   // Construct through the protected native-register constructor.
   [[nodiscard]] static Quaternion4 from_register(Register value);
+  // The rotation by `radians` about `axis`, counter-clockwise seen from the
+  // axis tip in a right-handed frame: XYZ = axis * sin(radians / 2),
+  // W = cos(radians / 2), then the diagnostic. Precondition: axis has unit
+  // length; the result is then normalized within rounding.
+  [[nodiscard]] static Quaternion4 from_axis_angle(const Vector3<T>& axis, T radians);
   // Explicit float/double const identity specializations.
   static const Quaternion4 identity;
 
@@ -85,5 +90,7 @@ template <> const Quaternion4f Quaternion4f::identity;
 template <> const Quaternion4d Quaternion4d::identity;
 } // namespace bw::math
 
+#ifndef BW_MATH_ROTATION_QUATERNION_INL
 #include "bw/math/rotation/quaternion.inl"
+#endif
 #endif // BW_MATH_ROTATION_QUATERNION_HPP

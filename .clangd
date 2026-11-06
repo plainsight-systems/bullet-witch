@@ -1,0 +1,4 @@
+# Used by VS Code's clangd extension. CMake writes the database into the
+# build directory the tracked editor settings name.
+CompileFlags:
+  CompilationDatabase: build-game-loop

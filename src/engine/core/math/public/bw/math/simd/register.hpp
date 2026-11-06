@@ -195,5 +195,7 @@ bool any_greater(Register4f a, Register4f b);
 bool any_greater(Register4d a, Register4d b);
 
 } // namespace bw::math::simd
+#ifndef BW_PLATFORM_REGISTER_INL
 #include "bw/platform/math/register.inl"
+#endif
 #endif // BW_CORE_MATH_REGISTER_HPP

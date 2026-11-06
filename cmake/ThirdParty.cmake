@@ -37,6 +37,74 @@ if(APPLE)
     bw_metal_cpp bw_metal_irconverter_runtime)
 endif()
 
+# SPIRV-Reflect and BLAKE3 are C libraries; the project itself is C++ only.
+enable_language(C)
+
+set(bw_blake3_root "${PROJECT_SOURCE_DIR}/third_party/blake3/c")
+add_library(bw_blake3 STATIC
+  "${bw_blake3_root}/blake3.c"
+  "${bw_blake3_root}/blake3_dispatch.c"
+  "${bw_blake3_root}/blake3_portable.c")
+target_include_directories(bw_blake3 SYSTEM PUBLIC "${bw_blake3_root}")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$")
+  target_sources(bw_blake3 PRIVATE "${bw_blake3_root}/blake3_neon.c")
+  target_compile_definitions(bw_blake3 PRIVATE BLAKE3_USE_NEON=1)
+else()
+  # Portable path only: blake3_dispatch.c references the x86 SIMD
+  # implementations unless each is disabled, and none of their sources are
+  # compiled here.
+  target_compile_definitions(bw_blake3 PRIVATE
+    BLAKE3_USE_NEON=0 BLAKE3_NO_SSE2 BLAKE3_NO_SSE41 BLAKE3_NO_AVX2
+    BLAKE3_NO_AVX512)
+endif()
+
+set_target_properties(bw_blake3 PROPERTIES
+  C_STANDARD 11
+  C_STANDARD_REQUIRED ON
+  C_EXTENSIONS OFF
+  C_CLANG_TIDY ""
+  CXX_CLANG_TIDY "")
+
+# The content converter's vendored block encoders and decoders and its PNG
+# decoder: copies of named files at a commit, unmodified, compiled only into
+# the converter tool, so they sit above the shader toolchain switch. Like the
+# other pinned code they keep their own warning expectations: they do not link
+# bw_contracts, clang-tidy is off, and their include directories are system
+# directories so consumers' warnings-as-errors flags do not reach them.
+set(bw_bc7enc_root "${PROJECT_SOURCE_DIR}/third_party/bc7enc_rdo")
+add_library(bw_bc7enc STATIC
+  "${bw_bc7enc_root}/rgbcx.cpp"
+  "${bw_bc7enc_root}/bc7enc.cpp"
+  "${bw_bc7enc_root}/bc7decomp.cpp")
+target_include_directories(bw_bc7enc SYSTEM PUBLIC "${bw_bc7enc_root}")
+# Floating-point contraction off: the encoders' least-squares and rounding
+# steps feed integer decisions, and a fused multiply-add on one host but not
+# another would change the encoded bytes (texture_reader.hpp states the
+# determinism condition). The upstream build compiles without strict
+# aliasing because the encoders cast pixel bytes to structs.
+target_compile_options(bw_bc7enc PRIVATE -ffp-contract=off -fno-strict-aliasing)
+
+set(bw_lodepng_root "${PROJECT_SOURCE_DIR}/third_party/lodepng")
+add_library(bw_lodepng STATIC "${bw_lodepng_root}/lodepng.cpp")
+target_include_directories(bw_lodepng SYSTEM PUBLIC "${bw_lodepng_root}")
+# Decoder only, through the C entry points: no encoder, no file access, no
+# C++ wrappers, and no ancillary-chunk parsing. Without the ancillary section
+# gAMA, cHRM, iCCP, sRGB and the other informational chunks are skipped as
+# unknown chunks, so none of them changes a decoded pixel; tRNS is still read,
+# as it carries alpha. PUBLIC so every includer of lodepng.h sees the same
+# declarations as the compiled file. The decoder's CRC and Adler-32 checks
+# stay on (their defaults; nothing here changes them); the CRC is checked on
+# the chunks the decoder reads, and a skipped chunk reaches no pixel.
+target_compile_definitions(bw_lodepng PUBLIC
+  LODEPNG_NO_COMPILE_ENCODER LODEPNG_NO_COMPILE_DISK
+  LODEPNG_NO_COMPILE_ANCILLARY_CHUNKS LODEPNG_NO_COMPILE_CPP)
+
+set_target_properties(bw_bc7enc bw_lodepng PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF
+  CXX_CLANG_TIDY "")
+
 # Shader toolchain. Two prerequisites are found through cache variables and are
 # never searched for: the DXC install prefix that third_party/build-dxc.sh
 # produces, and, on Apple platforms, the Metal Shader Converter install. A
@@ -45,9 +113,6 @@ option(BW_SHADER_TOOLCHAIN "Build the shader compiler and its integration tests"
 if(NOT BW_SHADER_TOOLCHAIN)
   return()
 endif()
-
-# SPIRV-Reflect and BLAKE3 are C libraries; the project itself is C++ only.
-enable_language(C)
 
 set(BW_DXC_PREFIX "" CACHE PATH
   "Install prefix of the pinned DXC build (third_party/build-dxc.sh <prefix>)")
@@ -139,25 +204,7 @@ add_library(bw_spirv_reflect STATIC "${bw_spirv_reflect_root}/spirv_reflect.c")
 target_include_directories(bw_spirv_reflect SYSTEM PUBLIC
   "${bw_spirv_reflect_root}")
 
-set(bw_blake3_root "${PROJECT_SOURCE_DIR}/third_party/blake3/c")
-add_library(bw_blake3 STATIC
-  "${bw_blake3_root}/blake3.c"
-  "${bw_blake3_root}/blake3_dispatch.c"
-  "${bw_blake3_root}/blake3_portable.c")
-target_include_directories(bw_blake3 SYSTEM PUBLIC "${bw_blake3_root}")
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$")
-  target_sources(bw_blake3 PRIVATE "${bw_blake3_root}/blake3_neon.c")
-  target_compile_definitions(bw_blake3 PRIVATE BLAKE3_USE_NEON=1)
-else()
-  # Portable path only: blake3_dispatch.c references the x86 SIMD
-  # implementations unless each is disabled, and none of their sources are
-  # compiled here.
-  target_compile_definitions(bw_blake3 PRIVATE
-    BLAKE3_USE_NEON=0 BLAKE3_NO_SSE2 BLAKE3_NO_SSE41 BLAKE3_NO_AVX2
-    BLAKE3_NO_AVX512)
-endif()
-
-set_target_properties(bw_spirv_reflect bw_blake3 PROPERTIES
+set_target_properties(bw_spirv_reflect PROPERTIES
   C_STANDARD 11
   C_STANDARD_REQUIRED ON
   C_EXTENSIONS OFF

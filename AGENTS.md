@@ -77,6 +77,12 @@ them as rules. Add an entry when the same mistake comes back.
   answer "what does the game contain or do": its assets and their formats, its
   scripts, its behaviors, its look. How a subsystem is built comes from
   modern engine practice, never from the shipped engine.
+- **Writing tests past the Testing rules and measuring afterwards.** Two
+  slices arrived with test lines near code lines: a scenario per function,
+  rows proving an error order no caller reads, the same game data converted
+  by several tests, reviews that only added. The test list is cut to the
+  rules before it is approved, and the ratio and the `ctest` time are
+  measured before the review and the report, not when the user counts.
 
 ## Sources and citations
 
@@ -159,10 +165,19 @@ changes and no invariant changes, the test must not need to change.
 - A pure function pulled out of an OS-bound path is a row in the owning
   module's existing test executable. A new executable is for a new public
   header, not a new function.
+- An error table has one row per error name, each breaking one rule. A
+  header promises which error is named when several rules are broken only
+  when the plan names the caller that reads the order; otherwise no row
+  asserts it.
+- An input that takes seconds to make (a conversion of game data) is made
+  once per run by a CTest fixture and shared; no test makes it again. A
+  whole-install run is a by-hand check recorded in the plan with its time,
+  never a `ctest` entry.
 - Every test executable is a scenario table on
   `tests/support/bw/testing/harness.hpp`. No test defines its own `require`
   or `main`; a worker-thread check uses a local helper that exits 1.
 - A slice reports net lines of the test tree against net lines of the code
   tree, whole trees against HEAD, measured by the architect, not taken from
   an implementer's report. The ratio is expected to fall as plumbing ends;
-  a slice where it rises says why per scenario.
+  a slice above the tree's ratio at HEAD is cut to these rules before it is
+  reported, and what still stands above says why per scenario.

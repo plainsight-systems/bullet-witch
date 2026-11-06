@@ -1,12 +1,11 @@
 {
-  "C_Cpp.default.compileCommands": [
-    "${workspaceFolder}/build-game-loop/compile_commands.json"
-  ],
-  "C_Cpp.default.compilerPath": "/usr/bin/c++",
-  "C_Cpp.default.cppStandard": "c++20",
-  "C_Cpp.default.intelliSenseMode": "macos-clang-arm64",
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.formatting": "disabled",
   "cmake.buildDirectory": "${workspaceFolder}/build-game-loop",
+  "cmake.configureOnOpen": false,
   "cmake.configureSettings": {
     "BW_DXC_PREFIX": "${workspaceFolder}/build-dxc"
-  }
+  },
+  "[cpp]": { "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd" },
+  "[c]": { "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd" }
 }

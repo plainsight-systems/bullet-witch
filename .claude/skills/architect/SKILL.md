@@ -57,12 +57,16 @@ from the source layout:
 - Every type and function that follows a source carries a citation in the
   Sources and citations form. Every step of a source left out has a note beside
   the declaration saying what is omitted and why the game does not reach it.
-- Every invariant a test will assert is stated in the header, in words.
+- Every invariant a test will assert is stated in the header, in words. A
+  header promises only what a caller reads; each promise is a test.
 - Register each new header in `BW_PUBLIC_HEADERS` in
   `cmake/HeaderChecks.cmake`; confirm it compiles alone with a configure and
   build of your worktree's build directory.
-- Write the test list in the plan: name, unit or integration, and the header
-  declaration each asserts, per the Testing section of `AGENTS.md`.
+- Write the test list in the plan as one table, per the Testing section of
+  `AGENTS.md`: name | unit or integration | header declaration asserted |
+  the change this scenario alone would catch | fixture it needs. A row with
+  no such change is left off. The list is closed: it is every scenario the
+  slice will have.
 - Write the ownership list for the implementer: the `.cpp`, test and CMake
   files the step may create or edit. Headers are not on it.
 
@@ -70,9 +74,12 @@ No `.cpp`, no tests, no implementation in this step.
 
 ## 5. Stop for review
 
-Report the header diff, the omission list, the test list and the guideline
-identifiers, and wait. The headers are the approval gate; nothing below runs
-until the user has approved them in conversation.
+Report the header diff, the omission list, the test list with its scenario
+count, and the guideline identifiers, and wait. The headers and the test
+list are the approval gate; nothing below runs until the user has approved
+them in conversation. After approval a scenario not on the list is not
+written; a wanted addition goes to the user with the change it alone would
+catch.
 
 ## 6. Implement and review
 
@@ -81,19 +88,31 @@ After approval:
 - Run the `implementer` agent with the plan path, the headers, the ownership
   list and the build directory. Read its Verified table; a missing or failing
   row is a stop.
+- Measure before the review, yourself: net lines of `tests` and of
+  `src tools` against HEAD (`git ls-files -co --exclude-standard -- <tree>`
+  piped to `wc -l` over the contents, less `git archive HEAD <tree> | tar
+  -xO | wc -l`), the tree's ratio at HEAD, and the `ctest` wall time. A
+  ratio above the tree's, a scenario off the list or a test over 10 s is
+  cut to the Testing rules now, before any review.
 - Run the `reviewer` agent once, with the changed files, the headers and the
   plan.
 - Findings in the contract, failure, test, facade and omission dimensions go
   back to the implementer as one correction pass with the same ownership
-  list. Findings in the fidelity dimension go to the user with the citation.
+  list. A test finding that would add a scenario or a row does not: it goes
+  to the user with the change it alone would catch. Findings in the
+  fidelity dimension go to the user with the citation.
   Findings in the scope dimension become entries in the omission list, not
   work. There is no second review pass.
 
 ## 7. Report
 
-State what is implemented, what is verified and by which command, what is
-omitted and where each note is, and what is open. Keep those four apart. Do not
-commit, push or launch the game without the user's word.
+Lead with the measurement, taken again after the correction pass: net test
+lines, net code lines, the ratio beside the tree's at HEAD, tests added,
+`ctest` wall time. Then state what is implemented, what is verified and by
+which command, what is omitted and where each note is, and what is open.
+Keep those four apart. A command given to the user to run is copied from a
+run in this session. Do not commit, push or launch the game without the
+user's word.
 
 ## 8. Strip on acceptance
 

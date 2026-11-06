@@ -1,6 +1,7 @@
 #include "bw/rendering/shaders/permutation.hpp"
 
 #include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
+#include "bw/rendering/geometry/textured_mesh_fixture.hpp"
 #include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 
@@ -144,12 +145,44 @@ struct VertexColor {
   }
 };
 
+// The content slice's fixture shaders (bw/rendering/geometry/textured_mesh_fixture.hpp):
+// a converted mesh pulled like PulledMesh and shaded by one base color
+// texture. Both stages read the same draw block: the pixel shader takes the
+// texture and sampler indices from it. They leave with the fixture when the
+// renderer's material templates arrive.
+struct TexturedMesh {
+  using Domain = PermutationDomain<>;
+  static constexpr std::string_view name = geometry::kTexturedMeshShader;
+  static constexpr std::string_view source_path = "textured_mesh.hlsl";
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = ShaderStage::Vertex;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<TexturedMeshDraw>::value;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
+struct TexturedColor {
+  using Domain = PermutationDomain<>;
+  static constexpr std::string_view name = geometry::kTexturedColorShader;
+  static constexpr std::string_view source_path = "textured_color.hlsl";
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = ShaderStage::Pixel;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<TexturedMeshDraw>::value;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
 // Every shader the engine builds. A renderer slice adds an entry here and its
 // HLSL under the shader root.
 constexpr std::array kRegistry{
     describe_shader<FullscreenTriangle>(), describe_shader<FullscreenTriangleColor>(),
     describe_shader<PulledMesh>(),         describe_shader<VertexDecodeProbe>(),
-    describe_shader<VertexColor>(),
+    describe_shader<VertexColor>(),        describe_shader<TexturedMesh>(),
+    describe_shader<TexturedColor>(),
 };
 
 [[nodiscard]] consteval bool registry_names_unique() {

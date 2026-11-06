@@ -1,5 +1,8 @@
 #ifndef BW_CORE_MATH_VECTOR3_INL
 #define BW_CORE_MATH_VECTOR3_INL
+// The tail of bw/math/vector/vector3.hpp. Opened alone it includes that header,
+// which leaves this file out while the guard above is defined.
+#include "bw/math/vector/vector3.hpp"
 
 #include "bw/diagnostics/math_diagnostic.hpp"
 #include "bw/platform/math/math.hpp"
@@ -182,5 +185,4 @@ template <typename T> inline void Vector3<T>::diagnostic_check() const {
 }
 
 } // namespace bw::math
-
 #endif // BW_CORE_MATH_VECTOR3_INL

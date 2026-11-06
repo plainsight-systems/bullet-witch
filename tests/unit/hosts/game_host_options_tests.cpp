@@ -1,8 +1,8 @@
-// Unit test: game_host's command line (bw/hosts/game_host_options.hpp,
-// parse_game_host_options, UsageError, seconds_limit_reached), one
-// table-driven scenario.
+// Unit test: game_host's command line (bw/hosts/game_host_options.hpp over
+// bw/hosts/option_table.hpp), one table-driven scenario.
 #include "bw/hosts/game_host_options.hpp"
 
+#include "bw/hosts/option_table.hpp"
 #include "bw/testing/harness.hpp"
 
 #include <array>
@@ -15,83 +15,71 @@
 
 namespace {
 
-using bw::hosts::UsageError;
+using bw::hosts::OptionError;
+using bw::testing::require;
 
-// One parse: up to five arguments (count of them used, since "" is a real
-// argument), then the error and the argument it names, then on success the
-// options.
+// One parse: up to eleven arguments, then the error and the argument it
+// names, then on success the options.
 struct Row {
-  std::array<std::string_view, 5> args{};
+  std::array<std::string_view, 11> args{};
   std::size_t count{};
-  UsageError error{UsageError::None};
+  OptionError error{OptionError::None};
   std::string_view argument{};
   double seconds{};
   bool fullscreen{};
   std::string_view shaders{};
+  std::string_view cache{};
+  std::string_view overrides{};
+  std::string_view asset{};
 };
 
-constexpr UsageError kNone = UsageError::None;
-constexpr UsageError kUnknown = UsageError::UnknownOption;
-constexpr UsageError kMissing = UsageError::MissingValue;
-constexpr UsageError kMalformed = UsageError::MalformedSeconds;
-constexpr UsageError kRange = UsageError::SecondsOutOfRange;
-constexpr UsageError kDuplicate = UsageError::DuplicateOption;
-constexpr UsageError kEmpty = UsageError::EmptyDirectory;
-
-// (game_host_options.hpp, GameHostOptions defaults, Grammar, Precedence,
-// UsageError, GameHostParse::argument, seconds_limit_reached): the defaults;
-// each option alone and all three in any order; a value starting with "--"
-// is missing, one "-" is a value; every UsageError naming its argument;
-// DuplicateOption before the value is looked at; left to right, the first
-// error wins; 0 means until close.
+// (game_host_options.hpp, the rows; option_table.hpp, Contract 1, 2 and 4;
+// seconds_limit_reached): the defaults; all six options, in an order other
+// than the table's, each stored in its own member; one row per error name,
+// each breaking one rule and naming its argument; the usage line names
+// every option; 0 means until close.
 void parse_table() {
+  const std::string usage = bw::hosts::game_host_usage();
+  for (const std::string_view option : {"--seconds N", "--fullscreen]", "--shaders DIR",
+                                        "--cache DIR", "--overrides DIR", "--asset ID"}) {
+    require(usage.find(option) != std::string::npos, "the usage line names " + std::string(option));
+  }
   static_assert(!bw::hosts::seconds_limit_reached(0.0, 1.0e9));
   static_assert(bw::hosts::seconds_limit_reached(1.0, 1.0));
   static_assert(!bw::hosts::seconds_limit_reached(1.0, 0.999));
   constexpr std::array rows{
-      Row{{}, 0, kNone, "", 0.0, false, ""},
-      Row{{"--seconds", "2.5"}, 2, kNone, "", 2.5, false, ""},
-      Row{{"--seconds", "0"}, 2, kNone, "", 0.0, false, ""},
-      Row{{"--fullscreen"}, 1, kNone, "", 0.0, true, ""},
-      Row{{"--shaders", "artifacts/metal"}, 2, kNone, "", 0.0, false, "artifacts/metal"},
-      Row{{"--shaders", "s", "--fullscreen", "--seconds", "1"}, 5, kNone, "", 1.0, true, "s"},
-      Row{{"--shaders", "-dir"}, 2, kNone, "", 0.0, false, "-dir"},
-      Row{{"--shaders", "--fullscreen"}, 2, kMissing, "--shaders"},
-      Row{{"--seconds", "--fullscreen"}, 2, kMissing, "--seconds"},
-      Row{{"--seconds"}, 1, kMissing, "--seconds"},
-      Row{{"--fullscreen", "--shaders"}, 2, kMissing, "--shaders"},
-      Row{{"--frames"}, 1, kUnknown, "--frames"},
-      Row{{"seconds"}, 1, kUnknown, "seconds"},
-      Row{{""}, 1, kUnknown, ""},
-      Row{{"--fullscreen", "--Fullscreen"}, 2, kUnknown, "--Fullscreen"},
-      Row{{"--seconds", "abc"}, 2, kMalformed, "abc"},
-      Row{{"--seconds", ""}, 2, kMalformed, ""},
-      Row{{"--seconds", "1x"}, 2, kMalformed, "1x"},
-      Row{{"--seconds", " 1"}, 2, kMalformed, " 1"},
-      Row{{"--seconds", "-1"}, 2, kRange, "-1"},
-      Row{{"--seconds", "-0.5"}, 2, kRange, "-0.5"},
-      Row{{"--seconds", "inf"}, 2, kRange, "inf"},
-      Row{{"--seconds", "nan"}, 2, kRange, "nan"},
-      Row{{"--fullscreen", "--fullscreen"}, 2, kDuplicate, "--fullscreen"},
-      Row{{"--seconds", "1", "--seconds", "2"}, 4, kDuplicate, "--seconds"},
-      Row{{"--shaders", "a", "--shaders", "b"}, 4, kDuplicate, "--shaders"},
-      Row{{"--seconds", "1", "--seconds"}, 3, kDuplicate, "--seconds"},
-      Row{{"--seconds", "1", "--seconds", "abc"}, 4, kDuplicate, "--seconds"},
-      Row{{"--shaders", "a", "--shaders", ""}, 4, kDuplicate, "--shaders"},
-      Row{{"--shaders", ""}, 2, kEmpty, ""},
-      Row{{"--bogus", "--seconds"}, 2, kUnknown, "--bogus"},
-      Row{{"--seconds", "-1", "--bogus"}, 3, kRange, "-1"},
-      Row{{"--shaders", "", "--fullscreen", "--fullscreen"}, 4, kEmpty, ""},
+      Row{{}, 0, OptionError::None, "", 0.0, false, ""},
+      Row{{"--overrides", "o", "--asset", "model.pw0.mesh", "--fullscreen", "--cache", "c",
+           "--seconds", "2.5", "--shaders", "-dir"},
+          11,
+          OptionError::None,
+          "",
+          2.5,
+          true,
+          "-dir",
+          "c",
+          "o",
+          "model.pw0.mesh"},
+      Row{{"--frames"}, 1, OptionError::UnknownOption, "--frames"},
+      Row{{"--seconds", "1", "--seconds", "2"}, 4, OptionError::DuplicateOption, "--seconds"},
+      Row{{"--shaders", "--fullscreen"}, 2, OptionError::MissingValue, "--shaders"},
+      Row{{"--seconds", "-1"}, 2, OptionError::InvalidValue, "-1"},
+      Row{{"--asset", "model.pw0.mesh"}, 2, OptionError::RequiredOptionMissing, "--asset"},
   };
   for (std::size_t i = 0; i < rows.size(); ++i) {
     const Row& row = rows[i];
     const bw::hosts::GameHostParse result =
         bw::hosts::parse_game_host_options(std::span(row.args).first(row.count));
     const bool options_match =
-        row.error != kNone ||
+        row.error != OptionError::None ||
         (result.options.seconds == row.seconds && result.options.fullscreen == row.fullscreen &&
-         result.options.shaders == std::filesystem::path(row.shaders));
-    if (result.error != row.error || result.argument != row.argument || !options_match) {
+         result.options.shaders == std::filesystem::path(row.shaders) &&
+         result.options.cache == std::filesystem::path(row.cache) &&
+         result.options.overrides == std::filesystem::path(row.overrides) &&
+         result.options.asset == row.asset);
+    const bool reason_matches = (row.error == OptionError::InvalidValue) != result.reason.empty();
+    if (result.error != row.error || result.argument != row.argument || !options_match ||
+        !reason_matches) {
       throw std::runtime_error("row " + std::to_string(i) + ": error " +
                                std::to_string(static_cast<int>(result.error)) + " naming \"" +
                                std::string(result.argument) + "\"");
