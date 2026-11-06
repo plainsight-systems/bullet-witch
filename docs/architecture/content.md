@@ -123,6 +123,7 @@ flowchart TD
 | Material | template name, static switch values, parameter values, texture ids | materials |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton and animation | bone hierarchy, bone maps per draw, animation tracks | animation |
+| Probe set | the probe grids of one stage: for each grid an oriented box, its lattice size, and nine spherical harmonic coefficients per color channel for each probe | lighting |
 | Script, audio, text, level data | defined by their slices in the same cooked-asset frame | their systems |
 
 Every kind shares the asset header: id, kind, format version, input hash,

@@ -144,7 +144,9 @@ flowchart TD
 ```
 
 A probe grid is a lattice of probes in an oriented box. A probe holds nine
-spherical harmonic coefficients per color channel. A point inside a box is
+spherical harmonic coefficients per color channel. A probe set is the asset
+that holds the probe grids of one stage; it is apart from the stage's meshes
+and from its level data, and the stage names it by id. A point inside a box is
 lit by the eight probes around it. A point inside no box takes the values at
 the nearest box's edge.
 
@@ -177,8 +179,8 @@ flowchart TD
 
 | Data | Form | Read by |
 |---|---|---|
-| Baked light of a mesh | a vertex stream of linear light values | surface pass |
-| Probe grid | oriented box, lattice size, spherical harmonic coefficients per probe | surface pass for movers, forward pass, fog |
+| Baked light of a mesh | a vertex stream of the mesh, holding linear light values | surface pass |
+| Probe set | the probe grids of one stage, each an oriented box, a lattice size and spherical harmonic coefficients per probe | surface pass for movers, forward pass, fog |
 | Environment map | a cube texture with a mip chain by roughness | reflections |
 | Sky | sky textures | sky |
 
@@ -192,7 +194,7 @@ flowchart TD
 | Sources of the four terms and their filters | `src/engine/rendering/lighting` | scene renderer's term targets |
 | Probe grid lookup | `src/engine/rendering/lighting` | surface pass, forward pass, fog |
 | Sky and fog volume | `src/engine/rendering/lighting` | sky and fog pass, forward pass, particles |
-| Probe grid payload reader | `src/engine/rendering/lighting` | content loading |
+| Probe set payload reader | `src/engine/rendering/lighting` | content loading |
 
 ## Boundaries
 
