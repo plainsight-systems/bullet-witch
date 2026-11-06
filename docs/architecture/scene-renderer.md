@@ -11,8 +11,9 @@ and one light grid.
 
 Above the render graph, which schedules the passes and owns their transient
 targets, and the [RHI](rhi.md). Beside [materials](materials.md), whose
-templates supply a shader for each pass, and the lighting system, which
-supplies lights, shadows and indirect light as data and as visibility terms.
+templates supply a shader for each pass, and the [lighting
+system](lighting.md), which supplies lights, shadows and indirect light as
+data and as visibility terms.
 Fed by the scene, which supplies views and the draws visible in them.
 
 ```mermaid
@@ -39,8 +40,8 @@ flowchart LR
    pass branches on it; the set of ids is the shading models the material
    system declares.
 5. The light grid is built once per view. It is the only way a pass finds
-   the lights that reach a point, for the lighting pass, the forward pass
-   and fog alike.
+   the local lights that reach a point, for the lighting pass, the forward
+   pass and fog alike. The sun is evaluated everywhere and is not in it.
 6. Every opaque and masked draw writes a motion vector, including skinned,
    morphed and vertex-offset geometry. A motion vector points from a pixel
    to where that surface point was in the previous frame, with the jitter
@@ -90,12 +91,12 @@ flowchart TD
 | Pass | Reads | Writes | Resolution |
 |---|---|---|---|
 | Depth | visible opaque and masked draws | depth | input |
-| Surface | the same draws, depth | surface data, motion vectors, emissive into scene color | input |
+| Surface | the same draws, depth, probe grids | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
 | Light grid and shadow maps | lights, shadow-casting draws | light grid, shadow maps | their own |
-| Visibility terms | surface data, depth, motion vectors, shadow maps or the ray tracing scene | one target per term | input |
+| Visibility terms | surface data, depth, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
 | Lighting | surface data, light grid, term targets | scene color | input |
-| Sky and fog | depth, light grid | scene color | input |
-| Forward | visible blended draws, depth, light grid | scene color, reactive coverage | input |
+| Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
+| Forward | visible blended draws, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, scene color as history for the next frame | input |
 | Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, exposure | scene color | input to output |
 | Post-processing | scene color | scene color | output |
 | Tone mapping and output transform | scene color, exposure | display color | output |
@@ -134,8 +135,10 @@ reach.
 | Shadow | opaque, masked | depth from a light's view, with the masked discard |
 | Forward | translucent, additive, modulate | lit color blended into scene color, and reactive coverage |
 
-A forward draw writes no surface data and no motion vector. Its reactive
-coverage tells the temporal stage where history cannot be trusted.
+Renderer code in the surface pass, not the template, writes the pixel's
+baked indirect light. A forward draw writes no surface data and no motion
+vector. Its reactive coverage tells the temporal stage where history
+cannot be trusted.
 
 ## Visibility terms
 
@@ -152,7 +155,10 @@ flowchart LR
 ```
 
 The scene renderer owns the selection and the meaning of each term's
-target. What each source computes belongs to the lighting system. Traced
+target. What each source computes belongs to the lighting system. The
+rasterized source of indirect light is part of the surface pass, which
+writes baked light as it draws on every target; a traced source, where
+selected, writes the whole target afterwards. Traced
 sources need the positions of skinned and morphed geometry in buffers, so
 the scene supplies deformed positions as buffers on targets that trace.
 Shaders of traced sources are their own set, built only for targets that
