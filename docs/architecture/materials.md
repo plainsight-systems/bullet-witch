@@ -3,9 +3,8 @@
 How a surface's appearance is described, parameterized, compiled and bound.
 A material is data that selects an authored material template, fixes its
 static switches, and supplies parameter values; it contains no shader code.
-The shading and blend model split, parameters versus permutations, and instances; its graph
-compiler is not reproduced, because the game's materials are a small family
-that authored templates cover.
+There is no material graph and no shader generated from material data: the
+game's materials are a small family that authored templates cover.
 
 ## Position
 
@@ -13,18 +12,18 @@ Above the [shader system](shaders.md), which compiles the templates and
 owns their permutation domains and parameter blocks; beside the scene
 renderer, which owns lighting, shadows, fog and post-processing and consumes
 material attributes; fed by the content converter, which maps the original
-game's material data onto templates and parameters. The RHI sees only uniform
+game's material data onto templates and parameters. The RHI sees only
 buffers, descriptor indices and pipeline descriptions.
 
 ```mermaid
 flowchart LR
     IMP["Content converter: original material blocks and textures"] --> MA["Material assets: template, switches, parameters, texture references"]
     T["Material templates: authored HLSL plus parameter block declarations"] --> SS["Shader system: permutation domain, artifacts, parameter block layout"]
-    MA --> CK["Cook: union of switch combinations used by content"]
-    CK --> SS
+    SS --> CH["Check: the material's switch tuple is in the template's built domain"]
+    MA --> CH
     MA --> MI["Material instances at runtime"]
-    SS --> PL["Pipelines per template, permutation, pass and vertex layout"]
-    MI --> UB["Material parameter block: uniform buffer plus descriptor indices"]
+    SS --> PL["Pipelines per template, permutation, pass and blend mode"]
+    MI --> UB["Material buffer: one parameter block per instance, descriptor indices inside"]
     PL --> R["Scene renderer"]
     UB --> R
 ```
@@ -37,9 +36,11 @@ flowchart LR
 2. A material is data: one template, a value for every static switch of that
    template, and parameter values. Static switches select a permutation;
    parameters never do.
-3. The set of switch combinations is closed at cook time as the union over
-   all content. Every combination is a built permutation before the game
-   runs; the game never meets a combination that was not built.
+3. Every switch combination a template's predicate admits is a built
+   permutation before the game runs. Content can only select within that
+   domain: a material whose switch tuple the predicate does not admit fails
+   by name when it is converted and when it is loaded. The game never meets
+   a combination that was not built.
 4. Scalar, vector and texture parameters live in one parameter block per
    template, declared in C++ and laid out by the shader system. Texture
    parameters are 32-bit descriptor indices in that block. The layout hash is
@@ -91,14 +92,18 @@ flowchart LR
     T["Template"] --> D["Permutation domain: static switches plus pass dimensions"]
     D --> P["Permutation id"]
     P --> A["Artifact per target"]
-    A --> K["Pipeline description: artifacts, blend mode state, depth and raster state, vertex layout, pass targets"]
+    A --> K["Pipeline description: artifacts, blend mode state, depth and raster state, pass targets"]
     K --> C["RHI pipeline description cache, keyed by content"]
 ```
 
 Pass dimensions such as the depth-only or shadow variant of a template are
-permutation dimensions declared by the renderer, so the same enumeration
-that closes the switch set closes the pass set. Vertex layout and pass
-render targets enter the pipeline description, not the permutation.
+permutation dimensions declared by the renderer, so the one build-time
+enumeration that builds the switch domain builds the pass set. Blend mode
+and pass render targets enter the pipeline description, not the
+permutation; the masked blend mode alone is also a switch, because it adds
+a discard. Vertices are pulled, so no vertex layout enters either: a
+permutation states the vertex attributes it reads, and a draw whose mesh
+lacks one fails by name when it is created.
 
 ## Parameters at runtime
 
@@ -107,12 +112,13 @@ sequenceDiagram
     participant Inst as Material instance
     participant Base as Parent material
     participant Blk as Parameter block
-    participant RHI
+    participant Buf as Material buffer
+    participant Draw as Per-draw block
     Inst->>Blk: write overridden values
     Base->>Blk: write every value not overridden
     Blk->>Blk: texture parameters as descriptor indices
-    Blk->>RHI: uniform buffer update, layout hash checked
-    RHI-->>Inst: bound for the draw
+    Blk->>Buf: block bytes at the instance's offset
+    Buf-->>Draw: buffer index and byte offset
 ```
 
 | Parameter kind | Where it lives | Changes at runtime | Changes the permutation |
@@ -121,9 +127,13 @@ sequenceDiagram
 | Texture | a 32-bit descriptor index in the same block | yes | no |
 | Static switch | the template's permutation domain | no | yes |
 
-A parameter block is filled only when an instance's values change, and the
-uniform buffer it fills is shared by every draw of that instance in the
-frame.
+Every material block lives in one buffer reached through the descriptor
+arrays. A draw names its material by that buffer's index and the block's
+byte offset, carried in its per-draw block; the shader reads the block from
+there at the offsets the C++ declaration gives. A block is filled only when
+an instance's values change, and the range it fills is shared by every draw
+of that instance in the frame. Blocks differ per template, so a material
+block is never one of the root layout's static slots.
 
 ## Content mapping
 
@@ -134,16 +144,20 @@ onto this system. The original data decides the values; the mapping is ours.
 |---|---|
 | Base texture, second base texture with its blend, third base texture with a mask | base color inputs and a layer switch |
 | Normal texture | normal input, a static switch |
-| Gloss texture in the ambient-occlusion slot | roughness and specular inputs; the slot name conflict is resolved per content family and recorded |
-| Fresnel, specular and reflection coefficients, environment reflection power | specular and roughness parameters of the lit shading model; a fresnel strength parameter |
+| Gloss texture in the ambient-occlusion slot | a packed gloss map input and a static switch; how its channels are read is the template's |
+| Specular coefficient | roughness and specular parameters of the lit shading model |
+| Fresnel and reflection coefficients, environment reflection power, subsurface marker and its level | recorded by name with their values; no parameter is derived from them |
+| Environment and illuminance texture slots | recorded by name with the texture id |
 | Constant color, illuminance, ambient | base color tint, emissive, and an ambient term that belongs to the renderer |
-| Subsurface marker and its level | the subsurface shading model with a strength parameter, where the content family warrants it |
+| Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
 | Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
 | Effect and post-process materials | renderer passes with their own parameter blocks, not materials |
 
 The 14 feature axes of the original collapse onto a handful of switches
 because several axes only add lighting inputs. The converter records every
-original field it leaves unmapped, by name, beside the converted asset.
+original field it leaves unmapped, by name, beside the converted asset. The
+mapping carries a revision that enters each material's input hash, so a
+change to it reconverts materials and nothing else.
 
 ## Components and ownership
 
@@ -152,7 +166,9 @@ original field it leaves unmapped, by name, beside the converted asset.
 | Material templates, HLSL and parameter block declarations | `src/engine/rendering/materials/templates` | shader system, scene renderer |
 | Material and instance types, parameter block fill | `src/engine/rendering/materials/public/bw/rendering/materials` | scene renderer, content loading |
 | Attribute activation table, shading and blend enumerations | `src/engine/rendering/materials/public/bw/rendering/materials` | templates at compile time, renderer at pass selection |
-| Switch set closure and pipeline enumeration | `tools/content_converter` | shader system, RHI precompilation |
+| Material buffer | `src/engine/rendering/materials/public/bw/rendering/materials` | scene renderer |
+| Permutation enumeration of each template | the shader build | RHI precompilation |
+| Switch tuple check against the template's domain | `tools/content_converter`, material loading | content loader |
 | Original material block to material asset | `tools/content_converter` | content loader |
 
 ## Boundaries
@@ -163,6 +179,6 @@ compiles templates and lays out parameter blocks, and the RHI, which binds
 them. Beside: the content converter, the only code that reads original
 material data.
 User-made materials are new material assets over the same templates, which
-the self-describing artifacts and the closed-at-cook switch set already
+the self-describing artifacts and the fully built switch domain already
 allow; a user-made template is a shader source and follows the shader
 system's rules for one.
