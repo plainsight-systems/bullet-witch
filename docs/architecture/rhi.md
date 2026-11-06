@@ -111,6 +111,14 @@ stateDiagram-v2
 Resources hold tracked access state. Transient resources that alias memory
 follow the same path with acquire and discard declared through transitions.
 
+A frame-only texture is a render target no later frame reads. The [render
+graph](render-graph.md) acquires one at its first use in a frame and gives it
+back after its last, and so gives the backend every such texture's lifetime.
+How two of them with lifetimes that do not overlap share storage is the
+backend's choice: the same memory under two textures, or one pooled texture
+serving both. The contract is the same either way, and nothing above the
+backend can tell which was chosen. Contents at acquire are undefined.
+
 ## Transitions
 
 ```mermaid

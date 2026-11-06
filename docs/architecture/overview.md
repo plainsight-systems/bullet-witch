@@ -29,7 +29,8 @@ See [source layout](source-layout.md) for the destination tree, module
 ownership and dependency direction, [shaders](shaders.md) for the shader
 system, [rhi](rhi.md) for the rendering hardware interface,
 [materials](materials.md) for the material system, [scene
-renderer](scene-renderer.md) for how a frame is made, and
+renderer](scene-renderer.md) for how a frame is made, [render
+graph](render-graph.md) for how its passes become GPU work, and
 [content](content.md) for how assets reach the game. In one line:
 platform adapters under `src/platform`, engine systems under `src/engine`,
 Bullet Witch's own rules under `src/game`, and development tools apart from
