@@ -24,10 +24,15 @@ target_link_libraries(bw_game_host_options PUBLIC bw_game_host_options_headers
 # only there. Its default shader directory is <executable directory>/shaders/metal,
 # where the build writes the artifacts when the shader toolchain is configured.
 if(APPLE)
-  add_executable(game_host game_host.cpp)
+  # The shell (game_host.cpp) and its host-private parts: the scene it calls
+  # (host_scene.hpp), the cube and model scenes, what they share and the
+  # failure line. No test includes these headers.
+  add_executable(game_host game_host.cpp
+    host_scene.hpp host_failure.hpp scene_support.hpp scene_support.cpp
+    cube_scene.hpp cube_scene.cpp model_scene.hpp model_scene.cpp)
   target_sources(game_host PRIVATE ../../engine/core/memory/global_allocation.cpp)
   target_link_libraries(game_host PRIVATE bw_game_host_options bw_window bw_allocator
-    bw_platform_time bw_model bw_scene)
+    bw_platform_time bw_platform_process bw_model bw_scene)
   if(BW_SHADER_TOOLCHAIN)
     add_dependencies(game_host shader_artifacts)
   endif()

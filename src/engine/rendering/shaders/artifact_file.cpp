@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -69,6 +70,28 @@ ArtifactFileFailure read_artifact_file(const std::filesystem::path& directory,
   }
   out.artifact = result.artifact();
   return {};
+}
+
+std::string artifact_file_failure_text(const ArtifactFileFailure& failure,
+                                       std::string_view shader_name) {
+  std::ostringstream text;
+  switch (failure.error) {
+  case ArtifactFileError::None:
+    break;
+  case ArtifactFileError::ShaderUnknown:
+    text << "the shader registry has no shader named " << shader_name;
+    break;
+  case ArtifactFileError::FileUnreadable:
+    text << "the shader artifact " << failure.path.string() << " cannot be read";
+    break;
+  case ArtifactFileError::ArtifactRejected:
+    text << "loading the shader artifact " << failure.path.string() << " failed: error "
+         << static_cast<unsigned>(failure.load.code) << ": block '" << failure.block_name
+         << "' expected " << failure.load.expected << " actual " << failure.load.actual
+         << " at byte " << failure.load.byte_offset;
+    break;
+  }
+  return text.str();
 }
 
 } // namespace bw::shaders

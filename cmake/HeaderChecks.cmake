@@ -73,6 +73,7 @@ set(BW_PUBLIC_HEADERS
   bw/rendering/target_pass.hpp
   bw/rendering/texture_asset.hpp
   bw/rendering/materials/material_asset.hpp
+  bw/platform/process/executable_directory.hpp
   bw/animation/skeleton_asset.hpp
   bw/content_converter/cpr_container.hpp
   bw/content_converter/rat_index.hpp
@@ -126,7 +127,7 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
   target_link_libraries(${check} PRIVATE bw_math bw_runtime_headers bw_memory_headers
     bw_tasks_headers bw_concurrency_headers bw_platform_memory_headers
     bw_platform_time_headers bw_macos_time_headers bw_platform_tasks_headers
-    bw_platform_diagnostics_headers bw_shaders_headers bw_rhi_headers
+    bw_platform_diagnostics_headers bw_platform_process_headers bw_shaders_headers bw_rhi_headers
     bw_platform_window_headers bw_macos_window_headers bw_geometry_headers
     bw_game_host_options_headers bw_content_headers bw_animation_headers
     bw_texture_asset_headers bw_materials_headers bw_content_converter_headers
