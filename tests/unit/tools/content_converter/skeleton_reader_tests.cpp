@@ -5,9 +5,8 @@
 #include "bw/content_converter/asset_data.hpp"
 #include "bw/content_converter/cpr_container.hpp"
 #include "bw/content_converter/skeleton_reader.hpp"
+#include "bw/testing/cpr_fixture.hpp"
 #include "bw/testing/harness.hpp"
-
-#include "cpr_fixture.hpp"
 
 #include <array>
 #include <cstddef>

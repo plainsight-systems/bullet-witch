@@ -366,7 +366,7 @@ std::vector<std::byte> encode_material_asset(const MaterialAssetData& data,
   using E = materials::MaterialAssetError;
   failure = {};
   std::uint64_t total =
-      sizeof(materials::MaterialPayloadHeader) + (kAlignment * 7U) + data.template_name.size();
+      sizeof(materials::MaterialPayloadHeader) + (kAlignment * 6U) + data.template_name.size();
   for (const NamedSwitch& s : data.switches) {
     total += sizeof(materials::SwitchRecord) + s.name.size();
   }
@@ -378,9 +378,6 @@ std::vector<std::byte> encode_material_asset(const MaterialAssetData& data,
   }
   for (const NamedTexture& t : data.textures) {
     total += sizeof(materials::TextureRecord) + t.name.size() + t.id.size();
-  }
-  for (const UnmappedField& u : data.unmapped) {
-    total += sizeof(materials::UnmappedFieldRecord) + u.name.size() + u.value.size();
   }
   if (total > kMaxPayloadBytes) {
     failure = failure_of(E::SectionOutOfBounds, 0);
@@ -412,17 +409,10 @@ std::vector<std::byte> encode_material_asset(const MaterialAssetData& data,
     const Strings::Slice id = strings.add(t.id);
     textures.push_back({name.offset, name.length, id.offset, id.length});
   }
-  std::vector<materials::UnmappedFieldRecord> unmapped;
-  for (const UnmappedField& u : data.unmapped) {
-    const Strings::Slice name = strings.add(u.name);
-    const Strings::Slice value = strings.add(u.value);
-    unmapped.push_back({name.offset, name.length, value.offset, value.length});
-  }
   h.switch_count = u32(switches.size());
   h.scalar_count = u32(scalars.size());
   h.vector_count = u32(vectors.size());
   h.texture_count = u32(textures.size());
-  h.unmapped_count = u32(unmapped.size());
   h.string_bytes = u32(strings.bytes().size());
   Builder out;
   const std::size_t header_at = out.reserve(sizeof(h));
@@ -430,7 +420,6 @@ std::vector<std::byte> encode_material_asset(const MaterialAssetData& data,
   h.scalars_offset = u32(out.append(std::as_bytes(std::span(scalars))));
   h.vectors_offset = u32(out.append(std::as_bytes(std::span(vectors))));
   h.textures_offset = u32(out.append(std::as_bytes(std::span(textures))));
-  h.unmapped_offset = u32(out.append(std::as_bytes(std::span(unmapped))));
   h.strings_offset = u32(out.append(strings.bytes()));
   out.write(header_at, h);
   std::vector<std::byte> payload = out.take();

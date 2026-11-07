@@ -10,12 +10,10 @@
 
 // Responsibility: the morph target payload of a cooked asset and its reader
 // (docs/architecture/content.md, "Identity": `model.pw0.mesh.shapes.<n>`
-// is its own asset, split out of the mesh container). A set of named
-// position deltas over one mesh group's vertices, as the content stores
-// them: four IEEE half-floats per vertex per target, x y z and a w of 1.0.
-// The animation system's shape clips weight the targets by name; the
-// renderer that applies them reads the deltas as stored. No repacking in
-// this slice.
+// is its own asset). A set of named position deltas over one mesh group's
+// vertices: four IEEE half-floats per vertex per target, x y z and a w of
+// 1.0. The animation system's shape clips weight the targets by name; the
+// renderer that applies them reads the deltas in this layout.
 //
 // Layout, little-endian, read by copy: MorphTargetsPayloadHeader at 0;
 // target records at targets_offset; the delta block at deltas_offset,

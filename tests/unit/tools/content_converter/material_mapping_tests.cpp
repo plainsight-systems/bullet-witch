@@ -1,22 +1,25 @@
 // Unit test: public contracts of bw/content_converter/material_mapping.hpp;
-// each scenario names the declaration it asserts. The default.cpr is built
-// here from cpr_container.hpp's framing and the header's description of the
-// vfx.texture.create CALL.
+// each scenario names the declaration it asserts. The default.cpr is
+// bw/testing/cpr_fixture.hpp's texture_table, built from cpr_container.hpp's
+// framing and the header's description of the vfx.texture.create CALL.
 #include "bw/content/asset_id.hpp"
 #include "bw/content_converter/asset_data.hpp"
 #include "bw/content_converter/cpr_container.hpp"
 #include "bw/content_converter/material_mapping.hpp"
 #include "bw/content_converter/mesh_reader.hpp"
+#include "bw/content_converter/texture_reader.hpp"
 #include "bw/rendering/materials/material_asset.hpp"
+#include "bw/rendering/materials/shading.hpp"
+#include "bw/testing/cpr_fixture.hpp"
 #include "bw/testing/harness.hpp"
-
-#include "cpr_fixture.hpp"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <span>
 #include <string>
 #include <string_view>
@@ -41,24 +44,8 @@ constexpr std::array<std::string_view, 3> kNames{
     "model.PW0.texture.dds.pw0_magazine_psd",
 };
 
-// The CALL's function name and the slot names of its first and later
-// arguments.
-struct CallSpec {
-  std::string_view function;
-  std::string_view first_slot;
-  std::string_view later_slot;
-};
-std::vector<fx::Record> default_cpr(const CallSpec& spec) {
-  const auto [function, first_slot, later_slot] = spec;
-  std::vector<fx::Argument> arguments{
-      {std::string(first_slot), 2, "model.PW0.texture.table.table", 0}};
-  for (const std::string_view name : kNames) {
-    arguments.push_back({std::string(later_slot), 2, std::string(name), 0});
-  }
-  return {
-      {"USER", "table._tm", "model.pw0.texture.table.table", Bytes(16), Bytes(16), {}, {}},
-      {"CALL", std::string(function), "model.pw0.texture.default", {}, {}, arguments, {}},
-  };
+std::vector<fx::Record> default_cpr(const fx::TableCall& call) {
+  return fx::texture_table(call, kNames);
 }
 
 cc::TextureTableError table_of(const std::vector<fx::Record>& records, cc::TextureTable& out,
@@ -156,67 +143,15 @@ bool hex_value(std::string_view text, std::uint32_t& value) {
   return error == std::errc{} && end == text.data() + text.size() && !text.empty();
 }
 
-// The runs of decimal digits in `text`, as numbers, in order.
-std::vector<std::uint32_t> digit_runs(std::string_view text) {
-  std::vector<std::uint32_t> runs;
-  std::size_t i = 0;
-  while (i < text.size()) {
-    if (text[i] < '0' || text[i] > '9') {
-      ++i;
-      continue;
-    }
-    std::uint32_t value = 0;
-    const auto [end, error] = std::from_chars(text.data() + i, text.data() + text.size(), value);
-    if (error != std::errc{}) {
-      return {};
-    }
-    runs.push_back(value);
-    i = static_cast<std::size_t>(end - text.data());
-  }
-  return runs;
-}
-
 cc::ResolvedSlot slot(Tag tag, std::string_view id) {
   const bw::content::AssetIdResult made = bw::content::make_asset_id(id);
   require(made.ok(), "a fixture id validates");
   return {tag, made.id};
 }
 
-// (material_mapping.hpp, material_mapping, map_material, kMaterialMapping)
-void mapping_rows() {
-  using K = cc::MappedKind;
-  struct Row {
-    std::string_view tag;
-    K kind;
-    std::string_view parameter;
-    std::string_view switch_name;
-  };
-  const std::array<Row, 15> expected{{
-      {"BTX0", K::Texture, m::kBaseColorTexture, ""},
-      {"BTX1", K::Texture, m::kSecondBaseColorTexture, m::kHasSecondBaseColor},
-      {"BLDT", K::Texture, m::kBlendMaskTexture, m::kHasBlendMask},
-      {"NMAP", K::Texture, m::kNormalTexture, m::kHasNormalMap},
-      {"AMOC", K::Texture, m::kGlossTexture, m::kHasGloss},
-      {"LENV", K::Texture, m::kEnvironmentTexture, m::kHasEnvironment},
-      {"LUMX", K::Texture, m::kIlluminanceTexture, m::kHasIlluminanceMap},
-      {"CCOL", K::Vector, m::kConstantColor, ""},
-      {"FRSR", K::Vector, m::kFresnelR, ""},
-      {"FRSA", K::Vector, m::kFresnelA, ""},
-      {"LUMI", K::Scalar, m::kIlluminance, ""},
-      {"REFP", K::Vector, m::kReflectParameters, ""},
-      {"SPCC", K::Vector, m::kSpecularCoefficient, ""},
-      {"ENVP", K::Vector, m::kEnvironmentReflectPower, ""},
-      {"SSSM", K::Scalar, m::kSubsurfaceLevel, ""},
-  }};
-  const std::span<const cc::MappingRow> rows = cc::material_mapping();
-  require(rows.size() == expected.size(), "one row per mapped field");
-  for (std::size_t i = 0; i < expected.size(); ++i) {
-    require(rows[i].tag == tag_of(expected[i].tag) && rows[i].kind == expected[i].kind &&
-                rows[i].parameter == expected[i].parameter &&
-                rows[i].switch_name == expected[i].switch_name,
-            i, "the mapping as stated");
-  }
-
+// A block with the content's nine CF1I records in their order, record k
+// holding (k, k + 0.5, k + 0.25, 1); SPCC is (n, k) = (40, 0.1).
+cc::MaterialBlock fixture_block() {
   cc::MaterialBlock block{};
   block.knss_feature = 0x00022490U;
   block.knss_second = 0x167E0001U;
@@ -227,89 +162,299 @@ void mapping_rows() {
     const auto f = static_cast<float>(k);
     block.cf1i[k].value = {f, f + 0.5F, f + 0.25F, 1.0F};
   }
-  block.cf1i[0].value = {0.0F, 0.0F, 0.0F, 0.0F};
-  block.cf1i[3].value = {1.0F, 0.0F, 1.0F, 0.0F};
+  block.cf1i[7].value = {40.0F, 0.1F, 0.0F, 0.0F};
+  return block;
+}
+
+// (material_mapping.hpp, map_material and the mapping onto the lit
+// template): row by row from a fixture block. Slots:
+// the three lit slots to texture and switch, the first of a repeated tag;
+// BTX1, BLDT, LENV and LUMX each to its switch = 1 and its id kept; an
+// unknown tag kept.
+// CF1I: CCOL as stored, LUMI r as (r, r, r, 0); SPCC, REFP x and an authored
+// FRSR through highlight_reflectance to the reflectance curve; the tint, the
+// base brightness weight and the opacity curve clamped; threshold 0.5; the
+// tags kept whole, then the rest unmapped in the stated order. Then
+// highlight_reflectance at two exponents, a block with no highlight
+// keeping the template's defaults, one with no FRSR writing no curve, and
+// one whose FRSR y + z, FRSA z and REFP z pass 1.
+void lit_mapping() {
+  cc::MaterialBlock block = fixture_block();
   block.has_sssm = true;
   block.sssm_lenv = {0, 3, 13};
-  block.has_srs = true;
-  block.srs_tag = tag_of("BTAD");
-  block.srs_value = {0, 0, 7};
-  const std::array<cc::ResolvedSlot, 5> slots{slot(tag_of("BTX0"), "model.pw0.texture.dds.a"),
-                                              slot(tag_of("NMAP"), "model.pw0.texture.dds.b"),
+  block.cf1i[2].value = {3.0F, 0.9F, 0.5F, 0.0F};    // FRSA
+  block.cf1i[4].value = {5.0F, 0.75F, 0.2F, 0.0F};   // FRSR, authored
+  block.cf1i[6].value = {0.15F, 2.0F, -0.5F, 0.25F}; // REFP
+  const std::array<cc::ResolvedSlot, 9> slots{slot(tag_of("BTX0"), "model.pw0.texture.dds.a"),
+                                              slot(tag_of("AMOC"), "model.pw0.texture.dds.g"),
+                                              slot(tag_of("BTX1"), "model.pw0.texture.dds.b"),
                                               slot(tag_of("ZZZZ"), "model.pw0.texture.dds.c"),
                                               slot(tag_of("BTX0"), "model.pw0.texture.dds.d"),
-                                              slot(tag_of("ZZZZ"), "model.pw0.texture.dds.e")};
-  const cc::MaterialAssetData data = cc::map_material(block, slots);
-
+                                              slot(tag_of("NMAP"), "model.pw0.texture.dds.n"),
+                                              slot(tag_of("BLDT"), "model.pw0.texture.dds.e"),
+                                              slot(tag_of("LENV"), "model.pw0.texture.dds.f"),
+                                              slot(tag_of("LUMX"), "model.pw0.texture.dds.h")};
+  const cc::MaterialMapping mapped = cc::map_material(block, slots, cc::BaseAlpha::Opaque);
+  require(mapped.ok(), "the block maps");
+  const cc::MaterialAssetData& data = mapped.asset;
   require(data.template_name == m::kLitTemplate, "the lit template");
-  const std::vector<std::pair<std::string_view, bool>> switches{
-      {m::kHasSecondBaseColor, false}, {m::kHasBlendMask, false},   {m::kHasNormalMap, true},
-      {m::kHasGloss, false},           {m::kHasEnvironment, false}, {m::kHasIlluminanceMap, false}};
-  require(data.switches.size() == switches.size(), "every has_* switch, present or absent");
+
+  const std::array<std::pair<std::string_view, bool>, 7> switches{
+      {{m::kBaseColorMapSwitch, true},
+       {m::kNormalMapSwitch, true},
+       {m::kOcclusionReflectanceMapSwitch, true},
+       {cc::kSecondBaseColorSwitch, true},
+       {cc::kBlendMaskSwitch, true},
+       {cc::kEnvironmentMapSwitch, true},
+       {cc::kIlluminanceMapSwitch, true}}};
+  require(data.switches.size() == switches.size(),
+          "the three lit switches, then base_color_1, blend_mask, environment_map and "
+          "illuminance_map");
   for (std::size_t i = 0; i < switches.size(); ++i) {
     require(data.switches[i].name == switches[i].first &&
                 data.switches[i].value == switches[i].second,
-            i, "switch value from the slots");
+            i, "switch in record order");
   }
-  require(data.textures.size() == 2U && data.textures[0].name == m::kBaseColorTexture &&
-              data.textures[0].id == "model.pw0.texture.dds.a" &&
-              data.textures[1].name == m::kNormalTexture &&
-              data.textures[1].id == "model.pw0.texture.dds.b",
-          "mapped slots, the first of a repeated tag");
-  const std::vector<std::pair<std::string_view, std::size_t>> vectors{
-      {m::kConstantColor, 1},
-      {m::kFresnelR, 4},
-      {m::kFresnelA, 2},
-      {m::kReflectParameters, 6},
-      {m::kSpecularCoefficient, 7},
-      {m::kEnvironmentReflectPower, 8}};
-  require(data.vectors.size() == vectors.size(), "the vector parameters");
-  for (std::size_t i = 0; i < vectors.size(); ++i) {
-    require(data.vectors[i].name == vectors[i].first &&
-                data.vectors[i].value == block.cf1i[vectors[i].second].value,
-            i, "vector parameter in mapping order");
+  const std::array<std::pair<std::string_view, std::string_view>, 3> textures{
+      {{m::kBaseColorTexture, "model.pw0.texture.dds.a"},
+       {m::kNormalTexture, "model.pw0.texture.dds.n"},
+       {m::kOcclusionReflectanceTexture, "model.pw0.texture.dds.g"}}};
+  require(data.textures.size() == textures.size(), "the three lit textures");
+  for (std::size_t i = 0; i < textures.size(); ++i) {
+    require(data.textures[i].name == textures[i].first && data.textures[i].id == textures[i].second,
+            i, "texture in slot order, the first of a repeated tag");
   }
-  require(data.scalars.size() == 2U && data.scalars[0].name == m::kIlluminance &&
-              data.scalars[0].value == 5.0F && data.scalars[1].name == m::kSubsurfaceLevel &&
-              data.scalars[1].value == 3.0F,
-          "LUMI's r component and SSSM's middle word");
-  // The unmapped-field scheme as material_mapping.hpp states it: names and
-  // order exactly; CF1I floats shortest round-trip separated by ','; the
-  // knsS words in hexadecimal; SRS as its tag, ':', then its three words;
-  // TR slots by "TR.<tag>" with the id; a used name gains '.' and the
-  // field's position in the list. The header fixes neither the hexadecimal
-  // spelling nor the separator or radix of the SRS words, so those are read,
-  // not compared as text.
-  const std::array<std::string_view, 8> names{"PARF", "FRSB",    "knsS.feature", "knsS.second",
-                                              "SRS",  "TR.ZZZZ", "TR.BTX0",      "TR.ZZZZ.7"};
-  require(data.unmapped.size() == names.size(), "every unmapped field");
+  const float w = cc::highlight_reflectance(40.0F, 0.1F, 0.15F);
+  const std::array<std::pair<std::string_view, float>, 11> scalars{
+      {{m::kBlendModeParameter, 0.0F},
+       {m::kRoughness, cc::roughness_from_exponent(40.0F)},
+       {m::kReflectance, w * 0.2F},
+       {m::kGrazingReflectance, w * (0.75F + 0.2F)},
+       {m::kFresnelExponent, 5.0F},
+       {m::kSpecularTint, 1.0F},
+       {m::kReflectanceBaseLuminance, 0.0F},
+       {m::kOpacityFacing, 0.5F},
+       {m::kOpacityGrazing, 1.0F},
+       {m::kOpacityFresnelExponent, 3.0F},
+       {m::kOpacityMaskThreshold, 0.5F}}};
+  require(data.scalars.size() == scalars.size(), "the eleven scalars");
+  for (std::size_t i = 0; i < scalars.size(); ++i) {
+    require(data.scalars[i].name == scalars[i].first && data.scalars[i].value == scalars[i].second,
+            i, "scalar in record order, the curve's ends saturated, the weights clamped");
+  }
+  require(std::abs(cc::roughness_from_exponent(40.0F) - 0.46714F) < 1e-4F &&
+              cc::roughness_from_exponent(0.0F) == 1.0F,
+          "(2 / (n + 2))^0.25, 1 at n 0");
+  require(data.vectors.size() == 2U && data.vectors[0].name == m::kBaseColorTint &&
+              data.vectors[0].value == block.cf1i[1].value &&
+              data.vectors[1].name == m::kEmissive &&
+              data.vectors[1].value == std::array{5.0F, 5.0F, 5.0F, 0.0F},
+          "CCOL as stored, LUMI's r as (r, r, r, 0)");
+
+  const std::array<std::string_view, 12> names{
+      "FRSR", "FRSA",       "REFP",         "ENVP",        "SPCC",    "PARF",
+      "FRSB", "SSSM.level", "knsS.feature", "knsS.second", "TR.BTX1", "TR.ZZZZ"};
+  const std::vector<cc::UnmappedField>& unmapped = mapped.unmapped;
+  require(unmapped.size() == names.size() + 4U, "every unmapped field");
   for (std::size_t i = 0; i < names.size(); ++i) {
-    require(data.unmapped[i].name == names[i], i, "unmapped field names, in the stated order");
+    require(unmapped[i].name == names[i], i, "unmapped field names, in the stated order");
   }
-  require(data.unmapped[0].value == "0,0,0,0" && data.unmapped[1].value == "1,0,1,0",
-          "an unmapped CF1I record's four floats, shortest round-trip, separated by ','");
+  require(unmapped[0].value == "5,0.75,0.2,0" && unmapped[4].value == "40,0.1,0,0" &&
+              unmapped[5].value == "0,0.5,0.25,1" && unmapped[7].value == "3",
+          "a CF1I record's floats separated by ',', mapped tags whole; SSSM's middle word in "
+          "decimal");
   std::uint32_t feature = 0;
-  std::uint32_t second = 0;
-  require(hex_value(data.unmapped[2].value, feature) && feature == block.knss_feature &&
-              hex_value(data.unmapped[3].value, second) && second == block.knss_second,
-          "the knsS words in hexadecimal");
-  const std::string_view srs = data.unmapped[4].value;
-  require(srs.starts_with("BTAD:") &&
-              digit_runs(srs.substr(5)) == std::vector<std::uint32_t>{0, 0, 7},
-          "SRS: its tag, ':', then its three words");
-  require(data.unmapped[5].value == "model.pw0.texture.dds.c" &&
-              data.unmapped[6].value == "model.pw0.texture.dds.d" &&
-              data.unmapped[7].value == "model.pw0.texture.dds.e",
-          "an unmapped TR slot's id as text; the later of a repeated tag unmapped");
-  cc::EncodeFailure failure;
-  const std::vector<std::byte> payload = cc::encode_material_asset(data, failure);
-  require(failure.ok() && !payload.empty(), "the mapped material encodes: names are unique");
+  require(hex_value(unmapped[8].value, feature) && feature == block.knss_feature &&
+              unmapped[10].value == "model.pw0.texture.dds.b",
+          "the knsS word in hexadecimal; a slot's id as text");
+
+  struct Highlight {
+    float exponent;
+    float expected;
+  };
+  // 100 * 8 * (2^(-n / 2) + n) / ((n + 2) * (n + 4)) at k = 1, reflectivity 1.
+  const std::array<Highlight, 2> highlights{{{1.0F, 91.045695F}, {100.0F, 7.5414781F}}};
+  for (std::size_t i = 0; i < highlights.size(); ++i) {
+    const float got = cc::highlight_reflectance(highlights[i].exponent, 1.0F, 1.0F);
+    require(std::abs(got - highlights[i].expected) <= 1e-5F * highlights[i].expected, i,
+            "highlight_reflectance at an exponent");
+  }
+  require(cc::highlight_reflectance(40.0F, 0.5F, 0.5F) ==
+                  0.25F * cc::highlight_reflectance(40.0F, 1.0F, 1.0F) &&
+              cc::highlight_reflectance(0.0F, 0.5F, 1.0F) == 0.0F &&
+              cc::highlight_reflectance(40.0F, 0.0F, 1.0F) == 0.0F,
+          "linear in k and reflectivity; 0 at n 0 and at k 0");
+
+  // The value of a named scalar, or -1 when the mapping writes none.
+  const auto scalar_of = [](const cc::MaterialMapping& mapping, std::string_view name) {
+    const auto found = std::find_if(mapping.asset.scalars.begin(), mapping.asset.scalars.end(),
+                                    [name](const cc::NamedScalar& s) { return s.name == name; });
+    return found == mapping.asset.scalars.end() ? -1.0F : found->value;
+  };
+  cc::MaterialBlock dull = fixture_block();
+  dull.cf1i[7].value = {40.0F, 0.0F, 0.0F, 0.0F};
+  const cc::MaterialMapping dull_mapped = cc::map_material(dull, {}, cc::BaseAlpha::NoTexture);
+  require(dull_mapped.ok() && dull_mapped.asset.scalars[1].name == m::kRoughness &&
+              dull_mapped.asset.scalars[1].value == 1.0F &&
+              scalar_of(dull_mapped, m::kReflectance) < 0.0F &&
+              scalar_of(dull_mapped, m::kGrazingReflectance) < 0.0F &&
+              scalar_of(dull_mapped, m::kFresnelExponent) < 0.0F &&
+              scalar_of(dull_mapped, m::kSpecularTint) >= 0.0F,
+          "no highlight: roughness 1 and no reflectance scalar, so the defaults apply");
+
+  // A highlight with no FRSR: roughness from SPCC, and the curve needs all
+  // three records, so none of its scalars is written.
+  cc::MaterialBlock no_frsr = fixture_block();
+  no_frsr.cf1i[4].tag = tag_of("XXXX");
+  const cc::MaterialMapping no_curve = cc::map_material(no_frsr, {}, cc::BaseAlpha::NoTexture);
+  require(no_curve.ok() &&
+              scalar_of(no_curve, m::kRoughness) == cc::roughness_from_exponent(40.0F) &&
+              scalar_of(no_curve, m::kReflectance) < 0.0F &&
+              scalar_of(no_curve, m::kGrazingReflectance) < 0.0F &&
+              scalar_of(no_curve, m::kFresnelExponent) < 0.0F,
+          "SPCC and REFP without FRSR: roughness, and no curve");
+
+  // Values past 1 where the rules saturate: FRSR y + z, FRSA z and REFP z.
+  // With w under 1 the grazing end is w times the saturated sum, exactly w.
+  cc::MaterialBlock bright = fixture_block();
+  bright.cf1i[4].value = {5.0F, 0.4F, 0.8F, 0.0F};  // FRSR
+  bright.cf1i[2].value = {3.0F, 0.0F, 1.5F, 0.0F};  // FRSA
+  bright.cf1i[6].value = {0.15F, 0.0F, 1.2F, 0.0F}; // REFP
+  const cc::MaterialMapping clamped = cc::map_material(bright, {}, cc::BaseAlpha::NoTexture);
+  require(w < 1.0F && clamped.ok() && scalar_of(clamped, m::kGrazingReflectance) == w &&
+              scalar_of(clamped, m::kOpacityFacing) == 1.0F &&
+              scalar_of(clamped, m::kReflectanceBaseLuminance) == 1.0F,
+          "FRSR y + z, FRSA z and REFP z saturated");
 }
 
-constexpr std::array<bw::testing::Scenario<void>, 3> kScenarios{{
+// (material_mapping.hpp, render_unmapped_fields, parse_unmapped_fields):
+// what render writes parses back to the same fields, an empty value
+// included; text with no final line end, a line with no tab and an empty
+// name are each refused, leaving the output empty.
+void unmapped_fields_file() {
+  const std::vector<cc::UnmappedField> fields{
+      {"FRSR", "1,0,1,0"}, {"knsS.feature", "0x00022490"}, {"TR.LENV", ""}};
+  const std::string text = cc::render_unmapped_fields(fields);
+  std::vector<cc::UnmappedField> back;
+  require(text == "FRSR\t1,0,1,0\nknsS.feature\t0x00022490\nTR.LENV\t\n" &&
+              cc::parse_unmapped_fields(text, back) && back.size() == fields.size(),
+          "render then parse");
+  for (std::size_t i = 0; i < fields.size(); ++i) {
+    require(back[i].name == fields[i].name && back[i].value == fields[i].value, i,
+            "the same field");
+  }
+  const std::array<std::pair<std::string_view, std::string_view>, 3> refused{{
+      {"no final line end", "FRSR\t1,0,1,0"},
+      {"a line with no tab", "FRSR\t1,0,1,0\nknsS.feature\n"},
+      {"an empty name", "\t1,0,1,0\n"},
+  }};
+  for (std::size_t i = 0; i < refused.size(); ++i) {
+    std::vector<cc::UnmappedField> out{{"stale", "stale"}};
+    require(!cc::parse_unmapped_fields(refused[i].second, out) && out.empty(), i, refused[i].first);
+  }
+}
+
+// One image of the given alpha values, white.
+cc::Rgba8Image alpha_image(std::initializer_list<std::uint8_t> alphas) {
+  cc::Rgba8Image image;
+  image.width = static_cast<std::uint32_t>(alphas.size());
+  image.height = 1;
+  for (const std::uint8_t a : alphas) {
+    image.pixels.insert(image.pixels.end(), {255, 255, 255, a});
+  }
+  return image;
+}
+
+// (material_mapping.hpp, classify_base_alpha, blend_mode_of): the three
+// classes, with the graded boundary one step from each end; then every
+// cell of four alpha classes by three markers, and map_material carrying
+// the blend mode as its scalar and marking the graded unmarked base.
+void blend_rule() {
+  require(cc::classify_base_alpha(alpha_image({255, 255})) == cc::BaseAlpha::Opaque &&
+              cc::classify_base_alpha(alpha_image({0, 255})) == cc::BaseAlpha::Binary &&
+              cc::classify_base_alpha(alpha_image({0, 255, 254})) == cc::BaseAlpha::Graded &&
+              cc::classify_base_alpha(alpha_image({1, 255})) == cc::BaseAlpha::Graded,
+          "opaque, binary, and graded at 254 and at 1");
+  using B = m::BlendMode;
+  using A = cc::BaseAlpha;
+  constexpr std::array<A, 4> classes{A::NoTexture, A::Opaque, A::Binary, A::Graded};
+  // Per marker (none, BTNO, BTAD), the blend mode of each class.
+  const std::array<std::pair<std::string_view, std::array<B, 4>>, 3> markers{{
+      {"", {B::Opaque, B::Opaque, B::Masked, B::Opaque}},
+      {"BTNO", {B::Translucent, B::Translucent, B::Translucent, B::Translucent}},
+      {"BTAD", {B::Additive, B::Additive, B::Additive, B::Additive}},
+  }};
+  for (std::size_t k = 0; k < markers.size(); ++k) {
+    cc::MaterialBlock block = fixture_block();
+    block.has_srs = !markers[k].first.empty();
+    if (block.has_srs) {
+      block.srs_tag = tag_of(markers[k].first);
+    }
+    for (std::size_t c = 0; c < classes.size(); ++c) {
+      const std::size_t row = (k * classes.size()) + c;
+      B mode = B::Modulate;
+      require(cc::blend_mode_of(block, classes[c], mode) == cc::MaterialMappingError::None &&
+                  mode == markers[k].second[c],
+              row, "the blend mode of the cell");
+    }
+  }
+  // The cell where map_material adds to blend_mode_of: an unmarked graded
+  // base keeps Opaque and is marked graded.
+  const std::array<cc::ResolvedSlot, 1> base{slot(tag_of("BTX0"), "model.pw0.texture.dds.a")};
+  const cc::MaterialMapping mapped = cc::map_material(fixture_block(), base, A::Graded);
+  const auto graded =
+      std::find_if(mapped.unmapped.begin(), mapped.unmapped.end(),
+                   [](const cc::UnmappedField& f) { return f.name == "base_alpha"; });
+  require(mapped.ok() && mapped.asset.scalars[0].name == m::kBlendModeParameter &&
+              mapped.asset.scalars[0].value == static_cast<float>(static_cast<int>(B::Opaque)) &&
+              graded != mapped.unmapped.end() && graded->value == "graded",
+          "the scalar blend_mode, and base_alpha graded for an unmarked graded base");
+}
+
+// (material_mapping.hpp, map_material): one row per error name; the asset
+// and the unmapped fields are empty on a failure.
+void refusals_named() {
+  struct Row {
+    std::string_view note;
+    std::string_view srs;
+    std::string_view slot;
+    cc::MaterialMappingError error;
+    std::string_view name;
+  };
+  const std::array<Row, 2> rows{{
+      {"an occlusion and reflectance map without a base color map", "", "AMOC",
+       cc::MaterialMappingError::SwitchesNotAdmitted, m::kOcclusionReflectanceMapSwitch},
+      {"an SRS tag that is no marker", "BTXX", "BTX0", cc::MaterialMappingError::BlendMarkerUnknown,
+       "BTXX"},
+  }};
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    cc::MaterialBlock block = fixture_block();
+    block.has_srs = !rows[i].srs.empty();
+    if (block.has_srs) {
+      block.srs_tag = tag_of(rows[i].srs);
+    }
+    const std::array<cc::ResolvedSlot, 1> slots{
+        slot(tag_of(rows[i].slot), "model.pw0.texture.dds.a")};
+    const cc::MaterialMapping mapped = cc::map_material(block, slots, cc::BaseAlpha::Opaque);
+    require(mapped.error == rows[i].error && mapped.name == rows[i].name &&
+                mapped.asset.template_name.empty() && mapped.asset.switches.empty() &&
+                mapped.unmapped.empty(),
+            i, rows[i].note);
+  }
+  // SwitchesNotAdmitted when the unmet requirement is the masked one: a
+  // binary base alpha, so Masked, with no base slot.
+  const cc::MaterialMapping masked = cc::map_material(fixture_block(), {}, cc::BaseAlpha::Binary);
+  require(masked.error == cc::MaterialMappingError::SwitchesNotAdmitted && masked.name == "masked",
+          "the masked requirement named \"masked\"");
+}
+
+constexpr std::array<bw::testing::Scenario<void>, 6> kScenarios{{
     {"table_from_call", table_from_call},
     {"slot_resolution", slot_resolution},
-    {"mapping_rows", mapping_rows},
+    {"lit_mapping", lit_mapping},
+    {"blend_rule", blend_rule},
+    {"refusals_named", refusals_named},
+    {"unmapped_fields_file", unmapped_fields_file},
 }};
 
 } // namespace

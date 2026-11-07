@@ -38,7 +38,9 @@
 //   Types 2, 5, 8, 10, 15 are float3, ubyte4, ubyte4n, short4n, half2;
 //   usages 0 position, 1/0 bone slots, 1/1 bone weights, 3 normal, 5/n
 //   texture coordinate n (1..4), 6 tangent, 10/n color n (0..2). Anything
-//   else is DeclarationUnsupported, by name.
+//   else is DeclarationUnsupported, by name. The content numbers its
+//   texture coordinates from 1; usage 5/n is the mesh's TexCoord(n - 1),
+//   so 5/1 is TexCoord0.
 //   VTX/VTXS data: u32 stream, buffer number, 0, stride; the buffer is the
 //   DXVB record "vertex_NNN.bin" or "shapevertex_NNN.bin"; vertex count is
 //   payload bytes over stride, exact. IDX data: u32 buffer number, the

@@ -29,6 +29,15 @@
 //   - LayoutExceedsBlockSize: the last member's HLSL end lies past the block
 //     size; `member` is the last member.
 // append_hlsl_block_binding writes one line and cannot fail.
+// append_hlsl_buffer_loader validates names and nested layouts as the struct
+// generator does (InvalidName, MissingNestedLayout), emits each nested
+// block's loader first, once per call, then one assignment per member or
+// array element at its C++ offset; it does no placement check, because the
+// offsets it reads at are the C++ ones by construction. Element i of an
+// array is at the member's offset + i * the C++ element size (the member's
+// size over its count). The header writes that as 16 * i, which is the same
+// for every value kind but not for an array of blocks or matrices; the C++
+// offset, which the header also promises, is what is emitted.
 //
 // Algorithm, per block:
 //   1. Validate the block name, every member name and every Block member's
@@ -231,10 +240,168 @@ private:
   std::vector<const BlockLayout*> visited_;
 };
 
+// The text "offset + <decimal byte>" of one load's address.
+void append_address(std::uint32_t byte, std::string& out) {
+  out += "offset + ";
+  append_decimal(byte, out);
+}
+
+// One raw load at `byte`: "BW_BUFFER(buffer).<method>(offset + <byte>)".
+void append_raw_load(std::string_view method, std::uint32_t byte, std::string& out) {
+  out += "BW_BUFFER(buffer).";
+  out += method;
+  out += '(';
+  append_address(byte, out);
+  out += ')';
+}
+
+// One value of `member`'s kind at `byte`, as the header's table states.
+// Precondition (validated by the caller): a Block member has a nested
+// layout.
+void append_value_load(const MemberLayout& member, std::uint32_t byte, std::string& out) {
+  switch (member.kind) {
+  case ParameterKind::Float:
+    out += "asfloat(";
+    append_raw_load("Load", byte, out);
+    out += ')';
+    return;
+  case ParameterKind::Int32:
+    out += "asint(";
+    append_raw_load("Load", byte, out);
+    out += ')';
+    return;
+  case ParameterKind::Uint32:
+  case ParameterKind::TextureIndex:
+  case ParameterKind::BufferIndex:
+  case ParameterKind::SamplerIndex:
+  case ParameterKind::StorageTextureIndex:
+  case ParameterKind::StorageBufferIndex:
+    append_raw_load("Load", byte, out);
+    return;
+  case ParameterKind::Float2:
+  case ParameterKind::Float3:
+  case ParameterKind::Float4:
+    out += "asfloat(";
+    append_raw_load(member.kind == ParameterKind::Float2   ? "Load2"
+                    : member.kind == ParameterKind::Float3 ? "Load3"
+                                                           : "Load4",
+                    byte, out);
+    out += ')';
+    return;
+  case ParameterKind::Int4:
+    out += "asint(";
+    append_raw_load("Load4", byte, out);
+    out += ')';
+    return;
+  case ParameterKind::Uint4:
+    append_raw_load("Load4", byte, out);
+    return;
+  case ParameterKind::Float4x4:
+    out += "float4x4(";
+    for (std::uint32_t row = 0; row < 4U; ++row) {
+      if (row != 0U) {
+        out += ", ";
+      }
+      out += "asfloat(";
+      append_raw_load("Load4", byte + (kConstantRowBytes * row), out);
+      out += ')';
+    }
+    out += ')';
+    return;
+  case ParameterKind::Block:
+    out += "bw_load_";
+    out += member.nested->name;
+    out += "(buffer, ";
+    append_address(byte, out);
+    out += ')';
+    return;
+  }
+}
+
+class LoaderEmitter {
+public:
+  explicit LoaderEmitter(std::string& text) : text_(text) {}
+
+  // Nested loaders first, depth first and once per call, then `layout`'s.
+  [[nodiscard]] HlslResult emit(const BlockLayout& layout) {
+    if (!is_hlsl_identifier(layout.name)) {
+      return HlslResult{.error = HlslError::InvalidName, .member = layout.name};
+    }
+    for (const MemberLayout& member : layout.members) {
+      if (!is_hlsl_identifier(member.name)) {
+        return HlslResult{.error = HlslError::InvalidName, .member = member.name};
+      }
+      if (member.kind == ParameterKind::Block && member.nested == nullptr) {
+        return HlslResult{.error = HlslError::MissingNestedLayout, .member = member.name};
+      }
+    }
+    visited_.push_back(&layout);
+    for (const MemberLayout& member : layout.members) {
+      if (member.kind == ParameterKind::Block && !was_visited(member.nested)) {
+        const HlslResult nested = emit(*member.nested);
+        if (nested.error != HlslError::None) {
+          return nested;
+        }
+      }
+    }
+    emit_function(layout);
+    return HlslResult{};
+  }
+
+private:
+  [[nodiscard]] bool was_visited(const BlockLayout* layout) const noexcept {
+    for (const BlockLayout* seen : visited_) {
+      if (seen == layout) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void emit_function(const BlockLayout& layout) {
+    text_ += "BW_";
+    text_ += layout.name;
+    text_ += " bw_load_";
+    text_ += layout.name;
+    text_ += "(uint buffer, uint offset) {\n  BW_";
+    text_ += layout.name;
+    text_ += " block = (BW_";
+    text_ += layout.name;
+    text_ += ")0;\n";
+    for (const MemberLayout& member : layout.members) {
+      const std::uint32_t count = member.element_count == 0U ? 1U : member.element_count;
+      // The C++ element stride: 16 for every value kind, a block's size or
+      // 64 for a matrix (an Array element is its value aligned to 16).
+      const std::uint32_t stride = member.size / count;
+      for (std::uint32_t i = 0; i < count; ++i) {
+        text_ += "  block.";
+        text_ += member.name;
+        if (member.element_count != 0U) {
+          text_ += '[';
+          append_decimal(i, text_);
+          text_ += ']';
+        }
+        text_ += " = ";
+        append_value_load(member, member.offset + (stride * i), text_);
+        text_ += ";\n";
+      }
+    }
+    text_ += "  return block;\n}\n";
+  }
+
+  std::string& text_;
+  std::vector<const BlockLayout*> visited_;
+};
+
 } // namespace
 
 HlslResult append_hlsl_struct(const BlockLayout& layout, std::string& out) {
   StructEmitter emitter{out};
+  return emitter.emit(layout);
+}
+
+HlslResult append_hlsl_buffer_loader(const BlockLayout& layout, std::string& out) {
+  LoaderEmitter emitter{out};
   return emitter.emit(layout);
 }
 

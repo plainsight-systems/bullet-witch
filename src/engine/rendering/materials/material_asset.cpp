@@ -15,16 +15,12 @@
 //
 // Contract (the header's): the first failure in MaterialAssetError order is
 // named, each check a pass over every table (switches, scalars, vectors,
-// textures, unmapped, the header's table numbers 0 to 4) before the next
-// check runs. A failure of the string table's section or of the template
-// name reports table 5. Records are copied out of the bytes; nothing is
-// read before the bytes it lives in are known to be within the payload.
+// textures, the header's table numbers 0 to 3) before the next check runs.
+// A failure of the string table's section or of the template name reports
+// table 4. Records are copied out of the bytes; nothing is read before the
+// bytes it lives in are known to be within the payload.
 //
 // Readings of the header that the checks encode:
-//   An unmapped field's value slice may be empty (an original field with no
-//   text) but must lie within the string table, since string() is promised
-//   valid for every slice decode accepted; a value outside the table is
-//   NameInvalid for that record, the error for a record's text slices.
 //   A texture id slice outside the string table is TextureIdInvalid, like an
 //   id that does not validate.
 //   Lookups are linear in record order: the tables hold a dozen entries.
@@ -38,10 +34,9 @@ constexpr std::uint32_t kSwitchTable = 0;
 constexpr std::uint32_t kScalarTable = 1;
 constexpr std::uint32_t kVectorTable = 2;
 constexpr std::uint32_t kTextureTable = 3;
-constexpr std::uint32_t kUnmappedTable = 4;
-constexpr std::uint32_t kTableCount = 5;
+constexpr std::uint32_t kTableCount = 4;
 // Reported for the string table and the template name; it has no records.
-constexpr std::uint32_t kStringTable = 5;
+constexpr std::uint32_t kStringTable = 4;
 
 template <class Record>
 Record read_record(std::span<const std::byte> payload, std::uint64_t offset) noexcept {
@@ -64,8 +59,7 @@ std::array<Table, kTableCount> tables(const MaterialPayloadHeader& h) noexcept {
   return {Table{h.switches_offset, h.switch_count, sizeof(SwitchRecord)},
           Table{h.scalars_offset, h.scalar_count, sizeof(ScalarRecord)},
           Table{h.vectors_offset, h.vector_count, sizeof(VectorRecord)},
-          Table{h.textures_offset, h.texture_count, sizeof(TextureRecord)},
-          Table{h.unmapped_offset, h.unmapped_count, sizeof(UnmappedFieldRecord)}};
+          Table{h.textures_offset, h.texture_count, sizeof(TextureRecord)}};
 }
 
 std::uint64_t record_offset(const Table& table, std::uint32_t index) noexcept {
@@ -95,12 +89,8 @@ Slice name_slice(std::span<const std::byte> payload, const MaterialPayloadHeader
     const auto r = read_record<VectorRecord>(payload, offset);
     return {r.name_offset, r.name_length};
   }
-  case kTextureTable: {
-    const auto r = read_record<TextureRecord>(payload, offset);
-    return {r.name_offset, r.name_length};
-  }
   default: {
-    const auto r = read_record<UnmappedFieldRecord>(payload, offset);
+    const auto r = read_record<TextureRecord>(payload, offset);
     return {r.name_offset, r.name_length};
   }
   }
@@ -136,10 +126,6 @@ VectorRecord MaterialAssetView::vector_record(std::uint32_t index) const noexcep
 }
 TextureRecord MaterialAssetView::texture_record(std::uint32_t index) const noexcept {
   return read_record<TextureRecord>(payload_, record_offset(tables(header_)[kTextureTable], index));
-}
-UnmappedFieldRecord MaterialAssetView::unmapped_record(std::uint32_t index) const noexcept {
-  return read_record<UnmappedFieldRecord>(payload_,
-                                          record_offset(tables(header_)[kUnmappedTable], index));
 }
 
 std::string_view MaterialAssetView::string(std::uint32_t offset,
@@ -225,12 +211,6 @@ MaterialAssetFailure decode_material_asset(std::span<const std::byte> payload,
       const Slice name = name_slice(payload, header, t, i);
       if (name.length == 0U || !slice_valid(name, header)) {
         return {E::NameInvalid, t, i};
-      }
-      if (t == kUnmappedTable) {
-        const auto r = read_record<UnmappedFieldRecord>(payload, record_offset(all[t], i));
-        if (!slice_valid({r.value_offset, r.value_length}, header)) {
-          return {E::NameInvalid, t, i};
-        }
       }
     }
   }

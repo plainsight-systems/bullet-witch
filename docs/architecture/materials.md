@@ -11,13 +11,13 @@ game's materials are a small family that authored templates cover.
 Above the [shader system](shaders.md), which compiles the templates and
 owns their permutation domains and parameter blocks; beside the scene
 renderer, which owns lighting, shadows, fog and post-processing and consumes
-material attributes; fed by the content converter, which maps the original
-game's material data onto templates and parameters. The RHI sees only
+material attributes; fed by the content converter, which writes material
+assets in these terms. The RHI sees only
 buffers, descriptor indices and pipeline descriptions.
 
 ```mermaid
 flowchart LR
-    IMP["Content converter: original material blocks and textures"] --> MA["Material assets: template, switches, parameters, texture references"]
+    IMP["Content converter"] --> MA["Material assets: template, switches, parameters, texture references"]
     T["Material templates: authored HLSL plus parameter block declarations"] --> SS["Shader system: permutation domain, artifacts, parameter block layout"]
     SS --> CH["Check: the material's switch tuple is in the template's built domain"]
     MA --> CH
@@ -55,9 +55,10 @@ flowchart LR
    spherical harmonics, lightmaps, shadows and fog are scene and view data
    owned by the scene renderer; a material supplies attributes to the
    lighting model and nothing else.
-8. Materials never read the original game's formats. The content converter
-   maps original material blocks onto templates, switches and parameters,
-   and records what it could not map by name.
+8. Materials never read the original game's formats and carry none of its
+   fields. The content converter writes material assets in the terms of
+   this document; what it maps from is its own
+   ([content](content.md), "Material mapping").
 
 ## Attributes
 
@@ -65,9 +66,9 @@ The attribute set a template may write, and which shading models read each.
 
 | Attribute | Lit | Unlit | Subsurface | Hair | Eye |
 |---|---|---|---|---|---|
-| Base color | yes | | yes | yes | yes |
-| Metallic | yes | | yes | | |
-| Specular | yes | | yes | yes | yes |
+| Diffuse albedo | yes | | yes | yes | yes |
+| F0, reflectance at normal incidence, a color | yes | | yes | yes | yes |
+| F90, reflectance at grazing, a color | yes | | yes | yes | yes |
 | Roughness | yes | | yes | yes | yes |
 | Normal | yes | | yes | yes | yes, the cornea |
 | Tangent | | | | yes, the fibre direction | |
@@ -164,30 +165,6 @@ an instance's values change, and the range it fills is shared by every draw
 of that instance in the frame. Blocks differ per template, so a material
 block is never one of the root layout's static slots.
 
-## Content mapping
-
-What the content converter maps from the original game's material model
-onto this system. The original data decides the values; the mapping is ours.
-
-| Original material data | Maps to |
-|---|---|
-| Base texture, second base texture with its blend, third base texture with a mask | base color inputs and a layer switch |
-| Normal texture | normal input, a static switch |
-| Gloss texture in the ambient-occlusion slot | a packed gloss map input and a static switch; how its channels are read is the template's |
-| Specular coefficient | roughness and specular parameters of the lit shading model |
-| Fresnel and reflection coefficients, environment reflection power, subsurface marker and its level | recorded by name with their values; no parameter is derived from them |
-| Environment and illuminance texture slots | recorded by name with the texture id |
-| Constant color, illuminance, ambient | base color tint, emissive, and an ambient term that belongs to the renderer |
-| Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
-| Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
-| Effect and post-process materials | renderer passes with their own parameter blocks, not materials |
-
-The 14 feature axes of the original collapse onto a handful of switches
-because several axes only add lighting inputs. The converter records every
-original field it leaves unmapped, by name, beside the converted asset. The
-mapping carries a revision that enters each material's input hash, so a
-change to it reconverts materials and nothing else.
-
 ## Components and ownership
 
 | Component | Lives in | Consumed by |
@@ -198,15 +175,14 @@ change to it reconverts materials and nothing else.
 | Material buffer | `src/engine/rendering/materials/public/bw/rendering/materials` | scene renderer |
 | Permutation enumeration of each template | the shader build | RHI precompilation |
 | Switch tuple check against the template's domain | `tools/content_converter`, material loading | content loader |
-| Original material block to material asset | `tools/content_converter` | content loader |
+| Material asset writer | `tools/content_converter` | content loader |
 
 ## Boundaries
 
 Above: the scene renderer, which owns the lighting model, pass selection,
 post-processing and every lighting input. Below: the shader system, which
 compiles templates and lays out parameter blocks, and the RHI, which binds
-them. Beside: the content converter, the only code that reads original
-material data.
+them. Beside: the content converter, which writes material assets.
 User-made materials are new material assets over the same templates, which
 the self-describing artifacts and the fully built switch domain already
 allow; a user-made template is a shader source and follows the shader

@@ -19,7 +19,8 @@ add_library(bw_content_converter
   mesh_reader.cpp
   skeleton_reader.cpp
   texture_reader.cpp
-  material_mapping.cpp)
+  material_mapping.cpp
+  tangent_handedness.cpp)
 target_link_libraries(bw_content_converter
   PUBLIC bw_content_converter_headers bw_content bw_geometry bw_texture_asset bw_materials
     bw_animation

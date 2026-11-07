@@ -70,7 +70,7 @@
 namespace bw::content {
 
 inline constexpr std::array<char, 4> kCookedMagic{'B', 'W', 'C', 'K'};
-inline constexpr std::uint32_t kCookedFormatVersion = 1;
+inline constexpr std::uint32_t kCookedFormatVersion = 2;
 inline constexpr std::size_t kCookedHeaderBytes = 104;
 inline constexpr std::size_t kCookedPayloadAlignment = 16;
 inline constexpr std::size_t kHashBytes = 32;

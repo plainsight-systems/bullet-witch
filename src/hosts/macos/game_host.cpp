@@ -3,49 +3,31 @@
 // viewport on the window's surface (bw/rendering/rhi/device.hpp,
 // viewport.hpp), and a frame loop on the main thread that runs until the
 // window is asked to close or the seconds limit passes. What it draws is
-// chosen by its options: without --asset the fixture cube
-// (bw/rendering/pulled_cube_fixture.hpp); with --cache and --asset the
-// model of that id, loaded by bw/rendering/model_resources.hpp and drawn by
-// bw/rendering/textured_model_fixture.hpp. Each frame's pass is begun by
-// bw/rendering/target_pass.hpp. The matrices are made by
-// bw/math/matrix/matrix4.hpp and bw/rendering/scene/view.hpp; the host
-// states the cube's camera, composes each object's turn with its view, and
-// writes no matrix element, resource description or pass description.
-//
-// The model draw: the layers are opened over --cache as the converted
-// originals and --overrides when given, with no published cache
-// (bw/content/layers.hpp, open_layers). Once the model is built, one stdout
-// line `base_color_fallback draws=K of=T first=ID` names the K of the T
-// draws that sample the white fallback and the material id of the first of
-// them (kNoMaterial for a draw without a material, none when K is 0), so a
-// run whose draws all took the fallback reads differently from a textured
-// one. The camera frames the mesh's bounding sphere (view.hpp,
-// frame_sphere) and the mesh turns about the vertical axis through the
-// sphere's center, so the whole model stays in view at every angle; a mesh
-// whose bounding sphere cannot be framed is a named failure. The pass has
-// a depth target sized to the viewport, recreated when the viewport's size
-// changes.
+// chosen by its options: without --asset the cube scene (cube_scene.hpp);
+// with --cache and --asset the model scene (model_scene.hpp). The shell
+// holds the one scene through host_scene.hpp and records it each frame
+// between the back buffer's two transitions.
 //
 // Command line: bw/hosts/game_host_options.hpp states the rows and parses
 // them. Without --shaders the directory is
 // <executable directory>/shaders/metal, the executable's path read from the
-// OS, not from argv[0], and resolved through symbolic links; that
-// resolution is the OS-bound part and stays here.
+// OS, not from argv[0], and resolved through symbolic links
+// (bw/platform/process/executable_directory.hpp).
 //
 // Exit codes: 0 when the window asked to close or the seconds limit passed,
 // with one line on stdout, `frames=N elapsed=S waited=W`: the frames drawn,
 // the elapsed seconds and how many end_frame calls blocked on the oldest
-// frame in flight (with --asset, the base_color_fallback line above
-// precedes it); 1 on a named failure, one line on stderr naming what
-// failed and, for an error code, the enumerator's number and the detail;
-// 2 on a usage error, with a line naming the error and the argument, then
-// the usage line, on stderr. Named failures include an executable path the
-// OS cannot give or resolve when --shaders is absent, the OS refusing the
-// borderless fullscreen --fullscreen asked for, and for --asset: layers
-// that do not open (with a second line naming the content_converter
-// command for every failure of the converted layer), a model that does not
-// load (the id concerned and the failing layer's own error) and a resource
-// the RHI refuses. No failure falls back: every failure ends the run.
+// frame in flight; 1 on a named failure, one line on stderr
+// naming what failed and, for an error code, the enumerator's number and
+// the detail; 2 on a usage error, with a line naming the error and the
+// argument, then the usage line, on stderr. Named failures include an
+// executable path the OS cannot give or resolve when --shaders is absent,
+// the OS refusing the borderless fullscreen --fullscreen asked for, and for
+// --asset: layers that do not open (with a second line naming the
+// content_converter command for every failure of the converted layer), a
+// model that does not load (the id concerned and the failing layer's own
+// error) and a resource the RHI refuses. No failure falls back: every
+// failure ends the run.
 //
 // Window events: Resized resizes the viewport to the event's pixel size;
 // CloseRequested ends the run; ModeChanged, FocusChanged and, without
@@ -58,23 +40,17 @@
 // The host owns its loop; the headless engine loop stays engine_host's. One
 // thread, the process main thread, owns the window, the viewport and the
 // submission (window.hpp, Threads; device.hpp, Viewports).
-#include "bw/content/asset_id.hpp"
-#include "bw/content/layers.hpp"
-#include "bw/content/loader.hpp"
+#include "cube_scene.hpp"
+#include "host_failure.hpp"
+#include "host_scene.hpp"
+#include "model_scene.hpp"
+
 #include "bw/hosts/game_host_options.hpp"
 #include "bw/hosts/option_table.hpp"
-#include "bw/math/matrix/matrix4.hpp"
-#include "bw/math/rotation/quaternion.hpp"
-#include "bw/math/vector/vector3.hpp"
 #include "bw/platform/os/macos/platform_time.hpp"
 #include "bw/platform/os/macos/window.hpp"
+#include "bw/platform/process/executable_directory.hpp"
 #include "bw/platform/window/window.hpp"
-#include "bw/rendering/geometry/mesh_asset.hpp"
-#include "bw/rendering/geometry/mesh_resources.hpp"
-#include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
-#include "bw/rendering/geometry/textured_mesh_fixture.hpp"
-#include "bw/rendering/model_resources.hpp"
-#include "bw/rendering/pulled_cube_fixture.hpp"
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
@@ -82,27 +58,16 @@
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
 #include "bw/rendering/rhi/viewport.hpp"
-#include "bw/rendering/scene/view.hpp"
-#include "bw/rendering/shaders/artifact_file.hpp"
-#include "bw/rendering/shaders/permutation.hpp"
-#include "bw/rendering/target_pass.hpp"
-#include "bw/rendering/textured_model_fixture.hpp"
 
-#include <mach-o/dyld.h>
-
-#include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -110,274 +75,8 @@ namespace {
 
 namespace platform = bw::platform;
 namespace rhi = bw::rhi;
-namespace geometry = bw::geometry;
-namespace shaders = bw::shaders;
-namespace content = bw::content;
-namespace rendering = bw::rendering;
-namespace math = bw::math;
 
-// ---- Executable directory -----------------------------------------------------------
-
-// The directory of this executable, from the path the OS loaded it from,
-// resolved through symbolic links; false with `detail` set when the OS
-// gives no path or the path does not resolve.
-bool executable_directory(std::filesystem::path& directory, std::string& detail) {
-  std::uint32_t size = 1024;
-  std::string buffer(size, '\0');
-  if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
-    // The buffer was too small; `size` is now the size the path needs.
-    buffer.assign(size, '\0');
-    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
-      detail = "the OS gave no executable path";
-      return false;
-    }
-  }
-  buffer.resize(buffer.find('\0'));
-  std::error_code error;
-  const std::filesystem::path real =
-      std::filesystem::canonical(std::filesystem::path(buffer), error);
-  if (error) {
-    detail = buffer + ": " + error.message();
-    return false;
-  }
-  directory = real.parent_path();
-  return true;
-}
-
-// ---- Failure lines -------------------------------------------------------------------
-
-// One line on stderr: what failed, the enumerator's number, the detail.
-template <class Code> int fail(std::string_view what, Code code, std::string_view detail) {
-  std::cerr << "game_host: " << what << " failed: error " << static_cast<unsigned>(code);
-  if (!detail.empty()) {
-    std::cerr << ": " << detail;
-  }
-  std::cerr << '\n';
-  return 1;
-}
-
-// ---- Shader artifacts ----------------------------------------------------------------
-
-// Permutation 0 of a registry shader from `directory`
-// (bw/rendering/shaders/artifact_file.hpp). Prints the failure line and
-// returns false on any failure.
-bool load_shader(const std::filesystem::path& directory, std::string_view name,
-                 shaders::ArtifactFile& file) {
-  const shaders::ArtifactFileFailure failure =
-      shaders::read_artifact_file(directory, name, shaders::PermutationId{}, file);
-  switch (failure.error) {
-  case shaders::ArtifactFileError::None:
-    return true;
-  case shaders::ArtifactFileError::ShaderUnknown:
-    std::cerr << "game_host: the shader registry has no shader named " << name << '\n';
-    break;
-  case shaders::ArtifactFileError::FileUnreadable:
-    std::cerr << "game_host: the shader artifact " << failure.path.string() << " cannot be read\n";
-    break;
-  case shaders::ArtifactFileError::ArtifactRejected:
-    std::cerr << "game_host: loading the shader artifact " << failure.path.string()
-              << " failed: error " << static_cast<unsigned>(failure.load.code) << ": block '"
-              << failure.block_name << "' expected " << failure.load.expected << " actual "
-              << failure.load.actual << " at byte " << failure.load.byte_offset << '\n';
-    break;
-  }
-  return false;
-}
-
-// ---- The cameras ---------------------------------------------------------------------
-
-// The cube's camera: 40 degrees top to bottom, +y up.
-constexpr float kVerticalFov = 40.0F * 3.14159265358979F / 180.0F;
-
-float aspect_of(rhi::Extent2 size) {
-  return static_cast<float>(size.width) / static_cast<float>(size.height);
-}
-
-// The angle of a turn at a fixed rate, within one revolution.
-float turn_angle(double elapsed_seconds, double radians_per_second) {
-  return static_cast<float>(std::fmod(elapsed_seconds * radians_per_second, 6.283185307179586));
-}
-
-// The cube turning about a tilted axis, seen by a camera at (3.0, 2.4, 4.2)
-// looking at the origin, near 0.1, far 100. The cube's bounding sphere
-// stays inside the view at every angle, so nothing clips. Faces toward the
-// camera are counter-clockwise on screen, which is what the pipeline's cull
-// of clockwise faces keeps.
-math::Matrix4f cube_world_to_clip(double elapsed_seconds, rhi::Extent2 size) {
-  const math::Quaternion4f turn = math::Quaternion4f::from_axis_angle(
-      math::Vector3f{0.3F, 1.0F, 0.2F}.safe_normal(), turn_angle(elapsed_seconds, 0.9));
-  bw::scene::PerspectiveView view{};
-  view.eye = math::Vector3f{3.0F, 2.4F, 4.2F};
-  view.vertical_fov = kVerticalFov;
-  view.near_plane = 0.1F;
-  view.far_plane = 100.0F;
-  return math::Matrix4f::rotation_translation(turn, math::Vector3f::zero) *
-         bw::scene::world_to_clip(view, aspect_of(size));
-}
-
-// The model turning about the vertical axis through its bounding sphere's
-// center, seen through the view that frames that sphere
-// (bw/rendering/scene/view.hpp, frame_sphere); empty when the sphere cannot
-// be framed.
-std::optional<math::Matrix4f> asset_world_to_clip(double elapsed_seconds, rhi::Extent2 size,
-                                                  const geometry::MeshResources& mesh) {
-  const float aspect = aspect_of(size);
-  const math::Vector3f center{mesh.center[0], mesh.center[1], mesh.center[2]};
-  const std::optional<bw::scene::PerspectiveView> view =
-      bw::scene::frame_sphere(center, mesh.radius, aspect);
-  if (!view.has_value()) {
-    return std::nullopt;
-  }
-  const math::Quaternion4f turn = math::Quaternion4f::from_axis_angle(
-      math::Vector3f{0.0F, 1.0F, 0.0F}, turn_angle(elapsed_seconds, 0.5));
-  return math::Matrix4f::translation(-center) * math::Matrix4f::rotation_translation(turn, center) *
-         bw::scene::world_to_clip(*view, aspect);
-}
-
-// The failure line of a mesh whose bounding sphere cannot be framed; false.
-bool fail_unframeable(std::string_view asset, const geometry::MeshResources& mesh) {
-  std::cerr << "game_host: the mesh " << asset << " has the bounding sphere center ("
-            << mesh.center[0] << ", " << mesh.center[1] << ", " << mesh.center[2] << ") radius "
-            << mesh.radius << " and cannot be framed\n";
-  return false;
-}
-
-// ---- The scene -----------------------------------------------------------------------
-
-// Everything the cube draw holds: the two artifacts and the cube fixture
-// (bw/rendering/pulled_cube_fixture.hpp).
-struct Scene {
-  shaders::ArtifactFile vertex{};
-  shaders::ArtifactFile pixel{};
-  rendering::PulledCube cube{};
-};
-
-// Loads the artifacts and makes the cube fixture for the viewport's format.
-// Prints the failure line and returns false on any failure.
-bool build_scene(rhi::Device& device, const std::filesystem::path& shader_directory,
-                 rhi::Format target_format, Scene& scene) {
-  if (!load_shader(shader_directory, geometry::kPulledMeshShader, scene.vertex) ||
-      !load_shader(shader_directory, geometry::kVertexColorShader, scene.pixel)) {
-    return false;
-  }
-  const rendering::PulledCubeFailure cube = rendering::create_pulled_cube(
-      device, scene.vertex.artifact, scene.pixel.artifact, target_format, scene.cube);
-  if (!cube.ok()) {
-    std::cerr << "game_host: the cube draw failed: error " << static_cast<unsigned>(cube.error)
-              << ": " << cube.detail << '\n';
-    return false;
-  }
-  return true;
-}
-
-// ---- The converted asset ---------------------------------------------------------------
-
-// The layers over --cache and --overrides, with no published cache; prints
-// the failure and, for every failure of the converted layer (the directory
-// absent, its record missing, unreadable, invalid or of another format
-// version), the converter command that makes one. LayerDirectoryUnreadable
-// gets no pointer: it may name the overrides directory, which the converter
-// does not make; its detail names the path.
-std::optional<content::LayerDirectories>
-open_asset_layers(const bw::hosts::GameHostOptions& options) {
-  std::optional<std::filesystem::path> overrides;
-  if (!options.overrides.empty()) {
-    overrides = options.overrides;
-  }
-  const content::OpenLayersResult opened =
-      content::open_layers(overrides, std::nullopt, options.cache);
-  if (opened.ok()) {
-    return opened.layers;
-  }
-  std::cerr << "game_host: opening the content layers failed: error "
-            << static_cast<unsigned>(opened.error) << " " << content::layer_error_name(opened.error)
-            << ": " << opened.detail << '\n';
-  if (opened.error == content::LayerError::ConvertedNotADirectory ||
-      opened.error == content::LayerError::ConvertedRecordMissing ||
-      opened.error == content::LayerError::ConvertedRecordUnreadable ||
-      opened.error == content::LayerError::ConvertedRecordInvalid ||
-      opened.error == content::LayerError::ConvertedRecordVersionMismatch) {
-    std::cerr << "game_host: " << options.cache.string()
-              << " is not a converted-originals cache this game_host can read; make it with: "
-                 "content_converter convert --install <install directory> --out "
-              << options.cache.string() << '\n';
-  }
-  return std::nullopt;
-}
-
-// Everything the model draw holds: the two artifacts, the model, its
-// fixture pipeline and the depth target.
-struct AssetScene {
-  shaders::ArtifactFile vertex{};
-  shaders::ArtifactFile pixel{};
-  rendering::ModelResources model{};
-  rendering::TexturedModel textured{};
-  rhi::Ref<rhi::Texture> depth{};
-};
-
-// The material id of the first draw that samples the white fallback:
-// "none" when no draw does, "kNoMaterial" for a draw without a material.
-std::string first_fallback_name(const AssetScene& scene) {
-  if (scene.textured.fallback_draws == 0U) {
-    return "none";
-  }
-  const std::uint32_t material =
-      scene.model.mesh.draws[scene.textured.first_fallback_draw].material;
-  if (material == geometry::kNoMaterial) {
-    return "kNoMaterial";
-  }
-  return std::string(scene.model.materials[material].asset.id().view());
-}
-
-// Loads the model --asset names from the layers over --cache and
-// --overrides and builds its fixture pipeline. Prints the failure line and
-// returns false on any failure.
-bool build_asset_scene(rhi::Device& device, const bw::hosts::GameHostOptions& options,
-                       rhi::Format target_format, AssetScene& scene) {
-  const std::optional<content::LayerDirectories> layers = open_asset_layers(options);
-  if (!layers.has_value()) {
-    return false;
-  }
-  const content::Loader loader(*layers);
-  const content::AssetIdResult id = content::make_asset_id(options.asset);
-  if (!id.ok()) {
-    std::cerr << "game_host: the asset id " << options.asset << " does not validate: error "
-              << static_cast<unsigned>(id.error) << '\n';
-    return false;
-  }
-  const rendering::ModelLoadFailure loaded = rendering::load_model(
-      device, loader, id.id, rendering::kTexturedModelTextureParameters, scene.model);
-  if (!loaded.ok()) {
-    std::cerr << "game_host: loading the model " << options.asset << " failed: error "
-              << static_cast<unsigned>(loaded.error) << " for " << loaded.id << ": "
-              << loaded.detail << '\n';
-    return false;
-  }
-  const geometry::MeshResources& mesh = scene.model.mesh;
-  // A square target puts the eye nearest the center, so a sphere framed
-  // here is framed at every aspect.
-  if (!asset_world_to_clip(0.0, rhi::Extent2{1, 1}, mesh).has_value()) {
-    return fail_unframeable(options.asset, mesh);
-  }
-  if (!load_shader(options.shaders, geometry::kTexturedMeshShader, scene.vertex) ||
-      !load_shader(options.shaders, geometry::kTexturedColorShader, scene.pixel)) {
-    return false;
-  }
-  const rendering::TexturedModelFailure textured =
-      rendering::create_textured_model(device, scene.model, scene.vertex.artifact,
-                                       scene.pixel.artifact, target_format, scene.textured);
-  if (!textured.ok()) {
-    std::cerr << "game_host: the textured draw of " << options.asset << " failed: error "
-              << static_cast<unsigned>(textured.error) << " at index " << textured.index << ": "
-              << textured.detail << '\n';
-    return false;
-  }
-  // Always printed, a count of 0 included, so a run whose draws all sample
-  // the fallback reads differently from a textured one.
-  std::cout << "base_color_fallback draws=" << scene.textured.fallback_draws
-            << " of=" << mesh.draws.size() << " first=" << first_fallback_name(scene) << '\n';
-  return true;
-}
+using bw::hosts::fail;
 
 // ---- The host ------------------------------------------------------------------------
 
@@ -405,13 +104,6 @@ private:
   int run_frames();
   // One frame: the recorded list, execute, end_frame.
   FrameOutcome draw_frame(double elapsed);
-  // The cube's commands, or the converted asset's, into the list between
-  // the back buffer's two transitions. record_asset: false after a failure
-  // line.
-  void record_cube(rhi::CommandList& list, rhi::Texture& back_buffer, rhi::Extent2 size,
-                   double elapsed);
-  bool record_asset(rhi::CommandList& list, rhi::Texture& back_buffer, rhi::Extent2 size,
-                    double elapsed);
   // The answer to BackBufferSizeMismatch (viewport.hpp, invariant 4).
   FrameOutcome resize_after_mismatch();
 
@@ -420,10 +112,8 @@ private:
   std::unique_ptr<platform::Window> window_{};
   std::unique_ptr<rhi::Device> device_{};
   rhi::Ref<rhi::Viewport> viewport_{};
-  // Exactly one of the two scenes exists: the asset's with --asset, else
-  // the cube's.
-  std::unique_ptr<Scene> scene_{};
-  std::unique_ptr<AssetScene> asset_{};
+  // The one scene: the asset's with --asset, else the cube's.
+  std::unique_ptr<bw::hosts::HostScene> scene_{};
   std::unique_ptr<rhi::CommandList> list_{};
   std::uint64_t frames_{};
   std::uint64_t waited_frames_{};
@@ -468,14 +158,20 @@ int Host::run() {
   }
   viewport_ = std::move(viewport.value());
 
+  // The scene is held before it is built, so a scene whose build failed is
+  // destroyed by shut_down in the same place as a built one.
   if (options_.asset.empty()) {
-    scene_ = std::make_unique<Scene>();
-    if (!build_scene(*device_, options_.shaders, viewport_->format(), *scene_)) {
+    auto cube = std::make_unique<bw::hosts::Scene>();
+    bw::hosts::Scene& scene = *cube;
+    scene_ = std::move(cube);
+    if (!bw::hosts::build_scene(*device_, options_.shaders, viewport_->format(), scene)) {
       return 1;
     }
   } else {
-    asset_ = std::make_unique<AssetScene>();
-    if (!build_asset_scene(*device_, options_, viewport_->format(), *asset_)) {
+    auto asset = std::make_unique<bw::hosts::AssetScene>();
+    bw::hosts::AssetScene& scene = *asset;
+    scene_ = std::move(asset);
+    if (!bw::hosts::build_asset_scene(*device_, options_, viewport_->format(), scene)) {
       return 1;
     }
   }
@@ -547,9 +243,7 @@ Host::FrameOutcome Host::draw_frame(double elapsed) {
   list.reset();
   const rhi::Transition to_target{&back_buffer, rhi::Access::Present, rhi::Access::RenderTarget};
   list.transition(rhi::TransitionBatch{std::span<const rhi::Transition>{&to_target, 1}});
-  if (asset_ == nullptr) {
-    record_cube(list, back_buffer, size, elapsed);
-  } else if (!record_asset(list, back_buffer, size, elapsed)) {
+  if (!scene_->record(*device_, list, back_buffer, size, elapsed)) {
     return FrameOutcome::Failed;
   }
   const rhi::Transition to_present{&back_buffer, rhi::Access::RenderTarget, rhi::Access::Present};
@@ -577,39 +271,6 @@ Host::FrameOutcome Host::draw_frame(double elapsed) {
     return FrameOutcome::Failed;
   }
   return FrameOutcome::Drawn;
-}
-
-void Host::record_cube(rhi::CommandList& list, rhi::Texture& back_buffer, rhi::Extent2 size,
-                       double elapsed) {
-  rendering::begin_cleared_pass(list, back_buffer, nullptr, size, "game_host frame");
-  rendering::record_pulled_cube(list, scene_->cube, cube_world_to_clip(elapsed, size));
-  list.end_render_pass();
-}
-
-// The depth target follows the viewport's size (target_pass.hpp,
-// resize_depth_target): a frame whose viewport no longer matches it (after
-// a Resized event or a mismatch resize) gets a new one. False after a
-// failure line.
-bool Host::record_asset(rhi::CommandList& list, rhi::Texture& back_buffer, rhi::Extent2 size,
-                        double elapsed) {
-  AssetScene& scene = *asset_;
-  const rhi::Status<rhi::ResourceError> resized = rendering::resize_depth_target(
-      *device_, size, rendering::kTexturedModelDepthFormat, "game_host depth", scene.depth);
-  if (!resized.ok()) {
-    fail("depth target", resized.error(), resized.detail());
-    return false;
-  }
-  const std::optional<math::Matrix4f> world_to_clip =
-      asset_world_to_clip(elapsed, size, scene.model.mesh);
-  // The startup check framed this sphere at the aspect that gives the
-  // nearest eye, so this is not reached; the empty result is still handled.
-  if (!world_to_clip.has_value()) {
-    return fail_unframeable(options_.asset, scene.model.mesh);
-  }
-  rendering::begin_cleared_pass(list, back_buffer, scene.depth.get(), size, "game_host frame");
-  rendering::record_textured_model(list, scene.textured, scene.model, *world_to_clip);
-  list.end_render_pass();
-  return true;
 }
 
 // The replay stopped at the pass that would have acquired the back buffer,
@@ -644,7 +305,6 @@ void Host::shut_down() {
   }
   list_.reset();
   scene_.reset();
-  asset_.reset();
   viewport_.reset();
   device_.reset();
   window_.reset();
@@ -679,7 +339,7 @@ int main(int argc, char** argv) {
     if (options.shaders.empty()) {
       std::filesystem::path directory;
       std::string detail;
-      if (!executable_directory(directory, detail)) {
+      if (!bw::platform::executable_directory(directory, detail)) {
         std::cerr << "game_host: resolving the executable's directory for the default --shaders "
                      "failed: "
                   << detail << '\n';

@@ -14,8 +14,8 @@
 // Contract (the header's): 24 vertices, four per face; 36 16-bit indices, two
 // triangles per face, wound counter-clockwise seen from outside; unit
 // half-extent centered at the origin. Stream 1 holds position float3 at
-// stride 12; stream 0 holds normal short4n at 0 (w 32767, the content's unit
-// w), texture coordinate 1 half2 at 8, color 0 ubyte4n at 12, bone slots
+// stride 12; stream 0 holds normal short4n at 0 (w 32767), texture
+// coordinate set 0 half2 at 8, color 0 ubyte4n at 12, bone slots
 // ubyte4 at 16 and bone weights ubyte4n at 20, stride 24. Normals are the
 // face normals, colors one per face. Bytes are written little-endian, the
 // order every target's raw buffer load reads.
@@ -149,7 +149,7 @@ VertexStreamLayout cube_layout() {
   VertexStreamLayout layout{};
   layout.attributes[0] = {VertexAttribute::Position, VertexElementType::Float3, 1, 0};
   layout.attributes[1] = {VertexAttribute::Normal, VertexElementType::Short4Norm, 0, 0};
-  layout.attributes[2] = {VertexAttribute::TexCoord1, VertexElementType::Half2, 0, 8};
+  layout.attributes[2] = {VertexAttribute::TexCoord0, VertexElementType::Half2, 0, 8};
   layout.attributes[3] = {VertexAttribute::Color0, VertexElementType::UByte4Norm, 0, 12};
   layout.attributes[4] = {VertexAttribute::BoneSlots, VertexElementType::UByte4, 0, 16};
   layout.attributes[5] = {VertexAttribute::BoneWeights, VertexElementType::UByte4Norm, 0, 20};

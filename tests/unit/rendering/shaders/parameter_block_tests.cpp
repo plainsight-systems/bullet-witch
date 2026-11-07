@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace fixture {
@@ -53,9 +54,21 @@ struct alignas(16) ListBlock {
   StorageTextureIndex output{};
   StorageBufferIndex counters{};
 };
+
+// The kinds the two blocks above lack: count 0, mask 4, data 8, uv 16,
+// color 32, ids 48; size 64.
+struct alignas(16) KindsBlock {
+  std::int32_t count{};
+  std::uint32_t mask{};
+  bw::shaders::BufferIndex data{};
+  Float2 uv{};
+  bw::shaders::Float4 color{};
+  bw::shaders::Uint4 ids{};
+};
 } // namespace fixture
 
 using fixture::InnerBlock;
+using fixture::KindsBlock;
 using fixture::ListBlock;
 using fixture::OuterBlock;
 
@@ -71,6 +84,12 @@ BW_PARAMETER_BLOCK_LAYOUT(
 BW_PARAMETER_BLOCK_LAYOUT(ListBlock, BW_PARAMETER_MEMBER(ListBlock, counters),
                           BW_PARAMETER_MEMBER(ListBlock, items),
                           BW_PARAMETER_MEMBER(ListBlock, output));
+BW_PARAMETER_BLOCK_LAYOUT(KindsBlock, BW_PARAMETER_MEMBER(KindsBlock, count),
+                          BW_PARAMETER_MEMBER(KindsBlock, mask),
+                          BW_PARAMETER_MEMBER(KindsBlock, data),
+                          BW_PARAMETER_MEMBER(KindsBlock, uv),
+                          BW_PARAMETER_MEMBER(KindsBlock, color),
+                          BW_PARAMETER_MEMBER(KindsBlock, ids));
 
 namespace {
 using bw::shaders::BlockLayout;
@@ -350,6 +369,71 @@ void hlsl_errors_named() {
   expect_hlsl_error(orphan, HlslError::MissingNestedLayout, "inner", "missing nested layout");
 }
 
+// (parameter_block.hpp, append_hlsl_buffer_loader): exact text for every
+// load form of the header's table, nested loaders first and once per call,
+// one line per array element at the C++ element stride (16 for a value, the
+// block's size for an array of blocks), a nested block loaded at its offset.
+void buffer_loader_text_is_exact() {
+  const std::string_view inner = "BW_InnerBlock bw_load_InnerBlock(uint buffer, uint offset) {\n"
+                                 "  BW_InnerBlock block = (BW_InnerBlock)0;\n"
+                                 "  block.tint = asfloat(BW_BUFFER(buffer).Load3(offset + 0));\n"
+                                 "  block.weight = asfloat(BW_BUFFER(buffer).Load(offset + 16));\n"
+                                 "  return block;\n"
+                                 "}\n";
+  const std::string expected_outer =
+      std::string(inner) +
+      "BW_OuterBlock bw_load_OuterBlock(uint buffer, uint offset) {\n"
+      "  BW_OuterBlock block = (BW_OuterBlock)0;\n"
+      "  block.world_to_clip = float4x4(asfloat(BW_BUFFER(buffer).Load4(offset + 0)), "
+      "asfloat(BW_BUFFER(buffer).Load4(offset + 16)), asfloat(BW_BUFFER(buffer).Load4(offset + "
+      "32)), asfloat(BW_BUFFER(buffer).Load4(offset + 48)));\n"
+      "  block.eye = asfloat(BW_BUFFER(buffer).Load3(offset + 64));\n"
+      "  block.near_plane = asfloat(BW_BUFFER(buffer).Load(offset + 80));\n"
+      "  block.offsets[0] = asfloat(BW_BUFFER(buffer).Load2(offset + 96));\n"
+      "  block.offsets[1] = asfloat(BW_BUFFER(buffer).Load2(offset + 112));\n"
+      "  block.offsets[2] = asfloat(BW_BUFFER(buffer).Load2(offset + 128));\n"
+      "  block.inner = bw_load_InnerBlock(buffer, offset + 144);\n"
+      "  block.rim = bw_load_InnerBlock(buffer, offset + 176);\n"
+      "  block.weights[0] = asfloat(BW_BUFFER(buffer).Load(offset + 208));\n"
+      "  block.weights[1] = asfloat(BW_BUFFER(buffer).Load(offset + 224));\n"
+      "  block.albedo = BW_BUFFER(buffer).Load(offset + 240);\n"
+      "  block.linear_sampler = BW_BUFFER(buffer).Load(offset + 244);\n"
+      "  block.flags = asint(BW_BUFFER(buffer).Load4(offset + 256));\n"
+      "  return block;\n"
+      "}\n";
+  const std::string expected_list = std::string(inner) +
+                                    "BW_ListBlock bw_load_ListBlock(uint buffer, uint offset) {\n"
+                                    "  BW_ListBlock block = (BW_ListBlock)0;\n"
+                                    "  block.items[0] = bw_load_InnerBlock(buffer, offset + 0);\n"
+                                    "  block.items[1] = bw_load_InnerBlock(buffer, offset + 32);\n"
+                                    "  block.output = BW_BUFFER(buffer).Load(offset + 64);\n"
+                                    "  block.counters = BW_BUFFER(buffer).Load(offset + 68);\n"
+                                    "  return block;\n"
+                                    "}\n";
+  const std::string_view expected_kinds =
+      "BW_KindsBlock bw_load_KindsBlock(uint buffer, uint offset) {\n"
+      "  BW_KindsBlock block = (BW_KindsBlock)0;\n"
+      "  block.count = asint(BW_BUFFER(buffer).Load(offset + 0));\n"
+      "  block.mask = BW_BUFFER(buffer).Load(offset + 4);\n"
+      "  block.data = BW_BUFFER(buffer).Load(offset + 8);\n"
+      "  block.uv = asfloat(BW_BUFFER(buffer).Load2(offset + 16));\n"
+      "  block.color = asfloat(BW_BUFFER(buffer).Load4(offset + 32));\n"
+      "  block.ids = BW_BUFFER(buffer).Load4(offset + 48);\n"
+      "  return block;\n"
+      "}\n";
+  const std::array<std::pair<const BlockLayout*, std::string_view>, 3> rows{{
+      {&outer_layout(), expected_outer},
+      {&list_layout(), expected_list},
+      {&BlockLayoutOf<KindsBlock>::value, expected_kinds},
+  }};
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    std::string text;
+    const HlslResult result = bw::shaders::append_hlsl_buffer_loader(*rows[i].first, text);
+    require(result.error == HlslError::None && text == rows[i].second, i,
+            "the loader text is exact");
+  }
+}
+
 // (parameter_block.hpp, append_hlsl_block_binding): the binding line for each slot kind.
 void binding_line_text() {
   std::string text;
@@ -369,6 +453,7 @@ constexpr std::array scenarios{
     Scenario{"generated_struct_text_is_exact", generated_struct_text_is_exact},
     Scenario{"hlsl_errors_named", hlsl_errors_named},
     Scenario{"binding_line_text", binding_line_text},
+    Scenario{"buffer_loader_text_is_exact", buffer_loader_text_is_exact},
 };
 } // namespace
 

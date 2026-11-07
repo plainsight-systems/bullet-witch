@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <optional>
 #include <set>
@@ -348,6 +349,14 @@ void fixture_on_three_targets(const Arguments& arguments) {
               paths, std::string{shader.name}, shader.permutation_count, "d3d12", failures)) ==
               static_cast<int>(ExitCode::ContractViolation),
           "a permutation at the count exits ContractViolation");
+  // (toolchain.hpp, UsageError): an empty entry in the root list.
+  const std::string empty_entry = paths.shader_root + ",," + paths.shader_root;
+  const bw::shader_compiler::CompileProduct refused =
+      bw::shader_compiler::compile_shader(bw::shader_compiler::CompileRequest{
+          .shader = &shader, .shader_root = empty_entry, .dxc_library = paths.dxc_library});
+  require(refused.status == ExitCode::UsageError &&
+              refused.diagnostics.find("--shader-root") != std::string::npos,
+          "an empty source root is UsageError naming --shader-root: " + refused.diagnostics);
 
   // Symbols (compiler_options.hpp grammar, --symbols; toolchain.hpp
   // CompileProduct::symbols): one non-empty file per artifact, named by the
@@ -427,6 +436,32 @@ void depfile_names_every_include(const Arguments& arguments) {
               target + ": no generated include is listed");
     }
   }
+
+  // (toolchain.hpp, CompileRequest::shader_root and
+  // CompileProduct::include_paths): with two roots, an include both hold is
+  // read from the first and one only the second holds from the second, each
+  // listed joined to the root that held it. The second root's copy of the
+  // shared include does not compile.
+  const std::filesystem::path first = fresh_directory(root / "first" / "bw").parent_path();
+  const std::filesystem::path second = fresh_directory(root / "second" / "bw").parent_path();
+  std::ofstream(first / shader.source_path)
+      << "#include \"bw/probe.hlsli\"\n"
+      << bw::tests::read_text(std::filesystem::path(paths.shader_root) / shader.source_path);
+  std::ofstream(first / "bw/probe.hlsli") << "// the first root's copy\n";
+  std::ofstream(second / "bw/probe.hlsli") << "#error \"the second root's copy was read\"\n";
+  std::filesystem::copy_file(std::filesystem::path(paths.shader_root) / "bw/bindless.hlsli",
+                             second / "bw/bindless.hlsli");
+  const std::string roots = first.string() + "," + second.string();
+  const bw::shader_compiler::CompileProduct product =
+      bw::shader_compiler::compile_shader(bw::shader_compiler::CompileRequest{
+          .shader = &shader, .shader_root = roots, .dxc_library = paths.dxc_library});
+  require(product.status == ExitCode::Success,
+          "the shared include is the first root's: " + product.diagnostics);
+  require(product.include_paths ==
+              std::vector<std::string>{
+                  bw::shader_compiler::join_path(first.string(), "bw/probe.hlsli"),
+                  bw::shader_compiler::join_path(second.string(), "bw/bindless.hlsli")},
+          "each include is joined to the root that held it");
 }
 
 std::vector<std::string> split_targets(std::string_view csv) {

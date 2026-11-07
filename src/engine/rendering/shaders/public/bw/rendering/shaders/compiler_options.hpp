@@ -41,8 +41,14 @@
 // Grammar:
 //   shader_compiler enumerate --targets <t>[,<t>...] --output-root <dir>
 //   shader_compiler compile --shader <name> --permutation <id> --target <t>
-//       --shader-root <dir> --output-root <dir> --depfile <path>
+//       --shader-root <dir>[,<dir>...] --output-root <dir> --depfile <path>
 //       --dxc-library <path> [--converter-library <path>] [--symbols <dir>]
+//   --shader-root is a list of source roots, so each renderer module keeps
+//   its own HLSL: the first directory holds every main source; an include
+//   is looked up in each directory in order and the first that holds it
+//   is read. A directory name contains no comma; the parse keeps the list
+//   as one text and the tool splits it, refusing an empty entry as a usage
+//   error.
 //   <t> is d3d12, vulkan or metal. --converter-library is required when
 //   <t> is metal and ignored otherwise. --symbols enables symbol output.
 //

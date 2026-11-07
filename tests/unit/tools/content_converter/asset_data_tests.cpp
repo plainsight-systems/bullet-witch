@@ -90,7 +90,7 @@ cc::MeshAssetData mesh_data() {
   cc::MeshGroupData g0;
   g0.layout.attributes[0] = {A::Position, T::Float3, 1, 0};
   g0.layout.attributes[1] = {A::Normal, T::Short4Norm, 0, 0};
-  g0.layout.attributes[2] = {A::TexCoord1, T::Half2, 0, 8};
+  g0.layout.attributes[2] = {A::TexCoord0, T::Half2, 0, 8};
   g0.layout.attribute_count = 3;
   g0.layout.stream_count = 2;
   g0.layout.streams = {g::VertexStreamDescription{12}, g::VertexStreamDescription{12}};
@@ -290,13 +290,13 @@ void texture_round_trip() {
 cc::MaterialAssetData material_data() {
   cc::MaterialAssetData m;
   m.template_name = std::string(mat::kLitTemplate);
-  m.switches = {{std::string(mat::kHasNormalMap), true}, {std::string(mat::kHasGloss), false}};
-  m.scalars = {{std::string(mat::kIlluminance), 0.25F}, {std::string(mat::kSubsurfaceLevel), 3.0F}};
-  m.vectors = {{std::string(mat::kFresnelR), {4.0F, 0.85F, 0.15F, 0.0F}},
-               {std::string(mat::kSpecularCoefficient), {40.0F, 0.1F, 0.0F, 0.0F}}};
+  m.switches = {{std::string(mat::kNormalMapSwitch), true},
+                {std::string(mat::kOcclusionReflectanceMapSwitch), false}};
+  m.scalars = {{std::string(mat::kRoughness), 0.25F}, {std::string(mat::kReflectance), 3.0F}};
+  m.vectors = {{std::string(mat::kBaseColorTint), {4.0F, 0.85F, 0.15F, 0.0F}},
+               {std::string(mat::kEmissive), {40.0F, 0.1F, 0.0F, 0.0F}}};
   m.textures = {{std::string(mat::kBaseColorTexture), "model.pw0.texture.dds.pw0_body_m1_game_psd"},
                 {std::string(mat::kNormalTexture), "model.pw0.texture.dds.pw0_body_n_game_psd"}};
-  m.unmapped = {{"PARF", "0,0,0,0"}, {"knsS.feature", "0x00022490"}, {"empty", ""}};
   return m;
 }
 
@@ -311,7 +311,7 @@ void material_round_trip() {
   require(view.template_name() == m.template_name, "template name");
   const mat::MaterialPayloadHeader& h = view.header();
   require(h.switch_count == 2U && h.scalar_count == 2U && h.vector_count == 2U &&
-              h.texture_count == 2U && h.unmapped_count == 3U,
+              h.texture_count == 2U,
           "every record kind's count");
   for (std::uint32_t i = 0; i < 2; ++i) {
     const mat::SwitchRecord sw = view.switch_record(i);
@@ -331,22 +331,12 @@ void material_round_trip() {
                 view.string(te.id_offset, te.id_length) == m.textures[i].id,
             i, "texture in order");
   }
-  for (std::uint32_t i = 0; i < 3; ++i) {
-    const mat::UnmappedFieldRecord u = view.unmapped_record(i);
-    require(view.string(u.name_offset, u.name_length) == m.unmapped[i].name &&
-                view.string(u.value_offset, u.value_length) == m.unmapped[i].value,
-            i, "unmapped field by name with its text");
-  }
-  require(view.find_texture(mat::kBaseColorTexture).id == m.textures[0].id &&
-              view.find_switch(mat::kHasGloss).found && !view.find_switch(mat::kHasGloss).value,
-          "lookups by name");
-  const std::array<Section, 7> sections{{
+  const std::array<Section, 6> sections{{
       {0, sizeof(mat::MaterialPayloadHeader)},
       {h.switches_offset, h.switch_count * sizeof(mat::SwitchRecord)},
       {h.scalars_offset, h.scalar_count * sizeof(mat::ScalarRecord)},
       {h.vectors_offset, h.vector_count * sizeof(mat::VectorRecord)},
       {h.textures_offset, h.texture_count * sizeof(mat::TextureRecord)},
-      {h.unmapped_offset, h.unmapped_count * sizeof(mat::UnmappedFieldRecord)},
       {h.strings_offset, h.string_bytes},
   }};
   const Padding padding = padding_of(payload, sections);

@@ -40,7 +40,9 @@ struct BackendStatus {
 struct DxcCompileInput {
   std::string_view source{};
   std::span<const std::string> arguments{};
-  std::string_view shader_root{};
+  // The source roots in order (compiler_options.hpp, --shader-root): an
+  // include is read from the first that holds it.
+  std::span<const std::string_view> shader_roots{};
   // Served from memory when DXC asks for this path; never read from disk and
   // never recorded as an include.
   std::string_view generated_path{};
@@ -52,9 +54,12 @@ struct DxcCompileOutput {
   std::vector<std::byte> reflection{};
   // DXC_OUT_PDB: present when the arguments ask for symbols on a DXIL target.
   std::vector<std::byte> pdb{};
-  // Files the include handler served from the shader root, first-inclusion
-  // order, each once.
+  // Files the include handler served from the source roots, first-inclusion
+  // order, each once, each path relative to the root that held it.
   std::vector<IncludedFile> includes{};
+  // The same files in the same order, each as that root joined to its
+  // relative path.
+  std::vector<std::string> include_paths{};
 };
 
 class DxcSession {

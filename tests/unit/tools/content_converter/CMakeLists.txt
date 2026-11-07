@@ -1,9 +1,9 @@
 # Unit tests of the content converter's pure library: one executable per
 # public header, one CTest entry per scenario named as the first argument.
 # Containers are built in memory from the headers' stated framing
-# (cpr_fixture.hpp beside the tests); no file, no install. Each links the
-# converter library; the texture test also links the vendored block
-# decoders, against which it checks the encoder.
+# (bw/testing/cpr_fixture.hpp in the test support directory); no file, no
+# install. Each links the converter library; the texture test also links the
+# vendored block decoders, against which it checks the encoder.
 set(content_converter_asset_data_scenarios
   round_trips)
 set(content_converter_cpr_container_scenarios
@@ -28,7 +28,10 @@ set(content_converter_texture_reader_scenarios
 set(content_converter_material_mapping_scenarios
   table_from_call
   slot_resolution
-  mapping_rows)
+  lit_mapping
+  blend_rule
+  refusals_named
+  unmapped_fields_file)
 foreach(header IN ITEMS asset_data cpr_container rat_index mesh_reader skeleton_reader
     texture_reader material_mapping)
   add_executable(content_converter_${header}_tests ${header}_tests.cpp)
@@ -42,12 +45,14 @@ foreach(header IN ITEMS asset_data cpr_container rat_index mesh_reader skeleton_
 endforeach()
 target_link_libraries(content_converter_texture_reader_tests PRIVATE bw_bc7enc)
 # The conversion driver's pure parts: the command line, the plan, the report
-# text and the input hash (conversion.hpp); nothing touches a file.
+# text, the input hash and the tangent handedness rule (conversion.hpp);
+# nothing touches a file.
 set(content_converter_conversion_scenarios
   parse_arguments
   plan_kinds_and_order
   report_text
-  input_hash_order)
+  input_hash_order
+  tangent_handedness)
 add_executable(content_converter_conversion_tests conversion_tests.cpp)
 target_link_libraries(content_converter_conversion_tests PRIVATE bw_test_harness bw_conversion)
 foreach(scenario IN LISTS content_converter_conversion_scenarios)

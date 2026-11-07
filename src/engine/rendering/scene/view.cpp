@@ -54,4 +54,15 @@ std::optional<PerspectiveView> frame_sphere(const math::Vector3f& center, float 
   return view;
 }
 
+// The eye and the two extents in the order the header documents.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+View make_view(const math::Matrix4f& world_to_clip, const math::Vector3f& eye, float viewport_width,
+               float viewport_height) noexcept {
+  View view{};
+  view.world_to_clip = shader_matrix(world_to_clip);
+  view.eye_position = shaders::Float3{eye.x, eye.y, eye.z};
+  view.viewport_size = shaders::Float2{viewport_width, viewport_height};
+  return view;
+}
+
 } // namespace bw::scene

@@ -27,7 +27,13 @@
 //   - assemble_reflection resolves a static slot through the root layout's
 //     slot name and the description's block of that name, so the Reflection
 //     names and hashes are the registry's whatever name the backend gave the
-//     resource.
+//     resource. Every buffer block the description declares is added as a
+//     Buffer block at its index (permutation.hpp, buffer_blocks); logic.hpp
+//     states static and draw blocks only and is silent on these.
+//   - append_generated_include emits, after the structs of the draw and
+//     static blocks, the struct of each buffer block, then the binding lines
+//     of the draw and static blocks, then the loader of each buffer block;
+//     logic.hpp's text names the first two parts only.
 //   - compute_input_hash streams the items through one BLAKE3 hasher; each
 //     item is preceded by its byte length as eight little-endian bytes.
 //
@@ -238,7 +244,7 @@ AssembledReflection assemble_reflection(const BackendReflection& backend,
   shaders::Reflection& out = result.reflection;
   for (const BoundBlock& bound : backend.blocks) {
     if (out.block_count >= shaders::kMaxReflectedBlocks) {
-      result.error = ReflectionError::DuplicateBlock;
+      result.error = ReflectionError::TooManyBlocks;
       result.slot = bound.binding.slot;
       return result;
     }
@@ -275,6 +281,26 @@ AssembledReflection assemble_reflection(const BackendReflection& backend,
       }
     }
     out.blocks[out.block_count] = block;
+    ++out.block_count;
+  }
+  // Buffer blocks bind nothing, so no backend reports them: each one the
+  // description declares is recorded at its index in buffer_blocks, so its
+  // layout hash is checked at load (artifact.hpp, BlockSlotKind::Buffer). A
+  // null entry never gets here: append_generated_include refuses it first
+  // (NullBlock).
+  for (std::size_t i = 0; i < shader.buffer_blocks.size(); ++i) {
+    const BlockLayout* declared = shader.buffer_blocks[i];
+    if (declared == nullptr) {
+      continue;
+    }
+    if (out.block_count >= shaders::kMaxReflectedBlocks) {
+      result.error = ReflectionError::TooManyBlocks;
+      result.slot = static_cast<std::uint32_t>(i);
+      return result;
+    }
+    out.blocks[out.block_count] =
+        shaders::ReflectedBlock{declared->name, declared->hash, static_cast<std::uint32_t>(i),
+                                shaders::BlockSlotKind::Buffer};
     ++out.block_count;
   }
   std::sort(out.blocks.begin(), out.blocks.begin() + out.block_count,
@@ -402,7 +428,8 @@ std::optional<std::array<std::uint8_t, 16>> mach_o_uuid(std::span<const std::byt
 
 IncludeResult append_generated_include(const shaders::ShaderDescription& shader,
                                        const shaders::RootLayout& layout, std::string& out) {
-  // The top-level blocks in emission order: draw block, then static blocks.
+  // The top-level blocks in emission order: draw block, then static blocks,
+  // then the blocks the shader reads from the buffer array.
   std::vector<const BlockLayout*> top_level;
   if (shader.draw_block != nullptr) {
     top_level.push_back(shader.draw_block);
@@ -422,6 +449,12 @@ IncludeResult append_generated_include(const shaders::ShaderDescription& shader,
                            shaders::HlslError::None};
     }
     static_slots.push_back(*slot);
+    top_level.push_back(block);
+  }
+  for (const BlockLayout* block : shader.buffer_blocks) {
+    if (block == nullptr) {
+      return IncludeResult{{}, IncludeError::NullBlock, shaders::HlslError::None};
+    }
     top_level.push_back(block);
   }
 
@@ -449,6 +482,14 @@ IncludeResult append_generated_include(const shaders::ShaderDescription& shader,
   }
   for (std::size_t i = 0; i < shader.static_blocks.size(); ++i) {
     shaders::append_hlsl_block_binding(*shader.static_blocks[i], true, static_slots[i], out);
+  }
+  // A buffer block binds nothing; its loader reads it at the offsets of the
+  // C++ declaration (parameter_block.hpp, append_hlsl_buffer_loader).
+  for (const BlockLayout* block : shader.buffer_blocks) {
+    const shaders::HlslResult hlsl = shaders::append_hlsl_buffer_loader(*block, out);
+    if (hlsl.error != shaders::HlslError::None) {
+      return IncludeResult{hlsl.member, IncludeError::Hlsl, hlsl.error};
+    }
   }
   return IncludeResult{};
 }

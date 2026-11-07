@@ -144,7 +144,7 @@ void game_host_runs_one_second(const Arguments& args) {
 // `--cache <the PW0 cache> --asset model.pw0.mesh --seconds 1` loads and
 // draws the converted mesh and exits 0 with the exit line above. Alone
 // catches the host no longer reaching the loader, the decoders or the
-// textured pair from its options.
+// model draw from its options.
 void draws_asset_one_second(const Arguments& args) {
   const ChildResult result =
       run_expecting(args,

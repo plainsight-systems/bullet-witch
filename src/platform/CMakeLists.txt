@@ -1,6 +1,6 @@
 # Shared contracts export only their public directories. Selected target layout
 # and inline definitions are compiler-required detail, not a universal src root.
-foreach(owner IN ITEMS math memory time tasks diagnostics)
+foreach(owner IN ITEMS math memory time tasks diagnostics process)
   bw_header_interface(bw_platform_${owner}_headers "${CMAKE_CURRENT_SOURCE_DIR}/${owner}")
 endforeach()
 bw_header_interface(bw_macos_memory_headers "${CMAKE_CURRENT_SOURCE_DIR}/os/macos/memory")
@@ -40,3 +40,8 @@ target_link_libraries(bw_platform_memory_headers INTERFACE bw_memory_headers)
 add_library(bw_platform_time os/macos/time/platform_time.cpp)
 target_link_libraries(bw_platform_time PUBLIC bw_platform_time_headers bw_macos_time_headers
   PRIVATE Threads::Threads)
+
+# Where the running executable is (process/public/bw/platform/process/
+# executable_directory.hpp), the macOS implementation.
+add_library(bw_platform_process os/macos/process/executable_directory.cpp)
+target_link_libraries(bw_platform_process PUBLIC bw_platform_process_headers)

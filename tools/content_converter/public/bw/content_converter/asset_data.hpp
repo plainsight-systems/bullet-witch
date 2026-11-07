@@ -121,17 +121,12 @@ struct NamedTexture {
   std::string name{};
   std::string id{};
 };
-struct UnmappedField {
-  std::string name{};
-  std::string value{};
-};
 struct MaterialAssetData {
   std::string template_name{};
   std::vector<NamedSwitch> switches{};
   std::vector<NamedScalar> scalars{};
   std::vector<NamedVector> vectors{};
   std::vector<NamedTexture> textures{};
-  std::vector<UnmappedField> unmapped{};
 };
 
 // Each returns the payload bytes, or an empty vector with the decoder's

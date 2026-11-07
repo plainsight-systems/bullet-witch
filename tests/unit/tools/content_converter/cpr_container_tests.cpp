@@ -2,9 +2,8 @@
 // each scenario names the declaration it asserts. Containers are built here
 // from the header's stated framing (cpr_fixture.hpp).
 #include "bw/content_converter/cpr_container.hpp"
+#include "bw/testing/cpr_fixture.hpp"
 #include "bw/testing/harness.hpp"
-
-#include "cpr_fixture.hpp"
 
 #include <algorithm>
 #include <array>

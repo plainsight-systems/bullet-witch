@@ -1,8 +1,11 @@
 #include "bw/rendering/shaders/permutation.hpp"
 
 #include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
-#include "bw/rendering/geometry/textured_mesh_fixture.hpp"
 #include "bw/rendering/geometry/vertex_streams.hpp"
+#include "bw/rendering/materials/lit_template.hpp"
+#include "bw/rendering/scene/fixture_light.hpp"
+#include "bw/rendering/scene/forward_pass.hpp"
+#include "bw/rendering/scene/view.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 
 #include <array>
@@ -145,44 +148,51 @@ struct VertexColor {
   }
 };
 
-// The content slice's fixture shaders (bw/rendering/geometry/textured_mesh_fixture.hpp):
-// a converted mesh pulled like PulledMesh and shaded by one base color
-// texture. Both stages read the same draw block: the pixel shader takes the
-// texture and sampler indices from it. They leave with the fixture when the
-// renderer's material templates arrive.
-struct TexturedMesh {
-  using Domain = PermutationDomain<>;
-  static constexpr std::string_view name = geometry::kTexturedMeshShader;
-  static constexpr std::string_view source_path = "textured_mesh.hlsl";
+// The forward pass's lit shaders (bw/rendering/scene/forward_pass.hpp,
+// contract 1): the lit template's domain and predicate, the View and
+// FixtureLight static blocks and the ForwardDraw per-draw block in both
+// stages; only the pixel stage reads LitMaterial from the buffer array and
+// declares it. Each artifact's reflection holds the bound blocks it reads
+// and every buffer block it declares.
+constexpr std::array<const BlockLayout*, 2> kForwardStaticBlocks{
+    &BlockLayoutOf<View>::value, &BlockLayoutOf<FixtureLight>::value};
+constexpr std::array<const BlockLayout*, 1> kForwardBufferBlocks{
+    &BlockLayoutOf<LitMaterial>::value};
+
+struct ForwardLitMesh {
+  using Domain = materials::LitDomain;
+  static constexpr std::string_view name = scene::kForwardLitVertexShader;
+  static constexpr std::string_view source_path = "forward_lit_mesh.hlsl";
   static constexpr std::string_view entry_point = "main";
   static constexpr ShaderStage stage = ShaderStage::Vertex;
-  static constexpr std::span<const BlockLayout* const> static_blocks{};
-  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<TexturedMeshDraw>::value;
-  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
-    return true;
+  static constexpr std::span<const BlockLayout* const> static_blocks{kForwardStaticBlocks};
+  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<ForwardDraw>::value;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& domain) noexcept {
+    return materials::lit_switches_admitted(materials::lit_switches(domain));
   }
 };
 
-struct TexturedColor {
-  using Domain = PermutationDomain<>;
-  static constexpr std::string_view name = geometry::kTexturedColorShader;
-  static constexpr std::string_view source_path = "textured_color.hlsl";
+struct ForwardLit {
+  using Domain = materials::LitDomain;
+  static constexpr std::string_view name = scene::kForwardLitPixelShader;
+  static constexpr std::string_view source_path = "forward_lit.hlsl";
   static constexpr std::string_view entry_point = "main";
   static constexpr ShaderStage stage = ShaderStage::Pixel;
-  static constexpr std::span<const BlockLayout* const> static_blocks{};
-  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<TexturedMeshDraw>::value;
-  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
-    return true;
+  static constexpr std::span<const BlockLayout* const> static_blocks{kForwardStaticBlocks};
+  static constexpr std::span<const BlockLayout* const> buffer_blocks{kForwardBufferBlocks};
+  static constexpr const BlockLayout* draw_block = &BlockLayoutOf<ForwardDraw>::value;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& domain) noexcept {
+    return materials::lit_switches_admitted(materials::lit_switches(domain));
   }
 };
 
 // Every shader the engine builds. A renderer slice adds an entry here and its
-// HLSL under the shader root.
+// main source under the first shader source root.
 constexpr std::array kRegistry{
     describe_shader<FullscreenTriangle>(), describe_shader<FullscreenTriangleColor>(),
     describe_shader<PulledMesh>(),         describe_shader<VertexDecodeProbe>(),
-    describe_shader<VertexColor>(),        describe_shader<TexturedMesh>(),
-    describe_shader<TexturedColor>(),
+    describe_shader<VertexColor>(),        describe_shader<ForwardLitMesh>(),
+    describe_shader<ForwardLit>(),
 };
 
 [[nodiscard]] consteval bool registry_names_unique() {

@@ -21,11 +21,10 @@
 // stay hardware index buffers, 16-bit, bound with command_list.hpp.
 //
 // Contract.
-//   Element types: exactly the five the content uses: float3, short4n,
-//   half2, ubyte4, ubyte4n (the content's 38 vertex declarations use only
-//   these five types). element_bytes gives 12, 8, 4, 4, 4.
-//   Attributes: one slot per attribute the content names (VertexAttribute),
-//   each at most once in a layout; the slot numbers are the shader's
+//   Element types: five: float3, short4n, half2, ubyte4, ubyte4n.
+//   element_bytes gives 12, 8, 4, 4, 4.
+//   Attributes: one slot per VertexAttribute, each at most once in a
+//   layout; the slot numbers are the shader's
 //   (vertex_fetch.hlsli, BW_ATTRIBUTE_*), and a change on either side is a
 //   decode-test failure. A layout names which slots exist; an absent slot
 //   reads kAbsentAttribute in the block.
@@ -62,17 +61,16 @@
 // validate_vertex_range before it issues the draw, on every target.
 // Pulled indices buy nothing until a culling pass writes index buffers, so
 // this slice keeps hardware index buffers and a per-draw base vertex. The
-// base is per draw, not per instance: the content has no per-instance
-// stream and every draw is one mesh.
+// base is per draw, not per instance: no draw is instanced.
 //
 // Core guidelines read: I.1 (the layout, buffers and counts are explicit
 // values; the shader gets them through the block), E.27 and SL.con.3 (a
 // named error for every out-of-range input, checked before the GPU reads),
 // Con.5 (every check is constexpr), Enum.3. Performance guidelines read:
 // GPU.2 (interleaved streams keep a vertex's attributes in adjacent
-// addresses; the content's declarations stay as authored), CDSA.32 (the
-// importer transforms content once into these streams; this header is the
-// consumer's layout), GDSA.12 (buffers reached by a direct index).
+// addresses), CDSA.32 (the converter writes these streams once; this
+// header is the consumer's layout), GDSA.12 (buffers reached by a direct
+// index).
 namespace bw::geometry {
 
 enum class VertexElementType : std::uint8_t {
@@ -98,10 +96,9 @@ inline constexpr std::uint32_t kVertexElementTypeCount = 5;
   return 0;
 }
 
-// The attribute slots, one per attribute the content names: position,
-// normal, tangent, three color sets, texture coordinate sets 1 to 4 (the
-// content has no set 0), bone slots and bone weights. The numbers are the
-// shader's (vertex_fetch.hlsli).
+// The attribute slots: position, normal, tangent, three color sets, four
+// texture coordinate sets, bone slots and bone weights. The numbers are
+// the shader's (vertex_fetch.hlsli).
 enum class VertexAttribute : std::uint8_t {
   Position = 0,
   Normal = 1,
@@ -109,10 +106,10 @@ enum class VertexAttribute : std::uint8_t {
   Color0 = 3,
   Color1 = 4,
   Color2 = 5,
-  TexCoord1 = 6,
-  TexCoord2 = 7,
-  TexCoord3 = 8,
-  TexCoord4 = 9,
+  TexCoord0 = 6,
+  TexCoord1 = 7,
+  TexCoord2 = 8,
+  TexCoord3 = 9,
   BoneSlots = 10,
   BoneWeights = 11,
 };

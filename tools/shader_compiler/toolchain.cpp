@@ -7,6 +7,7 @@
 #include "bw/rendering/shaders/root_layout.hpp"
 #include "bw/shader_compiler/logic.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <fstream>
@@ -30,9 +31,11 @@
 //   1. Check the permutation is in the shader's build set; take the defines.
 //   2. Generate the include text from the shader's blocks and the engine
 //      root layout; take the root signature text of that layout.
-//   3. Read the main source; build the DXC argument list.
+//   3. Read the main source from the first source root; build the DXC
+//      argument list.
 //   4. Open DXC (and the converter for Metal) and take their identities.
-//   5. Compile; the include handler records every file it serves.
+//   5. Compile; the include handler records every file it serves and the
+//      root it came from.
 //   6. Per target: DXIL targets reflect DXC's reflection blob and remove the
 //      reflection part from the container; Metal converts that container;
 //      Vulkan reflects the module as compiled, runs SPIRV-Tools' performance
@@ -40,9 +43,9 @@
 //      that ships, and validates what the artifact will hold.
 //   7. Assemble the backend-neutral Reflection, hash the inputs, write the
 //      artifact image with the compiler identity in the trailer.
-// Omitted: the Features trailer entry (artifact.hpp, ShaderFeature). Nothing
-// consumes it yet, and deriving it from DXIL feature flags and SPIR-V
-// capabilities is work for the slice that reads it.
+// The Features trailer entry (artifact.hpp, ShaderFeature) is not written.
+// Nothing consumes it yet, and deriving it from DXIL feature flags and
+// SPIR-V capabilities is work for the slice that reads it.
 //
 // Retrieved rules: E.27 (one status per failure, returned at once), I.1
 // (every path from the request), R.1 (sessions own the toolchain objects).
@@ -71,6 +74,21 @@ bool read_file(const std::string& path, std::string& out) {
   }
   out.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
   return !stream.bad();
+}
+
+// The comma-separated source roots in order (compiler_options.hpp,
+// --shader-root); an empty entry is kept so the caller can refuse it.
+std::vector<std::string_view> split_roots(std::string_view list) {
+  std::vector<std::string_view> roots;
+  std::size_t begin = 0;
+  while (true) {
+    const std::size_t comma = list.find(',', begin);
+    roots.push_back(list.substr(begin, comma == std::string_view::npos ? comma : comma - begin));
+    if (comma == std::string_view::npos) {
+      return roots;
+    }
+    begin = comma + 1;
+  }
 }
 
 std::string_view include_error_name(IncludeError error) noexcept {
@@ -132,6 +150,8 @@ std::string_view reflection_error_name(ReflectionError error) noexcept {
     return "DrawBlockNotDeclared";
   case ReflectionError::DuplicateBlock:
     return "DuplicateBlock";
+  case ReflectionError::TooManyBlocks:
+    return "TooManyBlocks";
   case ReflectionError::TooManyVertexInputs:
     return "TooManyVertexInputs";
   case ReflectionError::SemanticTooLong:
@@ -185,12 +205,19 @@ CompileProduct compile_shader(const CompileRequest& request) {
   std::string root_signature;
   shaders::append_root_signature_text(layout, root_signature);
 
-  // Step 3.
-  std::string source;
-  if (!read_file(join_path(request.shader_root, shader.source_path), source)) {
-    return fail(product, shaders::ExitCode::CompileError,
-                "cannot read shader source '" + join_path(request.shader_root, shader.source_path) +
+  // Step 3. The main source is the first root's. An empty entry would
+  // resolve against the working directory, so it is a bad invocation.
+  const std::vector<std::string_view> roots = split_roots(request.shader_root);
+  if (std::find(roots.begin(), roots.end(), std::string_view{}) != roots.end()) {
+    return fail(product, shaders::ExitCode::UsageError,
+                "--shader-root lists an empty source root: '" + std::string{request.shader_root} +
                     "'");
+  }
+  const std::string source_file = join_path(roots.front(), shader.source_path);
+  std::string source;
+  if (!read_file(source_file, source)) {
+    return fail(product, shaders::ExitCode::CompileError,
+                "cannot read shader source '" + source_file + "'");
   }
   std::vector<std::string> arguments;
   shaders::append_compiler_arguments(request.target, shader.stage, shader.entry_point, defines,
@@ -224,14 +251,13 @@ CompileProduct compile_shader(const CompileRequest& request) {
   // Step 5.
   detail::DxcCompileOutput compiled{};
   status = dxc->compile(
-      detail::DxcCompileInput{source, arguments, request.shader_root, generated_path, generated},
-      compiled);
+      detail::DxcCompileInput{source, arguments, roots, generated_path, generated}, compiled);
   if (!status.ok()) {
     // The argument list carries no source name (compiler_options.hpp), so
     // DXC calls the main source hlsl.hlsl in its messages; say which file
     // that is.
     status.message += "\n(hlsl.hlsl in DXC's messages is ";
-    status.message += join_path(request.shader_root, shader.source_path);
+    status.message += source_file;
     status.message += ')';
     return fail(product, status);
   }
@@ -292,6 +318,7 @@ CompileProduct compile_shader(const CompileRequest& request) {
   for (const IncludedFile& file : compiled.includes) {
     product.includes.push_back(file.path);
   }
+  product.include_paths = compiled.include_paths;
   product.input_hash = compute_input_hash(HashInputs{
       .compiler_identity = identity,
       .entry_point = shader.entry_point,

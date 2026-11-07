@@ -180,7 +180,8 @@ find_static_slot(const RootLayout& layout, std::string_view block_name) noexcept
 
 // The engine's one layout. Defined by the shader module; the renderer slices
 // that introduce static blocks edit that definition, and nothing else. It
-// holds no block until the first renderer slice adds one.
+// holds the scene's View (scene/view.hpp, kViewSlot) and FixtureLight
+// (scene/fixture_light.hpp, kFixtureLightSlot).
 [[nodiscard]] const RootLayout& engine_root_layout() noexcept;
 
 // The HLSL root signature of a layout, as the text DXC compiles with
