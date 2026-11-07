@@ -26,7 +26,7 @@ add_executable(content_converter_convert_integration_tests convert_tests.cpp)
 target_link_libraries(content_converter_convert_integration_tests PRIVATE bw_test_harness
   bw_conversion)
 foreach(scenario IN ITEMS incremental_reconverts_dependents shared_texture_resolves
-    collision_fails_second_container)
+    collision_fails_second_container material_base_color_record_failures input_hash_from_items)
   add_test(NAME integration.content_converter.convert.${scenario}
     COMMAND content_converter_convert_integration_tests ${scenario}
       "${CMAKE_CURRENT_BINARY_DIR}")

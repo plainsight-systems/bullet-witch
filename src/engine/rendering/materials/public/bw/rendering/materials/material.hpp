@@ -60,6 +60,8 @@
 //                               a blend mode the template draws;
 //        PermutationNotAdmitted the template's predicate rejects the
 //                               switch values with that blend mode;
+//        SamplerUnbound         the template's sampler names no member of
+//                               its block (name: the sampler);
 //        ParameterUnknown       a scalar, vector or texture record names
 //                               no parameter of that kind (rule 2);
 //        TextureMissing         a switch is set and the asset has no
@@ -149,6 +151,7 @@ enum class MaterialError : std::uint8_t {
   SwitchMissing,
   BlendModeUnsupported,
   PermutationNotAdmitted,
+  SamplerUnbound,
   ParameterUnknown,
   TextureMissing,
   TextureUnused,
@@ -157,7 +160,7 @@ enum class MaterialError : std::uint8_t {
 
 struct MaterialFailure {
   MaterialError error{MaterialError::None};
-  // The template, switch, parameter or texture parameter concerned; the
+  // The template, switch, parameter, sampler or texture parameter concerned; the
   // blend_mode value as text for BlendModeUnsupported; empty for
   // PermutationNotAdmitted.
   std::string name{};

@@ -39,6 +39,8 @@
 //                         a source file could not be read; or a backend's
 //                         reflection could not be read whole; diagnostics
 //                         holds their messages;
+//   UsageError            --shader-root lists an empty source root; the
+//                         text in diagnostics;
 //   ContractViolation     no shader, a permutation outside the build set, a
 //                         Metal request with no converter_library (a
 //                         programming error once parse_command_line has

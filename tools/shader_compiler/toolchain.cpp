@@ -150,6 +150,8 @@ std::string_view reflection_error_name(ReflectionError error) noexcept {
     return "DrawBlockNotDeclared";
   case ReflectionError::DuplicateBlock:
     return "DuplicateBlock";
+  case ReflectionError::TooManyBlocks:
+    return "TooManyBlocks";
   case ReflectionError::TooManyVertexInputs:
     return "TooManyVertexInputs";
   case ReflectionError::SemanticTooLong:

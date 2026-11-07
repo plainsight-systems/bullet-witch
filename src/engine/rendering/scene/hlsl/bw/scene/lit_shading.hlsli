@@ -15,7 +15,7 @@
 //   Vis = 0.5 / (n_l * sqrt(n_v^2 * (1 - a^2) + a^2) + n_v * sqrt(n_l^2 * (1 - a^2) + a^2));
 //   E = f0 * ab.x + f90 * ab.y, with q = r * c0 + c1, t = min(q.x^2,
 //     2^(-9.28 * n_v)) * q.x + q.y, ab = (-1.04, 1.04) * t + q.zw;
-//   diffuse = diffuse albedo * (1 - dot(E, (0.3, 0.59, 0.11)));
+//   diffuse = diffuse albedo * (1 - dot(E, (0.2126, 0.7152, 0.0722)));
 //   color = (diffuse / pi + D * Vis * F) * light color * n_l
 //           + ambient * diffuse albedo * ambient occlusion + emissive.
 // The two constants repeat forward_pass.hpp's kMinimumRoughness and
@@ -66,7 +66,8 @@ float3 bw_lit_shade(BwMaterialAttributes attributes, float3 view, float3 light_d
   const float t = min(q.x * q.x, exp2(-9.28 * n_v)) * q.x + q.y;
   const float2 ab = float2(-1.04, 1.04) * t + q.zw;
   const float3 e = f0 * ab.x + f90 * ab.y;
-  const float3 diffuse = attributes.diffuse_albedo * (1.0 - dot(e, float3(0.3, 0.59, 0.11)));
+  const float3 diffuse =
+      attributes.diffuse_albedo * (1.0 - dot(e, float3(0.2126, 0.7152, 0.0722)));
 
   return (diffuse / bw_lit_pi + d * vis * f) * light_color * n_l +
          ambient * attributes.diffuse_albedo * attributes.ambient_occlusion + attributes.emissive;

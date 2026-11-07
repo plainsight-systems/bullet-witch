@@ -87,9 +87,8 @@
 //      failure `blocks` is unchanged. bind_scene_blocks records
 //      set_static_block(scene::kViewSlot) and
 //      set_static_block(scene::kFixtureLightSlot) with those buffers.
-//   5. On a failure of create_model_draw `out` is left empty; instances
-//      already added to `material_buffer` stay in it. The detail text is
-//      for a person; its wording is not part of the contract.
+//   5. On a failure of create_model_draw `out` is left empty. The detail
+//      text is for a person; its wording is not part of the contract.
 //
 // Read guidance: I.1, E.27, R.1 (the Refs own every GPU object); GDSA.12
 // (a material by buffer index and offset), GDSA.17 (pipelines are keyed by

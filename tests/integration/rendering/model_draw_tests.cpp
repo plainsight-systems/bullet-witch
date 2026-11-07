@@ -91,8 +91,8 @@ constexpr std::string_view kMeshId = "model.fixture.mesh";
 constexpr std::string_view kTextureId = "model.fixture.texture.base";
 constexpr std::string_view kNormalTextureId = "model.fixture.texture.normal";
 constexpr std::string_view kPackedTextureId = "model.fixture.texture.packed";
-constexpr std::uint32_t kColumns = 4;
-constexpr std::uint32_t kRows = 4;
+constexpr std::uint32_t kColumns = 5;
+constexpr std::uint32_t kRows = 5;
 constexpr std::uint32_t kCellPixels = 4;
 constexpr rhi::Extent2 kTarget{kColumns * kCellPixels, kRows* kCellPixels};
 constexpr std::array<float, 4> kClear{0.25F, 0.5F, 0.75F, 1.0F};
@@ -118,6 +118,13 @@ struct Quad {
   // The texture coordinate runs right to left, and the tangent is (-1, 0, 0)
   // with w +1 where an unmirrored quad has (1, 0, 0) with w -1.
   bool mirrored{};
+  // Depth: the position's z, which is its depth through an identity
+  // world_to_clip.
+  float z{0.5F};
+  // Wound the other way round.
+  bool reversed{};
+  // Authored this many cells to the right of its cell.
+  float shift{};
 };
 
 struct SyntheticModel {
@@ -143,6 +150,7 @@ struct LitSpec {
   float opacity_facing{1.0F};
   float opacity_grazing{1.0F};
   float opacity_fresnel_exponent{1.0F};
+  float reflectance_base_luminance{};
   std::string_view extra_switch{};
 };
 cc::MaterialAssetData lit_asset(const LitSpec& s) {
@@ -160,6 +168,7 @@ cc::MaterialAssetData lit_asset(const LitSpec& s) {
                {std::string(m::kGrazingReflectance), s.grazing_reflectance},
                {std::string(m::kFresnelExponent), s.fresnel_exponent},
                {std::string(m::kSpecularTint), s.specular_tint},
+               {std::string(m::kReflectanceBaseLuminance), s.reflectance_base_luminance},
                {std::string(m::kOpacityFacing), s.opacity_facing},
                {std::string(m::kOpacityGrazing), s.opacity_grazing},
                {std::string(m::kOpacityFresnelExponent), s.opacity_fresnel_exponent}};
@@ -216,12 +225,17 @@ cc::MeshAssetData mesh_of(const SyntheticModel& model) {
   for (std::uint32_t q = 0; q < model.quads.size(); ++q) {
     const Quad& quad = model.quads[q];
     const auto [x0, y0, x1, y1] = cell_rect(quad.cell);
+    const float dx = quad.shift * 2.0F / kColumns;
     const std::uint16_t left = quad.mirrored ? 0x3C00 : 0x0000;
     const std::uint16_t right = quad.mirrored ? 0x0000 : 0x3C00;
     const std::int16_t sign = quad.mirrored ? -32767 : 32767;
-    for (const auto& [x, y, u] : {std::tuple{x0, y0, left}, std::tuple{x1, y0, right},
-                                  std::tuple{x1, y1, right}, std::tuple{x0, y1, left}}) {
-      append(group.stream0, std::array{x, y, 0.5F});
+    std::array corners{std::tuple{x0, y0, left}, std::tuple{x1, y0, right},
+                       std::tuple{x1, y1, right}, std::tuple{x0, y1, left}};
+    if (quad.reversed) {
+      std::swap(corners[1], corners[3]);
+    }
+    for (const auto& [x, y, u] : corners) {
+      append(group.stream0, std::array{x + dx, y, quad.z});
       append(group.stream0,
              std::array<std::int16_t, 4>{snorm(quad.normal[0]), 0, snorm(quad.normal[1]), 0});
       if (model.tangent) {
@@ -241,8 +255,8 @@ cc::MeshAssetData mesh_of(const SyntheticModel& model) {
   group.draw_count = static_cast<std::uint32_t>(model.quads.size());
   mesh.groups.push_back(std::move(group));
   mesh.material_count = static_cast<std::uint32_t>(model.materials.size());
-  mesh.bounds_max = {1.0F, 1.0F, 0.5F};
-  mesh.bounds_min = {-1.0F, -1.0F, 0.5F};
+  mesh.bounds_max = {1.4F, 1.0F, 0.75F};
+  mesh.bounds_min = {-1.0F, -1.0F, 0.25F};
   mesh.center = {0.0F, 0.0F, 0.5F};
   mesh.radius = 1.5F;
   return mesh;
@@ -440,10 +454,11 @@ Attributes template_attributes(const LitSpec& s, const Quad& quad, const V3& v) 
   const auto curve = [n_v](float facing, float grazing, float e) {
     return facing + ((grazing - facing) * std::pow(1.0F - n_v, e));
   };
-  float mask = 1.0F;
+  float mask =
+      1.0F + ((dot(rgb, {0.2126F, 0.7152F, 0.0722F}) - 1.0F) * s.reflectance_base_luminance);
   if (s.occlusion_reflectance_map) {
     a.ambient_occlusion = 0.5F;
-    mask = 0.25F;
+    mask *= 0.25F;
   }
   const float r = saturate(curve(s.reflectance, s.grazing_reflectance, s.fresnel_exponent) * mask);
   const float top = std::max({rgb[0], rgb[1], rgb[2], 1e-4F});
@@ -486,7 +501,7 @@ V3 shade(const Attributes& a, const V3& v, const bw::scene::FixtureLight& light)
     f90[c] = a.f90[c] * fade;
     e[c] = (a.f0[c] * ab_x) + (f90[c] * ab_y);
   }
-  const float kept = 1.0F - dot(e, {0.3F, 0.59F, 0.11F});
+  const float kept = 1.0F - dot(e, {0.2126F, 0.7152F, 0.0722F});
   const std::array<float, 3> color{light.color.x, light.color.y, light.color.z};
   const std::array<float, 3> ambient{light.ambient.x, light.ambient.y, light.ambient.z};
   V3 out{};
@@ -518,8 +533,8 @@ Texel texel_at(const Frame& frame, std::uint32_t cell, std::uint32_t column) {
            0.5F}};
 }
 
-// (forward_pass.hpp, contract 3; lit_template.hpp, contract 5;
-// model_draw.hpp, contracts 2 and 3): one quad per row in a 4 by 4 grid,
+// (forward_pass.hpp, contracts 2 and 3; lit_template.hpp, contract 5;
+// model_draw.hpp, contracts 2 and 3): one quad per row in a 5 by 5 grid,
 // drawn through an identity world_to_clip into a half-float target, texels
 // of each cell against the stated attributes of its material and the stated
 // shading of them: a metal in reflectance terms under the light (every term
@@ -530,16 +545,25 @@ Texel texel_at(const Frame& frame, std::uint32_t cell, std::uint32_t column) {
 // normal map in an unmirrored and a mirrored quad (the frame's sign), the
 // occlusion and reflectance texture (first channel on ambient, second on
 // reflectance), the reflectance curve at a tilted view angle, a reflection
-// tinted toward the base hue, the opacity curve, and a reflectance under 2
+// tinted toward the base hue, the opacity curve, a reflectance under 2
 // percent seen at a grazing half vector in a second frame whose light is
-// the view mirrored about the quad's normal (the grazing fade). Each reads
-// its LitMaterial through the generated loader on the GPU.
+// the view mirrored about the quad's normal (the grazing fade), the
+// additive blend over the clear color, the depth test and write (a far
+// opaque quad drawn after a near one is hidden; an opaque quad drawn after a
+// nearer translucent one shows), a quad wound the other way (no cull), and
+// a dark base masking its reflectance by its luminance. The tinted
+// reflection's quad is authored one cell to the right and read in a third
+// frame whose object_to_world, a 90-degree turn about the view axis then a
+// translation, brings it back (the vertex stage's row-vector transform).
+// Each reads its LitMaterial through the generated loader on the GPU.
 void forward_lit_pixels(const Arguments& args) {
   using B = m::BlendMode;
   // Vertex normals tilted toward +x, so that n.v is about 0.7 and 0.2.
   const std::array<float, 2> tilt_07{0.714F, 0.7F};
   const std::array<float, 2> tilt_02{0.9798F, 0.2F};
-  const std::array<LitSpec, 12> specs{{
+  // One material per cell, then the materials of the depth cells' second
+  // quads.
+  const std::vector<LitSpec> specs{
       {.tint = {0.9F, 0.6F, 0.3F, 1.0F},
        .roughness = 0.3F,
        .reflectance = 0.9F,
@@ -569,13 +593,32 @@ void forward_lit_pixels(const Arguments& args) {
       {.blend = B::Translucent,
        .tint = {0.3F, 0.8F, 0.5F, 1.0F},
        .opacity_facing = 0.2F,
-       .opacity_grazing = 1.0F,
-       .opacity_fresnel_exponent = 1.0F},
+       .opacity_grazing = 0.6F,
+       .opacity_fresnel_exponent = 2.0F},
       {.roughness = 0.4F, .reflectance = 0.01F, .grazing_reflectance = 0.01F},
-  }};
+      {.blend = B::Additive, .tint = {0.3F, 0.2F, 0.1F, 0.5F}},
+      {.tint = {0.5F, 0.5F, 0.5F, 1.0F}, .roughness = 0.5F},
+      {.blend = B::Translucent, .tint = {0.0F, 0.0F, 1.0F, 0.5F}},
+      {.tint = {0.8F, 0.4F, 0.2F, 1.0F}},
+      {.tint = {0.05F, 0.05F, 0.8F, 1.0F},
+       .roughness = 0.5F,
+       .reflectance = 1.0F,
+       .grazing_reflectance = 1.0F,
+       .reflectance_base_luminance = 1.0F},
+      {.tint = {1.0F, 1.0F, 1.0F, 1.0F}, .emissive = {1.0F, 0.0F, 1.0F, 0.0F}},
+      {.tint = {0.9F, 0.9F, 0.2F, 1.0F}, .roughness = 0.6F},
+  };
+  constexpr std::uint32_t kCells = 17;
+  constexpr std::uint32_t kMovedCell = 9;
+  constexpr std::uint32_t kGrazingCell = 11;
+  constexpr std::uint32_t kHiddenCell = 13;
+  constexpr std::uint32_t kShownCell = 14;
+  constexpr std::uint32_t kReversedCell = 15;
   SyntheticModel model;
   for (std::uint32_t i = 0; i < specs.size(); ++i) {
     model.materials.push_back(lit_asset(specs[i]));
+  }
+  for (std::uint32_t i = 0; i < kCells; ++i) {
     model.quads.push_back({i, {0.0F, 1.0F}, i, false});
   }
   model.quads[1].normal = {0.0F, -1.0F};
@@ -583,13 +626,20 @@ void forward_lit_pixels(const Arguments& args) {
   model.quads[8].normal = tilt_07;
   model.quads[10].normal = tilt_07;
   model.quads[11].normal = tilt_02;
-  constexpr std::uint32_t kGrazingCell = 11;
+  model.quads[kMovedCell].shift = 1.0F;
+  model.quads[kShownCell].z = 0.25F;
+  model.quads[kReversedCell].reversed = true;
+  // Drawn after every cell's quad: behind the near opaque quad of the hidden
+  // cell, and an opaque quad behind the shown cell's translucent one.
+  model.quads.push_back({.cell = kHiddenCell, .material = kCells, .z = 0.75F});
+  model.quads.push_back({.cell = kShownCell, .material = kCells + 1});
   const std::unique_ptr<rhi::Device> device = metal_device();
   rendering::ModelResources resources;
   load_synthetic(*device, model, args.scratch / "forward_lit_pixels", resources);
   m::MaterialBuffer buffer;
-  require(m::create_material_buffer(*device, specs.size() * m::kMaxMaterialBlockBytes, "model draw",
-                                    buffer)
+  require(m::create_material_buffer(
+              *device, static_cast<std::uint32_t>(specs.size()) * m::kMaxMaterialBlockBytes,
+              "model draw", buffer)
               .ok(),
           "the material buffer");
   rendering::ModelDraw draw;
@@ -624,9 +674,27 @@ void forward_lit_pixels(const Arguments& args) {
   }
   const Frame grazing_frame = draw_frame(*device, resources, draw, rhi::Format::R16G16B16A16Float,
                                          kTarget, view, grazing_light, kIdentity);
+  // The third frame's object_to_world: (x, y) to (-y, x), then the
+  // translation that takes the moved quad's authored centre to its cell's.
+  bw::math::Matrix4f moved = kIdentity;
+  {
+    const auto [x0, y0, x1, y1] = cell_rect(kMovedCell);
+    const float cx = (x0 + x1) / 2.0F;
+    const float cy = (y0 + y1) / 2.0F;
+    const float authored_x = cx + (2.0F / kColumns);
+    const bw::math::Matrix4f turn(bw::math::Matrix4f::Rows{{{0.0F, 1.0F, 0.0F, 0.0F},
+                                                            {-1.0F, 0.0F, 0.0F, 0.0F},
+                                                            {0.0F, 0.0F, 1.0F, 0.0F},
+                                                            {0.0F, 0.0F, 0.0F, 1.0F}}});
+    moved =
+        turn * bw::math::Matrix4f::translation(bw::math::Vector3f{cx + cy, cy - authored_x, 0.0F});
+  }
+  const Frame moved_frame = draw_frame(*device, resources, draw, rhi::Format::R16G16B16A16Float,
+                                       kTarget, view, light, moved);
 
   // Per cell, one or two texels: the column in the cell, drawn or left the
-  // clear color, and the frame and light it is read under.
+  // clear color; the quad whose shading is expected (the cell's own unless
+  // named).
   struct Probe {
     std::uint32_t column{};
     bool drawn{true};
@@ -634,9 +702,10 @@ void forward_lit_pixels(const Arguments& args) {
   struct Row {
     std::string_view name;
     std::vector<Probe> probes;
+    std::optional<std::uint32_t> quad{};
   };
   constexpr std::uint32_t kCenter = kCellPixels / 2U;
-  const std::array<Row, 12> rows{{
+  const std::array<Row, kCells> rows{{
       {"metal", {{kCenter}}},
       {"light behind", {{kCenter}}},
       {"texture times tint", {{kCenter}}},
@@ -646,24 +715,33 @@ void forward_lit_pixels(const Arguments& args) {
       {"normal map, mirrored", {{kCenter}}},
       {"occlusion and reflectance texture", {{kCenter}}},
       {"reflectance curve, n.v about 0.7", {{kCenter}}},
-      {"tinted reflection", {{kCenter}}},
+      {"tinted reflection, authored one cell over and moved back", {{kCenter}}},
       {"opacity curve", {{kCenter}}},
       {"reflectance under 2 percent at a grazing half vector", {{kCenter}}},
+      {"additive over", {{kCenter}}},
+      {"depth: a far opaque quad drawn after a near one is hidden", {{kCenter}}},
+      {"depth: an opaque quad drawn after a nearer translucent one shows", {{kCenter}}, kCells + 1},
+      {"back-facing quad drawn", {{kCenter}}},
+      {"reflectance masked by base luminance", {{kCenter}}},
   }};
   for (std::uint32_t cell = 0; cell < rows.size(); ++cell) {
     const bool grazing = cell == kGrazingCell;
+    const Frame& read = grazing ? grazing_frame : cell == kMovedCell ? moved_frame : frame;
+    const Quad& quad = model.quads[rows[cell].quad.value_or(cell)];
+    const LitSpec& spec = specs[quad.material];
     for (const Probe& probe : rows[cell].probes) {
-      const Texel texel = texel_at(grazing ? grazing_frame : frame, cell, probe.column);
+      const Texel texel = texel_at(read, cell, probe.column);
       const V3 v =
           normalized({eye[0] - texel.world[0], eye[1] - texel.world[1], eye[2] - texel.world[2]});
       V3 expected{kClear[0], kClear[1], kClear[2]};
       if (probe.drawn) {
-        const Attributes a = template_attributes(specs[cell], model.quads[cell], v);
+        const Attributes a = template_attributes(spec, quad, v);
         const V3 lit = shade(a, v, grazing ? grazing_light : light);
-        const bool blended = specs[cell].blend == B::Translucent;
+        const bool blended = spec.blend == B::Translucent || spec.blend == B::Additive;
         const float opacity = blended ? a.opacity : 1.0F;
+        const float under = spec.blend == B::Additive ? 1.0F : 1.0F - opacity;
         for (std::size_t c = 0; c < 3; ++c) {
-          expected[c] = (lit[c] * opacity) + (kClear[c] * (1.0F - opacity));
+          expected[c] = (lit[c] * opacity) + (kClear[c] * under);
         }
       }
       for (std::size_t c = 0; c < 3; ++c) {
@@ -679,7 +757,8 @@ void forward_lit_pixels(const Arguments& args) {
 
 // (model_draw.hpp, contract 2): one row per error name the content and the
 // caller can cause, each a two-quad model with two materials that creates
-// but for one change to the second draw or material, whose index is named.
+// but for one change to the second draw or material, whose index is named;
+// MaterialFailed carries create_material's error.
 void failures_named(const Arguments& args) {
   using E = rendering::ModelDrawError;
   struct Row {
@@ -734,15 +813,19 @@ void failures_named(const Arguments& args) {
         *device, resources, shaders, buffer, rhi::Format::R16G16B16A16Float, draw);
     const std::optional<std::string_view> name = rows[i].name;
     const bool named = name.has_value() ? failure.name == *name : !failure.name.empty();
+    const bool material_error = rows[i].error != E::MaterialFailed ||
+                                failure.material_error == m::MaterialError::SwitchUnknown;
     require(failure.error == rows[i].error && failure.index == rows[i].index && named &&
-                draw.pipelines.empty() && draw.instances.empty(),
+                material_error && draw.pipelines.empty() && draw.instances.empty(),
             i, rows[i].note);
   }
 }
 
 // (model_draw.hpp, contracts 1 to 4) over PW0 from the pw0_cache fixture:
 // its materials create, its draws each have a pipeline, and the frame
-// executes with no GPU fault and covers the target.
+// executes with no GPU fault and covers the target; update_scene_blocks
+// keeps a buffer whose bytes are unchanged and remakes one whose bytes
+// changed.
 void pw0_draws_with_materials(const Arguments& args) {
   const content::OpenLayersResult opened =
       content::open_layers(std::nullopt, std::nullopt, args.pw0_cache);
@@ -774,10 +857,27 @@ void pw0_draws_with_materials(const Arguments& args) {
   if (!view.has_value()) {
     throw std::runtime_error("the bounding sphere cannot be framed");
   }
-  const Frame frame = draw_frame(
-      *device, model, draw, kColor, kExtent,
-      bw::scene::make_view(bw::scene::world_to_clip(*view, 1.0F), view->eye, 64.0F, 64.0F),
-      bw::scene::fixture_light(), kIdentity);
+  const bw::scene::View scene_view =
+      bw::scene::make_view(bw::scene::world_to_clip(*view, 1.0F), view->eye, 64.0F, 64.0F);
+  const Frame frame = draw_frame(*device, model, draw, kColor, kExtent, scene_view,
+                                 bw::scene::fixture_light(), kIdentity);
+
+  rendering::SceneBlocks blocks;
+  require(
+      rendering::update_scene_blocks(*device, scene_view, bw::scene::fixture_light(), blocks).ok(),
+      "the scene blocks");
+  const rhi::Buffer* view_buffer = blocks.view.get();
+  const rhi::Buffer* light_buffer = blocks.fixture_light.get();
+  require(rendering::update_scene_blocks(*device, scene_view, bw::scene::fixture_light(), blocks)
+                  .ok() &&
+              blocks.view.get() == view_buffer && blocks.fixture_light.get() == light_buffer,
+          "equal blocks keep both buffers");
+  bw::scene::View moved_eye = scene_view;
+  moved_eye.eye_position.x += 1.0F;
+  require(
+      rendering::update_scene_blocks(*device, moved_eye, bw::scene::fixture_light(), blocks).ok() &&
+          blocks.view.get() != view_buffer && blocks.fixture_light.get() == light_buffer,
+      "a moved eye remakes the view buffer alone");
   std::size_t covered = 0;
   for (std::uint32_t y = 0; y < kExtent.height; ++y) {
     for (std::uint32_t x = 0; x < kExtent.width; ++x) {

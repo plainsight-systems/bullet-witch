@@ -244,7 +244,7 @@ AssembledReflection assemble_reflection(const BackendReflection& backend,
   shaders::Reflection& out = result.reflection;
   for (const BoundBlock& bound : backend.blocks) {
     if (out.block_count >= shaders::kMaxReflectedBlocks) {
-      result.error = ReflectionError::DuplicateBlock;
+      result.error = ReflectionError::TooManyBlocks;
       result.slot = bound.binding.slot;
       return result;
     }
@@ -294,7 +294,7 @@ AssembledReflection assemble_reflection(const BackendReflection& backend,
       continue;
     }
     if (out.block_count >= shaders::kMaxReflectedBlocks) {
-      result.error = ReflectionError::DuplicateBlock;
+      result.error = ReflectionError::TooManyBlocks;
       result.slot = static_cast<std::uint32_t>(i);
       return result;
     }

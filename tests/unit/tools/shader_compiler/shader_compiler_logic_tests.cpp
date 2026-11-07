@@ -194,8 +194,8 @@ void vertex_input_predicate() {
 // (logic.hpp, assemble_reflection), with (logic.hpp, ReflectionError): blocks
 // are named and hashed from the
 // registry by slot, in the stated (kind, slot) order; root constant words come from the
-// layout when used; the named errors for undeclared, duplicate and
-// over-long input lists.
+// layout when used; the named errors for undeclared, duplicate, too many
+// blocks and over-long input lists.
 void assemble_reflection_by_slot() {
   using bw::shader_compiler::assemble_reflection;
   const bw::shaders::RootLayout layout = layout_with_view();
@@ -277,6 +277,23 @@ void assemble_reflection_by_slot() {
   const auto duplicated = assemble_reflection(twice, shader, layout);
   require(duplicated.error == ReflectionError::DuplicateBlock && duplicated.slot == 2,
           "the same slot twice");
+
+  // Every static slot, the draw block and one buffer block past
+  // kMaxReflectedBlocks: the fifth buffer block, index 4, is the first past it.
+  bw::shaders::RootLayout full_layout{};
+  BackendReflection full{};
+  for (std::uint32_t slot = 0; slot < bw::shaders::kMaxStaticBlocks; ++slot) {
+    full_layout.static_slots[slot] = layout.static_slots[2];
+    full.blocks.push_back(BoundBlock{BlockBinding{BlockBindingKind::Static, slot}, {}});
+  }
+  full.blocks.push_back(BoundBlock{BlockBinding{BlockBindingKind::Draw, 0}, {}});
+  const std::array<const BlockLayout*, 5> five_buffers{
+      kInnerBuffer[0], kInnerBuffer[0], kInnerBuffer[0], kInnerBuffer[0], kInnerBuffer[0]};
+  ShaderDescription overfull = shader;
+  overfull.buffer_blocks = five_buffers;
+  const auto too_many = assemble_reflection(full, overfull, full_layout);
+  require(too_many.error == ReflectionError::TooManyBlocks && too_many.slot == 4,
+          "more blocks than the reflection holds");
 
   BackendReflection crowded{};
   for (std::uint32_t i = 0; i <= bw::shaders::kMaxVertexInputs; ++i) {

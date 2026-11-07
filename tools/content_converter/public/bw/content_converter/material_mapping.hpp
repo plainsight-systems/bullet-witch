@@ -53,7 +53,8 @@
 //     LUMI r    -> vector emissive = (r, r, r, 0); the template multiplies
 //                  it by the base color.
 //     SPCC n    -> scalar roughness = roughness_from_exponent(n).
-//     SPCC, REFP x, FRSR -> the reflectance curve. With
+//     SPCC, REFP x, FRSR -> the reflectance curve, written only when the
+//                  block has all three records. With
 //                  w = highlight_reflectance(SPCC n, SPCC k, REFP x):
 //                  scalar reflectance = saturate(w * saturate(FRSR z)),
 //                  scalar grazing_reflectance = saturate(w *
@@ -95,9 +96,8 @@
 //   eight lower-case hexadecimal digits; "base_alpha" as above; then TR
 //   slots that have no lit parameter, the four above included, each named
 //   "TR.<tag>" with the slot's id as text. A tag that appears twice
-//   takes its first occurrence and the later one is unmapped; a name
-//   already used gains '.' and the field's 0-based position in the
-//   unmapped list, so names stay unique. Floats are written shortest
+//   takes its first occurrence and the later one is unmapped; names are
+//   unique within one file. Floats are written shortest
 //   round-trip, locale-independent, so equal blocks give equal text on
 //   every host.
 //   Record order: switches base_color_map, normal_map,
@@ -134,7 +134,8 @@
 //     SwitchesNotAdmitted  the lit template's predicate rejects the
 //                          switch values the slots and the blend mode
 //                          give (name: the first switch whose requirement
-//                          is not met);
+//                          is not met, or "masked" when it is the masked
+//                          requirement);
 //     BlendMarkerUnknown   the block has an SRS block whose tag is neither
 //                          BTNO nor BTAD (name: the tag).
 //   On a failure `asset` and `unmapped` are empty.
@@ -250,8 +251,7 @@ enum class MaterialMappingError : std::uint8_t {
 };
 
 // The blend mode of a block and its base alpha class. BlendMarkerUnknown
-// when the block's SRS tag is neither BTNO nor BTAD; `out` is then
-// unchanged.
+// when the block's SRS tag is neither BTNO nor BTAD.
 [[nodiscard]] MaterialMappingError blend_mode_of(const MaterialBlock& block, BaseAlpha base_alpha,
                                                  materials::BlendMode& out) noexcept;
 

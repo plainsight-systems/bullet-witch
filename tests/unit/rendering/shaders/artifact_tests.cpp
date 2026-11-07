@@ -614,6 +614,14 @@ void binding_use_same_for_same_reflection() {
           "draw block use and hash");
   require(direct.root_constant_words == 4U && direct.descriptor_arrays == kFixtureArrays,
           "root constants and descriptor arrays");
+  // (artifact.hpp, BlockSlotKind::Buffer): derive_binding_use ignores a
+  // buffer block.
+  Fixture with_buffer;
+  with_buffer.reflection.blocks[2] = ReflectedBlock{
+      .name = "ViewBlock", .layout_hash = f.view().hash, .slot = 2, .kind = BlockSlotKind::Buffer};
+  with_buffer.reflection.block_count = 3;
+  require(bw::shaders::derive_binding_use(with_buffer.reflection) == direct,
+          "a buffer block sets nothing");
   for (const ShaderTarget target :
        {ShaderTarget::Direct3D12, ShaderTarget::Vulkan, ShaderTarget::Metal}) {
     f.header.target = target;

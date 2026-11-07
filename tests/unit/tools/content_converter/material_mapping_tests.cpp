@@ -169,13 +169,15 @@ cc::MaterialBlock fixture_block() {
 // (material_mapping.hpp, map_material and the mapping onto the lit
 // template): row by row from a fixture block. Slots:
 // the three lit slots to texture and switch, the first of a repeated tag;
-// BTX1 to the switch base_color_1 = 1 and its id kept; an unknown tag kept.
+// BTX1, BLDT, LENV and LUMX each to its switch = 1 and its id kept; an
+// unknown tag kept.
 // CF1I: CCOL as stored, LUMI r as (r, r, r, 0); SPCC, REFP x and an authored
 // FRSR through highlight_reflectance to the reflectance curve; the tint, the
 // base brightness weight and the opacity curve clamped; threshold 0.5; the
 // tags kept whole, then the rest unmapped in the stated order. Then
-// highlight_reflectance at two exponents, and a block with no highlight
-// keeping the template's defaults.
+// highlight_reflectance at two exponents, a block with no highlight
+// keeping the template's defaults, one with no FRSR writing no curve, and
+// one whose FRSR y + z, FRSA z and REFP z pass 1.
 void lit_mapping() {
   cc::MaterialBlock block = fixture_block();
   block.has_sssm = true;
@@ -183,23 +185,31 @@ void lit_mapping() {
   block.cf1i[2].value = {3.0F, 0.9F, 0.5F, 0.0F};    // FRSA
   block.cf1i[4].value = {5.0F, 0.75F, 0.2F, 0.0F};   // FRSR, authored
   block.cf1i[6].value = {0.15F, 2.0F, -0.5F, 0.25F}; // REFP
-  const std::array<cc::ResolvedSlot, 6> slots{slot(tag_of("BTX0"), "model.pw0.texture.dds.a"),
+  const std::array<cc::ResolvedSlot, 9> slots{slot(tag_of("BTX0"), "model.pw0.texture.dds.a"),
                                               slot(tag_of("AMOC"), "model.pw0.texture.dds.g"),
                                               slot(tag_of("BTX1"), "model.pw0.texture.dds.b"),
                                               slot(tag_of("ZZZZ"), "model.pw0.texture.dds.c"),
                                               slot(tag_of("BTX0"), "model.pw0.texture.dds.d"),
-                                              slot(tag_of("NMAP"), "model.pw0.texture.dds.n")};
+                                              slot(tag_of("NMAP"), "model.pw0.texture.dds.n"),
+                                              slot(tag_of("BLDT"), "model.pw0.texture.dds.e"),
+                                              slot(tag_of("LENV"), "model.pw0.texture.dds.f"),
+                                              slot(tag_of("LUMX"), "model.pw0.texture.dds.h")};
   const cc::MaterialMapping mapped = cc::map_material(block, slots, cc::BaseAlpha::Opaque);
   require(mapped.ok(), "the block maps");
   const cc::MaterialAssetData& data = mapped.asset;
   require(data.template_name == m::kLitTemplate, "the lit template");
 
-  const std::array<std::pair<std::string_view, bool>, 4> switches{
+  const std::array<std::pair<std::string_view, bool>, 7> switches{
       {{m::kBaseColorMapSwitch, true},
        {m::kNormalMapSwitch, true},
        {m::kOcclusionReflectanceMapSwitch, true},
-       {cc::kSecondBaseColorSwitch, true}}};
-  require(data.switches.size() == switches.size(), "the three lit switches, then base_color_1");
+       {cc::kSecondBaseColorSwitch, true},
+       {cc::kBlendMaskSwitch, true},
+       {cc::kEnvironmentMapSwitch, true},
+       {cc::kIlluminanceMapSwitch, true}}};
+  require(data.switches.size() == switches.size(),
+          "the three lit switches, then base_color_1, blend_mask, environment_map and "
+          "illuminance_map");
   for (std::size_t i = 0; i < switches.size(); ++i) {
     require(data.switches[i].name == switches[i].first &&
                 data.switches[i].value == switches[i].second,
@@ -245,12 +255,10 @@ void lit_mapping() {
       "FRSR", "FRSA",       "REFP",         "ENVP",        "SPCC",    "PARF",
       "FRSB", "SSSM.level", "knsS.feature", "knsS.second", "TR.BTX1", "TR.ZZZZ"};
   const std::vector<cc::UnmappedField>& unmapped = mapped.unmapped;
-  require(unmapped.size() == names.size() + 1U, "every unmapped field");
+  require(unmapped.size() == names.size() + 4U, "every unmapped field");
   for (std::size_t i = 0; i < names.size(); ++i) {
     require(unmapped[i].name == names[i], i, "unmapped field names, in the stated order");
   }
-  require(unmapped[12].name == "TR.BTX0" && unmapped[12].value == "model.pw0.texture.dds.d",
-          "the later of a repeated tag unmapped");
   require(unmapped[0].value == "5,0.75,0.2,0" && unmapped[4].value == "40,0.1,0,0" &&
               unmapped[5].value == "0,0.5,0.25,1" && unmapped[7].value == "3",
           "a CF1I record's floats separated by ',', mapped tags whole; SSSM's middle word in "
@@ -277,18 +285,46 @@ void lit_mapping() {
               cc::highlight_reflectance(40.0F, 0.0F, 1.0F) == 0.0F,
           "linear in k and reflectivity; 0 at n 0 and at k 0");
 
+  // The value of a named scalar, or -1 when the mapping writes none.
+  const auto scalar_of = [](const cc::MaterialMapping& mapping, std::string_view name) {
+    const auto found = std::find_if(mapping.asset.scalars.begin(), mapping.asset.scalars.end(),
+                                    [name](const cc::NamedScalar& s) { return s.name == name; });
+    return found == mapping.asset.scalars.end() ? -1.0F : found->value;
+  };
   cc::MaterialBlock dull = fixture_block();
   dull.cf1i[7].value = {40.0F, 0.0F, 0.0F, 0.0F};
   const cc::MaterialMapping dull_mapped = cc::map_material(dull, {}, cc::BaseAlpha::NoTexture);
-  const auto named = [&dull_mapped](std::string_view name) {
-    return std::any_of(dull_mapped.asset.scalars.begin(), dull_mapped.asset.scalars.end(),
-                       [name](const cc::NamedScalar& s) { return s.name == name; });
-  };
   require(dull_mapped.ok() && dull_mapped.asset.scalars[1].name == m::kRoughness &&
-              dull_mapped.asset.scalars[1].value == 1.0F && !named(m::kReflectance) &&
-              !named(m::kGrazingReflectance) && !named(m::kFresnelExponent) &&
-              named(m::kSpecularTint),
+              dull_mapped.asset.scalars[1].value == 1.0F &&
+              scalar_of(dull_mapped, m::kReflectance) < 0.0F &&
+              scalar_of(dull_mapped, m::kGrazingReflectance) < 0.0F &&
+              scalar_of(dull_mapped, m::kFresnelExponent) < 0.0F &&
+              scalar_of(dull_mapped, m::kSpecularTint) >= 0.0F,
           "no highlight: roughness 1 and no reflectance scalar, so the defaults apply");
+
+  // A highlight with no FRSR: roughness from SPCC, and the curve needs all
+  // three records, so none of its scalars is written.
+  cc::MaterialBlock no_frsr = fixture_block();
+  no_frsr.cf1i[4].tag = tag_of("XXXX");
+  const cc::MaterialMapping no_curve = cc::map_material(no_frsr, {}, cc::BaseAlpha::NoTexture);
+  require(no_curve.ok() &&
+              scalar_of(no_curve, m::kRoughness) == cc::roughness_from_exponent(40.0F) &&
+              scalar_of(no_curve, m::kReflectance) < 0.0F &&
+              scalar_of(no_curve, m::kGrazingReflectance) < 0.0F &&
+              scalar_of(no_curve, m::kFresnelExponent) < 0.0F,
+          "SPCC and REFP without FRSR: roughness, and no curve");
+
+  // Values past 1 where the rules saturate: FRSR y + z, FRSA z and REFP z.
+  // With w under 1 the grazing end is w times the saturated sum, exactly w.
+  cc::MaterialBlock bright = fixture_block();
+  bright.cf1i[4].value = {5.0F, 0.4F, 0.8F, 0.0F};  // FRSR
+  bright.cf1i[2].value = {3.0F, 0.0F, 1.5F, 0.0F};  // FRSA
+  bright.cf1i[6].value = {0.15F, 0.0F, 1.2F, 0.0F}; // REFP
+  const cc::MaterialMapping clamped = cc::map_material(bright, {}, cc::BaseAlpha::NoTexture);
+  require(w < 1.0F && clamped.ok() && scalar_of(clamped, m::kGrazingReflectance) == w &&
+              scalar_of(clamped, m::kOpacityFacing) == 1.0F &&
+              scalar_of(clamped, m::kReflectanceBaseLuminance) == 1.0F,
+          "FRSR y + z, FRSA z and REFP z saturated");
 }
 
 // (material_mapping.hpp, render_unmapped_fields, parse_unmapped_fields):
@@ -405,6 +441,11 @@ void refusals_named() {
                 mapped.unmapped.empty(),
             i, rows[i].note);
   }
+  // SwitchesNotAdmitted when the unmet requirement is the masked one: a
+  // binary base alpha, so Masked, with no base slot.
+  const cc::MaterialMapping masked = cc::map_material(fixture_block(), {}, cc::BaseAlpha::Binary);
+  require(masked.error == cc::MaterialMappingError::SwitchesNotAdmitted && masked.name == "masked",
+          "the masked requirement named \"masked\"");
 }
 
 constexpr std::array<bw::testing::Scenario<void>, 6> kScenarios{{

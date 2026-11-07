@@ -111,8 +111,9 @@
 //                               group's count;
 //     DrawRangesOverlap         two draws of the group share an index
 //                               position, which could need two remaps;
-//     MorphVertexCountMismatch  the group's morph set has another vertex
-//                               count than the group;
+//     MorphVertexCountMismatch  the morph set of a group whose layout has
+//                               Tangent has another vertex count than
+//                               the group;
 //     VertexCountOverflow       the copies take the group past 65,535
 //                               vertices.
 //   On a failure the mesh and the morph sets are left partly written and
@@ -123,8 +124,9 @@
 //   record whose texels are halfs (texture_reader.hpp, half_texels), and
 //   NoTexture without a BTX0 slot; the PNG is decoded only when the
 //   material is converted, not when it is skipped. A material whose BTX0
-//   slot names a record that is not a 2D texture, is not indexed, or
-//   whose container, descriptor or PNG cannot be read fails, naming which.
+//   slot names a record that is not a 2D texture, is not indexed, whose
+//   descriptor the texture plan refuses, or whose container, descriptor
+//   or PNG cannot be read fails, naming which.
 //   A material that map_material refuses fails with the error's name and
 //   the name it gives, like any other failed asset.
 //   Incremental: an output file that exists, parses, carries

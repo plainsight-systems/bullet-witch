@@ -199,6 +199,10 @@ MaterialFailure create_material(const MaterialAssetView& asset,
   if (!permutation.has_value()) {
     return failed(MaterialError::PermutationNotAdmitted, {});
   }
+  const MemberLayout* sampler_member = find_member(t, t.sampler);
+  if (sampler_member == nullptr) {
+    return failed(MaterialError::SamplerUnbound, t.sampler);
+  }
 
   // Parameters, written over the defaults.
   Material built;
@@ -264,10 +268,7 @@ MaterialFailure create_material(const MaterialAssetView& asset,
     }
     write_words(block, *find_texture_member(t, name), &bound->texture.value, 1);
   }
-  const MemberLayout* sampler_member = find_member(t, t.sampler);
-  if (sampler_member != nullptr) {
-    write_words(block, *sampler_member, &sampler.value, 1);
-  }
+  write_words(block, *sampler_member, &sampler.value, 1);
   out = built;
   return {};
 }

@@ -150,12 +150,16 @@ enum class ReflectionError : std::uint8_t {
   DrawBlockNotDeclared,
   // The same slot is reported twice.
   DuplicateBlock,
+  // The static, draw and buffer blocks together exceed
+  // shaders::kMaxReflectedBlocks.
+  TooManyBlocks,
   TooManyVertexInputs,
   // A semantic name longer than kMaxArtifactString.
   SemanticTooLong,
 };
 // slot names the failing static slot for StaticBlockNotDeclared and
-// DuplicateBlock. On success `reflection` views the registry's static block
+// DuplicateBlock, and the slot of the first block past the limit for
+// TooManyBlocks. On success `reflection` views the registry's static block
 // names and the semantic names inside `backend`, which must outlive it.
 struct AssembledReflection {
   shaders::Reflection reflection{};
@@ -170,8 +174,8 @@ struct AssembledReflection {
 // inputs and thread group size are copied. Each buffer block the
 // description declares becomes a Buffer block at its index in that list,
 // whatever the backend reports, since a buffer read binds nothing a
-// backend can reflect; a null entry is skipped here and refused by
-// append_generated_include. Blocks are emitted in (kind, slot) order,
+// backend can reflect; a null entry is append_generated_include's refusal
+// (NullBlock), which the tool reaches first. Blocks are emitted in (kind, slot) order,
 // static, then draw, then buffer, the order artifact.hpp writes them in.
 [[nodiscard]] AssembledReflection assemble_reflection(const BackendReflection& backend,
                                                       const shaders::ShaderDescription& shader,

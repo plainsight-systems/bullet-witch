@@ -355,6 +355,7 @@ using SyntheticInstall = std::vector<SyntheticContainer>;
 constexpr std::string_view kModelPath = "graphics/chara/SX0/model/mesh.cpr";
 constexpr std::string_view kMesh = "model.sx0.mesh";
 constexpr std::string_view kTextureA = "model.sx0.texture.dds.sx0_a_psd";
+constexpr std::string_view kTextureB = "model.sx0.texture.dds.sx0_b_psd";
 constexpr std::string_view kSharedTexture = "shared_texture.sx_share.dds.sx_share_psd";
 // The texture table's names, as the CALL stores them: material 0's base
 // color is A and its normal map B; material 1's base color is the shared
@@ -367,9 +368,10 @@ constexpr std::size_t kModelContainer = 0;
 constexpr std::size_t kTableContainer = 1;
 constexpr std::size_t kTextureContainer = 2;
 
-fx::Record texture_record(std::string_view qualified_name, Bytes png) {
+fx::Record texture_record(std::string_view qualified_name, Bytes png,
+                          Bytes descriptor = fx::dxt1_descriptor()) {
   return {
-      "DDS ", "texture.dds", std::string(qualified_name), std::move(png), fx::dxt1_descriptor(), {},
+      "DDS ", "texture.dds", std::string(qualified_name), std::move(png), std::move(descriptor), {},
       {}};
 }
 
@@ -441,13 +443,16 @@ struct Identity {
 // counted by the report as converted and the rest as skipped. A row that
 // changes the install leaves every other file's bytes as they were and
 // changes the rewritten ones; a row that damages the cache leaves the whole
-// cache as it was before the damage. The rows: a texture's PNG (that texture
-// and the material it is the base color of, not the one it is the normal
-// map of), a vertex buffer byte (the mesh and its morph set, not its
-// materials), the case of a texture-table name (every material, not the
-// mesh), a cached file carrying another format version or not parsing (that
-// file), a material whose unmapped fields file is missing or does not parse
-// (that material), and each texture pipeline option (every texture).
+// cache as it was before the damage. The rows: a base color texture's PNG
+// (that texture and its material), a normal map's PNG (that texture, not the
+// material it is the normal map of), a base color record's
+// descriptor alone (that texture and the material it is the base color of),
+// a vertex buffer byte (the mesh and its morph set, not its materials),
+// the case of a texture-table name (every material, not the mesh), a cached
+// file carrying another format version or not parsing (that file), a
+// material whose unmapped fields file is missing or does not parse (that
+// material), and each texture pipeline option (every texture). A rerun that
+// skips every material reports the same unmapped fields.
 void incremental_reconverts_dependents(const Arguments& arguments) {
   const ScratchTree tree(arguments.scratch, "incremental_reconverts_dependents");
   SyntheticInstall source = synthetic_install();
@@ -472,6 +477,12 @@ void incremental_reconverts_dependents(const Arguments& arguments) {
   const cc::ConvertResult rerun = convert(install, cache_a, {}, 0);
   require(rerun.report.converted == 0U && rerun.report.skipped_unchanged == assets,
           "an unchanged rerun skips every asset");
+  require(std::equal(rerun.report.unmapped.begin(), rerun.report.unmapped.end(),
+                     first.report.unmapped.begin(), first.report.unmapped.end(),
+                     [](const cc::UnmappedCount& x, const cc::UnmappedCount& y) {
+                       return x.field == y.field && x.count == y.count;
+                     }),
+          "the skipping rerun reports the same unmapped fields");
 
   const std::string material_0 = std::string(kMesh) + ".material.0";
   const std::string material_1 = std::string(kMesh) + ".material.1";
@@ -498,11 +509,31 @@ void incremental_reconverts_dependents(const Arguments& arguments) {
     std::size_t restored{};
   };
   const std::vector<Change> changes{
-      {"a texture's PNG",
+      {"a base color texture's PNG",
        [&] {
          source[kTextureContainer].records = {
              texture_record(kTableNames[0], fx::png_bytes(fx::kSecondPng)),
              texture_record(kTableNames[1], fx::png_bytes(fx::kPng))};
+         rewrite_install();
+       },
+       [&](const Identity& asset) { return asset.id == kTextureA || asset.id == material_0; },
+       {}},
+      {"a normal map's PNG",
+       [&] {
+         source[kTextureContainer].records = {
+             texture_record(kTableNames[0], fx::png_bytes(fx::kSecondPng)),
+             texture_record(kTableNames[1], fx::png_bytes(fx::kSecondPng))};
+         rewrite_install();
+       },
+       [&](const Identity& asset) { return asset.id == kTextureB; },
+       {}},
+      {"a base color record's descriptor",
+       [&] {
+         Bytes linear = fx::dxt1_descriptor();
+         fx::put_u32(linear, 28, 0x84000002U); // sign 0 (unsigned) in place of 3 (gamma)
+         source[kTextureContainer].records = {
+             texture_record(kTableNames[0], fx::png_bytes(fx::kSecondPng), linear),
+             texture_record(kTableNames[1], fx::png_bytes(fx::kSecondPng))};
          rewrite_install();
        },
        [&](const Identity& asset) { return asset.id == kTextureA || asset.id == material_0; },
@@ -614,27 +645,171 @@ void shared_texture_resolves(const Arguments& arguments) {
           "the shared texture is written");
 }
 
-// (conversion.hpp, Ids: collision; Report: failed with id and reason) over
-// the synthetic install and a second model container whose CALL names the
-// same mesh id: the first converts, every asset of the second is a failed
-// row naming the container that holds the id first. Alone catches a second
-// container overwriting the first without a failure.
+// (conversion.hpp, Ids: collision; Report: failed with id and reason;
+// Parallel: sorted by id) over the synthetic install and two more model
+// containers whose CALLs name the same mesh id: the first converts, every
+// asset of each later one is a failed row naming the container that holds
+// the id first, and the rows are in id order, which two jobs failing the
+// same ids reach only by sorting. Alone catches a later container
+// overwriting the first without a failure.
 void collision_fails_second_container(const Arguments& arguments) {
   const ScratchTree tree(arguments.scratch, "collision_fails_second_container");
   SyntheticInstall containers = synthetic_install();
   containers.push_back({"graphics/chara/SX1/model/mesh.cpr", model_records("model.SX0.mesh")});
+  containers.push_back({"graphics/chara/SX2/model/mesh.cpr", model_records("model.SX0.mesh")});
   const content::InstallLocation install = write_install(tree.root() / "install", containers);
   const cc::ConvertResult result =
       cc::run_conversion(options_for(tree.root() / "cache", kMesh, 0), install);
   require(result.ok(), "the run with a colliding model completes: " + result.detail);
   require(result.report.converted > 1U, "the first model's assets convert");
-  require(result.report.failed.size() == result.report.converted,
-          "every asset of the second model is a failed row");
+  require(result.report.failed.size() == 2U * result.report.converted,
+          "every asset of each later model is a failed row");
+  require(std::is_sorted(
+              result.report.failed.begin(), result.report.failed.end(),
+              [](const cc::FailedAsset& x, const cc::FailedAsset& y) { return x.id < y.id; }),
+          "the failed rows are in id order");
   const std::string first = std::string(kStable) + "/" + std::string(kModelPath);
   for (const cc::FailedAsset& failed : result.report.failed) {
     require(failed.id.starts_with(kMesh) && failed.reason.find(first) != std::string::npos,
             "a failed row names the container holding the id first: " + failed.reason);
   }
+}
+
+// The model under graphics/chara/<dir>, created as model.<dir>.mesh, with its
+// texture table of `names` (material 0's base color, its normal map,
+// material 1's base color) and its texture container of `textures`.
+void add_model(SyntheticInstall& install, const std::string& dir,
+               const std::array<std::string, 3>& names, std::vector<fx::Record> textures) {
+  const std::string root = "graphics/chara/" + dir;
+  install.push_back({root + "/model/mesh.cpr", model_records("model." + dir + ".mesh")});
+  const std::array<std::string_view, 3> table{names[0], names[1], names[2]};
+  install.push_back(
+      {root + "/texture/default.cpr",
+       fx::texture_table({cc::kTextureCreateCall, cc::kTableSlot, cc::kDdsSlot}, table)});
+  install.push_back({root + "/texture/texture.cpr", std::move(textures)});
+}
+
+// (conversion.hpp, run_conversion: Materials; Write; Report;
+// material_mapping.hpp, BlendMarkerUnknown) over the synthetic install and
+// three more models, one material per case. Each fails naming which, writes
+// no asset and is not counted converted: a base color record that is a cube
+// (SX1 material 0), one no container holds (SX1 material 1, refused when its
+// slot resolves), one whose descriptor the texture plan refuses (SX2
+// material 0), one whose PNG does not decode (SX2 material 1), an SRS tag
+// that is no marker (SX3 material 0), and a directory where SX0 material 0's
+// unmapped fields file goes. The run's other materials convert, among them
+// SX3 material 1, whose base record holds half texels whose pairs of pixels
+// have alpha 0 and 255: Opaque, not Masked.
+void material_base_color_record_failures(const Arguments& arguments) {
+  const ScratchTree tree(arguments.scratch, "material_base_color_record_failures");
+  SyntheticInstall source = synthetic_install();
+  const auto names = [](const std::string& dir) {
+    const std::string stem = "model." + dir + ".texture.dds.";
+    return std::array<std::string, 3>{stem + "a", stem + "b", stem + "c"};
+  };
+  const Bytes png = fx::png_bytes(fx::kPng);
+  Bytes cube = fx::dxt1_descriptor();
+  fx::put_u32(cube, 48, 0x0027CE00U); // dimension 3
+  Bytes signed_dxt1 = fx::dxt1_descriptor();
+  fx::put_u32(signed_dxt1, 28, 0x84000156U); // sign 85 on DXT1
+  Bytes half = signed_dxt1;
+  fx::put_u32(half, 32, 0x0025C05DU); // 16_16_16_16_EXPAND
+  fx::put_u32(half, 36, 0U);          // 1 x 1, half the PNG's width
+  const std::array<std::string, 3> sx1 = names("SX1");
+  add_model(source, "SX1", sx1,
+            {{"DDSC", "texture.dds", sx1[0], png, cube, {}, {png, png, png, png, png}},
+             texture_record(sx1[1], png)});
+  const std::array<std::string, 3> sx2 = names("SX2");
+  add_model(source, "SX2", sx2,
+            {texture_record(sx2[0], png, signed_dxt1), texture_record(sx2[1], png),
+             texture_record(sx2[2], fx::text_bytes("not a png"))});
+  const std::array<std::string, 3> sx3 = names("SX3");
+  add_model(source, "SX3", sx3,
+            {texture_record(sx3[0], png), texture_record(sx3[1], png),
+             texture_record(sx3[2], fx::png_bytes(fx::kAlphaPng), half)});
+  // SX3's model: material 0's SRS tag BTAD (stored last-first) becomes XXXX.
+  Bytes& header = source[source.size() - 3].records[0].payload;
+  const Bytes btad = fx::text_bytes("DATB");
+  const auto at = std::search(header.begin(), header.end(), btad.begin(), btad.end());
+  require(at != header.end(), "SX3's header holds the SRS tag");
+  std::fill_n(at, 4, std::byte{'X'});
+  const content::InstallLocation install = write_install(tree.root() / "install", source);
+  const fs::path cache = tree.root() / "cache";
+  fs::path unmapped = cached_path(cache, std::string(kMesh) + ".material.0");
+  unmapped += cc::kUnmappedFieldsSuffix;
+  fs::create_directories(unmapped);
+
+  const cc::ConvertResult result = cc::run_conversion(options_for(cache, {}, 0), install);
+  require(result.ok(), "the run completes: " + result.detail);
+  std::map<std::string, std::string> failed;
+  for (const cc::FailedAsset& f : result.report.failed) {
+    failed[f.id] = f.reason;
+  }
+  const std::array<std::pair<std::string_view, std::string_view>, 6> cases{{
+      {"model.sx1.mesh.material.0", "2D"},
+      {"model.sx1.mesh.material.1", "TextureMissing"},
+      {"model.sx2.mesh.material.0", "SignUnsupported"},
+      {"model.sx2.mesh.material.1", "png"},
+      {"model.sx3.mesh.material.0", "BlendMarkerUnknown XXXX"},
+      {"model.sx0.mesh.material.0", "unmapped fields file"},
+  }};
+  for (std::size_t i = 0; i < cases.size(); ++i) {
+    const auto found = failed.find(std::string(cases[i].first));
+    require(found != failed.end() && found->second.find(cases[i].second) != std::string::npos &&
+                !fs::exists(cached_path(cache, cases[i].first)),
+            i,
+            std::string(cases[i].first) + " fails naming " + std::string(cases[i].second) +
+                " and writes no asset");
+  }
+  std::uint64_t written = 0;
+  for (const fs::directory_entry& entry : fs::recursive_directory_iterator(cache)) {
+    written += entry.is_regular_file() && !is_unmapped_file(entry.path()) &&
+                       entry.path().filename() != content::kConvertedCacheRecordFile
+                   ? 1U
+                   : 0U;
+  }
+  require(result.report.converted == written, "converted counts the assets written alone");
+  require(fs::exists(cached_path(cache, std::string(kMesh) + ".material.1")),
+          "the run's other materials convert");
+  const Bytes file = read_bytes(cached_path(cache, "model.sx3.mesh.material.1"));
+  const content::CookedParse parse = content::parse_cooked_header(file);
+  bw::materials::MaterialAssetView material;
+  require(parse.ok() && bw::materials::decode_material_asset(
+                            content::cooked_payload(file, parse.header), material)
+                                .error == bw::materials::MaterialAssetError::None,
+          "the half-texel material decodes");
+  const auto blend = material.find_scalar(bw::materials::kBlendModeParameter);
+  require(blend.found &&
+              blend.value == static_cast<float>(static_cast<int>(bw::materials::BlendMode::Opaque)),
+          "a half-texel base converts Opaque");
+}
+
+// (conversion.hpp, InputHasher and Input hash: the mesh's items) over the
+// synthetic install: the mesh's input hash from the revision text, header.bin,
+// the buffer records its VTXS, VTX and IDX chunks name in document order and
+// the shapeoffset record its VTXS names equals the hash its cooked file
+// carries.
+void input_hash_from_items(const Arguments& arguments) {
+  const ScratchTree tree(arguments.scratch, "input_hash_from_items");
+  const SyntheticInstall source = synthetic_install();
+  const content::InstallLocation install = write_install(tree.root() / "install", source);
+  const fs::path cache = tree.root() / "cache";
+  convert(install, cache, kMesh, 0);
+  const std::vector<fx::Record>& records = source[kModelContainer].records;
+  cc::InputHasher hasher(content::AssetKind::Mesh, kMesh);
+  hasher.add_text("mesh-conversion " + std::to_string(cc::kMeshConversionRevision));
+  for (const std::string_view name :
+       {"header.bin", "shapevertex_000.bin", "vertex_000.bin", "index_000.bin", "vertex_001.bin",
+        "index_001.bin", "shapeoffset_000.bin"}) {
+    const auto record = std::find_if(records.begin(), records.end(),
+                                     [name](const fx::Record& r) { return r.short_name == name; });
+    require(record != records.end(), "the fixture holds " + std::string(name));
+    hasher.add(record->payload);
+  }
+  const Bytes file = read_bytes(cached_path(cache, kMesh));
+  const content::CookedParse parse = content::parse_cooked_header(file);
+  require(parse.ok() && parse.header.input_hash == hasher.finish(),
+          "the mesh's input hash is the hash of its items");
 }
 
 using Scenario = bw::testing::Scenario<Arguments>;
@@ -643,6 +818,8 @@ constexpr std::array kScenarios{
     Scenario{"incremental_reconverts_dependents", &incremental_reconverts_dependents},
     Scenario{"shared_texture_resolves", &shared_texture_resolves},
     Scenario{"collision_fails_second_container", &collision_fails_second_container},
+    Scenario{"material_base_color_record_failures", &material_base_color_record_failures},
+    Scenario{"input_hash_from_items", &input_hash_from_items},
 };
 
 } // namespace

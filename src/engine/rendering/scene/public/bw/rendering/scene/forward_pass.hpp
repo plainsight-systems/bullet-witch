@@ -65,7 +65,8 @@
 //          -0.0275, -0.572, 0.022), c1 = (1, 0.0425, 1.04, -0.04),
 //          q = r * c0 + c1 and t = min(q.x^2, 2^(-9.28 * n_v)) * q.x +
 //          q.y: ab = (-1.04, 1.04) * t + q.zw;
-//        diffuse = A.diffuse_albedo * (1 - dot(E, (0.3, 0.59, 0.11)));
+//        diffuse = A.diffuse_albedo * (1 - dot(E, (0.2126, 0.7152,
+//          0.0722))), the Rec. 709 luminance the lit template also uses;
 //        color = (diffuse / pi + D * Vis * F) * FixtureLight.color * n_l
 //          + FixtureLight.ambient * A.diffuse_albedo * A.ambient_occlusion
 //          + A.emissive;
