@@ -76,9 +76,14 @@ flowchart LR
 14. The draw record buffers of a frame hold every cluster of every instance
     for every view, so a dispatch cannot run out of room and nothing is
     dropped.
-15. Blended instances pass through the same dispatch and come out in the
-    same stable order. In what order the forward pass draws them is that
-    pass's decision.
+15. Blended instances, emitters and decals pass through the same dispatch
+    and come out in the same stable order. The forward pass and the decal
+    pass sort their records by depth afterwards, as [transparency](transparency.md)
+    and [decals](decals.md) state.
+16. An emitter is an instance whose bounds the effect fixes or the effects
+    system writes each frame, and whose draw record's instance count is
+    written on the GPU from its particle count. A decal is an instance whose
+    mesh is the unit box. Neither has a transform the CPU reads back.
 
 ## The instance
 
@@ -92,7 +97,9 @@ flowchart LR
 | Deformed stream: current and previous copy indices, or none | the geometry feed, each frame it dispatches the instance or applies its no-dispatch rule | vertex fetch, motion vectors |
 | Bone range: the instance's range in the bone buffer, or none | the geometry feed, on entry of a skinned instance | rigid-to-bone clusters' vertex fetch and culling |
 | Material block offset | the material system, on entry and on change | every pass's shaders |
-| Flags: carries baked light or is a mover, casts a shadow, blend mode | the world, on entry | the surface pass, shadow views, the forward pass |
+| Template id | the material system, on entry and on change | the forward and decal pipelines' branch |
+| Sort priority | the world, on entry, from the template's declared priority, and raised when it places a decal over others | the forward and decal passes' sort |
+| Flags: carries baked light or is a mover, casts a shadow, blend mode, kind (mesh, emitter, decal) | the world, on entry | the surface pass, shadow views, the forward pass, the decal pass |
 
 A dispatched instance's bounds for the frame, its cluster boxes and its
 deformed positions come from the [geometry feed](geometry.md), which owns
@@ -151,6 +158,10 @@ covers that rectangle in a fixed footprint.
 | Index count, first index, base vertex | the cluster's range in the mesh's index buffer |
 | Instance index | the record the vertex shader fetches |
 | Bone index, or none | the bone a rigid-to-bone cluster is transformed by, in the instance's bone range |
+| Instance count | one, or an emitter's particle count written on the GPU |
+
+For a ribbon emitter the index count is also written on the GPU, by the
+strip build.
 | Detail level and transition weight | which level's clusters, and the dither between two |
 
 Records are written into one buffer per view per pipeline, each with a

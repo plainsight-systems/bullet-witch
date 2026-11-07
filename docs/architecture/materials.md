@@ -77,6 +77,7 @@ The attribute set a template may write, and which shading models read each.
 | Opacity | translucent blend modes | translucent blend modes | yes | yes |
 | Opacity mask | masked blend mode | masked blend mode | masked | masked |
 | World position offset | yes | yes | yes | yes |
+| Refraction | translucent blend modes | translucent blend modes | translucent blend modes | translucent blend modes |
 | Pixel depth offset | opaque and masked | opaque and masked | opaque and masked | opaque and masked |
 
 World position offset is a function of the vertex, the instance transform
@@ -87,6 +88,14 @@ maximum displacement, which pads the bounds of every instance of the
 template. On a traced target the [geometry feed](geometry.md) runs the
 template's vertex function in a write-out pass to give the acceleration
 structure the offset positions.
+
+A blended template declares a priority for the forward pass's order and a
+lighting form, surface or particle, as [transparency](transparency.md)
+states. A decal template is a template of the decal domain: it writes base
+color, normal and roughness with an opacity for each, from the box-space UV,
+and reaches the decal pass alone. A surface template may declare that it
+refuses normal or roughness changes from decals, as [decals](decals.md)
+states.
 
 Shading models: unlit, lit, subsurface, hair. Blend modes: opaque, masked,
 translucent, additive, modulate. Each template declares one shading model;
@@ -112,7 +121,12 @@ and pass render targets enter the pipeline description, not the
 permutation; the masked blend mode alone is also a switch, because it adds
 a discard. Vertices are pulled, so no vertex layout enters either: a
 permutation states the vertex attributes it reads, and a draw whose mesh
-lacks one fails by name when it is created.
+lacks one fails by name when it is created. Two passes are the exception to
+one pipeline per template: the forward pass and the decal pass are each one
+pipeline across their templates, branching on the template id in the
+instance record, so their draws can be issued in depth order; the
+enumeration still builds every blended and decal template's permutations,
+and that one pipeline links them.
 
 ## Parameters at runtime
 

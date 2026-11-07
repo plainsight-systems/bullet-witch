@@ -81,13 +81,15 @@ flowchart LR
 flowchart TD
     DF["Deformation: shapes, skinning and bounds of every dispatched instance, once"] --> CU["Culling: every instance and cluster against every view, draw records per view per pipeline"]
     CU --> DP["Depth pass: two draws of the main view's records, the depth hierarchy built after each"]
-    DP --> SP["Surface pass: surface data, motion vectors, emissive"]
-    SP --> LG["Light grid and shadow maps"]
+    DP --> SP["Surface pass: surface data, motion vectors, emissive, receiver stencil bits"]
+    SP --> DC["Decal pass: visible decal boxes blended into surface data"]
+    DC --> LG["Light grid and shadow maps"]
     LG --> VT["Visibility terms: shadowing, ambient occlusion, reflections, indirect light"]
     VT --> LP["Lighting pass: every opaque pixel, from surface data, light grid and terms"]
     LP --> SF["Sky and fog"]
-    SF --> FP["Forward pass: translucent, additive and modulate draws, lit as drawn"]
-    FP --> TS["Temporal stage: input resolution in, output resolution out"]
+    SF --> FP["Forward pass: blended draws sorted far to near, two pipelines, lit as drawn"]
+    FP --> DA["Distortion apply"]
+    DA --> TS["Temporal stage: input resolution in, output resolution out"]
     TS --> PP["Post-processing"]
     PP --> TM["Tone mapping and output transform"]
     TM --> UI["User interface"]
@@ -99,12 +101,14 @@ flowchart TD
 | Deformation | changed poses and shape weights, stream 0 of each dispatched mesh, bone maps | the bone buffer, the current copy of each dispatched instance, its cluster and instance boxes | its own |
 | Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy | draw records and counts per view per pipeline | its own |
 | Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
-| Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
+| Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target, receiver stencil bits | input |
+| Decal | the main view's decal records, depth, stencil | base color, normal and roughness of surface data | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
 | Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
 | Lighting | surface data, light grid, term targets | scene color | input |
 | Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
-| Forward | the main view's blended draw records, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, scene color as history for the next frame | input |
+| Forward | the main view's blended draw records, emitter particle data, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, distortion target and stencil bit, scene color as history for the next frame | input |
+| Distortion apply | scene color, distortion target, stencil | scene color | input |
 | Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, exposure | scene color | input to output |
 | Post-processing | scene color | scene color | output |
 | Tone mapping and output transform | scene color, exposure | display color | output |
@@ -126,6 +130,7 @@ pixel, which is why blended draws do not write it.
 | Shading model id | lighting |
 | Shading model data: subsurface color or tangent | lighting, by shading model |
 | Motion vector | temporal stage, filters of stochastic terms, post-processing |
+| Stencil bits: receives no decal, refuses decal normal, refuses decal roughness, refracting pixel | decal pass, distortion apply |
 
 Emissive is not surface data: the surface pass adds it to scene color. An
 unlit surface writes emissive and its shading model id and nothing else.
@@ -141,7 +146,8 @@ reach.
 | Depth | opaque, masked | depth, with the masked discard |
 | Surface | opaque, masked | the attributes of its shading model as surface data, a motion vector, emissive |
 | Shadow | opaque, masked | depth from a light's view, with the masked discard |
-| Forward | translucent, additive, modulate | lit color blended into scene color, and reactive coverage |
+| Forward | translucent, additive, modulate | lit color blended into scene color, reactive coverage, and a refraction offset if the template writes one |
+| Decal | the decal domain | base color, normal, roughness and an opacity for each, into surface data |
 
 Renderer code in the surface pass, not the template, writes the pixel's
 baked indirect light. Renderer code in the depth and surface passes, not the
@@ -153,7 +159,11 @@ offset is evaluated by one function in the depth, surface and shadow vertex
 shaders alike, and once more in the surface pass with the previous transform
 and previous frame values for the motion vector. A forward draw writes no surface data and no motion
 vector. Its reactive coverage tells the temporal stage where history
-cannot be trusted.
+cannot be trusted. The forward and decal passes are each one pipeline across
+their templates, branching on the template id, so their draws can be issued
+in depth order; [transparency](transparency.md) and [decals](decals.md)
+state the order and the pipelines. Every other pass has one pipeline per
+template and permutation.
 
 ## Visibility terms
 
@@ -207,10 +217,12 @@ shaders and runs on every target; it is the reference for image comparison.
 | Pass list, surface data layout, term targets, source selection | `src/engine/rendering/passes` | render graph, materials, lighting system |
 | Instances, views, culling, draw records, the depth hierarchy | `src/engine/rendering/scene`, described in [scene](scene.md) | every pass |
 | Deformed copies, bone buffer, boxes of dispatched instances | `src/engine/rendering/geometry`, described in [geometry feed](geometry.md) | culling, every pass |
+| Forward pass: record sort, the two pipelines, sprites, ribbons, mesh particles, distortion | `src/engine/rendering/passes`, described in [transparency](transparency.md) | render graph |
+| Decal pass | `src/engine/rendering/passes`, described in [decals](decals.md) | render graph |
 | The lighting function | `src/engine/rendering/scene` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
 | Temporal stage, post-processing, tone mapping and output transform | `src/engine/rendering/postprocess` | hosts |
-| Depth, surface, shadow and forward shaders of each template | `src/engine/rendering/materials/templates` | pass list |
+| Depth, surface, shadow, forward and decal shaders of each template | `src/engine/rendering/materials/templates` | pass list |
 
 ## Boundaries
 
@@ -221,8 +233,9 @@ sees a light; the lighting system, which decides what lights exist and how
 shadows, indirect light, sky and fog are computed; the scene, which decides
 what is visible and writes each view's draw records; the geometry feed,
 which computes a dispatched instance's vertices once and hands every pass
-the same copy. The effects inside post-processing, the order of blended
-draws, and how passes are scheduled are outside this document.
+the same copy; the effects system, which writes each emitter's particle
+data. The effects inside post-processing and how passes are scheduled are
+outside this document.
 
 Full-screen video is not a scene. The media system decodes it, and its
 frames enter at the user interface step as display color; while one covers

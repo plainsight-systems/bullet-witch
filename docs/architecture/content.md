@@ -122,6 +122,7 @@ flowchart TD
 | Morph set | the shapes of one mesh group: for each target a name and a position delta per vertex of the group | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
 | Material | template name, static switch values, parameter values, texture ids | materials |
+| Effect | emitters, each with a template, an element kind (sprite, ribbon, mesh), curves over life, a sub-image sheet with its cutouts, and the effect's bounds or a flag to compute them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton and animation | bone hierarchy, bone maps per draw, animation tracks | animation |
 | Probe set | the probe grids of one stage: for each grid an oriented box, its lattice size, and nine spherical harmonic coefficients per color channel for each probe | lighting |
