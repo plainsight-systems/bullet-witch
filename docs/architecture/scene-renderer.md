@@ -14,11 +14,12 @@ targets, and the [RHI](rhi.md). Beside [materials](materials.md), whose
 templates supply a shader for each pass, and the [lighting
 system](lighting.md), which supplies lights, shadows and indirect light as
 data and as visibility terms.
-Fed by the scene, which supplies views and the draws visible in them.
+Fed by the [scene](scene.md), which supplies the views and, for each view,
+the draw records of what is visible in it.
 
 ```mermaid
 flowchart LR
-    SC["Scene: views, visible draws, previous-frame transforms and poses"] --> SR["Scene renderer: pass list, surface data, lighting pass, temporal stage"]
+    SC["Scene: instance records, views, per-view draw records, depth hierarchy"] --> SR["Scene renderer: pass list, surface data, lighting pass, temporal stage"]
     MT["Materials: one pipeline per template, permutation, pass and blend mode"] --> SR
     LT["Lighting system: light grid, shadow maps, indirect light, visibility terms"] --> SR
     SR --> RG["Render graph: pass scheduling, transient targets"]
@@ -75,7 +76,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    DP["Depth pass: opaque and masked draws"] --> SP["Surface pass: surface data, motion vectors, emissive"]
+    CU["Culling: every instance and cluster against every view, draw records per view per pipeline"] --> DP["Depth pass: two draws of the main view's records, the depth hierarchy built after each"]
+    DP --> SP["Surface pass: surface data, motion vectors, emissive"]
     SP --> LG["Light grid and shadow maps"]
     LG --> VT["Visibility terms: shadowing, ambient occlusion, reflections, indirect light"]
     VT --> LP["Lighting pass: every opaque pixel, from surface data, light grid and terms"]
@@ -90,13 +92,14 @@ flowchart TD
 
 | Pass | Reads | Writes | Resolution |
 |---|---|---|---|
-| Depth | visible opaque and masked draws | depth | input |
-| Surface | the same draws, depth, probe grids | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
-| Light grid and shadow maps | lights, shadow-casting draws | light grid, shadow maps | their own |
-| Visibility terms | surface data, depth, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
+| Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy | draw records and counts per view per pipeline | its own |
+| Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
+| Surface | the same records, depth, probe grids | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
+| Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
+| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
 | Lighting | surface data, light grid, term targets | scene color | input |
 | Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
-| Forward | visible blended draws, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, scene color as history for the next frame | input |
+| Forward | the main view's blended draw records, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, scene color as history for the next frame | input |
 | Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, exposure | scene color | input to output |
 | Post-processing | scene color | scene color | output |
 | Tone mapping and output transform | scene color, exposure | display color | output |
@@ -136,7 +139,9 @@ reach.
 | Forward | translucent, additive, modulate | lit color blended into scene color, and reactive coverage |
 
 Renderer code in the surface pass, not the template, writes the pixel's
-baked indirect light. A forward draw writes no surface data and no motion
+baked indirect light. Renderer code in the depth and surface passes, not the
+template, applies the dither of a detail level transition, so one surface
+still reaches each pixel. A forward draw writes no surface data and no motion
 vector. Its reactive coverage tells the temporal stage where history
 cannot be trusted.
 
@@ -160,7 +165,8 @@ rasterized source of indirect light is part of the surface pass, which
 writes baked light as it draws on every target; a traced source, where
 selected, writes the whole target afterwards. Traced
 sources need the positions of skinned and morphed geometry in buffers, so
-the scene supplies deformed positions as buffers on targets that trace.
+the scene supplies deformed positions as buffers on targets that trace,
+taking them from the geometry feed that computes them.
 Shaders of traced sources are their own set, built only for targets that
 can report the capability and loaded only when it is reported.
 
@@ -189,7 +195,8 @@ shaders and runs on every target; it is the reference for image comparison.
 | Component | Lives in | Consumed by |
 |---|---|---|
 | Pass list, surface data layout, term targets, source selection | `src/engine/rendering/passes` | render graph, materials, lighting system |
-| Views, jitter, previous-frame view data, the lighting function | `src/engine/rendering/scene` | every pass, material templates |
+| Instances, views, culling, draw records, the depth hierarchy | `src/engine/rendering/scene`, described in [scene](scene.md) | every pass |
+| The lighting function | `src/engine/rendering/scene` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
 | Temporal stage, post-processing, tone mapping and output transform | `src/engine/rendering/postprocess` | hosts |
 | Depth, surface, shadow and forward shaders of each template | `src/engine/rendering/materials/templates` | pass list |
@@ -201,7 +208,7 @@ what the scene holds. Below: the render graph and the RHI. Beside: the
 material system, which gives each draw its pipeline for a pass and never
 sees a light; the lighting system, which decides what lights exist and how
 shadows, indirect light, sky and fog are computed; the scene, which decides
-what is visible. The effects inside post-processing, the order of blended
+what is visible and writes each view's draw records. The effects inside post-processing, the order of blended
 draws, and how passes are scheduled are outside this document.
 
 Full-screen video is not a scene. The media system decodes it, and its

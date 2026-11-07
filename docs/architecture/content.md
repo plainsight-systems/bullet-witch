@@ -118,7 +118,7 @@ flowchart TD
 
 | Kind | Cooked form | Consumer |
 |---|---|---|
-| Mesh | vertex streams in the vertex-pulling layout, 16-bit index buffer, draw list with base vertex and material ids, bounds, the skeleton id it binds to | rendering, animation |
+| Mesh | vertex streams in the vertex-pulling layout, 16-bit index buffer, clusters as index ranges each with a box, detail levels as cluster ranges each with a screen size, material ids per range, bounds, the skeleton id it binds to | rendering, animation |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
 | Material | template name, static switch values, parameter values, texture ids | materials |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |

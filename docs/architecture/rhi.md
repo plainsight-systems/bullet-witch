@@ -174,6 +174,7 @@ flowchart LR
 | Transitions | tracked hazards do the synchronization; declared transitions become compute memory barriers for unordered access only | image layout changes and pipeline barriers | resource barriers |
 | Descriptor arrays and samplers | argument buffer tables in the converter's explicit layout, resident sets declared per encoder; a sampler table | descriptor set 1 runtime arrays per type, set 0 samplers | descriptor heap tables of unbounded typed arrays, a sampler heap |
 | Root layout | one top-level argument buffer bound at the converter's fixed point | one pipeline layout | one static root signature |
+| Counted multi-draw | an indirect command buffer filled on the GPU | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
 | Present | drawable from the layer, present scheduled on the command buffer, a semaphore bounds frames in flight | swapchain acquire and present | swapchain present |
 
 The Direct3D 12 backend serves Windows and the Xbox Dev Mode container; the
@@ -184,7 +185,7 @@ and fails by name below them.
 
 | Component | Lives in | Consumed by |
 |---|---|---|
-| Contract: device, resources, views, command list, context, pipeline states, transitions, fences, queries, viewport | `src/engine/rendering/rhi/public/bw/rendering/rhi` | render graph, scene renderer, tools |
+| Contract: device, resources, views, command list with the counted multi-draw, context, pipeline states, transitions, fences, queries, viewport | `src/engine/rendering/rhi/public/bw/rendering/rhi` | render graph, scene renderer, tools |
 | Backend-neutral units: reference counting and the deferred delete queue, descriptor index allocator, memory suballocator, transition validation, binding structure, pipeline description cache and precompilation | headers in `src/engine/rendering/rhi/public/bw/rendering/rhi`, sources in `src/engine/rendering/rhi` | the device and the backends; tests assert each unit through its header |
 | Validation layer | `src/engine/rendering/rhi/validation` | debug and development builds, wrapping any backend |
 | Metal backend | `src/engine/rendering/rhi/backends/metal` | the contract |

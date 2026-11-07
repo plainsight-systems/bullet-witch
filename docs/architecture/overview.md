@@ -28,7 +28,8 @@ in the game executes, it is recorded as an omission, not built.
 See [source layout](source-layout.md) for the destination tree, module
 ownership and dependency direction, [shaders](shaders.md) for the shader
 system, [rhi](rhi.md) for the rendering hardware interface,
-[materials](materials.md) for the material system, [scene
+[materials](materials.md) for the material system, [scene](scene.md) for
+what is drawn and how each view's visibility is found, [scene
 renderer](scene-renderer.md) for how a frame is made,
 [lighting](lighting.md) for lights, shadows, indirect light and fog,
 [render graph](render-graph.md) for how its passes become GPU work, and
