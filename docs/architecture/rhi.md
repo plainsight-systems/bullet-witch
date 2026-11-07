@@ -35,7 +35,7 @@ flowchart LR
 | graphics and compute pipeline states, render passes | ray tracing | work graphs |
 | explicit resource state transitions | timestamp queries with calibrated clocks | runtime shader compilation |
 | GPU fences, frame pacing, readback to the CPU | | |
-| swapchain and present, offscreen targets | | |
+| swapchain and present, offscreen targets; the swapchain's colour space, format and the display's peak luminance reported | | |
 | debug names, markers, a validation layer | | |
 
 ## Invariants
@@ -176,6 +176,7 @@ flowchart LR
 | Root layout | one top-level argument buffer bound at the converter's fixed point | one pipeline layout | one static root signature |
 | Counted multi-draw | an indirect command buffer filled on the GPU | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
 | Present | drawable from the layer, present scheduled on the command buffer, a semaphore bounds frames in flight | swapchain acquire and present | swapchain present |
+| Display report | the layer's colour space and pixel format, the screen's maximum luminance | the surface's colour space and format, the display's HDR metadata | the swapchain's colour space and format, the output's display description |
 
 The Direct3D 12 backend serves Windows and the Xbox Dev Mode container; the
 latter is probed at startup for shader model 6.4 and resource binding tier 2

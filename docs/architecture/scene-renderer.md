@@ -53,8 +53,9 @@ flowchart LR
 7. The scene is drawn at input resolution with a sub-pixel jitter on the
    projection. One temporal stage turns that into an anti-aliased image at
    output resolution. Every pass before it runs at input resolution and
-   every pass after it at output resolution. There is no multisample
-   anti-aliasing and no other anti-aliasing pass.
+   every pass after it writes at output resolution; a pass after it may
+   reduce internally. There is no multisample anti-aliasing and no other
+   anti-aliasing pass.
 8. Shadowing, ambient occlusion, reflections and indirect light are
    visibility terms. Each has a rasterized source that runs on every target.
    A target that reports the ray tracing capability may run a traced source
@@ -68,9 +69,12 @@ flowchart LR
    changes silently.
 10. A stochastic source is filtered before the lighting pass reads it. The
     filter belongs to its term and reads surface data and motion vectors.
-11. Light is accumulated in linear scene values. Tone mapping and the output
-    transform run once, after post-processing. The user interface is drawn
-    after them.
+11. Light is accumulated in linear scene values, stored pre-multiplied by
+    the previous frame's exposure; renderer code applies that factor in
+    every pass that writes light, and every reader divides it out, as
+    [post-processing](post-processing.md) states. Tone mapping and the
+    output transform run once, after post-processing. The user interface is
+    drawn after them.
 12. The pass list is fixed and declared in one place. A setting or a
     capability selects a term's source or leaves a pass out; nothing
     reorders passes.
@@ -91,9 +95,9 @@ flowchart TD
     SF --> FP["Forward pass: blended draws sorted far to near, two pipelines, lit as drawn"]
     FP --> DA["Distortion apply"]
     DA --> TS["Temporal stage: input resolution in, output resolution out"]
-    TS --> PP["Post-processing"]
-    PP --> TM["Tone mapping and output transform"]
-    TM --> UI["User interface"]
+    TS --> PP["Post-processing: depth of field, motion blur, screen effects, exposure, bloom"]
+    PP --> TM["Tone mapping: exposure, bloom, grade, display mapping and encoding"]
+    TM --> UI["User interface composite"]
     UI --> PR["Present"]
 ```
 
@@ -105,16 +109,16 @@ flowchart TD
 | Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target, receiver stencil bits | input |
 | Decal | the main view's decal records, depth, stencil | base color, normal and roughness of surface data | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
-| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
+| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color (pre-exposed, reused by the exposure ratio), shadow maps or the ray tracing scene | one target per term | input |
 | Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness | scene color, the skin specular target for subsurface and eye pixels | input |
 | Scattering | scene color, depth, surface data, the skin specular target, on tiles with a subsurface or eye pixel | scene color | input |
 | Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
 | Forward | the main view's blended draw records, emitter particle data, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, distortion target and stencil bit, scene color as history for the next frame | input |
 | Distortion apply | scene color, distortion target, stencil | scene color | input |
-| Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, exposure | scene color | input to output |
-| Post-processing | scene color | scene color | output |
-| Tone mapping and output transform | scene color, exposure | display color | output |
-| User interface | display color | display color | output |
+| Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, this frame's and the previous frame's exposure factor | scene color | input to output |
+| Post-processing | scene color, depth, motion vectors, the camera's focus and shutter, the active screen effects | scene color, the bloom levels, the next frame's exposure | output, reducing internally for bloom and the depth of field gather |
+| Tone mapping | scene color, bloom, exposure, the grade's lookup table, vignette and grain | display color | output |
+| User interface composite | display color, the interface's offscreen image | display color | output |
 
 ## Surface data
 
@@ -154,7 +158,9 @@ reach.
 Renderer code in the surface pass, not the template, writes the pixel's
 baked indirect light. Renderer code in the depth and surface passes, not the
 template, applies the dither of a detail level transition, so one surface
-still reaches each pixel. No template shader skins or morphs: a dispatched
+still reaches each pixel. Renderer code, not the template, multiplies
+every light a pass writes into scene color by the frame's pre-exposure
+factor. No template shader skins or morphs: a dispatched
 instance's draws fetch the copy the geometry feed wrote, and a rigid-to-bone
 cluster's draw applies its bone's transform from the bone buffer. A template's vertex
 offset is evaluated by one function in the depth, surface and shadow vertex
@@ -204,7 +210,7 @@ between implementations but this hand-off.
 | Depth | the frame's depth, with its direction stated |
 | Motion vectors | from a pixel to its previous position, jitter removed |
 | Jitter | the frame's sub-pixel offset, from a low-discrepancy sequence whose length grows with the ratio of output to input area |
-| Exposure | the value the tone mapper uses |
+| Exposure | this frame's and the previous frame's pre-exposure factor, so the history is rescaled by their ratio |
 | Reactive coverage | where blended draws covered the pixel |
 
 Texture sampling in the passes before the stage uses a mip bias set from
@@ -223,7 +229,8 @@ shaders and runs on every target; it is the reference for image comparison.
 | Decal pass | `src/engine/rendering/passes`, described in [decals](decals.md) | render graph |
 | The lighting function | `src/engine/rendering/scene` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
-| Temporal stage, post-processing, tone mapping and output transform | `src/engine/rendering/postprocess` | hosts |
+| Temporal stage | `src/engine/rendering/postprocess` | post-processing |
+| Post-processing, tone mapping, output transform, screen effects | `src/engine/rendering/postprocess`, described in [post-processing](post-processing.md) | hosts |
 | Depth, surface, shadow, forward and decal shaders of each template | `src/engine/rendering/materials/templates` | pass list |
 
 ## Boundaries
@@ -236,8 +243,8 @@ shadows, indirect light, sky and fog are computed; the scene, which decides
 what is visible and writes each view's draw records; the geometry feed,
 which computes a dispatched instance's vertices once and hands every pass
 the same copy; the effects system, which writes each emitter's particle
-data. The effects inside post-processing and how passes are scheduled are
-outside this document.
+data. How passes are scheduled is outside this document; what post-processing
+does is [post-processing](post-processing.md).
 
 Full-screen video is not a scene. The media system decodes it, and its
 frames enter at the user interface step as display color; while one covers

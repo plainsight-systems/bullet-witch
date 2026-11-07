@@ -109,7 +109,10 @@ pipeline description's raster state. An eye template requires a mesh with a
 frontal-projection UV set; the converter assigns a lit template of the same
 textures to an eye mesh without one. Clear coat, cloth, water and thin
 translucent are not in the set and are added as a column when a template
-needs one.
+needs one. A screen-effect template is a full-screen template with no
+shading model, declared for one of two slots, before bloom or after tone
+mapping, with its own parameter block; [post-processing](post-processing.md)
+states when each slot runs.
 
 ## Material to pipelines
 

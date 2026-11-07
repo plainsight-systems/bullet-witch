@@ -31,8 +31,11 @@ flowchart LR
 ## Invariants
 
 1. A light is the sun, a point light or a spot light. It has one color and
-   one intensity in photometric units. Exposure is applied once, at tone
-   mapping, and no light is scaled for the display.
+   one intensity in photometric units. Exposure changes the image once, at
+   tone mapping, and no light is scaled for the display. Scene color is
+   stored pre-multiplied by the previous frame's exposure for precision;
+   renderer code applies that factor where light is written and removes it
+   where light is read, as [post-processing](post-processing.md) states.
 2. A local light has a radius. Its intensity falls with the square of
    distance inside a window that reaches zero at the radius, and it lights
    nothing beyond it. A spot light adds a cone with an inner and an outer

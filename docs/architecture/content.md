@@ -125,6 +125,7 @@ flowchart TD
 | Effect | emitters, each with a template, an element kind (sprite, ribbon, mesh), curves over life, a sub-image sheet with its cutouts, and the effect's bounds or a flag to compute them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton and animation | bone hierarchy, bone maps per draw, animation tracks | animation |
+| Grade | per stage: exposure compensation, white balance, colour correction, the curve's slope, toe, shoulder, black clip and white clip, bloom intensity, vignette, grain; beside it the original stage's tone, luminance and correction values recorded by name | post-processing |
 | Profile set | the skin profiles of the game: per profile a near and a far radius per channel with a weight, a transmission tint and extinction, and the specular roughness pair and mix | rendering |
 | Probe set | the probe grids of one stage: for each grid an oriented box, its lattice size, and nine spherical harmonic coefficients per color channel for each probe | lighting |
 | Script, audio, text, level data | defined by their slices in the same cooked-asset frame | their systems |
