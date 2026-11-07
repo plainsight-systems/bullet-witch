@@ -36,6 +36,7 @@ src/
       backends/
     rendering/
       scene/                # render-owned proxies, views and visibility
+      geometry/             # mesh and morph payloads, vertex streams, the deformation dispatches; see geometry.md
       materials/            # material and instance types, attribute table; see materials.md
         templates/          # authored material HLSL and parameter block declarations
       lighting/

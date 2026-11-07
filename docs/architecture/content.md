@@ -118,7 +118,8 @@ flowchart TD
 
 | Kind | Cooked form | Consumer |
 |---|---|---|
-| Mesh | vertex streams in the vertex-pulling layout, 16-bit index buffer, clusters as index ranges each with a box, detail levels as cluster ranges each with a screen size, material ids per range, bounds, the skeleton id it binds to | rendering, animation |
+| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bounds; a rest box per bone when skinned; the skeleton id it binds to | rendering, animation |
+| Morph set | the shapes of one mesh group: for each target a name and a position delta per vertex of the group | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
 | Material | template name, static switch values, parameter values, texture ids | materials |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |

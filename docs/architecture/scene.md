@@ -10,7 +10,8 @@ depth hierarchy.
 
 An instance is one placed mesh with one material instance, one transform,
 one set of bounds and its flags. A cluster is a contiguous index range of a
-mesh with its own box. A view is a frustum with a purpose: the main view,
+mesh with its own box and, when its draw is rigid to one bone, that bone's
+index. A view is a frustum with a purpose: the main view,
 one of the sun's cascades, or one atlas slot of a local light.
 
 ## Position
@@ -86,14 +87,20 @@ flowchart LR
 | Id | the scene, on entry | the world, to move or remove the instance |
 | Transform | the world, when it changes | culling, every pass's vertex shader |
 | Previous transform | the scene, at frame start | phase one, motion vectors |
-| World bounds | the scene, from the mesh bounds and the transform, when either changes | culling |
+| World bounds | the scene, from the mesh bounds and the transform, when either changes, padded by the template's declared maximum displacement when the template writes a vertex offset | culling |
 | Mesh: cluster table, detail levels | content, through the scene on entry | culling, vertex fetch |
+| Deformed stream: current and previous copy indices, or none | the geometry feed, each frame it dispatches the instance or applies its no-dispatch rule | vertex fetch, motion vectors |
+| Bone range: the instance's range in the bone buffer, or none | the geometry feed, on entry of a skinned instance | rigid-to-bone clusters' vertex fetch and culling |
 | Material block offset | the material system, on entry and on change | every pass's shaders |
 | Flags: carries baked light or is a mover, casts a shadow, blend mode | the world, on entry | the surface pass, shadow views, the forward pass |
 
-A mover's bounds for the frame and its deformed positions come from the
-geometry feed, which owns skinning and morphs; the scene records what it is
-given.
+A dispatched instance's bounds for the frame, its cluster boxes and its
+deformed positions come from the [geometry feed](geometry.md), which owns
+skinning and shapes; the scene records what it is given and tests those
+boxes in place of the mesh's cooked ones that frame. A cluster cooked rigid
+to one bone carries the bone's index; culling transforms its cooked box by
+that bone's current transform, and every pass's vertex shader applies the
+same transform after the instance transform.
 
 ## Views
 
@@ -143,6 +150,7 @@ covers that rectangle in a fixed footprint.
 |---|---|
 | Index count, first index, base vertex | the cluster's range in the mesh's index buffer |
 | Instance index | the record the vertex shader fetches |
+| Bone index, or none | the bone a rigid-to-bone cluster is transformed by, in the instance's bone range |
 | Detail level and transition weight | which level's clusters, and the dither between two |
 
 Records are written into one buffer per view per pipeline, each with a
@@ -201,8 +209,8 @@ and publishes that. Below: the render graph and the RHI. Beside: the scene
 renderer, which owns the passes and the lighting function and draws the
 records the scene writes; the lighting system, which decides the shadow
 views and never sees an instance; the material system, which gives an
-instance its block offset; the geometry feed, which owns skinning, morphs
-and a mover's deformed positions and bounds; content, which delivers meshes
+instance its block offset; the geometry feed, which owns skinning, shapes
+and a dispatched instance's copies and boxes; content, which delivers meshes
 with clusters and levels and decides nothing about how they are drawn. How
 a stage's instances arrive and leave, in what order blended records are
 drawn, and how each backend performs the counted multi-draw are outside this

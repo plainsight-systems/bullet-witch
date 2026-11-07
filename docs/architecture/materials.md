@@ -79,6 +79,15 @@ The attribute set a template may write, and which shading models read each.
 | World position offset | yes | yes | yes | yes |
 | Pixel depth offset | opaque and masked | opaque and masked | opaque and masked | opaque and masked |
 
+World position offset is a function of the vertex, the instance transform
+and the frame values the pass gives it, and reads nothing else, so the
+surface pass can evaluate it again with the previous transform and previous
+frame values for the motion vector. A template that writes it declares its
+maximum displacement, which pads the bounds of every instance of the
+template. On a traced target the [geometry feed](geometry.md) runs the
+template's vertex function in a write-out pass to give the acceleration
+structure the offset positions.
+
 Shading models: unlit, lit, subsurface, hair. Blend modes: opaque, masked,
 translucent, additive, modulate. Each template declares one shading model;
 the blend mode is a material property that the renderer's pass selection

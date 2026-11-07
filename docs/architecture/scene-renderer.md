@@ -15,11 +15,14 @@ templates supply a shader for each pass, and the [lighting
 system](lighting.md), which supplies lights, shadows and indirect light as
 data and as visibility terms.
 Fed by the [scene](scene.md), which supplies the views and, for each view,
-the draw records of what is visible in it.
+the draw records of what is visible in it, and by the [geometry
+feed](geometry.md), which supplies each dispatched instance's vertices for
+the frame.
 
 ```mermaid
 flowchart LR
-    SC["Scene: instance records, views, per-view draw records, depth hierarchy"] --> SR["Scene renderer: pass list, surface data, lighting pass, temporal stage"]
+    GF["Geometry feed: copies, bone buffer, boxes of dispatched instances"] --> SC["Scene: instance records, views, per-view draw records, depth hierarchy"]
+    SC --> SR["Scene renderer: pass list, surface data, lighting pass, temporal stage"]
     MT["Materials: one pipeline per template, permutation, pass and blend mode"] --> SR
     LT["Lighting system: light grid, shadow maps, indirect light, visibility terms"] --> SR
     SR --> RG["Render graph: pass scheduling, transient targets"]
@@ -76,7 +79,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    CU["Culling: every instance and cluster against every view, draw records per view per pipeline"] --> DP["Depth pass: two draws of the main view's records, the depth hierarchy built after each"]
+    DF["Deformation: shapes, skinning and bounds of every dispatched instance, once"] --> CU["Culling: every instance and cluster against every view, draw records per view per pipeline"]
+    CU --> DP["Depth pass: two draws of the main view's records, the depth hierarchy built after each"]
     DP --> SP["Surface pass: surface data, motion vectors, emissive"]
     SP --> LG["Light grid and shadow maps"]
     LG --> VT["Visibility terms: shadowing, ambient occlusion, reflections, indirect light"]
@@ -92,9 +96,10 @@ flowchart TD
 
 | Pass | Reads | Writes | Resolution |
 |---|---|---|---|
+| Deformation | changed poses and shape weights, stream 0 of each dispatched mesh, bone maps | the bone buffer, the current copy of each dispatched instance, its cluster and instance boxes | its own |
 | Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy | draw records and counts per view per pipeline | its own |
 | Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
-| Surface | the same records, depth, probe grids | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
+| Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
 | Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
 | Lighting | surface data, light grid, term targets | scene color | input |
@@ -141,7 +146,12 @@ reach.
 Renderer code in the surface pass, not the template, writes the pixel's
 baked indirect light. Renderer code in the depth and surface passes, not the
 template, applies the dither of a detail level transition, so one surface
-still reaches each pixel. A forward draw writes no surface data and no motion
+still reaches each pixel. No template shader skins or morphs: a dispatched
+instance's draws fetch the copy the geometry feed wrote, and a rigid-to-bone
+cluster's draw applies its bone's transform from the bone buffer. A template's vertex
+offset is evaluated by one function in the depth, surface and shadow vertex
+shaders alike, and once more in the surface pass with the previous transform
+and previous frame values for the motion vector. A forward draw writes no surface data and no motion
 vector. Its reactive coverage tells the temporal stage where history
 cannot be trusted.
 
@@ -196,6 +206,7 @@ shaders and runs on every target; it is the reference for image comparison.
 |---|---|---|
 | Pass list, surface data layout, term targets, source selection | `src/engine/rendering/passes` | render graph, materials, lighting system |
 | Instances, views, culling, draw records, the depth hierarchy | `src/engine/rendering/scene`, described in [scene](scene.md) | every pass |
+| Deformed copies, bone buffer, boxes of dispatched instances | `src/engine/rendering/geometry`, described in [geometry feed](geometry.md) | culling, every pass |
 | The lighting function | `src/engine/rendering/scene` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
 | Temporal stage, post-processing, tone mapping and output transform | `src/engine/rendering/postprocess` | hosts |
@@ -208,7 +219,9 @@ what the scene holds. Below: the render graph and the RHI. Beside: the
 material system, which gives each draw its pipeline for a pass and never
 sees a light; the lighting system, which decides what lights exist and how
 shadows, indirect light, sky and fog are computed; the scene, which decides
-what is visible and writes each view's draw records. The effects inside post-processing, the order of blended
+what is visible and writes each view's draw records; the geometry feed,
+which computes a dispatched instance's vertices once and hands every pass
+the same copy. The effects inside post-processing, the order of blended
 draws, and how passes are scheduled are outside this document.
 
 Full-screen video is not a scene. The media system decodes it, and its
