@@ -1,8 +1,10 @@
 # Post-processing
 
-What happens to the image after the temporal stage: a physical camera's
-exposure, depth of field, motion blur, bloom, the grade and the tone curve,
-the output transform for the display, and the authored screen effects. Scene
+What the camera does to the image: a physical camera's exposure, depth of
+field, motion blur, bloom, the grade and the tone curve, the output
+transform for the display, and the authored screen effects. Depth of field
+runs on the opaque image before the forward pass, at input resolution;
+everything else runs after the temporal stage, at output resolution. Scene
 colour stays linear and photometric through all of it; the one place it
 becomes display colour is the tone mapping pass, and the one thing that
 differs between an SDR and an HDR display is the last step of that pass.
@@ -23,7 +25,9 @@ Above the [render graph](render-graph.md).
 
 ```mermaid
 flowchart LR
-    TS["Temporal stage: scene colour at output resolution"] --> PP["Post-processing: depth of field, motion blur, effects, exposure, bloom, tone mapping, effects, fade"]
+    SF["Sky and fog: the opaque image at input resolution"] --> DF["Depth of field"]
+    DF --> FW["Forward pass and temporal stage"]
+    FW --> PP["Post-processing: motion blur, effects, exposure, bloom, tone mapping, effects, fade"]
     GR["Content: the stage's grade"] --> PP
     SE["Materials: screen-effect templates"] --> PP
     RHI["RHI: swapchain colour space and format, display peak luminance"] --> PP
@@ -48,18 +52,21 @@ flowchart LR
    frame is the factor of the next.
 3. Depth of field is a physical camera: circle of confusion from the focus
    distance, the f-stop and the sensor width, with the focal length from the
-   field of view. It gathers at half the output resolution in a foreground
-   and a background layer, each scatter-as-gather over a tile maximum, with
-   a bilateral prefilter and a median, and recombines by a circular filter
-   at output. It is off until the world sets a focus distance.
+   field of view. It runs on the opaque image after the sky and fog pass and
+   before the forward pass, at input resolution, gathering at half of it in
+   a foreground and a background layer, each scatter-as-gather over a tile
+   maximum, with a bilateral prefilter and a median, and recombines by a
+   circular filter. Blended draws are then drawn sharp over the defocused
+   image, and the temporal stage filters the gather's noise. It is off
+   until the world sets a focus distance.
 4. Motion blur reads the velocity buffer at output resolution: a tile
    maximum, a neighbourhood maximum, and a variable-width blur along the
    tile velocity weighted by depth and spread, with the background mirrored
    under the foreground. The velocity is scaled by a shutter fraction of a
    target frame time and capped at a fraction of the width. It is skipped on
    a camera cut, and a setting leaves it out.
-5. Blended pixels write no depth and no motion vector, so depth of field and
-   motion blur treat a blended pixel by the opaque surface behind it.
+5. Blended pixels write no motion vector, so motion blur treats a blended
+   pixel by the opaque surface behind it. Depth of field never sees them.
 6. Bloom takes the unthresholded scene colour through six levels of a
    downsample chain with a thirteen-fetch filter, averages fireflies on the
    first level, and upsamples progressively with a tent filter. It is added
@@ -88,8 +95,9 @@ flowchart LR
     display colour. The world enables one with parameters and a duration.
     A fade is an after-tone-mapping effect that multiplies toward black or
     white.
-12. Every step writes at output resolution. The bloom chain and the depth
-    of field gather reduce internally by the fractions stated here.
+12. Every step after the temporal stage writes at output resolution, the
+    bloom chain reducing internally by the fractions stated here. Depth of
+    field is the one step before the temporal stage and writes at input.
 13. The original's per-stage tone, luminance and correction values are
     recorded by name beside the stage and derive nothing. The stage's grade
     is authored content, and the converter writes a default grade with the
@@ -99,8 +107,9 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    TS["Temporal stage output"] --> DF["Depth of field: gather at half, recombine at output"]
-    DF --> MB["Motion blur: tiles, variable-width blur"]
+    SF["Sky and fog output, input resolution"] --> DF["Depth of field: gather at half, recombine at input"]
+    DF --> FW["Forward pass, distortion apply, temporal stage"]
+    FW --> MB["Motion blur: tiles, variable-width blur"]
     MB --> E1["Screen effects, before bloom"]
     E1 --> HG["Histogram and exposure for the next frame, from a reduced copy"]
     E1 --> BL["Bloom chain: six levels down, tent up"]
@@ -114,7 +123,7 @@ flowchart TD
 
 | Step | Reads | Writes | Resolution |
 |---|---|---|---|
-| Depth of field | scene colour, depth, the camera's focus, f-stop, sensor width | scene colour | gather at half, writes at output |
+| Depth of field | the opaque scene colour, depth, the camera's focus, f-stop, sensor width | scene colour | input, gathering at half of it |
 | Motion blur | scene colour, depth, motion vectors, the shutter fraction | scene colour | output |
 | Screen effects, before bloom | scene colour, the effect's parameters | scene colour | output |
 | Histogram and exposure | a reduced copy of scene colour, last frame's exposure, the grade's compensation | the exposure for the next frame | reduced |

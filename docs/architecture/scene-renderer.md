@@ -83,7 +83,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    DF["Deformation: shapes, skinning and bounds of every dispatched instance, once"] --> CU["Culling: every instance and cluster against every view, draw records per view per pipeline"]
+    DF["Deformation: shapes, skinning and bounds of every dispatched instance, once"] --> CU["Culling: every opaque and masked instance and cluster against every view, draw records per view per pipeline, blended instances and decals frustum-tested and sorted on the CPU"]
     CU --> DP["Depth pass: two draws of the main view's records, the depth hierarchy built after each"]
     DP --> SP["Surface pass: surface data, motion vectors, emissive, receiver stencil bits"]
     SP --> DC["Decal pass: visible decal boxes blended into surface data"]
@@ -92,10 +92,11 @@ flowchart TD
     VT --> LP["Lighting pass: every opaque pixel, from surface data, light grid and terms"]
     LP --> SS["Scattering pass: skin and eye tiles"]
     SS --> SF["Sky and fog"]
-    SF --> FP["Forward pass: blended draws sorted far to near, two pipelines, lit as drawn"]
+    SF --> DF2["Depth of field: the opaque image defocused at input resolution"]
+    DF2 --> FP["Forward pass: blended draws in CPU order, lit as drawn, sharp over the defocused image"]
     FP --> DA["Distortion apply"]
     DA --> TS["Temporal stage: input resolution in, output resolution out"]
-    TS --> PP["Post-processing: depth of field, motion blur, screen effects, exposure, bloom"]
+    TS --> PP["Post-processing: motion blur, screen effects, exposure, bloom"]
     PP --> TM["Tone mapping: exposure, bloom, grade, display mapping and encoding"]
     TM --> UI["User interface composite"]
     UI --> PR["Present"]
@@ -107,16 +108,17 @@ flowchart TD
 | Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy | draw records and counts per view per pipeline | its own |
 | Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
 | Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target, receiver stencil bits | input |
-| Decal | the main view's decal records, depth, stencil | base color, normal and roughness of surface data | input |
+| Decal | the main view's decals in CPU order, depth, stencil | base color, normal and roughness of surface data | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
 | Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color (pre-exposed, reused by the exposure ratio), shadow maps or the ray tracing scene | one target per term | input |
 | Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness | scene color, the skin specular target for subsurface and eye pixels | input |
 | Scattering | scene color, depth, surface data, the skin specular target, on tiles with a subsurface or eye pixel | scene color | input |
 | Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
-| Forward | the main view's blended draw records, emitter particle data, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, distortion target and stencil bit, scene color as history for the next frame | input |
+| Depth of field | scene color, depth, the camera's focus, f-stop and sensor width | scene color | input, gathering at half |
+| Forward | the main view's blended instances and emitters in CPU order, emitter particle data, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, distortion target and stencil bit, scene color as history for the next frame | input |
 | Distortion apply | scene color, distortion target, stencil | scene color | input |
 | Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, this frame's and the previous frame's exposure factor | scene color | input to output |
-| Post-processing | scene color, depth, motion vectors, the camera's focus and shutter, the active screen effects | scene color, the bloom levels, the next frame's exposure | output, reducing internally for bloom and the depth of field gather |
+| Post-processing | scene color, depth, motion vectors, the camera's shutter, the active screen effects | scene color, the bloom levels, the next frame's exposure | output, reducing internally for bloom |
 | Tone mapping | scene color, bloom, exposure, the grade's lookup table, vignette and grain | display color | output |
 | User interface composite | display color, the interface's offscreen image | display color | output |
 
@@ -167,11 +169,10 @@ offset is evaluated by one function in the depth, surface and shadow vertex
 shaders alike, and once more in the surface pass with the previous transform
 and previous frame values for the motion vector. A forward draw writes no surface data and no motion
 vector. Its reactive coverage tells the temporal stage where history
-cannot be trusted. The forward and decal passes are each one pipeline across
-their templates, branching on the template id, so their draws can be issued
-in depth order; [transparency](transparency.md) and [decals](decals.md)
-state the order and the pipelines. Every other pass has one pipeline per
-template and permutation.
+cannot be trusted. Every pass has one pipeline per template and
+permutation; the forward and decal passes change pipeline between draws as
+their depth order requires, as [transparency](transparency.md) and
+[decals](decals.md) state.
 
 ## Visibility terms
 
@@ -225,7 +226,7 @@ shaders and runs on every target; it is the reference for image comparison.
 | Pass list, surface data layout, term targets, source selection | `src/engine/rendering/passes` | render graph, materials, lighting system |
 | Instances, views, culling, draw records, the depth hierarchy | `src/engine/rendering/scene`, described in [scene](scene.md) | every pass |
 | Deformed copies, bone buffer, boxes of dispatched instances | `src/engine/rendering/geometry`, described in [geometry feed](geometry.md) | culling, every pass |
-| Forward pass: record sort, the two pipelines, sprites, ribbons, mesh particles, distortion | `src/engine/rendering/passes`, described in [transparency](transparency.md) | render graph |
+| Forward pass: CPU order, sprites, ribbons, mesh particles, distortion | `src/engine/rendering/passes`, described in [transparency](transparency.md) | render graph |
 | Decal pass | `src/engine/rendering/passes`, described in [decals](decals.md) | render graph |
 | The lighting function | `src/engine/rendering/scene` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |

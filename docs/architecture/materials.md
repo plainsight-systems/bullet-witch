@@ -132,12 +132,7 @@ and pass render targets enter the pipeline description, not the
 permutation; the masked blend mode alone is also a switch, because it adds
 a discard. Vertices are pulled, so no vertex layout enters either: a
 permutation states the vertex attributes it reads, and a draw whose mesh
-lacks one fails by name when it is created. Two passes are the exception to
-one pipeline per template: the forward pass and the decal pass are each one
-pipeline across their templates, branching on the template id in the
-instance record, so their draws can be issued in depth order; the
-enumeration still builds every blended and decal template's permutations,
-and that one pipeline links them.
+lacks one fails by name when it is created.
 
 ## Parameters at runtime
 

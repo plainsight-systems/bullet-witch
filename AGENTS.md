@@ -83,6 +83,17 @@ them as rules. Add an entry when the same mistake comes back.
   by several tests, reviews that only added. The test list is cut to the
   rules before it is approved, and the ratio and the `ctest` time are
   measured before the review and the report, not when the user counts.
+- **Treating earlier design decisions as fixed while designing the next
+  system.** The architecture is written one system at a time, so an
+  invariant approved for an earlier document was approved without the later
+  research. When a later system's research reaches an earlier invariant, the
+  position says so and makes a revise-or-keep call with the citation, in its
+  own section before the touch list; bending the new design around the old
+  invariant is the mistake. Twice a design was shaped to fit a scene or
+  frame invariant the references did not share (a one-pipeline forward pass
+  to keep GPU-only visibility for a few dozen blended draws; depth of field
+  after the temporal stage from a misread of the resolution rule). Nothing is
+  gospel until code depends on it, and even then it is a change, not a wall.
 
 ## Sources and citations
 

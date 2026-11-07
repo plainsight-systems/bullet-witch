@@ -48,17 +48,24 @@ flowchart LR
 4. At the start of a frame every instance's previous transform is the
    transform it had the frame before. An instance that enters this frame has
    previous equal to current, so its motion vector is zero.
-5. Visibility is computed on the GPU, once per frame, for every view of the
-   frame together. No per-instance work runs on the CPU in a frame.
+5. Visibility of opaque and masked instances is computed on the GPU, once
+   per frame, for every view of the frame together, and no per-instance work
+   runs on the CPU for them. Blended instances, emitters and decals are the
+   exception: the CPU tests their bounds against the main view's frustum
+   and orders them, because their order is a depth sort that crosses
+   pipelines, and their count is small.
 6. Culling runs in two stages: an instance against a view, then each cluster
    of a surviving instance against that view. The unit drawn is a cluster.
 7. A view's output is draw records grouped by pipeline, written by
    compaction in instance and cluster order. The same instances and the same
    view give the same records in the same order. Nothing is appended by
    atomic.
-8. For each pipeline and each view the CPU issues one counted multi-draw,
-   whatever is visible. The count is written by the dispatch and read by
-   the GPU; the CPU never reads it back.
+8. For each pipeline and each view the CPU issues one counted multi-draw of
+   the opaque and masked records, whatever is visible. The count is written
+   by the dispatch and read by the GPU; the CPU never reads it back. A
+   blended instance or decal is one draw the CPU issues in its sorted
+   place, with the instance index as the draw's one constant; an emitter is
+   one indirect draw whose arguments the effects system writes on the GPU.
 9. The main view's occlusion is two-phase. Phase one tests against the
    previous frame's hierarchy and draws its survivors into depth; the
    hierarchy is built; phase two retests only what phase one culled and
@@ -76,14 +83,15 @@ flowchart LR
 14. The draw record buffers of a frame hold every cluster of every instance
     for every view, so a dispatch cannot run out of room and nothing is
     dropped.
-15. Blended instances, emitters and decals pass through the same dispatch
-    and come out in the same stable order. The forward pass and the decal
-    pass sort their records by depth afterwards, as [transparency](transparency.md)
-    and [decals](decals.md) state.
+15. Blended instances, emitters and decals do not pass through the dispatch.
+    The CPU frustum-tests them, sorts them by the key [transparency](transparency.md)
+    and [decals](decals.md) state, and issues their draws in that order with
+    whatever pipeline each needs. The same instances and view give the same
+    order.
 16. An emitter is an instance whose bounds the effect fixes or the effects
-    system writes each frame, and whose draw record's instance count is
-    written on the GPU from its particle count. A decal is an instance whose
-    mesh is the unit box. Neither has a transform the CPU reads back.
+    system writes each frame, and whose draw arguments the effects system
+    writes on the GPU from its particle count. A decal is an instance whose
+    mesh is the unit box. The CPU reads back neither.
 
 ## The instance
 
@@ -97,8 +105,7 @@ flowchart LR
 | Deformed stream: current and previous copy indices, or none | the geometry feed, each frame it dispatches the instance or applies its no-dispatch rule | vertex fetch, motion vectors |
 | Bone range: the instance's range in the bone buffer, or none | the geometry feed, on entry of a skinned instance | rigid-to-bone clusters' vertex fetch and culling |
 | Material block offset | the material system, on entry and on change | every pass's shaders |
-| Template id | the material system, on entry and on change | the forward and decal pipelines' branch |
-| Sort priority | the world, on entry, from the template's declared priority, and raised when it places a decal over others | the forward and decal passes' sort |
+| Sort priority | the world, on entry, from the template's declared priority, and raised when it places a decal over others | the CPU order of blended instances and decals |
 | Flags: carries baked light or is a mover, casts a shadow, blend mode, kind (mesh, emitter, decal) | the world, on entry | the surface pass, shadow views, the forward pass, the decal pass |
 
 A dispatched instance's bounds for the frame, its cluster boxes and its
@@ -135,7 +142,6 @@ flowchart TD
     D2 --> H2["Depth hierarchy, second build: what the terms and the next frame read"]
     H2 --> SP["Surface pass: both sets of records"]
     R1 --> SH["Shadow passes: each shadow view's records"]
-    R1 --> FP["Forward pass: the main view's blended records, ordered by that pass"]
 ```
 
 | Stage | Tested | Against | Fails when |
@@ -158,16 +164,13 @@ covers that rectangle in a fixed footprint.
 | Index count, first index, base vertex | the cluster's range in the mesh's index buffer |
 | Instance index | the record the vertex shader fetches |
 | Bone index, or none | the bone a rigid-to-bone cluster is transformed by, in the instance's bone range |
-| Instance count | one, or an emitter's particle count written on the GPU |
-
-For a ribbon emitter the index count is also written on the GPU, by the
-strip build.
 | Detail level and transition weight | which level's clusters, and the dither between two |
 
 Records are written into one buffer per view per pipeline, each with a
 count. The depth pass and the surface pass read the same records; the
-shadow passes read each shadow view's; the forward pass reads the main
-view's blended records. The RHI exposes one operation, the counted
+shadow passes read each shadow view's. The forward and decal passes draw no
+records: their draws are the CPU's, in sorted order. The RHI exposes one
+operation, the counted
 multi-draw, that draws a record buffer up to its count; each backend
 performs it in its own form, stated in [rhi](rhi.md).
 
@@ -223,6 +226,5 @@ views and never sees an instance; the material system, which gives an
 instance its block offset; the geometry feed, which owns skinning, shapes
 and a dispatched instance's copies and boxes; content, which delivers meshes
 with clusters and levels and decides nothing about how they are drawn. How
-a stage's instances arrive and leave, in what order blended records are
-drawn, and how each backend performs the counted multi-draw are outside this
-document.
+a stage's instances arrive and leave, the sort key of blended draws, and
+how each backend performs the counted multi-draw are outside this document.

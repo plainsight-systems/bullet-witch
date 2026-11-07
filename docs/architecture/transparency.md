@@ -16,7 +16,7 @@ row of an emitter's data.
 
 Inside the [scene renderer](scene-renderer.md)'s frame, as its forward pass
 and the distortion apply after it. Fed by the [scene](scene.md), whose
-culling dispatch writes the main view's blended records, by the
+instances and emitters the CPU tests and orders for the main view, by the
 [lighting system](lighting.md), whose light grid, shadow maps, probe grids
 and fog volume light the pixels, by [materials](materials.md), whose
 templates are the shaders, and by the effects system, which writes each
@@ -25,7 +25,7 @@ emitter's particle data. Above the [render graph](render-graph.md) and the
 
 ```mermaid
 flowchart LR
-    SC["Scene: the main view's blended records, in stable order"] --> FP["Forward pass: sort, one pipeline, lit as drawn"]
+    SC["Scene: the main view's blended instances and emitters, frustum-tested and sorted on the CPU"] --> FP["Forward pass: draws in order, lit as drawn"]
     FX["Effects system: particle data per emitter, counts, bounds"] --> FP
     LT["Lighting system: light grid, shadow maps, probe grids, fog volume"] --> FP
     MT["Materials: blended templates, their lighting form, refraction"] --> FP
@@ -36,23 +36,20 @@ flowchart LR
 ## Invariants
 
 1. Every blended draw of the main view is drawn by the forward pass at input
-   resolution, after the sky and fog pass and before the temporal stage. No
-   blended draw is drawn at a lower resolution and composited.
-2. The forward pass draws its records in one total order: the instance's
-   sort priority, which the world sets on entry from the template's
-   declared priority and may raise, then the instance's bounds-centre
-   distance to the camera from far to near, then the instance index, then
-   cluster order.
-   The sort runs on the GPU over the main view's blended records each
-   frame; the same records give the same order.
-3. The forward pass is one pipeline for the translucent and additive blend
-   modes, under one premultiplied-alpha blend state in which additive is
-   alpha zero, and one pipeline for modulate, drawn after it. The vertex
-   stage branches on the record's kind: mesh cluster, sprite, ribbon, mesh
-   particle. The pixel stage branches on the template id read from the
-   instance record. The forward pass and the decal pass are the two places
-   a pipeline spans templates; every other pass has one pipeline per
-   template and permutation.
+   resolution, after the sky and fog pass and the depth of field pass and
+   before the temporal stage, so blended draws are sharp over the defocused
+   opaque image. No blended draw is drawn at a lower resolution and
+   composited.
+2. The forward pass draws in one total order: the instance's sort
+   priority, which the world sets on entry from the template's declared
+   priority and may raise, then the instance's bounds-centre distance to the
+   camera from far to near, then the instance index. The CPU frustum-tests
+   the main view's blended instances and emitters, sorts them by that key,
+   and issues one draw per instance and one indirect draw per emitter in
+   that order; the same instances and view give the same order.
+3. Each draw uses its own template's pipeline, one per template and
+   permutation as in every pass, and the pipeline changes between draws as
+   the order requires. The blend state is the template's blend mode.
 4. A blended pixel is lit by one of two forms the template declares. A
    surface form evaluates the lighting function per pixel from the light
    grid, the shadow maps and the probe grids. A particle form takes its
@@ -75,11 +72,10 @@ flowchart LR
    of its mesh with the transform read per particle. Mesh particles are
    blended only; an opaque effect model is a world instance.
 9. An emitter is an instance of the scene. Its record holds the bounds the
-   effect fixes or the union the simulation writes. Its draw record's
-   instance count is written on the GPU from the emitter's particle count,
-   and for a ribbon emitter the index count is written on the GPU by the
-   strip build. Every other draw record has instance count one and the
-   cluster's index count.
+   effect fixes or the union the simulation writes. Its draw is indirect:
+   the effects system writes the instance count from the particle count,
+   and the strip build writes a ribbon's index count, so the CPU issues the
+   draw without reading either back.
 10. Within a translucent emitter the particles are sorted by view depth on
     the GPU, in that emitter alone. Additive and modulate emitters are not
     sorted.
@@ -88,42 +84,37 @@ flowchart LR
     the forward pass one apply reads scene colour at the offset, once, where
     the stencil bit marks a refracting pixel, and merges back. There is no
     blur and no second apply.
-12. A record buffer, a sort buffer or a particle buffer that cannot be
-    allocated fails by name; no draw is dropped to fit.
+12. A particle buffer or a strip buffer that cannot be allocated fails by
+    name; no draw is dropped to fit.
 
 ## The pass
 
 ```mermaid
 flowchart TD
-    R["Main view's blended records, from the culling dispatch, with emitter counts filled"] --> K["Sort keys: priority, distance far to near, instance index, cluster order"]
-    K --> S["GPU sort of the records"]
-    S --> P1["Premultiplied pipeline: translucent and additive draws in order"]
-    P1 --> P2["Modulate pipeline: modulate draws in order"]
-    P2 --> DA["Distortion apply where the stencil bit is set"]
+    R["Main view's blended instances and emitters"] --> K["CPU: frustum test, sort by priority, distance far to near, instance index"]
+    K --> D["Draws in order: one per instance, one indirect per emitter, each with its template's pipeline"]
+    D --> DA["Distortion apply where the stencil bit is set"]
     DA --> TS["Temporal stage"]
-    E["Emitter particle data, ribbon strips built in compute"] --> P1
-    E --> P2
-    F["Fog volume, light grid, shadow maps, probe grids, opaque depth"] --> P1
-    F --> P2
+    E["Emitter particle data, ribbon strips built in compute, indirect arguments"] --> D
+    F["Fog volume, light grid, shadow maps, probe grids, opaque depth"] --> D
 ```
 
 | Step | Reads | Writes |
 |---|---|---|
 | Ribbon build | each ribbon emitter's particle data | strip vertices and indices per emitter |
 | Emitter sort | each translucent emitter's particle depths | sorted particle indices per emitter |
-| Record sort | the main view's blended records, instance records | records in total order, counts per pipeline |
-| Premultiplied pipeline | records, particle data, light grid, shadow maps, probe grids, fog volume, opaque depth | scene colour, reactive coverage, distortion target, stencil bit |
-| Modulate pipeline | the same | scene colour |
+| CPU order | the blended instances' and emitters' bounds and sort priority, the main view | the draw order |
+| Draws | instance records, particle data, light grid, shadow maps, probe grids, fog volume, opaque depth | scene colour, reactive coverage, distortion target, stencil bit |
 | Distortion apply | scene colour, distortion target, stencil | scene colour |
 
 ## Draw kinds
 
-| Kind | Vertices from | Transform | Record count |
+| Kind | Vertices from | Transform | Draw |
 |---|---|---|---|
-| Mesh cluster | the mesh's streams, or a dispatched instance's copy | the instance record | one |
-| Sprite | the corner stream and the sub-image cutout, placed from the particle's position, size, rotation and facing | the emitter's record and the particle | the particle count |
-| Ribbon | the strip built in compute, whose index count the build writes | the emitter's record | one |
-| Mesh particle | the mesh's streams | the emitter's record times the particle's transform | the particle count |
+| Mesh | the mesh's streams, or a dispatched instance's copy | the instance record | one draw of the mesh's index range |
+| Sprite | the corner stream and the sub-image cutout, placed from the particle's position, size, rotation and facing | the emitter's record and the particle | one indirect instanced draw, instance count from the particle count |
+| Ribbon | the strip built in compute | the emitter's record | one indirect draw, index count from the strip build |
+| Mesh particle | the mesh's streams | the emitter's record times the particle's transform | one indirect instanced draw, instance count from the particle count |
 
 ## Lighting forms
 
@@ -153,20 +144,19 @@ flowchart TD
 
 | Component | Lives in | Consumed by |
 |---|---|---|
-| Record sort and the forward pipelines | `src/engine/rendering/passes` | render graph |
-| Sprite expansion, cutouts, facing, sub-image blend | `src/engine/rendering/passes`, shaders under `src/engine/rendering/shaders` | the forward pipelines |
-| Ribbon build and per-emitter particle sort | `src/engine/rendering/passes` | the forward pipelines |
+| CPU order and the forward pass's draws | `src/engine/rendering/passes` | render graph |
+| Sprite expansion, cutouts, facing, sub-image blend | `src/engine/rendering/passes`, shaders under `src/engine/rendering/shaders` | the forward pass |
+| Ribbon build and per-emitter particle sort | `src/engine/rendering/passes` | the forward pass |
 | Distortion target and apply | `src/engine/rendering/passes` | render graph |
-| Emitter instance records and GPU-written counts | `src/engine/rendering/scene` | culling, the forward pass |
+| Emitter instances and their indirect arguments | `src/engine/rendering/scene`, the arguments written by the effects system | the forward pass |
 | Effect payload reader | `src/engine/rendering/passes` | content loading |
 
 ## Boundaries
 
 Above: the effects system, which decides which emitters exist, simulates
 them and writes their particle data, and the world, which places blended
-instances. Beside: the scene, which culls and orders nothing beyond its
-stable record order and hands the forward pass the main view's blended
-records; the lighting system, which owns the light grid, the shadow maps,
+instances. Beside: the scene, which holds the blended instances and
+emitters the CPU tests and orders; the lighting system, which owns the light grid, the shadow maps,
 the probe grids and the fog volume; the material system, which owns the
 templates, their priority and their lighting form; the temporal stage,
 which reads reactive coverage. Below: the render graph and the RHI. How an

@@ -11,14 +11,14 @@ lighting pass then lights the result and never knows a decal was there.
 
 Inside the [scene renderer](scene-renderer.md)'s frame, as the decal pass
 between the surface pass and the light grid. Fed by the [scene](scene.md),
-whose culling dispatch writes the main view's decal records, and by
+which holds the decals the CPU tests and orders, and by
 [materials](materials.md), whose decal templates are the shaders. Placed by
 the world. Above the [render graph](render-graph.md) and the [RHI](rhi.md).
 
 ```mermaid
 flowchart LR
     W["World: places a decal, attaches it to an instance or the stage"] --> SC["Scene: a decal is an instance whose mesh is the unit box"]
-    SC --> DP["Decal pass: one pipeline, position from depth, clip, blend into surface data"]
+    SC --> DP["Decal pass: boxes drawn in order, position from depth, clip, blend into surface data"]
     MT["Materials: decal templates with three opacities"] --> DP
     SP["Surface pass: surface data, stencil bits"] --> DP
     DP --> LP["Lighting pass"]
@@ -27,18 +27,18 @@ flowchart LR
 ## Invariants
 
 1. A decal is an instance of the scene whose mesh is the unit box and whose
-   material is a decal template. It is culled, ordered and drawn through
-   the same dispatch and the same counted multi-draw as every instance.
+   material is a decal template. Like a blended instance, the CPU tests its
+   bounds against the main view's frustum, orders it and issues its draw, as
+   [scene](scene.md) invariant 5 states.
 2. The decal pass runs after the surface pass and before the light grid and
    the lighting pass. It reads depth and the stencil bits and writes base
    colour, normal and roughness of the surface data, each blended by its
    own opacity. It writes no depth and no motion vector.
-3. The decal pass is one pipeline across decal templates; the pixel stage
-   branches on the template id read from the instance record. It draws the
-   main view's decal records in the sort order of the forward pass: the
-   instance's sort priority, then distance far to near, then instance
-   index. The world sets a later placement's sort priority above the ones
-   it overlaps, so later marks land on top.
+3. The decal pass draws the main view's decals in the sort order of the
+   forward pass: the instance's sort priority, then distance far to near,
+   then instance index, each draw with its own template's pipeline. The
+   world sets a later placement's sort priority above the ones it overlaps,
+   so later marks land on top.
 4. A pixel receives a decal only if its reconstructed position lies inside
    the box and its surface normal is within sixty degrees of the box's
    projection axis. Beyond that angle the pixel is clipped, so a decal does
@@ -66,7 +66,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    R["Main view's decal records, from the culling dispatch"] --> S["Sort: priority, distance far to near, instance index"]
+    R["Main view's decals, frustum-tested on the CPU"] --> S["Sort: priority, distance far to near, instance index"]
     S --> D["Draw each box: front faces, or back faces when the camera is inside"]
     D --> P["Per pixel: depth to position, position to box space"]
     P --> C{"Inside the box, normal within sixty degrees, stencil permits"}
@@ -78,7 +78,7 @@ flowchart TD
 
 | Step | Reads | Writes |
 |---|---|---|
-| Sort | the main view's decal records, instance records | records in order |
+| Sort | the decals' bounds and sort priority, the main view | the draw order |
 | Box draw | the instance's transform, depth, stencil, the template's textures and block | base colour, normal, roughness of surface data |
 
 ## Decal template
@@ -108,8 +108,8 @@ not cut a hard line.
 
 | Component | Lives in | Consumed by |
 |---|---|---|
-| Decal pass, sort, pipeline | `src/engine/rendering/passes` | render graph |
-| Decal instance kind and the unit box mesh | `src/engine/rendering/scene` | culling, the decal pass |
+| Decal pass and its order | `src/engine/rendering/passes` | render graph |
+| Decal instance kind and the unit box mesh | `src/engine/rendering/scene` | the decal pass |
 | Stencil bits for receivers | `src/engine/rendering/passes`, written by the surface pass | the decal pass |
 | Decal templates | `src/engine/rendering/materials/templates` | the decal pass |
 
