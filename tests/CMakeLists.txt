@@ -70,7 +70,8 @@ set(shader_parameter_block_scenarios
   hash_changes_on_any_member_change
   generated_struct_text_is_exact
   hlsl_errors_named
-  binding_line_text)
+  binding_line_text
+  buffer_loader_text_is_exact)
 set(shader_permutation_scenarios
   id_round_trip_and_count
   defines_one_per_dimension_in_order
@@ -222,9 +223,11 @@ if(BW_SHADER_TOOLCHAIN)
 endif()
 add_subdirectory(integration/rendering/rhi)
 add_subdirectory(integration/platform/window)
-# The game host draws on the Metal device with the build's shader artifacts.
+# The game host and the model draw run on the Metal device with the build's
+# shader artifacts.
 if(APPLE AND BW_SHADER_TOOLCHAIN)
   add_subdirectory(integration/hosts)
+  add_subdirectory(integration/rendering)
 endif()
 
 # Integration: memory.

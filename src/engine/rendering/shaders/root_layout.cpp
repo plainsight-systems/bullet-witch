@@ -1,5 +1,9 @@
 #include "bw/rendering/shaders/root_layout.hpp"
 
+#include "bw/rendering/scene/fixture_light.hpp"
+#include "bw/rendering/scene/view.hpp"
+#include "bw/rendering/shaders/parameter_block.hpp"
+
 #include <array>
 #include <charconv>
 #include <cstdint>
@@ -13,8 +17,10 @@
 //
 // Contract:
 //   - engine_root_layout() returns one immutable RootLayout with static
-//     storage duration. It holds no static block yet: every slot's block_name
-//     is empty and root_constant_words is kRootConstantWords. A renderer slice
+//     storage duration: the View block in slot scene::kViewSlot, the
+//     FixtureLight block in slot scene::kFixtureLightSlot, each with its
+//     block's layout hash, every other slot empty, and root_constant_words
+//     kRootConstantWords. A renderer slice
 //     that adds a static block edits this definition and nothing else; the
 //     root layout hash in every artifact then changes, so artifacts built
 //     against the old table fail to load with RootLayoutMismatch instead of
@@ -118,9 +124,26 @@ void append_table(const TableText& table, std::string& out) {
 
 } // namespace
 
+namespace {
+
+// Each slot names its block and carries the block's own hash, so the tool's
+// check of a static block against its slot (StaticSlotHashMismatch) holds
+// by construction.
+template <class Block> constexpr StaticSlot slot_of() noexcept {
+  return StaticSlot{BlockLayoutOf<Block>::value.name, BlockLayoutOf<Block>::value.hash};
+}
+
+constexpr RootLayout make_engine_root_layout() noexcept {
+  RootLayout layout{};
+  layout.static_slots[scene::kViewSlot] = slot_of<View>();
+  layout.static_slots[scene::kFixtureLightSlot] = slot_of<FixtureLight>();
+  return layout;
+}
+
+} // namespace
+
 const RootLayout& engine_root_layout() noexcept {
-  // No static block exists until the first renderer slice adds one.
-  static constexpr RootLayout layout{};
+  static constexpr RootLayout layout = make_engine_root_layout();
   return layout;
 }
 

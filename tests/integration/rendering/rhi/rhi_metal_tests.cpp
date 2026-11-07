@@ -1385,7 +1385,7 @@ void decode_half2(const std::filesystem::path& artifacts) {
   };
   require_decoded(
       artifacts,
-      single_stream_draw(VertexAttribute::TexCoord1, VertexElementType::Half2, kProbeCount, write),
+      single_stream_draw(VertexAttribute::TexCoord0, VertexElementType::Half2, kProbeCount, write),
       [](std::uint32_t p) {
         return std::array<float, 4>{kHalfValues[half_lane(p, 0)], kHalfValues[half_lane(p, 1)],
                                     0.0F, 0.0F};

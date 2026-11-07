@@ -53,7 +53,11 @@ ArtifactFileFailure read_artifact_file(const std::filesystem::path& directory,
   for (std::size_t i = 0; i < chars.size(); ++i) {
     out.bytes[i] = static_cast<std::byte>(chars[i]);
   }
-  std::vector<const BlockLayout*> blocks;
+  // Every block the shader declares is a running block: its static blocks,
+  // the blocks it reads from the buffer array and its draw block.
+  std::vector<const BlockLayout*> blocks(shader->static_blocks.begin(),
+                                         shader->static_blocks.end());
+  blocks.insert(blocks.end(), shader->buffer_blocks.begin(), shader->buffer_blocks.end());
   if (shader->draw_block != nullptr) {
     blocks.push_back(shader->draw_block);
   }

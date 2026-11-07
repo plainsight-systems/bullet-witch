@@ -28,8 +28,8 @@
 // Reflection on every target: the draw block and the ByteAddressBuffer
 // array; no texture or sampler array.
 //
-// The content draws one mesh per draw with its transform in the draw block
-// and its authored winding; front faces are counter-clockwise on every
+// Each draw is one mesh with its transform in the draw block and its
+// authored winding; front faces are counter-clockwise on every
 // backend (pipeline_states.hpp, CullMode). Indices stay in a hardware index
 // buffer and the draw issues exactly its range. This slice has no visibility
 // buffer: the pixel shader writes the interpolated color.

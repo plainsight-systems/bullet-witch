@@ -13,16 +13,15 @@
 // Responsibility: the material payload of a cooked asset and its reader
 // (docs/architecture/content.md, "Asset kinds": template name, static
 // switch values, parameter values, texture ids; docs/architecture/
-// materials.md, invariants 2 and 8: a material is data, one template, a
-// value for every static switch, parameter values; the converter maps
-// original material blocks and records every field it leaves unmapped by
-// name). The template set and the parameter blocks are the renderer's and
-// do not exist yet; this payload records the mapping as named data, so a
-// material slice reads it without a format change.
+// materials.md, invariant 2: a material is data, one template, a value
+// for every static switch, parameter values). The templates and their
+// parameter blocks are material.hpp's and
+// lit_template.hpp's; this payload carries a material as named data, and
+// the names are the table at the end of this header.
 //
 // Layout, little-endian, read by copy: MaterialPayloadHeader at 0; then,
 // at 16-aligned offsets it names, switch records, scalar records, vector
-// records, texture records, unmapped-field records, and the string table.
+// records, texture records, and the string table.
 // Every name and id is a slice of the string table.
 //
 // Contract (decode refuses a payload that breaks a rule below and names a
@@ -30,17 +29,13 @@
 //   1. The header fits; sections are 16-aligned and within the payload.
 //   2. template_name is a non-empty slice.
 //   3. Every record's name is a non-empty slice; names are unique within
-//      their table (NameDuplicate names the later record of the pair). An
-//      unmapped record's value is a slice of the string table, possibly
-//      empty (a value outside it is NameInvalid for that record). A
+//      their table (NameDuplicate names the later record of the pair). A
 //      texture record's id is a slice of the string table that validates
 //      as an asset id (TextureIdInvalid otherwise; content asset_id.hpp,
 //      validate_asset_id, is the one definition of that rule).
 //   4. A switch value is 0 or 1.
-//   Record order is the converter's mapping order, so two conversions of
-//   the same input give the same bytes; the reader looks up by name.
-//   An unmapped field keeps its original value as text, so nothing the
-//   content said is lost.
+//   Record order is the writer's, so two conversions of the same input
+//   give the same bytes; the reader looks up by name.
 //
 // Core guidelines read: SL.con.3, C.183, Con.5 (as mesh_asset.hpp),
 // SL.str.2 (names are borrowed views over the payload). Performance
@@ -57,7 +52,6 @@ struct MaterialPayloadHeader {
   std::uint32_t scalar_count{};
   std::uint32_t vector_count{};
   std::uint32_t texture_count{};
-  std::uint32_t unmapped_count{};
   std::uint32_t string_bytes{};
   std::uint32_t template_name_offset{};
   std::uint32_t template_name_length{};
@@ -65,10 +59,11 @@ struct MaterialPayloadHeader {
   std::uint32_t scalars_offset{};
   std::uint32_t vectors_offset{};
   std::uint32_t textures_offset{};
-  std::uint32_t unmapped_offset{};
   std::uint32_t strings_offset{};
   std::uint32_t reserved0{};
   std::uint32_t reserved1{};
+  std::uint32_t reserved2{};
+  std::uint32_t reserved3{};
 };
 static_assert(sizeof(MaterialPayloadHeader) == 64);
 static_assert(std::is_trivially_copyable_v<MaterialPayloadHeader>);
@@ -98,15 +93,8 @@ struct TextureRecord {
   std::uint32_t id_offset{};
   std::uint32_t id_length{};
 };
-struct UnmappedFieldRecord {
-  std::uint32_t name_offset{};
-  std::uint32_t name_length{};
-  std::uint32_t value_offset{};
-  std::uint32_t value_length{};
-};
 static_assert(sizeof(SwitchRecord) == 16 && sizeof(ScalarRecord) == 16 &&
-              sizeof(VectorRecord) == 32 && sizeof(TextureRecord) == 16 &&
-              sizeof(UnmappedFieldRecord) == 16);
+              sizeof(VectorRecord) == 32 && sizeof(TextureRecord) == 16);
 
 enum class MaterialAssetError : std::uint8_t {
   None,
@@ -122,8 +110,8 @@ enum class MaterialAssetError : std::uint8_t {
 
 struct MaterialAssetFailure {
   MaterialAssetError error{MaterialAssetError::None};
-  // Which table (0 switches, 1 scalars, 2 vectors, 3 textures, 4 unmapped,
-  // 5 the string table and the template name) and which record; 0 for a
+  // Which table (0 switches, 1 scalars, 2 vectors, 3 textures, 4 the
+  // string table and the template name) and which record; 0 for a
   // header or section failure, which names the section's table.
   std::uint32_t table{};
   std::uint32_t index{};
@@ -139,7 +127,6 @@ public:
   [[nodiscard]] ScalarRecord scalar_record(std::uint32_t index) const noexcept;
   [[nodiscard]] VectorRecord vector_record(std::uint32_t index) const noexcept;
   [[nodiscard]] TextureRecord texture_record(std::uint32_t index) const noexcept;
-  [[nodiscard]] UnmappedFieldRecord unmapped_record(std::uint32_t index) const noexcept;
   // A slice of the string table (offset, length), validated by decode.
   [[nodiscard]] std::string_view string(std::uint32_t offset, std::uint32_t length) const noexcept;
   // Lookup by name; nullopt-like: found is false when absent.
@@ -174,32 +161,35 @@ private:
 [[nodiscard]] MaterialAssetFailure decode_material_asset(std::span<const std::byte> payload,
                                                          MaterialAssetView& view) noexcept;
 
-// The parameter and texture names the converter writes for the original
-// material model, so a reader and the converter agree by one table
-// (docs/architecture/materials.md, "Content mapping"). Base color is the
-// slot the host samples this slice.
+// The names a cooked material carries, so the writer, the reader and the
+// templates agree by one table. A template's parameter names are its block's member
+// names (material.hpp, rule 2); the scalar, vector and texture names below
+// are the lit template's members (lit_template.hpp).
 inline constexpr std::string_view kLitTemplate = "lit";
+// Texture records.
 inline constexpr std::string_view kBaseColorTexture = "base_color";
-inline constexpr std::string_view kSecondBaseColorTexture = "base_color_1";
-inline constexpr std::string_view kBlendMaskTexture = "blend_mask";
 inline constexpr std::string_view kNormalTexture = "normal";
-inline constexpr std::string_view kGlossTexture = "gloss";
-inline constexpr std::string_view kEnvironmentTexture = "environment";
-inline constexpr std::string_view kIlluminanceTexture = "illuminance_map";
-inline constexpr std::string_view kConstantColor = "constant_color";
-inline constexpr std::string_view kFresnelR = "fresnel_r";
-inline constexpr std::string_view kFresnelA = "fresnel_a";
-inline constexpr std::string_view kIlluminance = "illuminance";
-inline constexpr std::string_view kReflectParameters = "reflect";
-inline constexpr std::string_view kSpecularCoefficient = "specular";
-inline constexpr std::string_view kEnvironmentReflectPower = "environment_reflect_power";
-inline constexpr std::string_view kSubsurfaceLevel = "subsurface_level";
-inline constexpr std::string_view kHasNormalMap = "has_normal_map";
-inline constexpr std::string_view kHasSecondBaseColor = "has_base_color_1";
-inline constexpr std::string_view kHasBlendMask = "has_blend_mask";
-inline constexpr std::string_view kHasGloss = "has_gloss";
-inline constexpr std::string_view kHasEnvironment = "has_environment";
-inline constexpr std::string_view kHasIlluminanceMap = "has_illuminance_map";
+inline constexpr std::string_view kOcclusionReflectanceTexture = "occlusion_reflectance";
+// Vector records.
+inline constexpr std::string_view kBaseColorTint = "base_color_tint";
+inline constexpr std::string_view kEmissive = "emissive";
+// Scalar records. blend_mode is the BlendMode enumerator's value
+// (shading.hpp) and is every template's; the rest are lit members.
+inline constexpr std::string_view kBlendModeParameter = "blend_mode";
+inline constexpr std::string_view kRoughness = "roughness";
+inline constexpr std::string_view kReflectance = "reflectance";
+inline constexpr std::string_view kGrazingReflectance = "grazing_reflectance";
+inline constexpr std::string_view kFresnelExponent = "fresnel_exponent";
+inline constexpr std::string_view kSpecularTint = "specular_tint";
+inline constexpr std::string_view kReflectanceBaseLuminance = "reflectance_base_luminance";
+inline constexpr std::string_view kOpacityFacing = "opacity_facing";
+inline constexpr std::string_view kOpacityGrazing = "opacity_grazing";
+inline constexpr std::string_view kOpacityFresnelExponent = "opacity_fresnel_exponent";
+inline constexpr std::string_view kOpacityMaskThreshold = "opacity_mask_threshold";
+// Switch records of the lit template.
+inline constexpr std::string_view kBaseColorMapSwitch = "base_color_map";
+inline constexpr std::string_view kNormalMapSwitch = "normal_map";
+inline constexpr std::string_view kOcclusionReflectanceMapSwitch = "occlusion_reflectance_map";
 
 } // namespace bw::materials
 

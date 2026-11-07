@@ -1,9 +1,10 @@
-// Integration test: bw/content_converter/conversion.hpp's run_conversion
-// over the player's install. pw0_counts reads the PW0 cache the CTest
-// fixture pw0_cache converts once with the content_converter executable;
-// the others convert a copy of part of the install into a cache under
-// <scratch>/<scenario>.tmp, removed before and after. Nothing is written
-// under the install.
+// Integration test: bw/content_converter/conversion.hpp's run_conversion.
+// pw0_counts reads the PW0 cache the CTest fixture pw0_cache converts once
+// with the content_converter executable from the player's install; the
+// others convert a synthetic install of containers built from the readers'
+// stated framing (bw/testing/cpr_fixture.hpp) into <scratch>/<scenario>.tmp,
+// removed before and after, and need no game data. Nothing is written under
+// the player's install.
 #include "bw/animation/skeleton_asset.hpp"
 #include "bw/content/asset_id.hpp"
 #include "bw/content/cooked_asset.hpp"
@@ -12,10 +13,12 @@
 #include "bw/content_converter/conversion.hpp"
 #include "bw/content_converter/cpr_container.hpp"
 #include "bw/content_converter/material_mapping.hpp"
+#include "bw/content_converter/mesh_reader.hpp"
 #include "bw/content_converter/rat_index.hpp"
 #include "bw/content_converter/texture_reader.hpp"
 #include "bw/rendering/geometry/mesh_asset.hpp"
 #include "bw/rendering/materials/material_asset.hpp"
+#include "bw/testing/cpr_fixture.hpp"
 #include "bw/testing/harness.hpp"
 
 #include <algorithm>
@@ -41,11 +44,13 @@ namespace {
 namespace fs = std::filesystem;
 namespace cc = bw::content_converter;
 namespace content = bw::content;
+namespace fx = bw::testing::cpr;
 using bw::testing::require;
 using Bytes = std::vector<std::byte>;
 
 struct Arguments {
   fs::path scratch{};
+  // Empty when no game data is configured; only pw0_counts reads them.
   fs::path install{};
   // The cache the pw0_cache fixture converted (prefix model.pw0.).
   fs::path pw0_cache{};
@@ -53,8 +58,6 @@ struct Arguments {
 
 constexpr std::string_view kPw0Prefix = "model.pw0.";
 constexpr std::string_view kPw0Mesh = "model.pw0.mesh";
-constexpr std::string_view kPw0ModelContainer =
-    "data/data/stable/graphics/chara/PW0/model/mesh.cpr";
 constexpr std::string_view kPw0OwnTextures = "model.pw0.texture.";
 constexpr std::string_view kPw0Directory = "data/data/stable/graphics/chara/PW0";
 constexpr std::string_view kStable = "data/data/stable";
@@ -133,8 +136,27 @@ struct Census {
   std::uint64_t slots{};
 };
 
-// Materials' slots: every texture record, plus each unmapped field named
-// "TR.<tag>" (a second slot of a tag), whose value is the slot's id.
+bool is_unmapped_file(const fs::path& path) {
+  return path.string().ends_with(cc::kUnmappedFieldsSuffix);
+}
+
+// Each unmapped field named "TR.<tag>" (a slot no lit parameter takes, or a
+// second slot of a tag), whose value is the slot's id.
+void count_unmapped_file(const fs::path& path, Census& census) {
+  const Bytes file = read_bytes(path);
+  const std::string text(reinterpret_cast<const char*>(file.data()), file.size());
+  std::vector<cc::UnmappedField> fields;
+  require(cc::parse_unmapped_fields(text, fields),
+          "an unmapped fields file parses: " + path.string());
+  for (const cc::UnmappedField& field : fields) {
+    if (field.name.starts_with("TR.")) {
+      census.named_textures.insert(field.value);
+      ++census.slots;
+    }
+  }
+}
+
+// Materials' slots: every texture record.
 void count_material(std::span<const std::byte> payload, Census& census, std::string_view id) {
   bw::materials::MaterialAssetView view;
   const bw::materials::MaterialAssetFailure failure =
@@ -146,14 +168,6 @@ void count_material(std::span<const std::byte> payload, Census& census, std::str
     census.named_textures.insert(std::string(view.string(record.id_offset, record.id_length)));
     ++census.slots;
   }
-  for (std::uint32_t u = 0; u < view.header().unmapped_count; ++u) {
-    const bw::materials::UnmappedFieldRecord record = view.unmapped_record(u);
-    if (view.string(record.name_offset, record.name_length).starts_with("TR.")) {
-      census.named_textures.insert(
-          std::string(view.string(record.value_offset, record.value_length)));
-      ++census.slots;
-    }
-  }
 }
 
 Census take_census(const fs::path& cache) {
@@ -162,10 +176,14 @@ Census take_census(const fs::path& cache) {
     if (!entry.is_regular_file()) {
       continue;
     }
-    const Bytes file = read_bytes(entry.path());
     if (entry.path().filename() == content::kConvertedCacheRecordFile) {
       continue;
     }
+    if (is_unmapped_file(entry.path())) {
+      count_unmapped_file(entry.path(), census);
+      continue;
+    }
+    const Bytes file = read_bytes(entry.path());
     const content::CookedParse parse = content::parse_cooked_header(file);
     require(parse.ok(), "a cooked asset parses: " + entry.path().string());
     require(content::verify_payload_hash(file, parse.header) == content::CookedError::None,
@@ -195,11 +213,24 @@ void require_every_slot_resolved(const Census& census) {
   }
 }
 
-// (conversion.hpp, run_conversion: Ids) over PW0's assets as the
-// executable converted them: the counts the content holds and every
-// material slot resolved. Alone catches a reader or an id rule that stops
+// A container of the install, read and parsed; the bytes outlive the views.
+struct ReadContainer {
+  Bytes file{};
+  cc::CprContainer container{};
+  explicit ReadContainer(const fs::path& path) : file(read_bytes(path)) {
+    require(cc::parse_cpr(file, container) == cc::CprError::None, "parses: " + path.string());
+  }
+};
+
+// (conversion.hpp, run_conversion: Ids; Meshes, tangent handedness; Write)
+// over PW0's assets as the executable converted them: the counts the content
+// holds, more vertices than PW0 stores (the handedness rule is wired into
+// the run) and every material slot resolved, the unmapped TR slots read from
+// the unmapped fields files. Alone catches a reader or an id rule that stops
 // matching the shipped containers.
 void pw0_counts(const Arguments& arguments) {
+  require(!arguments.install.empty() && !arguments.pw0_cache.empty(),
+          "the install and the PW0 cache are given");
   const fs::path& cache = arguments.pw0_cache;
   const Census census = take_census(cache);
 
@@ -232,6 +263,21 @@ void pw0_counts(const Arguments& arguments) {
   require(morph_sets == std::set<std::uint32_t>{0, 1, 2, 3}, "groups name morph sets 0 to 3");
   require(count(census, content::AssetKind::Material) == mesh.header().material_count,
           "one material asset per mesh material");
+  {
+    const ReadContainer source_file(arguments.install / kPw0Directory / "model/mesh.cpr");
+    cc::MeshSource source;
+    require(cc::read_mesh_container(source_file.container, source).ok(), "PW0's mesh reads");
+    std::uint64_t stored = 0;
+    for (const cc::MeshGroupData& group : source.mesh.groups) {
+      stored += group.vertex_count;
+    }
+    std::uint64_t converted = 0;
+    for (std::uint32_t g = 0; g < mesh.group_count(); ++g) {
+      converted += mesh.group(g).vertex_count;
+    }
+    require(converted > stored, "the handedness rule splits vertices: " + std::to_string(stored) +
+                                    " stored, " + std::to_string(converted) + " converted");
+  }
 
   const Bytes skeleton_file =
       read_bytes(cache / content::asset_relative_path(
@@ -260,18 +306,7 @@ void pw0_counts(const Arguments& arguments) {
   require_every_slot_resolved(census);
 }
 
-// ---- a partial install ----------------------------------------------------
-
-void append_u32(Bytes& out, std::uint32_t value) {
-  for (std::size_t i = 0; i < 4; ++i) {
-    out.push_back(static_cast<std::byte>((value >> (8U * i)) & 0xFFU));
-  }
-}
-void put_u32(Bytes& out, std::size_t at, std::uint32_t value) {
-  for (std::size_t i = 0; i < 4; ++i) {
-    out[at + i] = static_cast<std::byte>((value >> (8U * i)) & 0xFFU);
-  }
-}
+// ---- a synthetic install ----------------------------------------------------
 
 struct CatalogEntry {
   std::string directory;
@@ -284,16 +319,14 @@ Bytes rat_catalog(std::span<const CatalogEntry> entries) {
   Bytes strings{std::byte{0}};
   const auto add = [&strings](std::string_view text) {
     const auto offset = static_cast<std::uint32_t>(strings.size());
-    for (const char c : text) {
-      strings.push_back(static_cast<std::byte>(c));
-    }
+    fx::append_text(strings, text);
     strings.push_back(std::byte{0});
     return offset;
   };
   Bytes files;
   for (const CatalogEntry& entry : entries) {
-    append_u32(files, add(entry.directory));
-    append_u32(files, add(entry.file));
+    fx::append_u32(files, add(entry.directory));
+    fx::append_u32(files, add(entry.file));
   }
   Bytes rat(cc::kRatHeaderBytes, std::byte{0});
   for (std::size_t k = 0; k < 4; ++k) {
@@ -301,178 +334,98 @@ Bytes rat_catalog(std::span<const CatalogEntry> entries) {
   }
   const std::array<const Bytes*, 6> sections{nullptr, nullptr, nullptr, nullptr, &files, &strings};
   for (std::size_t s = 0; s < sections.size(); ++s) {
-    put_u32(rat, 0x10U + (8U * s), static_cast<std::uint32_t>(rat.size()));
+    fx::put_u32(rat, 0x10U + (8U * s), static_cast<std::uint32_t>(rat.size()));
     if (sections[s] != nullptr) {
-      put_u32(rat, 0x14U + (8U * s), static_cast<std::uint32_t>(sections[s]->size()));
+      fx::put_u32(rat, 0x14U + (8U * s), static_cast<std::uint32_t>(sections[s]->size()));
       rat.insert(rat.end(), sections[s]->begin(), sections[s]->end());
     }
   }
-  put_u32(rat, 4, static_cast<std::uint32_t>(rat.size()));
+  fx::put_u32(rat, 4, static_cast<std::uint32_t>(rat.size()));
   return rat;
 }
 
-// One container of the install copied into a partial install: `from` and
-// `to` are relative to data/data/stable ('/' separators); `to` differs from
-// `from` when a scenario copies a container under a second name.
-struct CopiedContainer {
-  std::string_view from;
-  std::string_view to;
+// One container of a synthetic install: its path under data/data/stable
+// ('/' separators) and its records.
+struct SyntheticContainer {
+  std::string path;
+  std::vector<fx::Record> records;
 };
+using SyntheticInstall = std::vector<SyntheticContainer>;
 
-constexpr std::array<CopiedContainer, 3> kPw0Containers{{
-    {"graphics/chara/PW0/model/mesh.cpr", "graphics/chara/PW0/model/mesh.cpr"},
-    {"graphics/chara/PW0/texture/texture.cpr", "graphics/chara/PW0/texture/texture.cpr"},
-    {"graphics/chara/PW0/texture/default.cpr", "graphics/chara/PW0/texture/default.cpr"},
-}};
+constexpr std::string_view kModelPath = "graphics/chara/SX0/model/mesh.cpr";
+constexpr std::string_view kMesh = "model.sx0.mesh";
+constexpr std::string_view kTextureA = "model.sx0.texture.dds.sx0_a_psd";
+constexpr std::string_view kSharedTexture = "shared_texture.sx_share.dds.sx_share_psd";
+// The texture table's names, as the CALL stores them: material 0's base
+// color is A and its normal map B; material 1's base color is the shared
+// texture.
+constexpr std::array<std::string_view, 3> kTableNames{"model.SX0.texture.dds.sx0_a_psd",
+                                                      "model.SX0.texture.dds.sx0_b_psd",
+                                                      "shared_texture.SX_Share.dds.sx_share_psd"};
+// Positions of synthetic_install's containers.
+constexpr std::size_t kModelContainer = 0;
+constexpr std::size_t kTableContainer = 1;
+constexpr std::size_t kTextureContainer = 2;
 
-// The containers under `root`, with a stable.rat that lists exactly them.
-content::InstallLocation partial_install(const fs::path& install, const fs::path& root,
-                                         std::span<const CopiedContainer> containers) {
+fx::Record texture_record(std::string_view qualified_name, Bytes png) {
+  return {
+      "DDS ", "texture.dds", std::string(qualified_name), std::move(png), fx::dxt1_descriptor(), {},
+      {}};
+}
+
+// The model of bw/testing/cpr_fixture.hpp (two groups, two materials whose
+// slots name the table's three textures, a morph set, no skeleton) created
+// by a CALL naming `mesh`.
+std::vector<fx::Record> model_records(std::string_view mesh) {
+  std::vector<fx::Record> records = fx::build_model(fx::ModelSpec{}).records;
+  records.push_back({"CALL", "vfx2.mesh.create", std::string(mesh), {}, {}, {}, {}});
+  return records;
+}
+
+// The model, its texture table, its texture container of A and B, and a
+// shared container holding the third texture the table names.
+SyntheticInstall synthetic_install() {
+  return {
+      {std::string(kModelPath), model_records("model.SX0.mesh")},
+      {"graphics/chara/SX0/texture/default.cpr",
+       fx::texture_table({cc::kTextureCreateCall, cc::kTableSlot, cc::kDdsSlot}, kTableNames)},
+      {"graphics/chara/SX0/texture/texture.cpr",
+       {texture_record(kTableNames[0], fx::png_bytes(fx::kPng)),
+        texture_record(kTableNames[1], fx::png_bytes(fx::kPng))}},
+      {"graphics/chara/shared_texture/SX_Share.cpr",
+       {texture_record(kTableNames[2], fx::png_bytes(fx::kPng))}},
+  };
+}
+
+// Writes every container under `root` and a stable.rat listing exactly them.
+content::InstallLocation write_install(const fs::path& root, const SyntheticInstall& install) {
   std::vector<CatalogEntry> entries;
-  for (const CopiedContainer& container : containers) {
-    const fs::path to = root / kStable / container.to;
-    fs::create_directories(to.parent_path());
-    fs::copy_file(install / kStable / container.from, to);
-    const std::string_view relative = container.to;
-    const std::size_t slash = relative.rfind('/');
-    std::string directory(relative.substr(0, slash));
+  for (const SyntheticContainer& container : install) {
+    write_bytes(root / kStable / container.path, fx::build(container.records));
+    const std::size_t slash = container.path.rfind('/');
+    std::string directory = container.path.substr(0, slash);
     std::replace(directory.begin(), directory.end(), '/', '\\');
-    entries.push_back({std::move(directory), std::string(relative.substr(slash + 1))});
+    entries.push_back({std::move(directory), container.path.substr(slash + 1)});
   }
   write_bytes(root / kStable / "stable.rat", rat_catalog(entries));
   content::InstallLocation location{};
   location.path = root;
-  location.graphics_containers = static_cast<std::uint32_t>(containers.size());
+  location.graphics_containers = static_cast<std::uint32_t>(install.size());
   return location;
 }
 
-content::InstallLocation pw0_install(const fs::path& install, const fs::path& root) {
-  return partial_install(install, root, kPw0Containers);
+fs::path cached_path(const fs::path& cache, std::string_view id) {
+  return cache / content::asset_relative_path(content::make_asset_id(id).id);
 }
 
-// A container's bytes with its parse, for an edit in place.
-struct EditedContainer {
-  fs::path path{};
-  Bytes file{};
-  cc::CprContainer container{};
-  explicit EditedContainer(fs::path at) : path(std::move(at)), file(read_bytes(path)) {
-    require(cc::parse_cpr(file, container) == cc::CprError::None,
-            "container parses: " + path.string());
-  }
-  [[nodiscard]] std::size_t offset_of(std::string_view text) const {
-    return static_cast<std::size_t>(reinterpret_cast<const std::byte*>(text.data()) -
-                                    container.file().data());
-  }
-  [[nodiscard]] std::size_t offset_of(std::span<const std::byte> bytes) const {
-    return static_cast<std::size_t>(bytes.data() - container.file().data());
-  }
-  [[nodiscard]] const cc::CprRecord& record_named(std::string_view qualified_name) const {
-    const cc::CprRecord* record = container.find_by_qualified_name(qualified_name);
-    require(record != nullptr, "record found: " + std::string(qualified_name));
-    return *record;
-  }
-  [[nodiscard]] cc::TextureTable table() const {
-    cc::TextureTable table;
-    require(cc::texture_table_from_default(container, table) == cc::TextureTableError::None,
-            "texture table reads: " + path.string());
-    require(!table.names.empty(), "the texture table names textures");
-    return table;
-  }
-  void write() const { write_bytes(path, file); }
-};
-
-struct CachedFile {
-  Bytes bytes{};
-  fs::file_time_type written{};
-};
-std::map<std::string, CachedFile> snapshot(const fs::path& cache) {
-  std::map<std::string, CachedFile> files;
+std::map<std::string, Bytes> snapshot(const fs::path& cache) {
+  std::map<std::string, Bytes> files;
   for (const fs::directory_entry& entry : fs::recursive_directory_iterator(cache)) {
     if (entry.is_regular_file()) {
-      files[fs::relative(entry.path(), cache).generic_string()] =
-          CachedFile{read_bytes(entry.path()), entry.last_write_time()};
+      files[fs::relative(entry.path(), cache).generic_string()] = read_bytes(entry.path());
     }
   }
   return files;
-}
-
-std::uint32_t crc32(std::span<const std::byte> bytes) {
-  std::uint32_t crc = 0xFFFFFFFFU;
-  for (const std::byte b : bytes) {
-    crc ^= std::to_integer<std::uint32_t>(b);
-    for (int bit = 0; bit < 8; ++bit) {
-      crc = (crc >> 1U) ^ (0xEDB88320U & (0U - (crc & 1U)));
-    }
-  }
-  return ~crc;
-}
-
-std::uint32_t big_endian(std::span<const std::byte> bytes, std::size_t at) {
-  std::uint32_t value = 0;
-  for (std::size_t i = 0; i < 4; ++i) {
-    value = (value << 8U) | std::to_integer<std::uint32_t>(bytes[at + i]);
-  }
-  return value;
-}
-
-// Changes one byte of the pHYs chunk of the named texture record's PNG and
-// restores that chunk's CRC, so the PNG still decodes to the same pixels and
-// only its bytes differ.
-void change_one_png_byte(const fs::path& container_path, std::string_view qualified_name) {
-  Bytes file = read_bytes(container_path);
-  cc::CprContainer container;
-  require(cc::parse_cpr(file, container) == cc::CprError::None, "texture container parses");
-  const cc::CprRecord* record = container.find_by_qualified_name(qualified_name);
-  require(record != nullptr, "texture record found: " + std::string(qualified_name));
-  const auto png_at = static_cast<std::size_t>(record->payload.data() - container.file().data());
-  const std::size_t png_size = record->payload.size();
-  constexpr std::size_t kSignatureBytes = 8;
-  for (std::size_t at = png_at + kSignatureBytes; at + 12U <= png_at + png_size;) {
-    const std::uint32_t length = big_endian(file, at);
-    const bool phys =
-        std::to_integer<char>(file[at + 4]) == 'p' && std::to_integer<char>(file[at + 5]) == 'H' &&
-        std::to_integer<char>(file[at + 6]) == 'Y' && std::to_integer<char>(file[at + 7]) == 's';
-    if (phys) {
-      file[at + 8 + 3] ^= std::byte{1};
-      const std::uint32_t crc = crc32(std::span(file).subspan(at + 4, 4U + length));
-      for (std::size_t i = 0; i < 4; ++i) {
-        file[at + 8 + length + i] = static_cast<std::byte>((crc >> (8U * (3U - i))) & 0xFFU);
-      }
-      write_bytes(container_path, file);
-      return;
-    }
-    at += 12U + length;
-  }
-  require(false, "the PNG has a pHYs chunk");
-}
-
-// Flips one bit of the first byte of PW0's first vertex buffer record; the
-// reader copies buffers out, so the mesh still reads.
-void change_vertex_buffer_byte(const fs::path& install) {
-  EditedContainer mesh(install / kPw0Directory / "model/mesh.cpr");
-  const cc::CprRecord* record = mesh.container.find_record("vertex_000.bin");
-  require(record != nullptr && record->tag == cc::RecordTag::Dxvb && !record->payload.empty(),
-          "vertex_000.bin is a vertex buffer record");
-  mesh.file[mesh.offset_of(record->payload)] ^= std::byte{1};
-  mesh.write();
-}
-
-// Flips the case of the first upper-case letter of the texture table's first
-// name: the hash input changes, the name still resolves (compared ignoring
-// case) and its id folds to the same text.
-void change_table_name_case(const fs::path& install) {
-  EditedContainer table(install / kPw0Directory / "texture/default.cpr");
-  const std::string_view name = table.table().names[0];
-  const std::size_t letter = name.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-  require(letter != std::string_view::npos, "the table name has an upper-case letter");
-  const std::size_t at = table.offset_of(name) + letter;
-  table.file[at] = static_cast<std::byte>(std::to_integer<char>(table.file[at]) - 'A' + 'a');
-  table.write();
-}
-
-// The cached file of the one asset whose identity matches.
-fs::path cached_path(const fs::path& cache, std::string_view id) {
-  return cache / content::asset_relative_path(content::make_asset_id(id).id);
 }
 
 struct Identity {
@@ -481,49 +434,54 @@ struct Identity {
 };
 
 // (conversion.hpp, run_conversion: Determinism, Parallel, Incremental, Write;
-// Input hash) over a partial install of PW0's containers: two fresh caches
-// converted with one worker and with the hardware's count are byte-identical
-// file by file, record included; a rerun skips every asset; then each row
-// changes one input and the next run rewrites exactly the assets whose hash
-// covers it, leaving every other file untouched (same bytes, same write
-// time): a PNG byte (that texture), a vertex buffer byte (the mesh, not its
+// Input hash) over the synthetic install: two fresh caches converted with one
+// worker and with the hardware's count are byte-identical file by file,
+// record included; a rerun skips every asset; then each row changes one
+// input and the next run rewrites exactly the assets whose hash covers it,
+// counted by the report as converted and the rest as skipped. A row that
+// changes the install leaves every other file's bytes as they were and
+// changes the rewritten ones; a row that damages the cache leaves the whole
+// cache as it was before the damage. The rows: a texture's PNG (that texture
+// and the material it is the base color of, not the one it is the normal
+// map of), a vertex buffer byte (the mesh and its morph set, not its
 // materials), the case of a texture-table name (every material, not the
-// mesh), a cached file carrying another format version or not parsing
-// (that file), and each texture pipeline option (every texture).
+// mesh), a cached file carrying another format version or not parsing (that
+// file), a material whose unmapped fields file is missing or does not parse
+// (that material), and each texture pipeline option (every texture).
 void incremental_reconverts_dependents(const Arguments& arguments) {
   const ScratchTree tree(arguments.scratch, "incremental_reconverts_dependents");
-  const content::InstallLocation install = pw0_install(arguments.install, tree.root() / "install");
+  SyntheticInstall source = synthetic_install();
+  const content::InstallLocation install = write_install(tree.root() / "install", source);
   const fs::path cache_a = tree.root() / "cache_a";
   const fs::path cache_b = tree.root() / "cache_b";
   const cc::ConvertResult first = convert(install, cache_a, {}, 1);
   convert(install, cache_b, {}, 0);
-  const std::map<std::string, CachedFile> a = snapshot(cache_a);
-  const std::map<std::string, CachedFile> b = snapshot(cache_b);
-  require(a.size() == b.size() && a.size() > 1U, "both caches hold the same number of files");
-  for (const auto& [path, file] : a) {
-    const auto other = b.find(path);
-    require(other != b.end(), "both caches hold " + path);
-    require(other->second.bytes == file.bytes, "byte-identical across worker counts: " + path);
-  }
+  const std::map<std::string, Bytes> a = snapshot(cache_a);
+  require(a.size() > 1U && a == snapshot(cache_b), "byte-identical across worker counts");
   const std::uint64_t assets = first.report.converted;
-  require(assets == a.size() - 1U, "every file but the record is a converted asset");
   std::map<std::string, Identity> identities;
   for (const auto& [path, file] : a) {
-    if (path != content::kConvertedCacheRecordFile) {
-      const content::CookedParse parse = content::parse_cooked_header(file.bytes);
+    if (path != content::kConvertedCacheRecordFile && !is_unmapped_file(path)) {
+      const content::CookedParse parse = content::parse_cooked_header(file);
       require(parse.ok(), "a cached asset parses: " + path);
-      identities[path] = {std::string(content::cooked_id(file.bytes, parse.header)),
-                          parse.header.kind};
+      identities[path] = {std::string(content::cooked_id(file, parse.header)), parse.header.kind};
     }
   }
+  require(assets == identities.size(), "every cooked file is a converted asset");
 
   const cc::ConvertResult rerun = convert(install, cache_a, {}, 0);
   require(rerun.report.converted == 0U && rerun.report.skipped_unchanged == assets,
           "an unchanged rerun skips every asset");
 
-  constexpr std::string_view kChangedTexture = "model.pw0.texture.dds.pw0_magazine_psd";
-  const std::string skeleton_id = std::string(kPw0Mesh) + ".skeleton";
-  const std::string shapes_id = std::string(kPw0Mesh) + ".shapes.0";
+  const std::string material_0 = std::string(kMesh) + ".material.0";
+  const std::string material_1 = std::string(kMesh) + ".material.1";
+  const std::string shapes_id = std::string(kMesh) + ".shapes.0";
+  const auto unmapped_of = [&cache_a](std::string_view id) {
+    fs::path path = cached_path(cache_a, id);
+    path += cc::kUnmappedFieldsSuffix;
+    return path;
+  };
+  const auto rewrite_install = [&] { write_install(install.path, source); };
   cc::TexturePipelineOptions uber{};
   uber.bc7_uber_level = uber.bc7_uber_level == 0U ? 1U : uber.bc7_uber_level - 1U;
   cc::TexturePipelineOptions uber_and_green = uber;
@@ -534,30 +492,49 @@ void incremental_reconverts_dependents(const Arguments& arguments) {
     std::function<void()> apply;
     std::function<bool(const Identity&)> rewrites;
     cc::TexturePipelineOptions texture;
+    // The row damages the cache rather than changing the install.
+    bool damages_cache{};
+    // Files the change removes that the run writes again.
+    std::size_t restored{};
   };
   const std::vector<Change> changes{
-      {"a PNG byte",
+      {"a texture's PNG",
        [&] {
-         change_one_png_byte(install.path / kPw0Directory / "texture/texture.cpr", kChangedTexture);
+         source[kTextureContainer].records = {
+             texture_record(kTableNames[0], fx::png_bytes(fx::kSecondPng)),
+             texture_record(kTableNames[1], fx::png_bytes(fx::kPng))};
+         rewrite_install();
        },
-       [&](const Identity& asset) { return asset.id == kChangedTexture; },
+       [&](const Identity& asset) { return asset.id == kTextureA || asset.id == material_0; },
        {}},
       {"a vertex buffer byte",
-       [&] { change_vertex_buffer_byte(install.path); },
-       [](const Identity& asset) { return asset.id == kPw0Mesh; },
+       [&] {
+         fx::Record& vertices = source[kModelContainer].records[1];
+         require(vertices.short_name == "vertex_000.bin", "the first vertex buffer record");
+         vertices.payload[0] ^= std::byte{1};
+         rewrite_install();
+       },
+       [&](const Identity& asset) { return asset.id == kMesh || asset.id == shapes_id; },
        {}},
       {"a texture-table name's case",
-       [&] { change_table_name_case(install.path); },
+       [&] {
+         std::array<std::string_view, 3> names = kTableNames;
+         names[0] = "model.sx0.texture.dds.sx0_a_psd";
+         source[kTableContainer].records =
+             fx::texture_table({cc::kTextureCreateCall, cc::kTableSlot, cc::kDdsSlot}, names);
+         rewrite_install();
+       },
        [](const Identity& asset) { return asset.kind == content::AssetKind::Material; },
        {}},
       {"a cached file of another format version",
        [&] {
-         Bytes file = read_bytes(cached_path(cache_a, skeleton_id));
-         put_u32(file, 4, content::kCookedFormatVersion + 1U);
-         write_bytes(cached_path(cache_a, skeleton_id), file);
+         Bytes file = read_bytes(cached_path(cache_a, kMesh));
+         fx::put_u32(file, 4, content::kCookedFormatVersion + 1U);
+         write_bytes(cached_path(cache_a, kMesh), file);
        },
-       [&](const Identity& asset) { return asset.id == skeleton_id; },
-       {}},
+       [&](const Identity& asset) { return asset.id == kMesh; },
+       {},
+       true},
       {"a cached file that does not parse",
        [&] {
          Bytes file = read_bytes(cached_path(cache_a, shapes_id));
@@ -565,7 +542,18 @@ void incremental_reconverts_dependents(const Arguments& arguments) {
          write_bytes(cached_path(cache_a, shapes_id), file);
        },
        [&](const Identity& asset) { return asset.id == shapes_id; },
-       {}},
+       {},
+       true},
+      {"a material whose unmapped fields file is missing or does not parse",
+       [&] {
+         fs::remove(unmapped_of(material_0));
+         const std::string_view text = "no tab";
+         write_bytes(unmapped_of(material_1), std::as_bytes(std::span(text)));
+       },
+       [&](const Identity& asset) { return asset.id == material_0 || asset.id == material_1; },
+       {},
+       true,
+       1},
       {"the BC7 uber level", [] {},
        [](const Identity& asset) { return asset.kind == content::AssetKind::Texture; }, uber},
       {"the green convention", [] {},
@@ -574,24 +562,26 @@ void incremental_reconverts_dependents(const Arguments& arguments) {
   };
   for (std::size_t row = 0; row < changes.size(); ++row) {
     const Change& change = changes[row];
+    const std::map<std::string, Bytes> undamaged = snapshot(cache_a);
     change.apply();
-    const std::map<std::string, CachedFile> before = snapshot(cache_a);
+    const std::map<std::string, Bytes> before = snapshot(cache_a);
     const cc::ConvertResult result = convert(install, cache_a, {}, 0, change.texture);
-    const std::map<std::string, CachedFile> after = snapshot(cache_a);
-    require(after.size() == before.size(), row, "no file appears or disappears");
+    const std::map<std::string, Bytes> after = snapshot(cache_a);
+    require(after.size() == before.size() + change.restored, row,
+            "no file appears or disappears but the ones the change removed");
     std::uint64_t expected = 0;
     for (const auto& [path, identity] : identities) {
-      const CachedFile& was = before.at(path);
-      const CachedFile& now = after.at(path);
-      if (change.rewrites(identity)) {
-        ++expected;
-        const content::CookedParse parse = content::parse_cooked_header(now.bytes);
-        require(parse.ok() && now.written != was.written, row,
-                std::string(change.name) + " rewrites " + identity.id);
-      } else {
-        require(now.bytes == was.bytes && now.written == was.written, row,
-                std::string(change.name) + " leaves untouched " + identity.id);
+      const bool rewritten = change.rewrites(identity);
+      expected += rewritten ? 1U : 0U;
+      if (!change.damages_cache) {
+        require((after.at(path) != before.at(path)) == rewritten, row,
+                std::string(change.name) + (rewritten ? " rewrites " : " leaves untouched ") +
+                    identity.id);
       }
+    }
+    if (change.damages_cache) {
+      require(after == undamaged, row,
+              std::string(change.name) + ": the cache is as it was before the damage");
     }
     require(expected > 0U, row, "the change concerns an asset");
     require(result.report.converted == expected &&
@@ -601,55 +591,48 @@ void incremental_reconverts_dependents(const Arguments& arguments) {
 }
 
 // (conversion.hpp, Ids: a texture record by its qualified name; material
-// slots resolved through every record the run indexed) over a partial
-// install of M05's model and texture table and the shared container its
-// table names, converted with no prefix: the shared textures are written
-// and every slot resolves to one of them.
+// slots resolved through every record the run indexed) over the synthetic
+// install, converted with no prefix: material 1's base color slot resolves to
+// the texture of the shared container its table names, and that texture is
+// written.
 void shared_texture_resolves(const Arguments& arguments) {
   const ScratchTree tree(arguments.scratch, "shared_texture_resolves");
-  constexpr std::array<CopiedContainer, 3> kM05{{
-      {"graphics/chara/M05/model/mesh.cpr", "graphics/chara/M05/model/mesh.cpr"},
-      {"graphics/chara/M05/texture/default.cpr", "graphics/chara/M05/texture/default.cpr"},
-      {"graphics/chara/shared_texture/Crow_Share.cpr",
-       "graphics/chara/shared_texture/Crow_Share.cpr"},
-  }};
   const content::InstallLocation install =
-      partial_install(arguments.install, tree.root() / "install", kM05);
+      write_install(tree.root() / "install", synthetic_install());
   const fs::path cache = tree.root() / "cache";
   convert(install, cache, {}, 0);
-  const Census census = take_census(cache);
-  require(count(census, content::AssetKind::Mesh) == 1U, "M05's mesh is written");
-  require(census.slots > 0U, "M05's materials name textures");
-  for (const std::string& id : census.named_textures) {
-    require(id.starts_with("shared_texture.crow_share."),
-            "an M05 material names a shared texture: " + id);
-  }
-  require_every_slot_resolved(census);
+  const Bytes file = read_bytes(cached_path(cache, std::string(kMesh) + ".material.1"));
+  const content::CookedParse parse = content::parse_cooked_header(file);
+  bw::materials::MaterialAssetView material;
+  require(parse.ok() && bw::materials::decode_material_asset(
+                            content::cooked_payload(file, parse.header), material)
+                                .error == bw::materials::MaterialAssetError::None,
+          "material 1 decodes");
+  require(material.find_texture(bw::materials::kBaseColorTexture).id == kSharedTexture,
+          "its base color is the shared texture");
+  require(content::parse_cooked_header(read_bytes(cached_path(cache, kSharedTexture))).ok(),
+          "the shared texture is written");
 }
 
-// ---- the executable --------------------------------------------------------
-
 // (conversion.hpp, Ids: collision; Report: failed with id and reason) over
-// PW0's containers and a second model container deriving the same mesh id:
-// the first converts, every asset of the second is a failed row naming the
-// container that holds the id first. Alone catches a second container
-// overwriting the first without a failure.
+// the synthetic install and a second model container whose CALL names the
+// same mesh id: the first converts, every asset of the second is a failed
+// row naming the container that holds the id first. Alone catches a second
+// container overwriting the first without a failure.
 void collision_fails_second_container(const Arguments& arguments) {
   const ScratchTree tree(arguments.scratch, "collision_fails_second_container");
-  std::vector<CopiedContainer> containers(kPw0Containers.begin(), kPw0Containers.end());
-  containers.push_back({"graphics/chara/PW0/model/mesh.cpr", "graphics/chara/PX0/model/mesh.cpr"});
-  const content::InstallLocation install =
-      partial_install(arguments.install, tree.root() / "install", containers);
-  const std::string prefix = std::string(kPw0Mesh) + ".material";
+  SyntheticInstall containers = synthetic_install();
+  containers.push_back({"graphics/chara/SX1/model/mesh.cpr", model_records("model.SX0.mesh")});
+  const content::InstallLocation install = write_install(tree.root() / "install", containers);
   const cc::ConvertResult result =
-      cc::run_conversion(options_for(tree.root() / "cache", prefix, 0), install);
+      cc::run_conversion(options_for(tree.root() / "cache", kMesh, 0), install);
   require(result.ok(), "the run with a colliding model completes: " + result.detail);
-  require(result.report.converted > 1U, "the first model's materials convert");
+  require(result.report.converted > 1U, "the first model's assets convert");
   require(result.report.failed.size() == result.report.converted,
-          "every material of the second model is a failed row");
+          "every asset of the second model is a failed row");
+  const std::string first = std::string(kStable) + "/" + std::string(kModelPath);
   for (const cc::FailedAsset& failed : result.report.failed) {
-    require(failed.id.starts_with(prefix) &&
-                failed.reason.find(kPw0ModelContainer) != std::string::npos,
+    require(failed.id.starts_with(kMesh) && failed.reason.find(first) != std::string::npos,
             "a failed row names the container holding the id first: " + failed.reason);
   }
 }
@@ -666,15 +649,16 @@ constexpr std::array kScenarios{
 
 int main(int argc, char** argv) {
   return bw::testing::run_scenario(
-      argc, argv, kScenarios, "<scratch directory> <install root> <PW0 cache>",
+      argc, argv, kScenarios, "<scratch directory> [<install root> <PW0 cache>]",
       [](std::span<char* const> rest, Arguments& arguments) {
-        if (rest.size() != 3U || std::string_view(rest[0]).empty() ||
-            std::string_view(rest[1]).empty() || std::string_view(rest[2]).empty()) {
+        if ((rest.size() != 1U && rest.size() != 3U) || std::string_view(rest[0]).empty()) {
           return false;
         }
         arguments.scratch = rest[0];
-        arguments.install = rest[1];
-        arguments.pw0_cache = rest[2];
+        if (rest.size() == 3U) {
+          arguments.install = rest[1];
+          arguments.pw0_cache = rest[2];
+        }
         return true;
       });
 }

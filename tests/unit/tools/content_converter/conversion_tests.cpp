@@ -1,18 +1,27 @@
 // Unit test: public contracts of bw/content_converter/conversion.hpp that
 // need no file; each scenario names the declaration it asserts. The run over
-// an install is the integration test's.
+// an install is the integration test's; the handedness rule's mesh is built
+// here as MeshAssetData, no container.
 #include "bw/content/cooked_asset.hpp"
+#include "bw/content_converter/asset_data.hpp"
 #include "bw/content_converter/conversion.hpp"
 #include "bw/content_converter/texture_reader.hpp"
+#include "bw/rendering/geometry/mesh_asset.hpp"
+#include "bw/rendering/geometry/morph_targets_asset.hpp"
+#include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/testing/harness.hpp"
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -265,11 +274,236 @@ void input_hash_order() {
           "the format version enters the hash");
 }
 
-constexpr std::array<bw::testing::Scenario<void>, 4> kScenarios{{
+// ---- tangent handedness ------------------------------------------------------
+
+namespace g = bw::geometry;
+using Bytes = std::vector<std::byte>;
+
+void append_u16(Bytes& out, std::uint16_t value) {
+  out.push_back(static_cast<std::byte>(value & 0xFFU));
+  out.push_back(static_cast<std::byte>(value >> 8U));
+}
+void append_f32(Bytes& out, float value) {
+  const auto bits = std::bit_cast<std::uint32_t>(value);
+  append_u16(out, static_cast<std::uint16_t>(bits & 0xFFFFU));
+  append_u16(out, static_cast<std::uint16_t>(bits >> 16U));
+}
+std::int16_t i16_at(std::span<const std::byte> bytes, std::size_t at) {
+  return static_cast<std::int16_t>(std::to_integer<std::uint16_t>(bytes[at]) |
+                                   (std::to_integer<std::uint16_t>(bytes[at + 1]) << 8U));
+}
+
+constexpr std::uint16_t kSnormOne = 0x7FFF;
+constexpr std::uint16_t kHalfZero = 0x0000;
+constexpr std::uint16_t kHalfHalf = 0x3800;
+constexpr std::uint16_t kHalfOne = 0x3C00;
+// Group 0, stream 0: normal short4n at 0, texture coordinate set 0 half2 at
+// 8, tangent short4n at 12; group 1 has no texture coordinates: normal at 0,
+// tangent at 8. Stream 1 of both: position float3.
+constexpr std::size_t kStride0 = 20;
+constexpr std::size_t kStride1 = 16;
+constexpr std::size_t kPositionStride = 12;
+constexpr std::size_t kTangentW0 = 18;
+constexpr std::size_t kTangentW1 = 14;
+
+struct HandedVertex {
+  std::array<float, 3> position{};
+  std::array<std::uint16_t, 2> uv{};
+};
+
+// A normal (0, 0, 1) and a tangent (1, 0, 0) with w +1, as the content
+// stores every tangent.
+void append_frame(Bytes& out, std::span<const std::uint16_t> uv) {
+  for (const std::uint16_t c : {std::uint16_t{0}, std::uint16_t{0}, kSnormOne, kSnormOne}) {
+    append_u16(out, c);
+  }
+  for (const std::uint16_t c : uv) {
+    append_u16(out, c);
+  }
+  for (const std::uint16_t c : {kSnormOne, std::uint16_t{0}, std::uint16_t{0}, kSnormOne}) {
+    append_u16(out, c);
+  }
+}
+
+cc::MeshGroupData handed_group(std::span<const HandedVertex> vertices, bool texcoord,
+                               std::vector<std::uint16_t> indices, std::uint32_t first_draw) {
+  using A = g::VertexAttribute;
+  using T = g::VertexElementType;
+  cc::MeshGroupData group;
+  g::VertexStreamLayout& layout = group.layout;
+  layout.attributes[0] = {A::Position, T::Float3, 1, 0};
+  layout.attributes[1] = {A::Normal, T::Short4Norm, 0, 0};
+  if (texcoord) {
+    layout.attributes[2] = {A::TexCoord0, T::Half2, 0, 8};
+    layout.attributes[3] = {A::Tangent, T::Short4Norm, 0, 12};
+  } else {
+    layout.attributes[2] = {A::Tangent, T::Short4Norm, 0, 8};
+  }
+  layout.attribute_count = texcoord ? 4 : 3;
+  layout.stream_count = 2;
+  layout.streams = {
+      g::VertexStreamDescription{static_cast<std::uint32_t>(texcoord ? kStride0 : kStride1)},
+      g::VertexStreamDescription{static_cast<std::uint32_t>(kPositionStride)}};
+  for (const HandedVertex& v : vertices) {
+    append_frame(group.stream0, texcoord ? std::span<const std::uint16_t>(v.uv)
+                                         : std::span<const std::uint16_t>());
+    for (const float c : v.position) {
+      append_f32(group.stream1, c);
+    }
+  }
+  group.vertex_count = static_cast<std::uint32_t>(vertices.size());
+  group.indices = std::move(indices);
+  group.first_draw = first_draw;
+  group.draw_count = 1;
+  return group;
+}
+
+// Group 0: triangle A (v0, v1, v2) is not mirrored, B (v0, v2, v3) is, so v0
+// and v2 split; C (v4, v5, v6) has no texture area. Group 1 has Tangent and
+// no texture coordinate set 0. The morph set is group 0's, two targets, each
+// vertex's delta distinct.
+struct HandedMesh {
+  cc::MeshAssetData mesh;
+  std::vector<cc::MorphTargetsData> morph_sets;
+};
+HandedMesh handed_mesh() {
+  const std::array<HandedVertex, 7> vertices{{
+      {{0.0F, 0.0F, 0.0F}, {kHalfZero, kHalfZero}},
+      {{1.0F, 0.0F, 0.0F}, {kHalfOne, kHalfZero}},
+      {{0.0F, 1.0F, 0.0F}, {kHalfZero, kHalfOne}},
+      {{-1.0F, 0.0F, 0.0F}, {kHalfOne, kHalfZero}},
+      {{2.0F, 0.0F, 0.0F}, {kHalfHalf, kHalfHalf}},
+      {{3.0F, 0.0F, 0.0F}, {kHalfHalf, kHalfHalf}},
+      {{2.0F, 1.0F, 0.0F}, {kHalfHalf, kHalfHalf}},
+  }};
+  HandedMesh m;
+  m.mesh.groups.push_back(handed_group(vertices, true, {0, 1, 2, 0, 2, 3, 4, 5, 6}, 0));
+  m.mesh.groups.push_back(handed_group(std::span(vertices).first(3), false, {0, 1, 2}, 1));
+  m.mesh.draws = {{0, 0, 7, 0, 9, 0, g::kNoBoneMap, 0}, {0, 0, 3, 0, 3, 0, g::kNoBoneMap, 0}};
+  m.mesh.material_count = 1;
+  cc::MorphTargetsData set{0, 7, {}};
+  for (std::uint8_t t = 0; t < 2; ++t) {
+    cc::MorphTargetData target{t == 0 ? "smile" : "blink", {}};
+    for (std::size_t b = 0; b < std::size_t{7} * g::kMorphDeltaBytes; ++b) {
+      target.deltas.push_back(static_cast<std::byte>((std::size_t{t} * 100U) + b));
+    }
+    set.targets.push_back(std::move(target));
+  }
+  m.morph_sets.push_back(std::move(set));
+  return m;
+}
+
+// (conversion.hpp, write_tangent_handedness, Meshes, tangent handedness,
+// TangentHandednessError): w per corner, -1 unmirrored and +1 mirrored; a
+// vertex whose corners disagree keeps -1 and its copy, appended after the
+// originals in their order, takes +1 with both streams and every target's
+// delta repeated and the mirrored triangle's indices naming it; the draw's
+// vertex_count widened to the last index it names, min_index kept. A vertex
+// used only by a triangle with no texture area, and every vertex of a group
+// without texture coordinate set 0, takes -1. Then one row per error name,
+// each breaking one rule, naming its group. Alone catches a sign written per
+// vertex rather than per corner, a split that drops a stream or a delta, or
+// an overflow written as wrapped indices.
+void tangent_handedness() {
+  HandedMesh m = handed_mesh();
+  const cc::TangentHandednessResult result = cc::write_tangent_handedness(m.mesh, m.morph_sets);
+  require(result.ok(), "the mesh is written");
+
+  const cc::MeshGroupData& group = m.mesh.groups[0];
+  require(group.vertex_count == 9U && group.stream0.size() == 9U * kStride0 &&
+              group.stream1.size() == 9U * kPositionStride,
+          "v0 and v2 are copied once each");
+  constexpr std::int16_t kMinus = -32767;
+  constexpr std::int16_t kPlus = 32767;
+  const std::array<std::int16_t, 9> w{kMinus, kMinus, kMinus, kPlus, kMinus,
+                                      kMinus, kMinus, kPlus,  kPlus};
+  for (std::size_t v = 0; v < w.size(); ++v) {
+    require(i16_at(group.stream0, (v * kStride0) + kTangentW0) == w[v], v, "w per corner");
+  }
+  // Each copy and its original.
+  constexpr std::array<std::pair<std::size_t, std::size_t>, 2> kCopies{{{7, 0}, {8, 2}}};
+  const auto same = [](std::span<const std::byte> bytes, std::size_t a, std::size_t b,
+                       std::size_t length) {
+    return std::equal(bytes.begin() + static_cast<std::ptrdiff_t>(a),
+                      bytes.begin() + static_cast<std::ptrdiff_t>(a + length),
+                      bytes.begin() + static_cast<std::ptrdiff_t>(b));
+  };
+  for (const auto& [copy, original] : kCopies) {
+    require(same(group.stream0, copy * kStride0, original * kStride0, kTangentW0) &&
+                same(group.stream1, copy * kPositionStride, original * kPositionStride,
+                     kPositionStride),
+            copy, "the copy repeats both streams of its original but w");
+  }
+  require(group.indices == std::vector<std::uint16_t>{0, 1, 2, 7, 8, 3, 4, 5, 6},
+          "the mirrored triangle names the copies");
+  require(m.mesh.draws[0].vertex_count == 9U && m.mesh.draws[0].min_index == 0U,
+          "the draw's vertex_count reaches the copies, min_index kept");
+  const cc::MorphTargetsData& set = m.morph_sets[0];
+  require(set.vertex_count == 9U, "the morph set counts the copies");
+  for (std::size_t t = 0; t < set.targets.size(); ++t) {
+    const std::vector<std::byte>& deltas = set.targets[t].deltas;
+    require(deltas.size() == std::size_t{9} * g::kMorphDeltaBytes, t,
+            "a delta per vertex, copies included");
+    for (const auto& [copy, original] : kCopies) {
+      require(same(deltas, copy * g::kMorphDeltaBytes, original * g::kMorphDeltaBytes,
+                   g::kMorphDeltaBytes),
+              t, "the copy repeats its original's delta");
+    }
+  }
+  const cc::MeshGroupData& bare = m.mesh.groups[1];
+  for (std::size_t v = 0; v < bare.vertex_count; ++v) {
+    require(i16_at(bare.stream0, (v * kStride1) + kTangentW1) == kMinus, v,
+            "a group without texture coordinate set 0 takes -1");
+  }
+
+  using E = cc::TangentHandednessError;
+  struct Row {
+    std::string_view name;
+    std::function<void(HandedMesh&)> change;
+    E error;
+    std::uint32_t group;
+  };
+  const std::array<Row, 5> rows{{
+      {"a tangent stored as ubyte4n",
+       [](HandedMesh& h) {
+         h.mesh.groups[1].layout.attributes[2].type = g::VertexElementType::UByte4Norm;
+       },
+       E::TangentTypeUnsupported, 1},
+      {"a draw past the group's indices", [](HandedMesh& h) { h.mesh.draws[1].index_count = 6; },
+       E::DrawOutOfRange, 1},
+      {"two draws sharing an index position",
+       [](HandedMesh& h) {
+         h.mesh.draws.push_back(h.mesh.draws[1]);
+         h.mesh.groups[1].draw_count = 2;
+       },
+       E::DrawRangesOverlap, 1},
+      {"a morph set of another vertex count", [](HandedMesh& h) { h.morph_sets[0].group = 1; },
+       E::MorphVertexCountMismatch, 1},
+      {"copies past 65,535 vertices",
+       [](HandedMesh& h) {
+         cc::MeshGroupData& crowded = h.mesh.groups[0];
+         crowded.vertex_count = 65534;
+         crowded.stream0.resize(std::size_t{65534} * kStride0);
+         crowded.stream1.resize(std::size_t{65534} * kPositionStride);
+         h.morph_sets.clear();
+       },
+       E::VertexCountOverflow, 0},
+  }};
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    HandedMesh broken = handed_mesh();
+    rows[i].change(broken);
+    const cc::TangentHandednessResult r =
+        cc::write_tangent_handedness(broken.mesh, broken.morph_sets);
+    require(r.error == rows[i].error && r.group == rows[i].group, i, rows[i].name);
+  }
+}
+
+constexpr std::array<bw::testing::Scenario<void>, 5> kScenarios{{
     {"parse_arguments", parse_arguments},
     {"plan_kinds_and_order", plan_kinds_and_order},
     {"report_text", report_text},
     {"input_hash_order", input_hash_order},
+    {"tangent_handedness", tangent_handedness},
 }};
 
 } // namespace

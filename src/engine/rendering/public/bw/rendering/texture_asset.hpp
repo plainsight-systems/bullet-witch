@@ -11,9 +11,9 @@
 
 // Responsibility: the texture payload of a cooked asset and its reader
 // (docs/architecture/content.md, "Asset kinds": block-compressed or raw
-// texel data with mip chain, format, color space). The converter decodes
-// the original PNGs, generates the full mip chain and block-compresses;
-// the renderer creates an RHI texture from this view with one
+// texel data with mip chain, format, color space). The converter
+// generates the full mip chain and block-compresses; the renderer creates
+// an RHI texture from this view with one
 // SubresourceData per subresource and no copy.
 //
 // Layout, little-endian, read by copy: TexturePayloadHeader at 0;
@@ -41,13 +41,11 @@
 //   of the format, as in the RHI.
 //   Mip arithmetic: full_mip_count({w, h}) = floor(log2(max(w, h))) + 1;
 //   mip_extent({w, h}, level) = (max(1, w >> level), max(1, h >> level)),
-//   rounding down, which is what the content's descriptors also state
-//   (mip_max_level equals floor(log2(max(width, height))) in every record
-//   that carries mips).
+//   rounding down.
 //   Non-power-of-two images keep their size; a block-compressed mip whose
 //   extent is not a multiple of 4 holds whole blocks, as row_bytes counts.
 //   Cube faces are stored +X, -X, +Y, -Y, +Z, -Z in slices 0 to 5; the
-//   converter establishes the content's order and writes this one.
+//   converter writes this order.
 //
 // Core guidelines read: SL.con.3, C.183, Con.5 (as mesh_asset.hpp),
 // Enum.3 (file values are a fixed enumeration). Performance guidelines

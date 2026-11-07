@@ -44,7 +44,7 @@ constexpr VertexElementType U4N = VertexElementType::UByte4Norm;
 constexpr VertexAttribute POS = VertexAttribute::Position;
 constexpr VertexAttribute NRM = VertexAttribute::Normal;
 constexpr VertexAttribute COL0 = VertexAttribute::Color0;
-constexpr VertexAttribute TC1 = VertexAttribute::TexCoord1;
+constexpr VertexAttribute TC0 = VertexAttribute::TexCoord0;
 constexpr VertexAttribute BW1 = VertexAttribute::BoneWeights;
 
 // (vertex_streams.hpp, validate_vertex_stream_layout, VertexStreamError,
@@ -151,7 +151,7 @@ std::uint32_t slot_word(const VertexStreams& block, VertexAttribute attribute) {
 // zero.
 void block_fill_and_absent_slots() {
   require(bw::shaders::BlockLayoutOf<VertexStreams>::value.size == 80U, "size 80");
-  require(bw::geometry::attribute_word(VertexAttributeDescription{TC1, H2, 1, 8}) == 0x00010008U,
+  require(bw::geometry::attribute_word(VertexAttributeDescription{TC0, H2, 1, 8}) == 0x00010008U,
           "stream 1 offset 8 is 0x00010008");
   const VertexStreamLayout two = make_layout(
       24, 12, {{POS, F3, 1, 0}, {NRM, S4N, 0, 0}, {COL0, U4N, 0, 12}, {BW1, U4N, 0, 20}});

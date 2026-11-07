@@ -32,7 +32,8 @@
 //   TooManyBlocks           block_count over kMaxReflectedBlocks.
 //   TooManyVertexInputs     vertex_input_count over kMaxVertexInputs.
 //   SlotOutOfRange          any block: static slot >= kMaxStaticBlocks, draw
-//                           slot other than 0, or kind not an enumerator.
+//                           slot other than 0, buffer slot >=
+//                           kMaxBufferBlocks, or kind not an enumerator.
 //   DuplicateSlot           two blocks with the same (kind, slot).
 //   ThreadGroupOnNonCompute a non-zero thread group size, stage not compute.
 //   UnknownDescriptorArray  a descriptor_arrays bit >= kDescriptorArrayCount.
@@ -233,6 +234,8 @@ template <class T, std::size_t N, class Before>
     return block.slot < kMaxStaticBlocks;
   case BlockSlotKind::Draw:
     return block.slot == 0;
+  case BlockSlotKind::Buffer:
+    return block.slot < kMaxBufferBlocks;
   }
   return false;
 }
@@ -480,8 +483,13 @@ read_reflection(std::span<const std::byte> bytes, const Sections& sections, Shad
       if (slot != 0U) {
         return malformed(0, slot);
       }
+    } else if (kind == static_cast<std::uint8_t>(BlockSlotKind::Buffer)) {
+      block.kind = BlockSlotKind::Buffer;
+      if (slot >= kMaxBufferBlocks) {
+        return malformed(kMaxBufferBlocks, slot);
+      }
     } else {
-      return malformed(static_cast<std::uint8_t>(BlockSlotKind::Draw), kind);
+      return malformed(static_cast<std::uint8_t>(BlockSlotKind::Buffer), kind);
     }
     block.slot = slot;
     if (i > 0 && !block_before(reflection.blocks[i - 1], block)) {
@@ -873,8 +881,9 @@ BindingUse derive_binding_use(const Reflection& reflection) noexcept {
     if (block.kind == BlockSlotKind::Draw) {
       use.uses_draw_block = true;
       use.draw_block_hash = block.layout_hash;
-    } else if (block.slot < kMaxStaticBlocks) {
+    } else if (block.kind == BlockSlotKind::Static && block.slot < kMaxStaticBlocks) {
       // A loaded reflection never holds a slot outside the layout (check 9).
+      // A buffer block binds nothing and takes no part in the binding use.
       use.static_slot_mask = static_cast<std::uint8_t>(use.static_slot_mask | (1U << block.slot));
     }
   }

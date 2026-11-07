@@ -24,25 +24,3 @@ if(BW_GAME_DATA STREQUAL "")
   set_tests_properties(integration.content.install.explicit_install_located
     PROPERTIES DISABLED TRUE)
 endif()
-
-# pw0_offscreen_not_clear loads a converted model and draws it with the
-# fixture draw on this Mac's Metal device: it needs the Metal backend and the shader
-# artifacts the build produced (Apple hosts with the shader toolchain), and
-# reads the PW0 cache of the fixture pw0_cache
-# (integration/tools/content_converter). Without BW_GAME_DATA it is
-# registered DISABLED.
-if(APPLE AND BW_SHADER_TOOLCHAIN)
-  add_executable(content_textured_draw_integration_tests textured_draw_tests.cpp)
-  target_link_libraries(content_textured_draw_integration_tests PRIVATE bw_test_harness
-    bw_model bw_scene)
-  add_dependencies(content_textured_draw_integration_tests shader_artifacts)
-  add_test(NAME integration.content.textured_draw.pw0_offscreen_not_clear
-    COMMAND content_textured_draw_integration_tests pw0_offscreen_not_clear
-      "${BW_PW0_TEST_CACHE}" "${CMAKE_BINARY_DIR}/shaders/metal")
-  set_tests_properties(integration.content.textured_draw.pw0_offscreen_not_clear
-    PROPERTIES TIMEOUT 60 FIXTURES_REQUIRED pw0_cache)
-  if(BW_GAME_DATA STREQUAL "")
-    set_tests_properties(integration.content.textured_draw.pw0_offscreen_not_clear
-      PROPERTIES DISABLED TRUE)
-  endif()
-endif()

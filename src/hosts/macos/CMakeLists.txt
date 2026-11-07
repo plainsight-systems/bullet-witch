@@ -18,7 +18,7 @@ target_link_libraries(bw_game_host_options PUBLIC bw_game_host_options_headers
 # The game executable's first stage: the AppKit window (macos/window.hpp), the
 # Metal device and viewport, and the fixture cube drawn with pulled vertices,
 # or with --cache and --asset a model loaded and drawn by the model module
-# (bw/rendering/model_resources.hpp, textured_model_fixture.hpp), seen
+# (bw/rendering/model_resources.hpp, model_draw.hpp), seen
 # through a view of the scene module.
 # Apple hosts only, because the window adapter and the Metal backend exist
 # only there. Its default shader directory is <executable directory>/shaders/metal,

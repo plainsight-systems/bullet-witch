@@ -12,7 +12,7 @@
 // Contract: format_info is a pure constexpr table; every enumerator has a
 // row; Unknown has block_bytes 0. The set is sized by what the game's content
 // and passes need: 8-bit and 16-bit color, float render targets, the block
-// compressed families the original textures import to, depth and
+// compressed families textures are converted to, depth and
 // depth-stencil, and the vertex attribute formats.
 //
 // Core guidelines read: Enum.3, Con.5 (a constexpr table, no runtime

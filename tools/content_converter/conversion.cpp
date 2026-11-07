@@ -64,17 +64,33 @@
 //   Input hash framing as the header states it; the length before every
 //   item means moving bytes across the boundary of two items changes the
 //   hash. add and add_text frame alike: text is its bytes.
-//   Material inputs: "the material's block bytes" are the MaterialBlock the
-//   mesh reader read, written field by field in declaration order as
-//   little-endian words (floats as their bit patterns, flags as one byte):
-//   the block is parsed from several chunks (the material's container and
-//   the nearest preceding knsS), and these are exactly the values the
-//   mapping reads. Then every name of the texture table, in order.
-//   Mesh inputs: header.bin, then every buffer record a VTX, VTXS or IDX
-//   chunk names, in document order of the chunks, then motion.bil and
-//   motion._bl when present, then each shapeoffset record a VTXS names that
-//   exists, in document order. A morph set's input is its shapeoffset
-//   record (the s-th of that list). A texture's inputs are the green
+//   Material inputs: first the text "material-mapping 3"; then "the
+//   material's block bytes", the MaterialBlock the mesh reader read,
+//   written field by field in declaration order as little-endian words
+//   (floats as their bit patterns, flags as one byte): the block is parsed
+//   from several chunks (the material's container and the nearest preceding
+//   knsS), and these are exactly the values the mapping reads; then every
+//   name of the texture table, in order; then, when the block has a BTX0
+//   slot, the descriptor (the record's slot bytes) and the payload (the
+//   PNG of a DDS record) of the texture record its first BTX0 slot names,
+//   found by qualified name where the index saw it. A BTX0 slot naming a
+//   DDSC (cube) record fails the material: its base alpha has no stated
+//   class. The record's container is read and parsed once per job, for the
+//   hash; the PNG is decoded only for a material that is converted. A
+//   skipped material's unmapped fields are counted from its unmapped fields
+//   file, so an unchanged rerun reports the same fields. A failed write of
+//   that file names it ("unmapped fields file: " and the OS message); the
+//   file's bytes count in bytes_written, and the material counts once, as
+//   converted, when its asset is written.
+//   Mesh inputs: the text "mesh-conversion 2", header.bin, then every
+//   buffer record a VTX, VTXS or IDX chunk names, in document order of the
+//   chunks, then motion.bil and motion._bl when present, then each
+//   shapeoffset record a VTXS names that exists, in document order. A morph
+//   set's inputs are the same revision text, its shapeoffset record (the
+//   s-th of that list), header.bin and the buffer records in the order
+//   above. The handedness rule runs once per model job, before the mesh and
+//   its morph sets are encoded; when it fails, the mesh and every morph set
+//   fail with "tangent handedness: <enumerator> group <n>". A texture's inputs are the green
 //   convention as its command-line spelling ("as-stored" or "flip") and the
 //   BC7 uber level in decimal, for every texture whatever its format, then
 //   the descriptor (the record's slot bytes), then its PNG (DDS) or its six
@@ -238,6 +254,20 @@ std::string_view name_of(PlanError e) noexcept {
   static constexpr std::array<std::string_view, 6> kNames{
       "None",          "FormatUnsupported", "SignUnsupported", "HalfWidthMismatch",
       "ExtentInvalid", "ImageCountInvalid"};
+  return enum_name(e, kNames);
+}
+std::string_view name_of(MaterialMappingError e) noexcept {
+  static constexpr std::array<std::string_view, 3> kNames{"None", "SwitchesNotAdmitted",
+                                                          "BlendMarkerUnknown"};
+  return enum_name(e, kNames);
+}
+std::string_view name_of(TangentHandednessError e) noexcept {
+  static constexpr std::array<std::string_view, 6> kNames{"None",
+                                                          "TangentTypeUnsupported",
+                                                          "DrawOutOfRange",
+                                                          "DrawRangesOverlap",
+                                                          "MorphVertexCountMismatch",
+                                                          "VertexCountOverflow"};
   return enum_name(e, kNames);
 }
 std::string_view name_of(EncodeError e) noexcept {
@@ -486,8 +516,10 @@ struct IndexedContainer {
   // this model fails with.
   std::string collision{};
   std::vector<TextureEntry> textures{};
-  // Lower-cased qualified names of the DDS and DDSC records.
+  // Lower-cased qualified names of the DDS and DDSC records, and each
+  // one's record index in the container.
   std::vector<std::string> texture_names{};
+  std::vector<std::uint32_t> texture_name_records{};
   std::vector<FailedAsset> failed{};
 };
 
@@ -539,6 +571,7 @@ IndexedContainer index_container(const fs::path& install, const ConversionJob& j
     // naming it fails with the id error rather than as missing.
     if (!record.qualified_name.empty()) {
       out.texture_names.push_back(lower_ascii(record.qualified_name));
+      out.texture_name_records.push_back(static_cast<std::uint32_t>(r));
     }
     if (!id.ok()) {
       out.failed.push_back({job.container + ":" + std::string(record.short_name),
@@ -565,19 +598,42 @@ IndexedContainer index_container(const fs::path& install, const ConversionJob& j
   return out;
 }
 
-// Every lower-cased qualified name of a texture record the index saw.
+// A texture record the index saw, by its lower-cased qualified name: the
+// container that holds it and its record index there.
+struct TextureLocation {
+  std::string name{};
+  std::string container{};
+  std::uint32_t record{};
+};
+
+// Every lower-cased qualified name of a texture record the index saw, with
+// where the first container in catalog order holds it.
 class IndexedResolver final : public RecordResolver {
 public:
-  explicit IndexedResolver(std::vector<std::string> names) : names_(std::move(names)) {
-    std::sort(names_.begin(), names_.end());
-    names_.erase(std::unique(names_.begin(), names_.end()), names_.end());
+  explicit IndexedResolver(std::vector<TextureLocation> locations)
+      : locations_(std::move(locations)) {
+    std::stable_sort(
+        locations_.begin(), locations_.end(),
+        [](const TextureLocation& a, const TextureLocation& b) { return a.name < b.name; });
+    locations_.erase(std::unique(locations_.begin(), locations_.end(),
+                                 [](const TextureLocation& a, const TextureLocation& b) {
+                                   return a.name == b.name;
+                                 }),
+                     locations_.end());
   }
   [[nodiscard]] bool exists(std::string_view qualified_name) const override {
-    return std::binary_search(names_.begin(), names_.end(), lower_ascii(qualified_name));
+    return locate(qualified_name) != nullptr;
+  }
+  [[nodiscard]] const TextureLocation* locate(std::string_view qualified_name) const {
+    const std::string name = lower_ascii(qualified_name);
+    const auto it = std::lower_bound(
+        locations_.begin(), locations_.end(), name,
+        [](const TextureLocation& location, const std::string& n) { return location.name < n; });
+    return it != locations_.end() && it->name == name ? &*it : nullptr;
   }
 
 private:
-  std::vector<std::string> names_;
+  std::vector<TextureLocation> locations_;
 };
 
 // ---- jobs -----------------------------------------------------------------
@@ -600,33 +656,52 @@ bool wanted(std::string_view id, const ConvertOptions& options) noexcept {
   return id.starts_with(options.only_prefix);
 }
 
-bool unchanged(const fs::path& path, const content::AssetId& id, content::AssetKind kind,
-               const content::Hash& input_hash) {
+// The existing file when it is the asset unchanged (it parses, names the
+// id and kind and carries the input hash), else no value.
+std::optional<std::vector<std::byte>> unchanged_file(const fs::path& path,
+                                                     const content::AssetId& id,
+                                                     content::AssetKind kind,
+                                                     const content::Hash& input_hash) {
   std::error_code ec;
   if (!fs::is_regular_file(path, ec)) {
-    return false;
+    return std::nullopt;
   }
-  const FileBytes existing = read_file(path);
+  FileBytes existing = read_file(path);
   if (!existing.error.empty()) {
-    return false;
+    return std::nullopt;
   }
   const content::CookedParse parse = content::parse_cooked_header(existing.bytes);
-  return parse.ok() &&
-         content::check_expectations(existing.bytes, parse.header, id.view(), kind) ==
-             content::CookedError::None &&
-         parse.header.input_hash == input_hash;
+  if (parse.ok() &&
+      content::check_expectations(existing.bytes, parse.header, id.view(), kind) ==
+          content::CookedError::None &&
+      parse.header.input_hash == input_hash) {
+    return std::move(existing.bytes);
+  }
+  return std::nullopt;
 }
 
 using Encoder = std::function<std::vector<std::byte>(std::string& failure)>;
+
+void write_asset(const JobContext& context, JobResult& result, content::AssetKind kind,
+                 const content::AssetId& id, const content::Hash& input_hash,
+                 const Encoder& encode);
 
 // One asset: skipped when unchanged, else encoded and written atomically.
 void emit(const JobContext& context, JobResult& result, content::AssetKind kind,
           const content::AssetId& id, const content::Hash& input_hash, const Encoder& encode) {
   const fs::path path = context.options->output / content::asset_relative_path(id);
-  if (unchanged(path, id, kind, input_hash)) {
+  if (unchanged_file(path, id, kind, input_hash).has_value()) {
     ++result.skipped_unchanged;
     return;
   }
+  write_asset(context, result, kind, id, input_hash, encode);
+}
+
+// Encodes and writes one asset atomically, counting it or its failure.
+void write_asset(const JobContext& context, JobResult& result, content::AssetKind kind,
+                 const content::AssetId& id, const content::Hash& input_hash,
+                 const Encoder& encode) {
+  const fs::path path = context.options->output / content::asset_relative_path(id);
   std::string failure;
   const std::vector<std::byte> payload = encode(failure);
   if (!failure.empty()) {
@@ -892,6 +967,121 @@ content::AssetId split_id(const content::AssetId& mesh, content::SplitKind kind,
   return content::split_asset_id(mesh, kind, index).id;
 }
 
+// The containers a model job reads for its materials' base color records,
+// each read and parsed once per job.
+class TextureContainers {
+public:
+  explicit TextureContainers(const fs::path& install) : install_(&install) {}
+
+  // The record at `location`, or null with the reason in `error`.
+  const CprRecord* record(const TextureLocation& location, std::string& error) {
+    const auto [it, inserted] = entries_.try_emplace(location.container);
+    Entry& entry = it->second;
+    if (inserted) {
+      FileBytes file = read_file(*install_ / location.container);
+      if (!file.error.empty()) {
+        entry.error = "base color container unreadable: " + file.error;
+      } else {
+        entry.bytes = std::move(file.bytes);
+        const CprError parsed = parse_cpr(entry.bytes, entry.container);
+        if (parsed != CprError::None) {
+          entry.error = "base color container does not parse: " + std::string(name_of(parsed));
+        }
+      }
+    }
+    if (!entry.error.empty()) {
+      error = entry.error;
+      return nullptr;
+    }
+    return &entry.container.records()[location.record];
+  }
+
+private:
+  struct Entry {
+    std::vector<std::byte> bytes{};
+    CprContainer container{};
+    std::string error{};
+  };
+  const fs::path* install_;
+  std::map<std::string, Entry> entries_{};
+};
+
+// The record of a material's first BTX0 slot, null when it has none; the
+// reason in `error` when the record cannot be found or read.
+const CprRecord* base_color_record(const MaterialBlock& block, const TextureTable& table,
+                                   const IndexedResolver& resolver, TextureContainers& containers,
+                                   std::string& error) {
+  constexpr Tag kBtx0{'B', 'T', 'X', '0'};
+  for (const TrSlot& slot : block.slots) {
+    if (slot.tag != kBtx0) {
+      continue;
+    }
+    // resolve_slot accepted this index and name before.
+    const TextureLocation* location = resolver.locate(table.names[slot.index]);
+    if (location == nullptr) {
+      error = "base color record not indexed";
+      return nullptr;
+    }
+    const CprRecord* record = containers.record(*location, error);
+    if (record != nullptr && record->tag != RecordTag::Dds) {
+      error = "base color record is not a 2D texture";
+      return nullptr;
+    }
+    return record;
+  }
+  return nullptr;
+}
+
+// The base alpha class of a base color record (conversion.hpp, Materials),
+// or the reason it cannot be had.
+std::string base_alpha_of(const CprRecord& record, BaseAlpha& out) {
+  Rgba8Image image;
+  const PngError png = decode_png(record.payload, image);
+  if (!png.ok()) {
+    return "base color png: code " + decimal(png.code) + " " + std::string(png.text);
+  }
+  TextureDescriptor descriptor;
+  const DescriptorError described = decode_descriptor(record.slot, descriptor);
+  if (described != DescriptorError::None) {
+    return "base color descriptor: " + std::string(name_of(described));
+  }
+  TexturePlan plan;
+  const PlanError planned = plan_texture(descriptor, image.width, image.height, plan);
+  if (planned != PlanError::None) {
+    return "base color plan: " + std::string(name_of(planned));
+  }
+  out = plan.half_texels ? BaseAlpha::Opaque : classify_base_alpha(image);
+  return {};
+}
+
+// The unmapped fields file of a material whose cooked file is at `path`.
+fs::path unmapped_fields_path(const fs::path& path) {
+  fs::path out = path;
+  out += kUnmappedFieldsSuffix;
+  return out;
+}
+
+// The fields of an existing unmapped fields file; no value when it is
+// absent, unreadable or does not parse, and the material is then rewritten.
+std::optional<std::vector<UnmappedField>> cached_unmapped(const fs::path& path) {
+  std::error_code ec;
+  if (!fs::is_regular_file(path, ec)) {
+    return std::nullopt;
+  }
+  const FileBytes file = read_file(path);
+  if (!file.error.empty()) {
+    return std::nullopt;
+  }
+  // Viewing bytes as characters is the one cast the language allows for
+  // this (char may alias any object).
+  const std::string_view text(reinterpret_cast<const char*>(file.bytes.data()), file.bytes.size());
+  std::vector<UnmappedField> fields;
+  if (!parse_unmapped_fields(text, fields)) {
+    return std::nullopt;
+  }
+  return fields;
+}
+
 // A model whose mesh id an earlier container holds: every asset of it the
 // prefix admits is a failed row with the collision, and nothing is written.
 void fail_collided_model(const ConvertOptions& options, const content::AssetId& mesh_id,
@@ -962,9 +1152,22 @@ void run_model_job(const JobContext& context, const ConversionJob& job,
   const bool has_skeleton = skeleton_read.error != SkeletonReadError::NoSkeleton;
   const content::AssetId skeleton_id = split_id(mesh_id, content::SplitKind::Skeleton, 0);
 
+  // The handedness rule over the mesh and its morph sets, once for both.
+  MeshAssetData mesh = source.mesh;
+  std::vector<MorphTargetsData> morph_sets = source.morph_sets;
+  const TangentHandednessResult handedness = write_tangent_handedness(mesh, morph_sets);
+  const std::string handedness_failure =
+      handedness.ok() ? std::string()
+                      : "tangent handedness: " + std::string(name_of(handedness.error)) +
+                            " group " + decimal(handedness.group);
+  const std::string revision_text = "mesh-conversion " + decimal(kMeshConversionRevision);
+
   // Mesh.
-  if (wanted(mesh_text, options)) {
+  if (wanted(mesh_text, options) && !handedness.ok()) {
+    result.failed.push_back({mesh_text, handedness_failure});
+  } else if (wanted(mesh_text, options)) {
     InputHasher hasher(content::AssetKind::Mesh, mesh_text);
+    hasher.add_text(revision_text);
     hasher.add(header->payload);
     for (const CprRecord* buffer : records.buffers) {
       hasher.add(buffer->payload);
@@ -979,7 +1182,6 @@ void run_model_job(const JobContext& context, const ConversionJob& job,
     }
     emit(context, result, content::AssetKind::Mesh, mesh_id, hasher.finish(),
          [&](std::string& failure) {
-           MeshAssetData mesh = source.mesh;
            if (has_skeleton) {
              mesh.skeleton_id = std::string(skeleton_id.view());
            }
@@ -997,6 +1199,7 @@ void run_model_job(const JobContext& context, const ConversionJob& job,
   if (!source.materials.empty()) {
     read_model_table(*context.install, job.container, table);
   }
+  TextureContainers containers(*context.install);
   for (std::size_t k = 0; k < source.materials.size(); ++k) {
     const content::AssetId material_id =
         split_id(mesh_id, content::SplitKind::Material, static_cast<std::uint32_t>(k));
@@ -1025,24 +1228,76 @@ void run_model_job(const JobContext& context, const ConversionJob& job,
       result.failed.push_back({std::string(material_id.view()), slot_failure});
       continue;
     }
-    const MaterialAssetData material = map_material(block, slots);
-    for (const UnmappedField& field : material.unmapped) {
-      ++result.unmapped["material." + field.name];
+    std::string base_failure;
+    const CprRecord* base =
+        base_color_record(block, table.table, *context.resolver, containers, base_failure);
+    if (!base_failure.empty()) {
+      result.failed.push_back({std::string(material_id.view()), base_failure});
+      continue;
     }
     InputHasher hasher(content::AssetKind::Material, material_id.view());
+    hasher.add_text("material-mapping " + decimal(kMaterialMappingRevision));
     hasher.add(material_block_bytes(block));
     for (const std::string_view name : table.table.names) {
       hasher.add_text(name);
     }
-    emit(context, result, content::AssetKind::Material, material_id, hasher.finish(),
-         [&](std::string& failure) {
-           EncodeFailure encode{};
-           std::vector<std::byte> payload = encode_material_asset(material, encode);
-           if (!encode.ok()) {
-             failure = encode_failure_text("material", encode);
-           }
-           return payload;
-         });
+    if (base != nullptr) {
+      hasher.add(base->slot);
+      hasher.add(base->payload);
+    }
+    const content::Hash input_hash = hasher.finish();
+    const fs::path path = options.output / content::asset_relative_path(material_id);
+    const fs::path unmapped_path = unmapped_fields_path(path);
+    if (unchanged_file(path, material_id, content::AssetKind::Material, input_hash).has_value()) {
+      if (const std::optional<std::vector<UnmappedField>> unmapped =
+              cached_unmapped(unmapped_path)) {
+        ++result.skipped_unchanged;
+        for (const UnmappedField& field : *unmapped) {
+          ++result.unmapped["material." + field.name];
+        }
+        continue;
+      }
+    }
+    // Converted: only now is the base color decoded.
+    BaseAlpha base_alpha = BaseAlpha::NoTexture;
+    if (base != nullptr) {
+      const std::string alpha_failure = base_alpha_of(*base, base_alpha);
+      if (!alpha_failure.empty()) {
+        result.failed.push_back({std::string(material_id.view()), alpha_failure});
+        continue;
+      }
+    }
+    const MaterialMapping mapped = map_material(block, slots, base_alpha);
+    if (!mapped.ok()) {
+      result.failed.push_back(
+          {std::string(material_id.view()),
+           "material mapping: " + std::string(name_of(mapped.error)) + " " + mapped.name});
+      continue;
+    }
+    const std::string text = render_unmapped_fields(mapped.unmapped);
+    const std::string unmapped_error =
+        write_file_atomically(unmapped_path, std::as_bytes(std::span(text)));
+    if (!unmapped_error.empty()) {
+      result.failed.push_back(
+          {std::string(material_id.view()), "unmapped fields file: " + unmapped_error});
+      continue;
+    }
+    result.bytes_written += text.size();
+    const std::size_t failed_before = result.failed.size();
+    write_asset(context, result, content::AssetKind::Material, material_id, input_hash,
+                [&](std::string& failure) {
+                  EncodeFailure encode{};
+                  std::vector<std::byte> payload = encode_material_asset(mapped.asset, encode);
+                  if (!encode.ok()) {
+                    failure = encode_failure_text("material", encode);
+                  }
+                  return payload;
+                });
+    if (result.failed.size() == failed_before) {
+      for (const UnmappedField& field : mapped.unmapped) {
+        ++result.unmapped["material." + field.name];
+      }
+    }
   }
 
   // Skeleton.
@@ -1079,12 +1334,21 @@ void run_model_job(const JobContext& context, const ConversionJob& job,
       result.failed.push_back({std::string(shapes_id.view()), "morph set without its record"});
       continue;
     }
+    if (!handedness.ok()) {
+      result.failed.push_back({std::string(shapes_id.view()), handedness_failure});
+      continue;
+    }
     InputHasher hasher(content::AssetKind::MorphTargets, shapes_id.view());
+    hasher.add_text(revision_text);
     hasher.add(records.shape_offsets[s]->payload);
+    hasher.add(header->payload);
+    for (const CprRecord* buffer : records.buffers) {
+      hasher.add(buffer->payload);
+    }
     emit(context, result, content::AssetKind::MorphTargets, shapes_id, hasher.finish(),
          [&](std::string& failure) {
            EncodeFailure encode{};
-           std::vector<std::byte> payload = encode_morph_targets(source.morph_sets[s], encode);
+           std::vector<std::byte> payload = encode_morph_targets(morph_sets[s], encode);
            if (!encode.ok()) {
              failure = encode_failure_text("morph targets", encode);
            }
@@ -1305,7 +1569,7 @@ ConvertResult run_conversion(const ConvertOptions& options,
       indexed[i].error = std::string("index: ") + error.what();
     }
   });
-  std::vector<std::string> names;
+  std::vector<TextureLocation> names;
   // Every id the index derived, with the job that holds it, for the
   // collision check; mesh ids separately for the prefix rule.
   std::map<std::string, std::size_t> owners;
@@ -1317,7 +1581,9 @@ ConvertResult run_conversion(const ConvertOptions& options,
       continue;
     }
     report.failed.insert(report.failed.end(), entry.failed.begin(), entry.failed.end());
-    names.insert(names.end(), entry.texture_names.begin(), entry.texture_names.end());
+    for (std::size_t t = 0; t < entry.texture_names.size(); ++t) {
+      names.push_back({entry.texture_names[t], jobs[i].container, entry.texture_name_records[t]});
+    }
     if (!entry.mesh_id.empty()) {
       const auto [it, inserted] = owners.emplace(entry.mesh_id, i);
       if (!inserted) {

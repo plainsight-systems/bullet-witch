@@ -63,16 +63,21 @@ set(BW_PUBLIC_HEADERS
   bw/content/install.hpp
   bw/rendering/geometry/mesh_asset.hpp
   bw/rendering/geometry/morph_targets_asset.hpp
-  bw/rendering/geometry/textured_mesh_fixture.hpp
   bw/rendering/geometry/mesh_resources.hpp
   bw/rendering/shaders/artifact_file.hpp
   bw/rendering/scene/view.hpp
   bw/rendering/model_resources.hpp
-  bw/rendering/textured_model_fixture.hpp
   bw/rendering/pulled_cube_fixture.hpp
   bw/rendering/target_pass.hpp
   bw/rendering/texture_asset.hpp
   bw/rendering/materials/material_asset.hpp
+  bw/rendering/materials/shading.hpp
+  bw/rendering/materials/material.hpp
+  bw/rendering/materials/lit_template.hpp
+  bw/rendering/materials/material_buffer.hpp
+  bw/rendering/scene/fixture_light.hpp
+  bw/rendering/scene/forward_pass.hpp
+  bw/rendering/model_draw.hpp
   bw/platform/process/executable_directory.hpp
   bw/animation/skeleton_asset.hpp
   bw/content_converter/cpr_container.hpp

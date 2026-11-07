@@ -249,11 +249,20 @@ using ExclusionPredicate = bool (*)(PermutationId id) noexcept;
 // are the blocks the shader may bind from static slots and draw_block the
 // one per-draw block, or null; the generated include declares exactly these
 // and the tool rejects a static block that the root layout does not place.
+// buffer_blocks are the blocks the shader reads from the buffer array at an
+// index and offset another block carries (parameter_block.hpp,
+// append_hlsl_buffer_loader), at most kMaxBufferBlocks; the generated
+// include declares the struct and the loader of each, binds nothing for
+// them, and the artifact records each one's layout hash, so a block that
+// changed since the artifact was built fails the load by name
+// (artifact.hpp).
+inline constexpr std::size_t kMaxBufferBlocks = 4;
 struct ShaderDescription {
   std::string_view name{};
   std::string_view source_path{};
   std::string_view entry_point{};
   std::span<const BlockLayout* const> static_blocks{};
+  std::span<const BlockLayout* const> buffer_blocks{};
   const BlockLayout* draw_block{};
   DefineEmitter emit_defines{};
   ExclusionPredicate should_compile{};
@@ -262,7 +271,9 @@ struct ShaderDescription {
   ShaderStage stage{ShaderStage::Vertex};
 };
 
-// A shader as declared in C++: a type with these static members.
+// A shader as declared in C++: a type with these static members. A
+// declaration that reads blocks from a buffer also has a static member
+// buffer_blocks, a span like static_blocks; one without it has none.
 template <class S>
 concept ShaderDeclaration = requires(const typename S::Domain& domain) {
   typename S::Domain;
@@ -275,6 +286,19 @@ concept ShaderDeclaration = requires(const typename S::Domain& domain) {
   { S::should_compile(domain) } -> std::same_as<bool>;
 };
 
+namespace detail {
+template <class S>
+[[nodiscard]] constexpr std::span<const BlockLayout* const> buffer_blocks_of() noexcept {
+  if constexpr (requires {
+                  { S::buffer_blocks } -> std::convertible_to<std::span<const BlockLayout* const>>;
+                }) {
+    return S::buffer_blocks;
+  } else {
+    return {};
+  }
+}
+} // namespace detail
+
 // The description of a declaration, with the domain erased behind the two
 // function pointers.
 template <ShaderDeclaration S>
@@ -285,6 +309,7 @@ template <ShaderDeclaration S>
       .source_path = S::source_path,
       .entry_point = S::entry_point,
       .static_blocks = S::static_blocks,
+      .buffer_blocks = detail::buffer_blocks_of<S>(),
       .draw_block = S::draw_block,
       .emit_defines = [](PermutationId id, std::span<Define> out) noexcept -> std::size_t {
         const auto defines = Domain::from_id(id).defines();

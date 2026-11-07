@@ -21,10 +21,26 @@ include("${BW_SOURCE_ROOT}/cmake/Modules.cmake")
 # policy and clang-tidy.
 add_library(bw_contracts INTERFACE)
 bw_header_interface(bw_memory_headers "${BW_SOURCE_ROOT}/src/engine/core/memory")
-# The registry names the fixture draw blocks of the geometry module
-# (src/engine/rendering/shaders/permutation.cpp), so the shader module's
-# private header dependency is declared here as the main build declares it.
+# The registry names the fixture draw blocks of the geometry module and the
+# forward pass's lit shaders with the lit template's domain, and the engine
+# root layout places the scene's static blocks
+# (src/engine/rendering/shaders/permutation.cpp, root_layout.cpp), so the
+# shader module's private header dependencies are declared here as header
+# interfaces, with the math, platform math, diagnostics and content headers
+# they include. The math headers require the configuration the bw_math
+# library states; the registry calls no math function, so diagnostics are
+# off.
 bw_header_interface(bw_geometry_headers "${BW_SOURCE_ROOT}/src/engine/rendering/geometry")
+bw_header_interface(bw_platform_math_headers "${BW_SOURCE_ROOT}/src/platform/math")
+bw_header_interface(bw_diagnostics_headers "${BW_SOURCE_ROOT}/src/engine/core/diagnostics")
+bw_header_interface(bw_math_headers "${BW_SOURCE_ROOT}/src/engine/core/math")
+target_link_libraries(bw_math_headers INTERFACE bw_platform_math_headers bw_diagnostics_headers)
+target_compile_definitions(bw_math_headers INTERFACE BW_ENABLE_MATH_DIAGNOSTICS=0)
+bw_header_interface(bw_content_headers "${BW_SOURCE_ROOT}/src/engine/content")
+bw_header_interface(bw_materials_headers "${BW_SOURCE_ROOT}/src/engine/rendering/materials")
+target_link_libraries(bw_materials_headers INTERFACE bw_content_headers bw_geometry_headers)
+bw_header_interface(bw_scene_headers "${BW_SOURCE_ROOT}/src/engine/rendering/scene")
+target_link_libraries(bw_scene_headers INTERFACE bw_math_headers bw_materials_headers)
 add_subdirectory("${BW_SOURCE_ROOT}/src/engine/rendering/shaders" engine_shaders)
 
 add_executable(shader_enumerate main.cpp "${BW_SOURCE_ROOT}/tools/shader_compiler/enumeration.cpp")

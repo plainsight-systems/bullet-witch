@@ -5,6 +5,7 @@
 #include "bw/math/vector/vector3.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 
+#include <cstdint>
 #include <optional>
 
 // Responsibility: a view of the scene as data, and the matrix a draw needs
@@ -35,6 +36,14 @@
 //      small, or too far from the origin for a float to hold the step).
 //      Nothing else checks a mesh's bounds before they reach a view.
 //      Precondition: aspect > 0.
+//   4. View is the per-view parameter block, static slot kViewSlot of the
+//      engine root layout: what every pass's shaders read about the view
+//      and nothing about a light or an object. make_view fills it:
+//      world_to_clip is shader_matrix of the matrix given, eye_position
+//      the eye in world space, viewport_size the target's width and
+//      height in pixels; the reserved words are zero. A pass binds a
+//      buffer holding it with CommandList::set_static_block before its
+//      first draw.
 //
 // Read guidance: I.1 (a view is every input of its matrix), F.20.
 namespace bw::scene {
@@ -63,6 +72,31 @@ inline constexpr float kFrameFar = 4.0F;
 [[nodiscard]] std::optional<PerspectiveView> frame_sphere(const math::Vector3f& center,
                                                           float radius, float aspect) noexcept;
 
+// Offsets: world_to_clip 0, eye_position 64, viewport_size 80, two reserved
+// words; size 96.
+struct alignas(shaders::kBlockAlignment) View {
+  shaders::Float4x4 world_to_clip{};
+  shaders::Float3 eye_position{};
+  shaders::Float2 viewport_size{};
+  std::uint32_t reserved0{};
+  std::uint32_t reserved1{};
+};
+inline constexpr std::uint32_t kViewBytes = 96;
+static_assert(sizeof(View) == kViewBytes);
+inline constexpr std::uint32_t kViewSlot = 0;
+
+[[nodiscard]] View make_view(const math::Matrix4f& world_to_clip, const math::Vector3f& eye,
+                             float viewport_width, float viewport_height) noexcept;
+
 } // namespace bw::scene
+
+// The block layout macro stringizes its argument as the HLSL struct name,
+// so the block is named unqualified at global scope, as every block is.
+using View = bw::scene::View;
+BW_PARAMETER_BLOCK_LAYOUT(View, BW_PARAMETER_MEMBER(View, world_to_clip),
+                          BW_PARAMETER_MEMBER(View, eye_position),
+                          BW_PARAMETER_MEMBER(View, viewport_size),
+                          BW_PARAMETER_MEMBER(View, reserved0),
+                          BW_PARAMETER_MEMBER(View, reserved1));
 
 #endif

@@ -6,6 +6,7 @@
 #include "bw/content_converter/texture_reader.hpp"
 #include "bw/rendering/rhi/format.hpp"
 #include "bw/rendering/texture_asset.hpp"
+#include "bw/testing/cpr_fixture.hpp"
 #include "bw/testing/harness.hpp"
 
 #include <bc7decomp.h>
@@ -26,6 +27,7 @@ namespace {
 
 namespace cc = bw::content_converter;
 namespace r = bw::rendering;
+namespace fx = bw::testing::cpr;
 using bw::testing::require;
 using Bytes = std::vector<std::byte>;
 
@@ -41,8 +43,7 @@ Bytes words(std::initializer_list<std::uint32_t> values) {
 
 // (texture_reader.hpp, decode_descriptor, TextureDescriptor::sign_bits)
 void descriptor_fields() {
-  const Bytes record9 = words({3, 1, 0, 0, 0, 0xFFFF0000U, 0xFFFF0000U, 0x840000FEU, 0x0025C052U,
-                               0x003FE1FFU, 0x00000D10U, 0x00000240U, 0x0027CA00U});
+  const Bytes record9 = fx::dxt1_descriptor();
   cc::TextureDescriptor d;
   require(cc::decode_descriptor(record9, d) == cc::DescriptorError::None, "52 bytes decode");
   require(d.sign == std::array<std::uint32_t, 4>{3, 3, 3, 0} && d.sign_bits() == 63U,
@@ -420,32 +421,14 @@ void blocks_decode_back() {
           "the uber level is a BC7 setting only");
 }
 
-// A 2x2 8-bit RGB PNG (colour type 2, no alpha), pixels red, green / blue,
-// (10, 20, 30). Generated once with a python3 -I script using zlib.compress
-// and zlib.crc32 for the IDAT stream and the chunk CRCs; the bytes are the
-// fixture, nothing regenerates them.
-constexpr std::array<std::uint8_t, 76> kPng{
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a,
-    0x73, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xf8, 0xcf, 0xc0, 0xc0,
-    0x00, 0xc2, 0x0c, 0xff, 0xb9, 0x44, 0xe4, 0x00, 0x1a, 0x58, 0x03, 0x3a, 0xe2, 0x92, 0x6e, 0xd9,
-    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-};
+// The IHDR chunk's data in fx::kPng.
 constexpr std::size_t kIhdrData = 16;
-
-Bytes png_bytes() {
-  Bytes b;
-  for (const std::uint8_t v : kPng) {
-    b.push_back(static_cast<std::byte>(v));
-  }
-  return b;
-}
 
 // (texture_reader.hpp, decode_png: RGBA8, RGB gaining alpha 255, the CRC
 // check on, PngError; convert_texture: the plan's size, format and chain,
 // six cube images, ImageCountInvalid, the failing face, the green flip).
 void png_decoded_and_errors() {
-  const Bytes good = png_bytes();
+  const Bytes good = fx::png_bytes(fx::kPng);
   cc::Rgba8Image decoded;
   require(cc::decode_png(good, decoded).ok(), "the fixture decodes");
   require(decoded.width == 2U && decoded.height == 2U, "IHDR's size");

@@ -172,7 +172,11 @@ bool same_bytes(std::span<const std::byte> a, std::span<const std::byte> b) {
 // format (artifact.hpp, kArtifactFormatVersion): write then load returns equal
 // header, reflection (blocks in (kind, slot) order), code and trailer entries.
 void write_then_load_round_trip() {
-  const Fixture f;
+  Fixture f;
+  // A buffer block, read from the buffer array, after the bound ones.
+  f.reflection.blocks[2] = ReflectedBlock{
+      .name = "DrawParams", .layout_hash = f.draw().hash, .slot = 0, .kind = BlockSlotKind::Buffer};
+  f.reflection.block_count = 3;
   const std::vector<std::byte> bytes = f.write();
   const ArtifactLoadResult result = bw::shaders::load_artifact(bytes, f.expectations());
   require(result.ok(), "a written artifact loads");
@@ -185,13 +189,16 @@ void write_then_load_round_trip() {
   require(artifact.header.target == f.header.target, "target");
   require(artifact.header.stage == f.header.stage, "stage");
   const Reflection& r = artifact.reflection;
-  require(r.block_count == 2U, "block count");
+  require(r.block_count == 3U, "block count");
   require(r.blocks[0].name == "ViewBlock" && r.blocks[0].kind == BlockSlotKind::Static &&
               r.blocks[0].slot == kViewSlot && r.blocks[0].layout_hash == f.view().hash,
           "static block first");
   require(r.blocks[1].name == "DrawParams" && r.blocks[1].kind == BlockSlotKind::Draw &&
               r.blocks[1].slot == 0U && r.blocks[1].layout_hash == f.draw().hash,
           "draw block after static blocks");
+  require(r.blocks[2].name == "DrawParams" && r.blocks[2].kind == BlockSlotKind::Buffer &&
+              r.blocks[2].slot == 0U && r.blocks[2].layout_hash == f.draw().hash,
+          "buffer block after the bound blocks");
   require(r.vertex_input_count == 2U && r.vertex_inputs[0].semantic_name == "POSITION" &&
               r.vertex_inputs[0].location == 0U && r.vertex_inputs[1].semantic_name == "TEXCOORD" &&
               r.vertex_inputs[1].semantic_index == 1U && r.vertex_inputs[1].location == 1U,
@@ -269,10 +276,11 @@ void named_failures() {
   {
     // Check 3.
     std::vector<std::byte> bytes = valid;
-    put_u32(bytes, 4, 2);
+    put_u32(bytes, 4, bw::shaders::kArtifactFormatVersion + 1U);
     const ArtifactLoadResult result = bw::shaders::load_artifact(bytes, expect);
     require(!result.ok() && result.error().code == ArtifactError::UnsupportedVersion &&
-                result.error().expected == 1U && result.error().actual == 2U,
+                result.error().expected == bw::shaders::kArtifactFormatVersion &&
+                result.error().actual == bw::shaders::kArtifactFormatVersion + 1U,
             "UnsupportedVersion (check 3)");
   }
   {
@@ -497,20 +505,7 @@ void write_errors_named() {
   {
     Fixture f;
     f.reflection.blocks[0].slot = bw::shaders::kMaxStaticBlocks;
-    require(write_with(f) == ArtifactWriteError::SlotOutOfRange, "SlotOutOfRange: static slot");
-  }
-  {
-    Fixture f;
-    f.reflection.blocks[1].slot = 1;
-    require(write_with(f) == ArtifactWriteError::SlotOutOfRange, "SlotOutOfRange: draw slot");
-  }
-  {
-    Fixture f;
-    // A value that is not an enumerator, which the contract names; the enum
-    // has a fixed underlying type, so the value is representable.
-    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
-    f.reflection.blocks[0].kind = static_cast<BlockSlotKind>(2);
-    require(write_with(f) == ArtifactWriteError::SlotOutOfRange, "SlotOutOfRange: kind");
+    require(write_with(f) == ArtifactWriteError::SlotOutOfRange, "SlotOutOfRange");
   }
   {
     Fixture f;

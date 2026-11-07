@@ -40,7 +40,8 @@
 //      when they fall short;
 //   8. the two header strings within header_size: MalformedHeader;
 //   9. reflection well formed: counts within their maxima, every string
-//      within the section, kinds and slots in range, descriptor_arrays bits
+//      within the section, kinds and slots in range (a buffer block's slot
+//      below kMaxBufferBlocks), descriptor_arrays bits
 //      only below kDescriptorArrayCount, thread group zero unless the stage
 //      is compute, no two blocks with the same (kind, slot):
 //      MalformedReflection;
@@ -49,7 +50,8 @@
 //      PermutationOutOfRange;
 //  12. root layout hash equal to root_layout's hash; a null root_layout is a
 //      mismatch with expected 0: RootLayoutMismatch;
-//  13. every reflected block present in running_blocks by name: UnknownBlock;
+//  13. every reflected block, buffer blocks included, present in
+//      running_blocks by name: UnknownBlock;
 //  14. its layout hash equal: LayoutHashMismatch;
 //  15. for a static block, its slot equal to find_static_slot in the root
 //      layout; expected is kMaxStaticBlocks when the layout has no slot for
@@ -71,7 +73,7 @@
 //            uses DescriptorArray i; higher bits zero); u32
 //            root_constant_words; u32[3] thread group size (zero unless
 //            compute); u32 block_count; per block u8 kind (0 static, 1
-//            draw), u8 slot, u16 zero, u64 layout_hash, u32 name_length,
+//            draw, 2 buffer), u8 slot, u16 zero, u64 layout_hash, u32 name_length,
 //            name bytes, zero to a multiple of 4; u32 vertex_input_count;
 //            per input u32 location, u32 semantic_index, u32 name_length,
 //            semantic bytes, zero to a multiple of 4. Blocks are in (kind,
@@ -101,9 +103,10 @@
 namespace bw::shaders {
 
 inline constexpr std::uint32_t kArtifactMagic = 0x48535742U;
-inline constexpr std::uint32_t kArtifactFormatVersion = 1;
+// Version 2 adds the buffer block kind to the reflection.
+inline constexpr std::uint32_t kArtifactFormatVersion = 2;
 inline constexpr std::size_t kInputHashBytes = 32;
-inline constexpr std::size_t kMaxReflectedBlocks = kMaxStaticBlocks + 1;
+inline constexpr std::size_t kMaxReflectedBlocks = kMaxStaticBlocks + 1 + kMaxBufferBlocks;
 inline constexpr std::size_t kMaxVertexInputs = 16;
 // Bound on every string in the format (shader name, entry point, block and
 // semantic names).
@@ -136,9 +139,15 @@ struct ArtifactHeader {
 // and usage flags. Every resource is reached by an index from a block into a
 // typed descriptor array (invariant 5), so the only resource facts a backend
 // needs are which arrays the shader uses.
+// A Buffer block is one the shader reads from the buffer array
+// (permutation.hpp, ShaderDescription::buffer_blocks); its slot is its
+// index in that list. It binds nothing: it is in the reflection so its
+// layout hash is checked at load like a bound block's, and
+// derive_binding_use ignores it.
 enum class BlockSlotKind : std::uint8_t {
   Static = 0,
   Draw = 1,
+  Buffer = 2,
 };
 struct ReflectedBlock {
   std::string_view name{};
@@ -197,8 +206,9 @@ enum class ArtifactWriteError : std::uint8_t {
   StringTooLong,
   TooManyBlocks,
   TooManyVertexInputs,
-  // A static slot at or above kMaxStaticBlocks, a draw slot other than 0, or
-  // a kind that is not an enumerator.
+  // A static slot at or above kMaxStaticBlocks, a draw slot other than 0, a
+  // buffer slot at or above kMaxBufferBlocks, or a kind that is not an
+  // enumerator.
   SlotOutOfRange,
   // Two blocks with the same (kind, slot).
   DuplicateSlot,

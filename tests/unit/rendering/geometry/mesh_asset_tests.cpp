@@ -1,7 +1,6 @@
-// Unit test: public contracts of bw/rendering/geometry/mesh_asset.hpp,
-// morph_targets_asset.hpp and textured_mesh_fixture.hpp; each scenario names
-// the declaration it asserts. Payloads are built here by copying the
-// headers' records to the 16-aligned offsets they state.
+// Unit test: public contracts of bw/rendering/geometry/mesh_asset.hpp and
+// morph_targets_asset.hpp; each scenario names the declaration it asserts. Payloads are built here
+// by copying the headers' records to the 16-aligned offsets they state.
 #include "bw/rendering/geometry/mesh_asset.hpp"
 #include "bw/rendering/geometry/morph_targets_asset.hpp"
 #include "bw/rendering/geometry/vertex_streams.hpp"
@@ -95,7 +94,7 @@ Mesh make_mesh() {
   g::MeshGroupRecord g0{};
   g0.attributes[0] = attribute(A::Position, T::Float3, 0, 0);
   g0.attributes[1] = attribute(A::Normal, T::Short4Norm, 1, 0);
-  g0.attributes[2] = attribute(A::TexCoord1, T::Half2, 1, 8);
+  g0.attributes[2] = attribute(A::TexCoord0, T::Half2, 1, 8);
   g0.attribute_count = 3;
   g0.stream_count = 2;
   g0.stride0 = 12;
@@ -222,7 +221,7 @@ void require_mesh_reads_back(const Mesh& m) {
   g::VertexStreamLayout expected{};
   expected.attributes[0] = {A::Position, T::Float3, 0, 0};
   expected.attributes[1] = {A::Normal, T::Short4Norm, 1, 0};
-  expected.attributes[2] = {A::TexCoord1, T::Half2, 1, 8};
+  expected.attributes[2] = {A::TexCoord0, T::Half2, 1, 8};
   expected.streams = {g::VertexStreamDescription{12}, g::VertexStreamDescription{12}};
   expected.attribute_count = 3;
   expected.stream_count = 2;

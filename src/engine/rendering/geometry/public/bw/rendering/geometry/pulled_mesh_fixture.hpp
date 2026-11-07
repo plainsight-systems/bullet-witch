@@ -39,12 +39,11 @@
 //   the lanes the element type does not fill are 0.
 //   The cube: 24 vertices, 36 16-bit indices, 12 triangles wound
 //   counter-clockwise seen from outside, unit half-extent, centered at the
-//   origin. Stream 1 holds position float3 at stride 12 (the content's
-//   two-stream declarations); stream 0 holds normal short4n at 0, texture
-//   coordinate 1 half2 at 8, color 0 ubyte4n at 12, bone slots ubyte4 at
-//   16, bone weights ubyte4n at 20, stride 24. The normals are the face
-//   normals with w = 1 (32767), as the content stores them; colors are one
-//   per face.
+//   origin. Stream 1 holds position float3 at stride 12 (a two-stream
+//   layout); stream 0 holds normal short4n at 0, texture coordinate set 0
+//   half2 at 8, color 0 ubyte4n at 12, bone slots ubyte4 at 16, bone
+//   weights ubyte4n at 20, stride 24. The normals are the face normals
+//   with w = 1 (32767); colors are one per face.
 //
 // Core guidelines read: I.1 (the fixture is data a caller receives, not a
 // global), R.1 (vectors own the bytes). Performance guidelines read: CDSA.32

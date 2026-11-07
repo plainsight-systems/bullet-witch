@@ -15,16 +15,16 @@
 // vertex-pulling layout, a 16-bit index buffer, a draw list with base vertex
 // and material ids, bounds, the skeleton id it binds to; readers of a
 // payload live with the consuming system). The converter writes this
-// layout from the original model containers; the renderer uploads the
-// stream and index bytes as they are and pulls vertices with
-// vertex_streams.hpp.
+// layout; the renderer uploads the stream and index bytes as they are and
+// pulls vertices with vertex_streams.hpp.
 //
-// What a mesh is, from the content: one or more groups, each with its own
-// vertex declaration, one or two vertex buffers and one index buffer; draws
-// under a group, each a triangle-list range with a base vertex, grouped
-// under the material block that precedes them; a bone map per skinned
-// draw listing skeleton bone positions; an axis-aligned box, a center and
-// a radius in the model header; morph targets for some groups.
+// What a mesh is: one or more groups, each with its own vertex layout, one
+// or two vertex streams and one index buffer; draws under a group, each a
+// triangle-list range with a base vertex and a material; a bone map per
+// skinned draw listing skeleton bone positions; an axis-aligned box, a
+// center and a radius; morph targets for some groups. A Tangent
+// attribute's w is the bitangent's sign, -1 or +1, equal over the vertices
+// of each triangle; the writer establishes it and decode does not read it.
 //
 // Layout, little-endian, every record trivially copyable with no padding,
 // read by copy (memcpy) from the payload bytes, never by pointer cast:
@@ -59,17 +59,15 @@
 //      vertex range is what validate_vertex_range checks at draw time.
 //   7. Bone map entry ranges are within bone_entry_count. Entries are
 //      skeleton bone positions and are not checked against the skeleton
-//      here; the consumer that binds the skeleton checks them (one shipped
-//      background object carries an entry of 255 with a 6-bone skeleton).
+//      here; the consumer that binds the skeleton checks them.
 //   8. skeleton id: the string table slice, empty when the mesh has no
 //      skeleton; when present it validates as an asset id. Material ids are
 //      not stored: draw.material i names "<mesh id>.material.<i>"
 //      (content asset_id.hpp, split_asset_id).
 //   9. morph_set: kNoMorphSet, or n for the asset "<mesh id>.shapes.<n>";
 //      the shapes asset names this group and its vertex count.
-//   Bounds are stored as the content stores them: max, min, center, radius
-//   (header.bin at +0x10 to +0x40); the three dummy terrain meshes carry
-//   zeros and are not special-cased.
+//   Bounds: max, min, center, radius. They are not checked against the
+//   vertices; a mesh may carry zeros.
 //
 // Core guidelines read: SL.con.3 (every offset and count is checked before
 // use), C.183 (records are copied out of the bytes, no punning), I.1 and

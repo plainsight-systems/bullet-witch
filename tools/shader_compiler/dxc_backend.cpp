@@ -110,13 +110,17 @@ std::string hresult_text(std::string_view what, HRESULT result) {
   return text.str();
 }
 
-bool read_file(const std::string& path, std::string& out) {
+// A file that does not open is absent from that root; one that opens and
+// then fails to read is a failure of its own, never taken as absence.
+enum class FileRead : std::uint8_t { Read, Absent, Failed };
+
+FileRead read_file(const std::string& path, std::string& out) {
   std::ifstream stream(path, std::ios::binary);
   if (!stream) {
-    return false;
+    return FileRead::Absent;
   }
   out.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
-  return !stream.bad();
+  return stream.bad() ? FileRead::Failed : FileRead::Read;
 }
 
 // The compiler arguments carry no host path and are ASCII by construction
@@ -146,14 +150,16 @@ std::optional<std::string> narrow_ascii(const wchar_t* text) {
 }
 
 // Serves "bw/generated/<shader>.hlsli" from memory and every other include
-// from the shader root, recording each file it serves once, in the order DXC
-// first asks for it. Refuses absolute paths, paths that climb out of the
-// root and non-ASCII names.
+// from the first source root that holds it, recording each file it serves
+// once, in the order DXC first asks for it, with the root it came from.
+// Refuses absolute paths, paths that climb out of a root and non-ASCII
+// names, so nothing outside every listed root is read.
 class IncludeHandler final : public IDxcIncludeHandler {
 public:
-  IncludeHandler(IDxcUtils& utils, const DxcCompileInput& input, std::vector<IncludedFile>& served,
+  IncludeHandler(IDxcUtils& utils, const DxcCompileInput& input, DxcCompileOutput& out,
                  std::string& diagnostics) noexcept
-      : utils_(utils), input_(input), served_(served), diagnostics_(diagnostics) {}
+      : utils_(utils), input_(input), served_(out.includes), paths_(out.include_paths),
+        diagnostics_(diagnostics) {}
 
   HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR filename, IDxcBlob** include_source) override {
     if (include_source == nullptr || filename == nullptr) {
@@ -164,7 +170,7 @@ public:
     const std::optional<std::string> relative =
         requested.has_value() ? normalize_include_path(*requested) : std::nullopt;
     if (!relative.has_value()) {
-      diagnostics_ += "include refused (absolute, outside the shader root, or not ASCII): ";
+      diagnostics_ += "include refused (absolute, outside the source roots, or not ASCII): ";
       diagnostics_ += requested.value_or("<non-ASCII name>");
       diagnostics_ += '\n';
       return E_FAIL;
@@ -179,12 +185,23 @@ public:
       return make_blob(known->text, include_source);
     }
     IncludedFile file{*relative, {}};
-    if (!read_file(join_path(input_.shader_root, *relative), file.text)) {
-      // DXC reports the missing include in its own diagnostics.
-      return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    for (const std::string_view root : input_.shader_roots) {
+      std::string path = join_path(root, *relative);
+      const FileRead read = read_file(path, file.text);
+      if (read == FileRead::Failed) {
+        diagnostics_ += "include opened and could not be read: ";
+        diagnostics_ += path;
+        diagnostics_ += '\n';
+        return E_FAIL;
+      }
+      if (read == FileRead::Read) {
+        served_.push_back(std::move(file));
+        paths_.push_back(std::move(path));
+        return make_blob(served_.back().text, include_source);
+      }
     }
-    served_.push_back(std::move(file));
-    return make_blob(served_.back().text, include_source);
+    // DXC reports the missing include in its own diagnostics.
+    return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
   }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) override {
@@ -221,6 +238,7 @@ private:
   IDxcUtils& utils_;
   const DxcCompileInput& input_;
   std::vector<IncludedFile>& served_;
+  std::vector<std::string>& paths_;
   std::string& diagnostics_;
   ULONG references_{1};
 };
@@ -429,7 +447,7 @@ BackendStatus DxcSession::compile(const DxcCompileInput& input, DxcCompileOutput
   }
 
   std::string handler_diagnostics;
-  IncludeHandler handler(*state_->utils.get(), input, out.includes, handler_diagnostics);
+  IncludeHandler handler(*state_->utils.get(), input, out, handler_diagnostics);
   const DxcBuffer source{input.source.data(), input.source.size(), DXC_CP_UTF8};
   ComPtr<IDxcResult> result;
   // Step 1.

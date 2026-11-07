@@ -3,6 +3,7 @@
 #include "bw/content/asset_id.hpp"
 #include "bw/content/cooked_asset.hpp"
 #include "bw/content/install.hpp"
+#include "bw/content_converter/asset_data.hpp"
 #include "bw/content_converter/texture_reader.hpp"
 
 #include <cstddef>
@@ -56,22 +57,90 @@
 //   extends a mesh id (a path under the mesh's file) fails the texture.
 //   Input hash (content::Hash, BLAKE3): over, in order, the format version
 //   as 4 little-endian bytes, the kind, the id, then the bytes of every
-//   source item in a fixed order: for a mesh, header.bin and every buffer
-//   record it names, in chunk order, plus the two skeleton records and the
-//   morph records; for a material, the material's block bytes and the
-//   texture table's names; for a skeleton, its two records (the skeleton
+//   source item in a fixed order: for a mesh, the mesh conversion revision
+//   as the text "mesh-conversion <kMeshConversionRevision>", then
+//   header.bin and every buffer record it names, in chunk order, plus the
+//   two skeleton records and the morph records; for a material, the mapping revision as the text
+//   "material-mapping <kMaterialMappingRevision>" (material_mapping.hpp),
+//   the material's block bytes, the texture table's names, and the
+//   descriptor and the PNG bytes of its base color texture record when it
+//   has a BTX0 slot (the base alpha class the blend mode is mapped from is
+//   a function of both); for a skeleton, its two records (the skeleton
 //   asset's bind field is written as BindBlock::B, the measured fact the
 //   plan records; read_skeleton leaves it Unknown); for a texture,
 //   the pipeline options that shape its bytes (the green convention and
 //   the BC7 uber level, as text), then the descriptor and the PNG(s); for
-//   morph targets, the TS2V record. Every input that changes the output
+//   morph targets, the mesh conversion revision text, the TS2V record and
+//   its mesh's header.bin and buffer records (a split vertex of the mesh
+//   repeats its delta). Every input that changes the output
 //   bytes is in the hash, so a skip never keeps stale bytes.
+//   Meshes, tangent handedness (write_tangent_handedness, a pure function
+//   of the mesh and its morph sets, run before either is encoded): every
+//   tangent the content stores has w = +1, mirrored texture coordinates or
+//   not, so the conversion writes the sign. A triangle is three consecutive
+//   indices of a draw's range, each plus the draw's base vertex. For each
+//   triangle of a group whose layout has Tangent, with positions P, texture
+//   coordinate set 0 as stored and the sum N of its three vertex normals:
+//   h = sign((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)) *
+//   sign(dot(cross(P1 - P0, P2 - P0), N)), which is the sign of
+//   dot(cross(dP/du, dP/dv), N). A triangle has no h when its texture area
+//   is under 1e-12 in magnitude, when dot(cross(P1 - P0, P2 - P0), N) is
+//   zero, or when either is not finite; a group without Position, Normal
+//   or TexCoord0 has no triangle with h. Each corner of a triangle with h
+//   gets w = -h: -1 where the texture is not mirrored, +1 where it is. A
+//   vertex whose corners all agree takes that w; a vertex used only by
+//   triangles without h, or by none, takes -1; a vertex whose corners
+//   disagree keeps -1 and is copied once with +1, the copy appended after
+//   the group's last original vertex in the order the originals appear,
+//   with every stream of the vertex repeated (stream 1 included) and, in
+//   every target of the group's morph set, its delta repeated in the same
+//   order; each index of a triangle with h = -1 that named the original
+//   names the copy. A draw whose triangles name a copy has its
+//   vertex_count widened to reach the last index it names; its min_index
+//   is kept. The stored tangent's xyz is kept; w is written as -32767 or
+//   +32767. The normal map's two channels are kept as stored
+//   (--normal-green as-stored is the rule for this content): with this w
+//   the frame w * cross(normal, tangent) of the lit template has its
+//   bitangent along -dP/dv, the frame the content's normal maps are read
+//   in.
+//   Each failure names its group (TangentHandednessError, one rule each):
+//     TangentTypeUnsupported    a Tangent that is not short4n, which
+//                               cannot hold the sign;
+//     DrawOutOfRange            a draw's range past the group's indices,
+//                               or an index naming a vertex past the
+//                               group's count;
+//     DrawRangesOverlap         two draws of the group share an index
+//                               position, which could need two remaps;
+//     MorphVertexCountMismatch  the group's morph set has another vertex
+//                               count than the group;
+//     VertexCountOverflow       the copies take the group past 65,535
+//                               vertices.
+//   On a failure the mesh and the morph sets are left partly written and
+//   the run writes none of them: the mesh and every morph set of it fail
+//   with the enumerator's name and the group.
+//   Materials: a material's base alpha class is classify_base_alpha of
+//   its BTX0 record's decoded PNG (material_mapping.hpp), Opaque for a
+//   record whose texels are halfs (texture_reader.hpp, half_texels), and
+//   NoTexture without a BTX0 slot; the PNG is decoded only when the
+//   material is converted, not when it is skipped. A material whose BTX0
+//   slot names a record that is not a 2D texture, is not indexed, or
+//   whose container, descriptor or PNG cannot be read fails, naming which.
+//   A material that map_material refuses fails with the error's name and
+//   the name it gives, like any other failed asset.
 //   Incremental: an output file that exists, parses, carries
 //   kCookedFormatVersion and the same input hash is skipped unread
-//   further; anything else is rewritten.
+//   further; a material is skipped only when its unmapped fields file
+//   also exists and parses, and that file is read to count its fields for
+//   the report; anything else is rewritten.
 //   Write: the whole file to "<path>.tmp" in the output directory, then
 //   renamed over the destination, so a reader never sees a partial asset;
 //   a failure removes the temporary. Directories are created as needed.
+//   A material's unmapped fields file (material_mapping.hpp) is written
+//   the same way, before the material's asset, at the asset's path with
+//   kUnmappedFieldsSuffix appended; when that write fails the material
+//   fails by name and its asset is not written. No asset id maps to that
+//   path (a layer file ends with the cooked extension), nothing walks a
+//   layer directory, and the game never opens it.
 //   Parallel: jobs run on `threads` workers; each job's output depends on
 //   its inputs alone, so the cache bytes are the same for any thread
 //   count and any order; the report is sorted by id before it is printed.
@@ -140,6 +209,30 @@ struct ConvertParse {
 inline constexpr std::string_view kConvertUsage =
     "content_converter convert [--install DIR] --out DIR [--only PREFIX] [--threads N] "
     "[--normal-green as-stored|flip] [--bc7-uber 0..4]";
+
+// Numbers the mesh rules above: any change to them changes the number,
+// and the number is in every mesh's and morph set's input hash, so a rule
+// change reconverts meshes and nothing else.
+inline constexpr std::uint32_t kMeshConversionRevision = 2;
+
+enum class TangentHandednessError : std::uint8_t {
+  None,
+  TangentTypeUnsupported,
+  DrawOutOfRange,
+  DrawRangesOverlap,
+  MorphVertexCountMismatch,
+  VertexCountOverflow,
+};
+struct TangentHandednessResult {
+  TangentHandednessError error{TangentHandednessError::None};
+  // The group the error names; 0 when there is none.
+  std::uint32_t group{};
+  [[nodiscard]] bool ok() const noexcept { return error == TangentHandednessError::None; }
+};
+// The rule "Meshes, tangent handedness" above. `morph_sets` are the mesh's,
+// each naming its group.
+[[nodiscard]] TangentHandednessResult
+write_tangent_handedness(MeshAssetData& mesh, std::vector<MorphTargetsData>& morph_sets);
 
 // Pure: the jobs for a sorted container list, kinds decided by the
 // container's directory and name (model/mesh.cpr is Model; texture/

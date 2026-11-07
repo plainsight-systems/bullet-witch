@@ -17,8 +17,7 @@
 // Exit codes: 0 when the window asked to close or the seconds limit passed,
 // with one line on stdout, `frames=N elapsed=S waited=W`: the frames drawn,
 // the elapsed seconds and how many end_frame calls blocked on the oldest
-// frame in flight (with --asset, the base_color_fallback line of
-// model_scene.hpp precedes it); 1 on a named failure, one line on stderr
+// frame in flight; 1 on a named failure, one line on stderr
 // naming what failed and, for an error code, the enumerator's number and
 // the detail; 2 on a usage error, with a line naming the error and the
 // argument, then the usage line, on stderr. Named failures include an

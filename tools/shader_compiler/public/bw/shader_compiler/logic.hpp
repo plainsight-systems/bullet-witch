@@ -167,8 +167,12 @@ struct AssembledReflection {
 // block of that name; the bound draw block becomes the Draw block of the
 // description; root_constant_words is the layout's root_constant_words when
 // the root constants are used and 0 otherwise; descriptor_arrays, vertex
-// inputs and thread group size are copied. Blocks are emitted in (kind,
-// slot) order, static before draw, the order artifact.hpp writes them in.
+// inputs and thread group size are copied. Each buffer block the
+// description declares becomes a Buffer block at its index in that list,
+// whatever the backend reports, since a buffer read binds nothing a
+// backend can reflect; a null entry is skipped here and refused by
+// append_generated_include. Blocks are emitted in (kind, slot) order,
+// static, then draw, then buffer, the order artifact.hpp writes them in.
 [[nodiscard]] AssembledReflection assemble_reflection(const BackendReflection& backend,
                                                       const shaders::ShaderDescription& shader,
                                                       const shaders::RootLayout& layout) noexcept;
@@ -176,7 +180,8 @@ struct AssembledReflection {
 // ---- input hash -----------------------------------------------------------------
 
 struct IncludedFile {
-  // Relative to the shader root, forward slashes.
+  // Relative to the source root that holds it, forward slashes; the
+  // relative path, not the root, enters the input hash.
   std::string path{};
   std::string text{};
 };
@@ -253,9 +258,12 @@ struct IncludeResult {
   shaders::HlslError hlsl{shaders::HlslError::None};
 };
 // Appends exactly: append_hlsl_struct of the draw block (when present), then
-// of each static block in description order; then append_hlsl_block_binding
-// of the draw block, then of each static block in description order with its
-// root layout slot. On error `out` holds a partial text the caller discards.
+// of each static block in description order, then of each buffer block in
+// description order; then append_hlsl_block_binding of the draw block, then
+// of each static block in description order with its root layout slot;
+// then append_hlsl_buffer_loader of each buffer block in description
+// order. NullBlock also names a null buffer block entry, and Hlsl a loader
+// that failed. On error `out` holds a partial text the caller discards.
 [[nodiscard]] IncludeResult append_generated_include(const shaders::ShaderDescription& shader,
                                                      const shaders::RootLayout& layout,
                                                      std::string& out);
@@ -278,6 +286,9 @@ struct IncludeResult {
 
 // Makefile dependency text for one artifact:
 //   "<target>: \\\n  <root>/<main_source> \\\n  <root>/<include> ... \n"
+// With several source roots the caller passes an empty shader_root and
+// paths already joined to the root that holds each; with one root the text
+// is the same either way.
 // one dependency per line, main source first, includes in the order given,
 // every line but the last ending in " \\". Paths are written as given
 // (shader_root joined to each relative path); a space, '#' and '$' are

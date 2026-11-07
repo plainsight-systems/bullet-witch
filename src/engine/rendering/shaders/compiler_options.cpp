@@ -325,10 +325,12 @@ std::string_view usage_text() noexcept {
   return "usage:\n"
          "  shader_compiler enumerate --targets <t>[,<t>...] --output-root <dir>\n"
          "  shader_compiler compile --shader <name> --permutation <id> --target <t>\n"
-         "      --shader-root <dir> --output-root <dir> --depfile <path>\n"
+         "      --shader-root <dir>[,<dir>...] --output-root <dir> --depfile <path>\n"
          "      --dxc-library <path> [--converter-library <path>] [--symbols <dir>]\n"
          "<t> is d3d12, vulkan or metal. --converter-library is required when <t> is\n"
-         "metal and ignored otherwise. --symbols enables symbol output.\n";
+         "metal and ignored otherwise. --symbols enables symbol output. --shader-root\n"
+         "lists the source roots: main sources in the first, includes from the first\n"
+         "that holds them.\n";
 }
 
 std::string_view target_name(ShaderTarget target) noexcept {

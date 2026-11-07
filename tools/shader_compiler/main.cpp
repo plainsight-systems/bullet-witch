@@ -149,8 +149,14 @@ int run_compile(const bw::shaders::CompileOptions& options) {
   }
   // The depfile last: it is what tells the build the artifact is current.
   std::string depfile;
-  bw::shader_compiler::append_depfile(artifact_path, options.shader_root, shader->source_path,
-                                      product.includes, depfile);
+  // Each dependency is written as its own root joined to its relative path:
+  // the main source under the first root, each include under the root that
+  // held it (toolchain.hpp, include_paths). An empty root makes
+  // append_depfile write the paths as given.
+  const std::string_view first_root = options.shader_root.substr(0, options.shader_root.find(','));
+  bw::shader_compiler::append_depfile(
+      artifact_path, {}, bw::shader_compiler::join_path(first_root, shader->source_path),
+      product.include_paths, depfile);
   if (!write_file(std::string{options.depfile}, depfile, error)) {
     std::cerr << "shader_compiler: " << error << '\n';
     return exit_with(ExitCode::OutputError);

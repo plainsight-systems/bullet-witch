@@ -301,6 +301,46 @@ struct HlslResult {
 void append_hlsl_block_binding(const BlockLayout& layout, bool is_static_slot,
                                std::uint32_t static_slot, std::string& out);
 
+// The loader of a block that lives in a byte-address buffer instead of a
+// constant buffer: a block reached by a buffer index and a byte offset
+// that another block carries (a material block, materials.md, "Parameters
+// at runtime"). It reads every member at its C++ offset with one load, so
+// the offsets are the declaration's by construction and do not depend on
+// how a target packs a struct. Appends, first for each nested block not
+// yet emitted in this call and then for `layout`, exactly:
+//   "BW_<name> bw_load_<name>(uint buffer, uint offset) {\n"
+//   "  BW_<name> block = (BW_<name>)0;\n"
+//   one line per member, "  block.<member> = <load>;\n", or for an array
+//     one line per element, "  block.<member>[<i>] = <load>;\n"
+//   "  return block;\n"
+//   "}\n"
+// where, with A the text "offset + <decimal C++ offset of the member or
+// element>" and B the text "BW_BUFFER(buffer)", <load> is:
+//   float                       asfloat(B.Load(A))
+//   int                         asint(B.Load(A))
+//   uint and the five indices   B.Load(A)
+//   float2, float3, float4      asfloat(B.Load2(A)), .Load3, .Load4
+//   int4                        asint(B.Load4(A))
+//   uint4                       B.Load4(A)
+//   float4x4                    float4x4(asfloat(B.Load4(A)),
+//                               asfloat(B.Load4(A + 16)), asfloat(B.Load4(A
+//                               + 32)), asfloat(B.Load4(A + 48))), the four
+//                               rows in order, each offset written as one
+//                               decimal sum
+//   a nested block              bw_load_<nested name>(buffer, A)
+// Element i of an array is at the member's offset + i * the element's
+// size in the C++ block: 16 for a value, the block's size for a nested
+// block, 64 for a matrix. Padding members
+// of the struct keep the zero they were initialized with. The struct
+// BW_<name> is append_hlsl_struct's and must precede this text; BW_BUFFER
+// is the bindless-access include's. The text has no comments and no other
+// whitespace; it is an input of the artifact hash. Errors: InvalidName and
+// MissingNestedLayout, as append_hlsl_struct; a layout that came from the
+// macros never fails. The caller binds nothing for such a block: the
+// offset must be a multiple of 4 and offset + the block's size within the
+// buffer, which whoever fills the carrying block guarantees.
+[[nodiscard]] HlslResult append_hlsl_buffer_loader(const BlockLayout& layout, std::string& out);
+
 // ---- traits and builders used by the macros -------------------------------
 
 template <class T> struct ParameterTraits;

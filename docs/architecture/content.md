@@ -145,6 +145,35 @@ catalog files. Assets the converter splits out of one record take that
 record's id plus a suffix. The converter assigns them; the manifest and the
 overrides use the same ones.
 
+## Material mapping
+
+What the converter maps from the original game's material data onto the
+[material system](materials.md). The original data decides the values; the
+mapping is ours, and the material system knows none of it.
+
+| Original material data | Maps to |
+|---|---|
+| Base texture, second base texture with its blend, third base texture with a mask | base color inputs and a layer switch |
+| Normal texture | normal input, a static switch |
+| Texture in the ambient-occlusion slot | the lit template's packed occlusion and reflectance texture and its static switch |
+| Specular exponent and coefficient, reflectivity, Fresnel constants | roughness and the reflectance curve of the lit template |
+| Reflection tint and base-brightness weights | the lit template's specular tint and its base-luminance weight on reflectance |
+| Alpha Fresnel constants | the lit template's opacity curve |
+| Environment reflection controls, subsurface marker and its level | recorded by name with their values; no parameter is derived from them |
+| Environment and illuminance texture slots | recorded by name with the texture id |
+| Constant color, illuminance, ambient | base color tint, emissive, and an ambient term that belongs to the renderer |
+| Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
+| Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
+| Effect and post-process materials | renderer passes with their own parameter blocks, not materials |
+
+The 14 feature axes of the original collapse onto a handful of switches
+because several axes only add lighting inputs. The converter records every
+original field it leaves unmapped, by name, in a file of its own beside the
+converted material; the cooked material carries none of them and the game
+never opens that file. The mapping carries a revision that enters each
+material's input hash, so a change to it reconverts materials and nothing
+else.
+
 ## Substitution
 
 A replacement is a cooked asset with the same id in an earlier layer. It may

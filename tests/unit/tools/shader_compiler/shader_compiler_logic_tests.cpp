@@ -74,12 +74,13 @@ using bw::testing::require;
 
 // Filled from the implementation once; see input_hash_items.
 constexpr std::string_view kReferenceInputHash =
-    "7b76fe96f69c2eb0fe75c6afa6237cc20f68f1d94bc32ddd9ae7f399d47d8cac";
+    "b7237db66e9f6f5bed913c2d771ee376c0b9b6ecbfbb2464aca70fd4c5f6d2fc";
 
 constexpr std::array<const BlockLayout*, 1> kViewStatic{&BlockLayoutOf<TestView>::value};
 constexpr std::array<const BlockLayout*, 1> kNullStatic{nullptr};
 constexpr std::array<const BlockLayout*, 1> kDrawAsStatic{&BlockLayoutOf<TestDraw>::value};
 constexpr std::array<const BlockLayout*, 1> kOuterBStatic{&BlockLayoutOf<TestOuterB>::value};
+constexpr std::array<const BlockLayout*, 1> kInnerBuffer{&BlockLayoutOf<TestInner>::value};
 
 ShaderDescription description(std::span<const BlockLayout* const> statics,
                               const BlockLayout* draw) {
@@ -220,6 +221,15 @@ void assemble_reflection_by_slot() {
               reflection.blocks[1].slot == 0 && reflection.blocks[1].name == "TestDraw" &&
               reflection.blocks[1].layout_hash == BlockLayoutOf<TestDraw>::value.hash,
           "draw block named by the registry, not by the backend's resource name");
+  ShaderDescription buffered = shader;
+  buffered.buffer_blocks = kInnerBuffer;
+  const auto with_buffer = assemble_reflection(backend, buffered, layout);
+  require(with_buffer.error == ReflectionError::None && with_buffer.reflection.block_count == 3 &&
+              with_buffer.reflection.blocks[2].kind == bw::shaders::BlockSlotKind::Buffer &&
+              with_buffer.reflection.blocks[2].slot == 0 &&
+              with_buffer.reflection.blocks[2].name == "TestInner" &&
+              with_buffer.reflection.blocks[2].layout_hash == BlockLayoutOf<TestInner>::value.hash,
+          "a declared buffer block last, at its index, though no backend reports it");
   require(reflection.root_constant_words == layout.root_constant_words, "root constants used");
   require(reflection.descriptor_arrays == 0x5U, "descriptor arrays copied");
   require(reflection.vertex_input_count == 2 &&
@@ -369,7 +379,8 @@ void input_hash_items() {
   // Known answer: pins the item order, the framing and the hash function. A
   // change to any of them changes this value, and the change is then a
   // deliberate edit of kReferenceInputHash, never an accident. Obtained once
-  // from the implementation on 2026-11-02.
+  // from the implementation on 2026-11-02, and again on 2026-11-06 when
+  // kArtifactFormatVersion, the first item, became 2.
   const std::string reference_hex = bw::shader_compiler::input_hash_hex(reference);
   require(reference_hex == kReferenceInputHash, "known-answer input hash; got " + reference_hex);
 }
@@ -401,6 +412,27 @@ void generated_include_text() {
                                     "BW_DRAW_BLOCK(BW_TestDraw, TestDraw)\n"
                                     "BW_STATIC_BLOCK(BW_TestView, TestView, 2)\n";
   require(text == expected, "exact generated include text");
+
+  ShaderDescription buffered = description(kViewStatic, &BlockLayoutOf<TestDraw>::value);
+  buffered.buffer_blocks = kInnerBuffer;
+  std::string buffered_text;
+  require(append_generated_include(buffered, layout, buffered_text).error == IncludeError::None,
+          "a description with a buffer block generates");
+  const std::string_view bindings = "BW_DRAW_BLOCK(BW_TestDraw, TestDraw)\n"
+                                    "BW_STATIC_BLOCK(BW_TestView, TestView, 2)\n";
+  const std::string expected_buffered =
+      std::string(expected.substr(0, expected.size() - bindings.size())) +
+      "struct BW_TestInner {\n"
+      "  float4 value;\n"
+      "};\n" +
+      std::string(bindings) +
+      "BW_TestInner bw_load_TestInner(uint buffer, uint offset) {\n"
+      "  BW_TestInner block = (BW_TestInner)0;\n"
+      "  block.value = asfloat(BW_BUFFER(buffer).Load4(offset + 0));\n"
+      "  return block;\n"
+      "}\n";
+  require(buffered_text == expected_buffered,
+          "a buffer block's struct after the others, no binding, its loader last");
 
   std::string scratch;
   const auto no_slot = append_generated_include(description(kViewStatic, nullptr),

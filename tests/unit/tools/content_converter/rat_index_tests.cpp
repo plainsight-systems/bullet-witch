@@ -2,9 +2,8 @@
 // scenario names the declaration it asserts. Catalogs are built here from
 // the header's stated framing.
 #include "bw/content_converter/rat_index.hpp"
+#include "bw/testing/cpr_fixture.hpp"
 #include "bw/testing/harness.hpp"
-
-#include "cpr_fixture.hpp"
 
 #include <array>
 #include <cstddef>

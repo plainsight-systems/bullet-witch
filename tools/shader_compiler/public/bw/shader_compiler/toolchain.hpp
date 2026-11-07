@@ -80,6 +80,9 @@ namespace bw::shader_compiler {
 struct CompileRequest {
   // A registry entry (shader_registry()); not owned.
   const shaders::ShaderDescription* shader{};
+  // The source roots, comma separated (compiler_options.hpp, --shader-root):
+  // the main source is read from the first; an include from the first
+  // that holds it.
   std::string_view shader_root{};
   std::string_view dxc_library{};
   // Required for ShaderTarget::Metal, ignored otherwise.
@@ -95,9 +98,12 @@ struct CompileProduct {
   // optimization and debug strip, for Vulkan. Empty unless emit_symbols.
   std::vector<std::byte> symbols{};
   // Every file the compile read besides the main source, relative to the
-  // shader root, in first-inclusion order. The generated include is not a
-  // file and is not listed.
+  // source root that holds it, in first-inclusion order. The generated
+  // include is not a file and is not listed.
   std::vector<std::string> includes{};
+  // The same files in the same order, each as its root joined to the
+  // relative path: what a dependency file names.
+  std::vector<std::string> include_paths{};
   // What the backend's own reflection reported, member offsets included:
   // DXC's for the DXIL targets, SPIRV-Reflect's for Vulkan.
   BackendReflection reflection{};

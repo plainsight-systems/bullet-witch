@@ -199,7 +199,8 @@ void override_wins_and_missing_named(const Arguments& arguments) {
   const fs::path record_dir = tree.directory("record_dir");
   fs::create_directories(record_dir / bw::content::kConvertedCacheRecordFile);
   const fs::path bad_record = tree.directory("bad_record");
-  write_text(bad_record / bw::content::kConvertedCacheRecordFile, "format_version=1\n");
+  write_text(bad_record / bw::content::kConvertedCacheRecordFile,
+             "format_version=" + std::to_string(bw::content::kCookedFormatVersion) + "\n");
   const fs::path old_record = tree.directory("old_record");
   write_record(old_record, bw::content::kCookedFormatVersion + 1U);
   // A layer directory that links to itself: the OS will not say whether it
@@ -269,7 +270,7 @@ void failures_named(const Arguments& arguments) {
   place(converted, "hash.a", flipped);
   place(converted, "kind.a", cooked("kind.a", AssetKind::Texture, "payload"));
   std::vector<std::byte> version = cooked("version.a", AssetKind::Mesh, "payload");
-  version[4] = std::byte{2};
+  version[4] = static_cast<std::byte>(bw::content::kCookedFormatVersion + 1U);
   place(converted, "version.a", version);
   place(converted, "id.a", cooked("id.b", AssetKind::Mesh, "payload"));
   place(converted, "short.a", bytes_of("BWCK"));

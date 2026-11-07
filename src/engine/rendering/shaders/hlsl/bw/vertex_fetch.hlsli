@@ -26,7 +26,7 @@
 // The short4n and ubyte4n conversions are the standard snorm 16 and unorm 8
 // conversions, written out here in HLSL arithmetic on every target;
 // f16tof32 reads the float16 in the low half of a uint.
-// The content's vertices are byte-aligned fixed formats, so each attribute
+// Vertices are byte-aligned fixed formats, so each attribute
 // is one aligned load and its format is the attribute table's; indices stay
 // in hardware index buffers.
 #ifndef BW_VERTEX_FETCH_HLSLI
@@ -38,10 +38,10 @@
 #define BW_ATTRIBUTE_COLOR0 3
 #define BW_ATTRIBUTE_COLOR1 4
 #define BW_ATTRIBUTE_COLOR2 5
-#define BW_ATTRIBUTE_TEXCOORD1 6
-#define BW_ATTRIBUTE_TEXCOORD2 7
-#define BW_ATTRIBUTE_TEXCOORD3 8
-#define BW_ATTRIBUTE_TEXCOORD4 9
+#define BW_ATTRIBUTE_TEXCOORD0 6
+#define BW_ATTRIBUTE_TEXCOORD1 7
+#define BW_ATTRIBUTE_TEXCOORD2 8
+#define BW_ATTRIBUTE_TEXCOORD3 9
 #define BW_ATTRIBUTE_BONE_SLOTS 10
 #define BW_ATTRIBUTE_BONE_WEIGHTS 11
 #define BW_ATTRIBUTE_ABSENT 0xFFFFFFFFu

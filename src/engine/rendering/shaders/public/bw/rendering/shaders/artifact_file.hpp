@@ -19,7 +19,8 @@
 //      (ShaderUnknown otherwise), reads the whole file directory /
 //      artifact_file_name(name, permutation, stage) (FileUnreadable when it
 //      cannot be opened or read), and loads it with load_artifact against
-//      the engine root layout, the shader's draw block when it has one, and
+//      the engine root layout, every block the shader declares (its static
+//      blocks, its buffer blocks and its draw block when it has one), and
 //      its permutation count (ArtifactRejected, with load_artifact's error).
 //   2. On success `out.artifact` views `out.bytes`. An ArtifactFile is
 //      movable and not copyable: a move keeps the views valid, a copy would

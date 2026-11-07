@@ -4,7 +4,7 @@
 # public/bw/rendering/geometry/vertex_streams.hpp and mesh_asset.hpp. The
 # header interface carries the constexpr layout checks and the block
 # declarations; the module library adds the fixture cube's out-of-line
-# generator, the payload decoders and the textured pair's layout check. The
+# generator and the payload decoders. The
 # mesh decoder validates its skeleton id with the content module's asset id
 # rule (a constexpr header function), so the library links the content
 # headers privately. mesh_resources.hpp names RHI resources, so the
@@ -16,8 +16,7 @@ target_link_libraries(bw_geometry_headers INTERFACE bw_shaders_headers bw_rhi_he
 add_library(bw_geometry
   pulled_mesh_fixture.cpp
   mesh_asset.cpp
-  morph_targets_asset.cpp
-  textured_mesh_fixture.cpp)
+  morph_targets_asset.cpp)
 target_link_libraries(bw_geometry PUBLIC bw_geometry_headers PRIVATE bw_content_headers)
 add_library(bw_mesh_resources mesh_resources.cpp)
 target_link_libraries(bw_mesh_resources PUBLIC bw_geometry bw_rhi)
