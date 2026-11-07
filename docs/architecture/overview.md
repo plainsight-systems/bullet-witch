@@ -33,7 +33,8 @@ what is drawn and how each view's visibility is found, [geometry
 feed](geometry.md) for how a moving instance's vertices are made each
 frame, [scene renderer](scene-renderer.md) for how a frame is made,
 [transparency](transparency.md) for blended draws and particles,
-[decals](decals.md) for marks projected onto surfaces,
+[decals](decals.md) for marks projected onto surfaces, [character
+shading](character-shading.md) for skin, hair and eyes,
 [lighting](lighting.md) for lights, shadows, indirect light and fog,
 [render graph](render-graph.md) for how its passes become GPU work, and
 [content](content.md) for how assets reach the game. In one line:

@@ -63,22 +63,24 @@ flowchart LR
 
 The attribute set a template may write, and which shading models read each.
 
-| Attribute | Lit | Unlit | Subsurface | Hair |
-|---|---|---|---|---|
-| Base color | yes | | yes | yes |
-| Metallic | yes | | yes | |
-| Specular | yes | | yes | yes |
-| Roughness | yes | | yes | yes |
-| Normal | yes | | yes | yes |
-| Tangent | | | | yes |
-| Emissive | yes | yes | yes | yes |
-| Ambient occlusion | yes | | yes | yes |
-| Subsurface color | | | yes | |
-| Opacity | translucent blend modes | translucent blend modes | yes | yes |
-| Opacity mask | masked blend mode | masked blend mode | masked | masked |
-| World position offset | yes | yes | yes | yes |
-| Refraction | translucent blend modes | translucent blend modes | translucent blend modes | translucent blend modes |
-| Pixel depth offset | opaque and masked | opaque and masked | opaque and masked | opaque and masked |
+| Attribute | Lit | Unlit | Subsurface | Hair | Eye |
+|---|---|---|---|---|---|
+| Base color | yes | | yes | yes | yes |
+| Metallic | yes | | yes | | |
+| Specular | yes | | yes | yes | yes |
+| Roughness | yes | | yes | yes | yes |
+| Normal | yes | | yes | yes | yes, the cornea |
+| Tangent | | | | yes, the fibre direction | |
+| Emissive | yes | yes | | yes | |
+| Ambient occlusion | yes | | yes | yes | yes |
+| Subsurface profile | | | yes | | yes |
+| Scatter scale | | | yes | | |
+| Iris normal, iris mask, iris height | | | | | yes |
+| Opacity | translucent blend modes | translucent blend modes | | | |
+| Opacity mask | masked blend mode | masked blend mode | masked | masked | |
+| World position offset | yes | yes | yes | yes | yes |
+| Refraction | translucent blend modes | translucent blend modes | | | |
+| Pixel depth offset | opaque and masked | opaque and masked | opaque and masked | opaque and masked | opaque |
 
 World position offset is a function of the vertex, the instance transform
 and the frame values the pass gives it, and reads nothing else, so the
@@ -97,11 +99,17 @@ and reaches the decal pass alone. A surface template may declare that it
 refuses normal or roughness changes from decals, as [decals](decals.md)
 states.
 
-Shading models: unlit, lit, subsurface, hair. Blend modes: opaque, masked,
-translucent, additive, modulate. Each template declares one shading model;
-the blend mode is a material property that the renderer's pass selection
-and pipeline state honor. Clear coat, cloth, eye, water and thin translucent
-are not in the set and are added as a row when a template needs one.
+Shading models: unlit, lit, subsurface, hair, eye. Blend modes: opaque,
+masked, translucent, additive, modulate. Each template declares one shading
+model; the blend mode is a material property that the renderer's pass
+selection and pipeline state honor. Subsurface, hair and eye are opaque or
+masked only; [character shading](character-shading.md) states what each
+computes. A template also declares whether it is two-sided, which enters the
+pipeline description's raster state. An eye template requires a mesh with a
+frontal-projection UV set; the converter assigns a lit template of the same
+textures to an eye mesh without one. Clear coat, cloth, water and thin
+translucent are not in the set and are added as a column when a template
+needs one.
 
 ## Material to pipelines
 

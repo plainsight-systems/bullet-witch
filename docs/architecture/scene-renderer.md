@@ -86,7 +86,8 @@ flowchart TD
     DC --> LG["Light grid and shadow maps"]
     LG --> VT["Visibility terms: shadowing, ambient occlusion, reflections, indirect light"]
     VT --> LP["Lighting pass: every opaque pixel, from surface data, light grid and terms"]
-    LP --> SF["Sky and fog"]
+    LP --> SS["Scattering pass: skin and eye tiles"]
+    SS --> SF["Sky and fog"]
     SF --> FP["Forward pass: blended draws sorted far to near, two pipelines, lit as drawn"]
     FP --> DA["Distortion apply"]
     DA --> TS["Temporal stage: input resolution in, output resolution out"]
@@ -105,7 +106,8 @@ flowchart TD
 | Decal | the main view's decal records, depth, stencil | base color, normal and roughness of surface data | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
 | Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color, shadow maps or the ray tracing scene | one target per term | input |
-| Lighting | surface data, light grid, term targets | scene color | input |
+| Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness | scene color, the skin specular target for subsurface and eye pixels | input |
+| Scattering | scene color, depth, surface data, the skin specular target, on tiles with a subsurface or eye pixel | scene color | input |
 | Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
 | Forward | the main view's blended draw records, emitter particle data, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, distortion target and stencil bit, scene color as history for the next frame | input |
 | Distortion apply | scene color, distortion target, stencil | scene color | input |
@@ -125,10 +127,10 @@ pixel, which is why blended draws do not write it.
 | Base color | lighting, filters of traced terms |
 | Normal | lighting, visibility terms, their filters |
 | Roughness | lighting, reflections, their filters |
-| Metallic and specular | lighting, reflections |
+| Metallic and specular | lighting, reflections; the eye model stores the iris height in the metallic slot |
 | Material ambient occlusion | lighting |
 | Shading model id | lighting |
-| Shading model data: subsurface color or tangent | lighting, by shading model |
+| Shading model data: profile id and scatter scale, or fibre direction, or profile id with iris normal and iris mask | lighting, by shading model, as [character shading](character-shading.md) packs it |
 | Motion vector | temporal stage, filters of stochastic terms, post-processing |
 | Stencil bits: receives no decal, refuses decal normal, refuses decal roughness, refracting pixel | decal pass, distortion apply |
 

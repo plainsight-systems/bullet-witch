@@ -45,8 +45,9 @@ flowchart LR
 5. The light grid's capacity is fixed. A frame whose lights exceed it
    reports how many were left out.
 6. Shadow maps exist on every target: cascades for the sun and one atlas for
-   local lights. Blended surfaces and the fog read them directly on every
-   target, whichever source the shadowing term uses.
+   local lights. Blended surfaces, the fog, and the lighting pass for a
+   subsurface or hair pixel's thickness read them directly on every target,
+   whichever source the shadowing term uses.
 7. The sun's cascades are stable under camera motion: a cascade moves in
    whole texels and keeps its size.
 8. The atlas has a fixed number of slots. Slots go to the casters that are
@@ -65,7 +66,8 @@ flowchart LR
     serves all of them. Renderer code in the pass writes it; a material
     template never sees it. A traced source, where selected, writes the
     whole target after the surface pass, and nothing of the baked write
-    remains.
+    remains. For a hair pixel the probe lookup uses the fake normal built
+    from the view direction and the fibre direction, not the card normal.
 13. Blended surfaces and fog cells read the probe grids directly on every
     target.
 14. The sky is drawn from sky textures and is not computed from physical
@@ -116,6 +118,12 @@ record carries its shadow channel, or none.
 | Sun | cascades fitted to slices of the view, each stable under camera motion | percentage-closer | shadowing term, forward pass, fog |
 | Local light published as a caster | one slot of the atlas, sized by the light's size on screen | percentage-closer | shadowing term, forward pass, fog |
 | Local light not published as a caster | none | | |
+
+For a subsurface or hair pixel the lighting pass also reads the cascade or
+atlas slot for thickness: the receiver position shrunk along its normal is
+projected into the map and the depth found there is subtracted from the
+receiver's depth. The shadowing term is not involved; [character
+shading](character-shading.md) states what each model makes of the value.
 
 ## Visibility terms
 
