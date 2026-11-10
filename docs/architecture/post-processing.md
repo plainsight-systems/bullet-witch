@@ -6,8 +6,8 @@ the output transform for the display, and the authored screen effects, all
 at output resolution. Scene colour stays linear and photometric through all
 of it; the one place it becomes display colour is the tone mapping pass,
 and what differs between an SDR and an HDR display is the display side of
-that pass: the lookup table's shaper and its last step, the mapping and
-encoding, and the white the interface is composited at.
+that pass's lookup table, its shaper and its last step, the mapping and
+encoding, and after the pass the white the interface is composited at.
 
 Exposure is the camera's EV100. The grade is a stage's authored look: a
 small set of parameters baked into one lookup table. A screen effect is a
@@ -20,7 +20,8 @@ temporal stage's output to present. Fed by [content](content.md), which cooks ea
 stage's grade, by [materials](materials.md), whose screen-effect templates
 are the shaders of the two effect slots, and by the [RHI](rhi.md), which
 reports the swapchain's colour space, format and the display's peak
-luminance. The world sets the camera's focus and the active screen effects.
+luminance. The world sets the camera's focus, f-stop, sensor width and
+shutter, the camera cut flag and the active screen effects.
 Above the [render graph](render-graph.md).
 
 ```mermaid
@@ -41,11 +42,10 @@ flowchart LR
    scene colour or any light target of the frame, never by a template.
    Every reader divides it out, and every buffer that holds light across
    frames is stored with the factor of the frame that wrote it and reused
-   by the ratio of the two factors. The factor lives in a GPU buffer the
-   passes read; a temporal backend that takes it as a CPU value gets the
-   fenced readback, one frame older, with the ratio rule covering the
-   difference. Exposure changes the image once, at tone mapping; no light
-   is scaled for the display.
+   by the ratio of the two factors. The factor lives in a GPU texture the
+   passes read, and every temporal implementation takes it as that texture,
+   so no reader ever holds a CPU copy. Exposure changes the image once, at
+   tone mapping; no light is scaled for the display.
 2. Exposure is EV100 metered by a histogram of log luminance over the frame
    after the temporal stage at reduced resolution, between the 10th and 90th
    percentiles, driven toward middle grey, adapting faster up than down,
@@ -123,6 +123,10 @@ flowchart TD
     E2 --> UI["User interface composite at the UI white"]
     UI --> PR["Present in the swapchain's encoding"]
 ```
+
+Each step writes a fresh frame-only texture that becomes scene colour, or
+display colour, for the step after it, as the render graph requires of a
+pass that reads and writes the same image.
 
 | Step | Reads | Writes | Resolution |
 |---|---|---|---|

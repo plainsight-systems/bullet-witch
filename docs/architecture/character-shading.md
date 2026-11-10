@@ -49,7 +49,7 @@ flowchart LR
    subsurface or eye pixel, and within a tile only subsurface and eye pixels
    are written and only they are read as taps, by the shading model id. It
    is one separable kernel applied as two one-dimensional passes, with
-   importance-sampled taps jittered per pixel, a footprint from the pixel's
+   importance-sampled taps whose inner part is jittered per pixel, a footprint from the pixel's
    projected size, and a step that follows the surface in depth.
 4. A profile is content: per profile, a near and a far Gaussian radius per
    channel with a weight, a transmission tint and extinction, and the ratio
@@ -70,8 +70,10 @@ flowchart LR
 7. Hair is the three-lobe fibre model: reflection, transmission and
    internal reflection as single Gaussian longitudinal lobes with
    closed-form azimuthal terms. Its attributes are diffuse albedo as
-   absorption, roughness, F0 as the reflection scale, and the hair shift
-   and hair scatter the attribute table lists for it. Multiple scattering is a wrapped diffuse term on a fake normal
+   absorption, roughness, F0 as the reflection scale, hair shift and hair
+   scatter, the two rows the attribute table carries for hair, stored with
+   the fibre direction in the shading model data. Multiple scattering is a
+   wrapped diffuse term on a fake normal
    built from the view direction and the fibre direction, attenuated by the
    absorption path length.
 8. A hair pixel's surface data holds the card normal in the normal slot and
@@ -91,7 +93,9 @@ flowchart LR
     the surface pass. There is no edge pass and no dither of the card's
     mask; the temporal stage treats the cut edge as any masked edge.
 11. An eye pixel is two layers blended by the iris mask: a cornea, lit as a
-    GGX specular on the surface normal, and an iris, lit as a diffuse on
+    GGX specular on the surface normal with a fixed reflectance of 0.025 at
+    normal incidence and 1 at grazing, since the eye template writes no F0
+    or F90, and an iris, lit as a diffuse on
     the iris normal at a position refracted by the iris height along the
     refracted view ray, with an analytic caustic from the iris and cornea
     normals. Eye pixels are scattered by the scattering pass with the
@@ -144,7 +148,7 @@ flowchart TD
 | Resolution | input |
 | Tiles | 8 by 8, classified from the shading model id |
 | Kernel | near and far Gaussian per channel with a weight, from the profile; radius times the pixel's scatter scale |
-| Taps | importance-sampled per pass, a quality setting, axis jittered per pixel |
+| Taps | importance-sampled per pass, a quality setting, the inner taps' axis jittered per pixel and the outer taps fixed |
 | Footprint | the kernel radius divided by the pixel's projected size at its depth |
 | Depth | a tap's weight falls with its depth difference from the centre |
 | Inputs | scene colour, depth, surface data, the skin specular target |
@@ -154,14 +158,14 @@ flowchart TD
 | Model | Normal slot | F0 slot | Shading model data |
 |---|---|---|---|
 | Subsurface | surface normal | F0 | profile id, scatter scale |
-| Hair | card normal | unused | fibre direction |
+| Hair | card normal | F0, the reflection scale | fibre direction, hair shift, hair scatter |
 | Eye | cornea normal | iris height | profile id, iris normal, iris mask |
 
 ## Content the models read
 
 | Data | Form | Read by |
 |---|---|---|
-| Profile set | per profile: near and far radius per channel, weight, transmission tint, extinction, specular roughness pair and mix | lighting pass, scattering pass |
+| Profile set | per profile: near and far radius per channel, weight, transmission tint, extinction, the second specular lobe's roughness ratio and mix | lighting pass, scattering pass |
 | Eye mesh | a frontal-projection UV set and the cornea bulge in the geometry | eye template |
 | Hair card mesh | masked cards with a fibre direction per vertex, as the tangent; the converter keeps the geometry as authored, so a card the content doubled in reverse winding draws both copies under the two-sided template | hair template |
 
@@ -169,7 +173,7 @@ flowchart TD
 
 | Component | Lives in | Consumed by |
 |---|---|---|
-| Subsurface, hair and eye branches of the lighting function | `src/engine/rendering/scene` | lighting pass |
+| Subsurface, hair and eye branches of the lighting function | `src/engine/rendering/passes` | lighting pass |
 | Thickness read from the shadow maps | `src/engine/rendering/lighting` | lighting pass |
 | Scattering pass: tiles, kernel, recombine | `src/engine/rendering/passes` | render graph |
 | Skin specular target | `src/engine/rendering/passes` | lighting pass, scattering pass |

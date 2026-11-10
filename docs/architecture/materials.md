@@ -10,8 +10,9 @@ game's materials are a small family that authored templates cover.
 
 Above the [shader system](shaders.md), which compiles the templates and
 owns their permutation domains and parameter blocks; beside the scene
-renderer, which owns lighting, shadows, fog and post-processing and consumes
-material attributes; fed by the content converter, which writes material
+renderer and the lighting system, which own the lighting function, the
+passes, shadows and fog and consume material attributes, and
+post-processing, which runs the screen-effect templates; fed by the content converter, which writes material
 assets in these terms. The RHI sees only
 buffers, descriptor indices and pipeline descriptions.
 
@@ -49,8 +50,10 @@ flowchart LR
    without any compilation. An override of a static switch is not an
    instance; it is a different material, resolved by the converter.
 6. The attribute set a template writes is fixed per shading model and blend
-   mode by one table in code. A template that writes an attribute its shading
-   model does not read fails to compile, by name.
+   mode by one table in code, and the blend mode is a permutation dimension
+   so that each blend mode's shader writes its own set. A template that
+   writes an attribute its shading model does not read fails to compile, by
+   name.
 7. Lighting inputs are not material parameters. Lights, light lists,
    spherical harmonics, lightmaps, shadows and fog are scene and view data
    owned by the scene renderer; a material supplies attributes to the
@@ -67,8 +70,8 @@ The attribute set a template may write, and which shading models read each.
 | Attribute | Lit | Unlit | Subsurface | Hair | Eye |
 |---|---|---|---|---|---|
 | Diffuse albedo | yes | | yes | yes | yes |
-| F0, reflectance at normal incidence, a color | yes | | yes | yes | yes |
-| F90, reflectance at grazing, a color | yes | | yes | yes | yes |
+| F0, reflectance at normal incidence, a color | yes | | yes | yes, the fibre reflection scale | |
+| F90, reflectance at grazing, a color | yes | | yes | yes | |
 | Roughness | yes | | yes | yes | yes |
 | Normal | yes | | yes | yes | yes, the cornea |
 | Tangent | | | | yes, the fibre direction | |
@@ -76,6 +79,7 @@ The attribute set a template may write, and which shading models read each.
 | Ambient occlusion | yes | | yes | yes | yes |
 | Subsurface profile | | | yes | | yes |
 | Scatter scale | | | yes | | |
+| Hair shift, hair scatter | | | | yes | |
 | Iris normal, iris mask, iris height | | | | | yes |
 | Opacity | translucent blend modes | translucent blend modes | | | |
 | Opacity mask | masked blend mode | masked blend mode | masked | masked | |
@@ -133,13 +137,14 @@ Pass dimensions such as the depth-only or shadow variant of a template, the
 write-out variant on traced targets, and the vertex-source dimension of a
 blended template (mesh, sprite, ribbon, mesh particle) are permutation
 dimensions declared by the renderer, so the one build-time enumeration that
-builds the switch domain builds the pass set. Blend mode, two-sidedness and
-pass render targets enter the pipeline description, not the permutation,
-and the enumeration lists each pass's finite set of those states, so every
-pipeline is precompiled, including the decal pass's inside-the-box state;
-the masked blend mode alone is also a switch, because it adds a discard. Vertices are pulled, so no vertex layout enters either: a
-permutation states the vertex attributes it reads, and a draw whose mesh
-lacks one fails by name when it is created.
+builds the switch domain builds the pass set, and the blend mode is one of
+those dimensions, from the set the template declares it supports.
+Two-sidedness and pass render targets enter the pipeline description, not
+the permutation, and the enumeration lists each pass's finite set of those
+states, so every pipeline is precompiled, including the decal pass's
+inside-the-box state. Vertices are pulled, so no vertex layout enters
+either: a permutation states the vertex attributes it reads, and an instance
+whose mesh lacks one fails by name when it enters the scene.
 
 ## Parameters at runtime
 
@@ -149,12 +154,12 @@ sequenceDiagram
     participant Base as Parent material
     participant Blk as Parameter block
     participant Buf as Material buffer
-    participant Draw as Per-draw block
+    participant Rec as Instance record
     Inst->>Blk: write overridden values
     Base->>Blk: write every value not overridden
     Blk->>Blk: texture parameters as descriptor indices
     Blk->>Buf: block bytes at the instance's offset
-    Buf-->>Draw: buffer index and byte offset
+    Buf-->>Rec: byte offset, per range of the instance
 ```
 
 | Parameter kind | Where it lives | Changes at runtime | Changes the permutation |

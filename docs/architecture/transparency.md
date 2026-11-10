@@ -54,8 +54,9 @@ flowchart LR
    the order requires. The blend state is the material's blend mode.
 4. A blended pixel is lit by one of two forms the template declares. A
    surface form evaluates the lighting function per pixel from the light
-   grid, the shadow maps and the probe grids. A particle form takes its
-   light from the fog volume at the pixel and evaluates no light itself.
+   grid, the shadow maps, the probe grids and the environment map. A
+   particle form takes its light from the fog volume at the pixel, which the
+   pass samples and hands the template, and evaluates no light itself.
 5. A blended draw writes no depth, no surface data and no motion vector. It
    tests against the opaque depth, fades by its distance to that depth
    where the template asks, reads the fog volume, and writes reactive
@@ -100,7 +101,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    R["Main view's blended instances and emitters"] --> K["CPU: frustum test, sort by priority, distance far to near, instance index"]
+    R["Main view's blended instances and emitters"] --> K["Scene, on the CPU: frustum test, detail level, sort by priority, distance far to near, instance index"]
     K --> D["Draws in order: one per instance, one indirect per emitter, each with its template's pipeline"]
     D --> DA["Distortion apply where the stencil bit is set"]
     DA --> TS["Temporal stage"]
@@ -112,7 +113,7 @@ flowchart TD
 |---|---|---|
 | Ribbon build | each ribbon emitter's particle data | strip vertices and indices per emitter |
 | Emitter sort | each translucent emitter's particle depths | sorted particle indices per emitter |
-| CPU order | the blended instances' and emitters' bounds and sort priority, the main view | the draw order |
+| CPU order, by the scene | the blended instances' and emitters' bounds and sort priority, the main view | the draw order |
 | Draws | instance records, particle data, light grid, shadow maps, probe grids, fog volume, opaque depth | scene colour, reactive coverage, distortion target, stencil bit |
 | Distortion apply | scene colour, distortion target, stencil | scene colour |
 
@@ -129,7 +130,7 @@ flowchart TD
 
 | Form | Light from | Shadow | Fog | For |
 |---|---|---|---|---|
-| Surface | the lighting function per pixel: sun, light grid, probe grids | shadow maps read directly | the fog volume at the pixel | glass, water, translucent props |
+| Surface | the lighting function per pixel: sun, light grid, probe grids, the environment map for its reflection | shadow maps read directly | the fog volume at the pixel | glass, water, translucent props |
 | Particle | the fog volume at the pixel: sun, probes and local lights already scattered into it | in the volume | in the volume | sprites, ribbons, mesh particles |
 
 ## Refraction
@@ -153,12 +154,12 @@ flowchart TD
 
 | Component | Lives in | Consumed by |
 |---|---|---|
-| CPU order and the forward pass's draws | `src/engine/rendering/passes` | render graph |
+| The forward pass's draws, in the order the scene gives | `src/engine/rendering/passes` | render graph |
 | Sprite expansion, cutouts, facing, sub-image blend | `src/engine/rendering/passes`, shaders under `src/engine/rendering/shaders` | the forward pass |
 | Ribbon build and per-emitter particle sort | `src/engine/rendering/passes` | the forward pass |
 | Distortion target and apply | `src/engine/rendering/passes` | render graph |
-| Emitter instances and their indirect arguments | `src/engine/rendering/scene`, the arguments written by the effects system | the forward pass |
-| Effect payload reader | `src/engine/rendering/passes` | content loading |
+| Emitter instances and their indirect argument buffers | `src/engine/rendering/scene`; the instance count written by the effects system, a ribbon's index count by the strip build | the forward pass |
+| Effect payload reader | the effects system's loader | content loading |
 
 ## Boundaries
 

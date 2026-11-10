@@ -54,9 +54,9 @@ flowchart LR
    removed.
 7. The scene is drawn at input resolution with a sub-pixel jitter on the
    projection. One temporal stage turns that into an anti-aliased image at
-   output resolution. Every pass before it runs at input resolution and
-   every pass after it writes at output resolution; a pass after it may
-   reduce internally. There is no multisample anti-aliasing and no other
+   output resolution. Every pass before it writes at input resolution and
+   every pass after it writes at output resolution; any pass may reduce
+   internally. There is no multisample anti-aliasing and no other
    anti-aliasing pass.
 8. Shadowing, ambient occlusion, reflections and indirect light are
    visibility terms. Each has a rasterized source that runs on every target.
@@ -64,9 +64,12 @@ flowchart LR
    for a term in its place. Both sources write the same target with the same
    meaning, and the lighting pass cannot tell which ran. A target that
    reports no ray tracing capability runs the rasterized source of every
-   term. Hair pixels are the one exception: they read the shadow maps and
-   the probe grids directly on every target, as blended surfaces do, and
-   every traced source skips them by shading model id, as [character
+   term. Hair pixels are the one exception, for the shadowing and indirect
+   terms: a hair pixel reads the shadow maps directly on every target, as
+   blended surfaces do, keeps the probe light the surface pass wrote for
+   it, and the traced sources of those two terms skip it by shading model
+   id; the shadowing term's rasterized source skips it too. Ambient
+   occlusion has no hair rule, and hair takes no reflection, as [character
    shading](character-shading.md) states.
 9. The source of each term is chosen at startup from the capabilities the
    target reports and the settings, and the choice is reported. A source
@@ -84,9 +87,10 @@ flowchart LR
     capability selects a term's source or leaves a pass out, and a pass
     whose inputs say it has nothing to do this frame (no focus distance, a
     camera cut) runs as nothing; nothing reorders passes.
-13. The world publishes a camera cut flag with the frame. Phase one of
-    culling, the temporal stage and motion blur read it and drop their
-    history.
+13. The world publishes a camera cut flag with the frame. Every pass that
+    keeps history reads it and drops that history: phase one of culling,
+    the temporal stage, motion blur, the fog volume, the filtered terms and
+    the reflections trace.
 
 ## The frame
 
@@ -94,7 +98,7 @@ flowchart LR
 flowchart TD
     DF["Deformation: shapes, skinning and bounds of every dispatched instance, once"] --> CU["Culling: every opaque and masked instance and cluster against every view, draw records per view per pipeline, blended instances and decals frustum-tested and sorted on the CPU"]
     CU --> DP["Depth pass: two draws of the main view's records, the depth hierarchy built after each"]
-    DP --> SP["Surface pass: surface data, motion vectors, emissive, receiver stencil bits"]
+    DP --> SP["Surface pass: surface data with its flags, motion vectors, emissive"]
     SP --> DC["Decal pass: visible decal boxes blended into surface data"]
     DC --> LG["Light grid and shadow maps"]
     LG --> VT["Visibility terms: shadowing, ambient occlusion, reflections, indirect light"]
@@ -116,11 +120,11 @@ flowchart TD
 | Deformation | changed poses and shape weights, stream 0 of each dispatched mesh, bone maps | the bone buffer, the current copy of each dispatched instance, its cluster and instance boxes | its own |
 | Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy, the camera cut flag | draw records and counts per view per pipeline for opaque and masked instances; the CPU order of the main view's blended instances, emitters and decals | its own |
 | Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
-| Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target, receiver stencil bits | input |
-| Decal | the main view's decals in CPU order, depth, stencil | diffuse albedo, normal and roughness of surface data, the normal by fixed-function alpha blend | input |
+| Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data with its flags, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
+| Decal | the main view's decals in CPU order, depth, the surface flags | diffuse albedo, normal and roughness of surface data, the normal by fixed-function alpha blend | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
-| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color (pre-exposed, reused by the exposure ratio), shadow maps or the ray tracing scene | one target per term; hair pixels skipped by every traced source | input, ambient occlusion at half with a bilateral upsample |
-| Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness and for hair's shadow, probe grids directly for hair | scene color, the skin specular target for subsurface and eye pixels, both with the frame's exposure factor | input |
+| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color (pre-exposed, reused by the exposure ratio), shadow maps or the ray tracing scene | one target per term; hair pixels skipped by the shadowing and indirect sources | input, ambient occlusion reducing to half with a bilateral upsample |
+| Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness and for hair's shadow | scene color, the skin specular target for subsurface and eye pixels, both with the frame's exposure factor | input |
 | Scattering | scene color, depth, surface data, the skin specular target, on tiles with a subsurface or eye pixel | scene color | input |
 | Sky and fog | depth, light grid, shadow maps, probe grids, fog history reused by the exposure ratio | scene color, far depth and camera motion vectors for sky pixels, fog volume, fog history for the next frame | input |
 | Forward | the main view's blended instances and emitters in CPU order, emitter particle data, depth, light grid, shadow maps, probe grids, environment map, fog volume | scene color, reactive coverage, distortion target and stencil bit | input |
@@ -139,20 +143,25 @@ pixel, which is why blended draws do not write it.
 | Datum | Read by |
 |---|---|
 | Depth | every later pass |
-| Diffuse albedo | lighting, the decal pass, filters of traced terms |
-| Normal | lighting, visibility terms, their filters, the decal pass |
-| Roughness | lighting, reflections, their filters, the decal pass |
+| Diffuse albedo | lighting, filters of traced terms; blended into by the decal pass |
+| Normal | lighting, visibility terms, their filters; blended into by the decal pass |
+| Roughness | lighting, reflections, their filters; blended into by the decal pass |
 | F0 and F90 | lighting, reflections; the eye model stores the iris height in the F0 slot |
 | Material ambient occlusion | lighting |
-| Shading model id | lighting, the reflections term, the scattering pass's tiles, every traced source |
+| Shading model id | lighting, the reflections term, the scattering pass's tiles, the shadowing and indirect sources |
 | Shading model data: profile id and scatter scale, or fibre direction, or profile id with iris normal and iris mask | lighting, by shading model, as [character shading](character-shading.md) packs it |
 | Motion vector | temporal stage, filters of stochastic terms, post-processing |
-| Stencil bits: receives no decal, refuses decal normal, refuses decal roughness | decal pass |
+| Surface flags: receives no decal, refuses decal normal, refuses decal roughness | decal pass |
 
-The refracting-pixel stencil bit is the forward pass's, set by refracting
-draws and cleared by the distortion merge. Emissive is not surface data: the
-surface pass adds it to scene color. An unlit surface writes emissive, its
-shading model id, its motion vector and its stencil bits and nothing else.
+The surface flags are a field of the surface data, not stencil, because a
+counted multi-draw cannot change the stencil reference per record and the
+Xbox container exports none from a pixel shader; the surface pass writes
+them per pixel from the draw record and the template. The refracting-pixel
+stencil bit is the forward pass's, whose draws the CPU issues, set by
+refracting draws and cleared by the distortion merge. Emissive is not
+surface data: the surface pass adds it to scene color. An unlit surface
+writes emissive, its shading model id, its motion vector and its surface
+flags and nothing else.
 Every target that holds light within a frame carries the frame's exposure
 factor; every one kept across frames is reused by the ratio of the two
 frames' factors.
@@ -233,13 +242,15 @@ portable loop, runs on every target as the reference.
 | Depth | the frame's depth, with its direction stated |
 | Motion vectors | from a pixel to its previous position, jitter removed |
 | Jitter | the frame's sub-pixel offset, from a low-discrepancy sequence whose length grows with the ratio of output to input area |
-| Exposure | this frame's and the previous frame's pre-exposure factor, so the history is rescaled by their ratio |
+| Exposure | this frame's and the previous frame's pre-exposure factor as a texture, so the history is rescaled by their ratio; every implementation takes it as a texture |
 | Reactive coverage | one minus the product over the pixel's blended draws of one minus each draw's coverage, clamped to 0.9; a translucent draw's coverage is its alpha, an additive draw's the largest channel of its premultiplied colour, a modulate draw's one minus the smallest channel of its colour |
 | Camera cut | the world's flag; the stage drops its history |
 
-The stage writes scene color at output resolution, and depth and motion
-vectors resampled to output for the passes after it, and sharpens above a
-ratio of one; its own document states the implementations.
+The stage's own wrapper, renderer code around whichever implementation
+ran, writes scene color at output resolution, resamples depth and motion
+vectors to output by nearest depth for the passes after it, since a library
+implementation produces color alone, and sharpens above a ratio of one; the
+anti-aliasing document states the implementations.
 
 Texture sampling in the passes before the stage uses a mip bias set from
 the ratio of input to output resolution. At a ratio of one the stage is

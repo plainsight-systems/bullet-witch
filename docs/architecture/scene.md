@@ -39,8 +39,9 @@ flowchart LR
 1. The scene is a set of instances. An instance enters and leaves at any
    frame and keeps one id for as long as it exists. Nothing in the renderer
    assumes the set is rebuilt whole.
-2. The world publishes an instance's existence, transform and flags; the
-   scene owns every record built from them. Only records that changed are
+2. The world, or the effects system for an emitter, publishes an
+   instance's existence, transform and flags; the scene owns every record
+   built from them. Only records that changed are
    uploaded in a frame.
 3. Every instance has a record on the GPU holding its transform, its
    previous transform, its world bounds, its mesh, the material block offset
@@ -82,13 +83,16 @@ flowchart LR
     resolution change, or when the world's camera cut flag is set, phase one
     tests the frustum alone. Phase two makes the frame correct either way.
 11. Shadow views are frustum-culled and never occlusion-culled.
-12. The depth hierarchy is one texture of the frame. Phase two reads the
-    build after phase one; the visibility terms and the next frame's phase
-    one read the build after phase two.
+12. The depth hierarchy is built twice a frame. Phase two reads the build
+    after phase one, a frame-only texture; the visibility terms and the next
+    frame's phase one read the build after phase two, a history texture the
+    scene owns.
 13. A detail level is chosen per instance from the instance's projected
-    size, with a dithered transition between two levels: in the culling
-    dispatch for opaque and masked instances, on the CPU by the same rule
-    for blended ones. A mesh with one level is chosen without a test.
+    size: in the culling dispatch for opaque and masked instances, with a
+    dithered transition between two levels; on the CPU by the same
+    projection for blended ones, whose draw is the chosen level's index
+    range and switches without a dither. A mesh with one level is chosen
+    without a test.
 14. The draw record buffers of a frame hold every cluster of every instance
     for every view, so a dispatch cannot run out of room and nothing is
     dropped.
@@ -109,10 +113,12 @@ flowchart LR
 | Id | the scene, on entry | the world, to move or remove the instance |
 | Transform | the world, when it changes | culling, every pass's vertex shader |
 | Previous transform | the scene, at frame start | phase one, motion vectors |
-| World bounds | the scene, from the mesh bounds and the transform, when either changes, padded by the template's declared maximum displacement when the template writes a vertex offset; a skinned mesh's cooked bounds are the union over its clips' poses, so a skinned instance with no dispatch is bounded | culling, the CPU frustum test |
+| World bounds | the scene, from the mesh bounds and the transform, when either changes, padded by the instance's maximum displacement; for a skinned instance with no dispatch, the union of its clusters' cooked boxes under their bones' current transforms, computed on the CPU each frame its pose changes | culling, the CPU frustum test |
 | Mesh: cluster table, detail levels | content, through the scene on entry | culling, vertex fetch |
 | Deformed stream: current and previous copy indices, or none | the geometry feed, each frame it dispatches the instance or applies its no-dispatch rule | vertex fetch, motion vectors |
-| Bone range: the instance's range in the bone buffer, or none | the geometry feed, on entry of a skinned instance | rigid-to-bone clusters' vertex fetch and culling |
+| Bone range: the instance's range in the bone buffer, or none, and which of its two slots is current | the geometry feed, on entry of a skinned instance, the slot each upload | rigid-to-bone clusters' vertex fetch and culling |
+| Maximum displacement | the material system, from the template's declaration, on entry and on change | culling, which pads the instance and cluster boxes by it |
+| Blend mode, per range | the material system, from the material, on entry and on change | the dispatch, which takes the opaque and masked ranges, and the CPU, which takes the blended ones |
 | Material block offset, per range | the material system, on entry and on change | every pass's shaders |
 | Sort priority | the world, on entry, from the template's declared priority, and raised when it places a decal over others | the CPU order of blended instances and decals |
 | Flags: carries baked light or is a mover, casts a shadow, kind (mesh, emitter, decal) | the world, or the effects system for an emitter, on entry | the surface pass, shadow views, the forward pass, the decal pass |
@@ -125,8 +131,10 @@ blended dispatched instance uses the cooked bounds at the transform. A
 cluster cooked rigid to one bone carries the bone's index; culling
 transforms its cooked box by that bone's current transform, and every
 pass's vertex shader applies the same transform after the instance
-transform. A cluster box is padded by the declared maximum displacement
-like the instance box. An emitter's bounds are the effect's authored bounds
+transform. The dispatch pads a cluster box by the instance's maximum
+displacement as it tests it. A dispatched instance keeps the previous
+frame's boxes beside this frame's, so phase one tests it at the previous
+transform with the previous boxes. An emitter's bounds are the effect's authored bounds
 or, for an emitter simulated on the CPU, the bounds that simulation
 computes; an emitter simulated on the GPU must carry authored bounds, since
 the CPU reads nothing back.

@@ -118,10 +118,10 @@ flowchart TD
 
 | Kind | Cooked form | Consumer |
 |---|---|---|
-| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bone maps per draw; bounds, which for a skinned mesh are the union over its clips' poses; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
+| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bone maps per draw; bounds; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
 | Morph set | the shapes of one mesh group: for each target a name and a position delta per vertex of the group | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
-| Material | template name, static switch values, parameter values, texture ids, profile ids; a screen effect is a material of a screen-effect template | materials, post-processing |
+| Material | template name, blend mode, static switch values, parameter values, texture ids, profile ids; a screen effect is a material of a screen-effect template | materials, post-processing |
 | Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton and animation | bone hierarchy, animation tracks | animation |
@@ -143,7 +143,7 @@ consuming system's loader.
 | a texture shared between models | `shared_texture.<group>.dds.<name>` |
 | a record with no name of its own | the container path from the data root, lower-cased, dots for slashes, plus the record's short name |
 | an effect, numbered inside a pack with no name | `effect.<pack>.<number>`, its emitters' materials `effect.<pack>.<number>.material.<n>`, a sub-image sheet merged from the pack's numbered textures `effect.<pack>.sheet.<first number>` |
-| a stage's grade and its record | `stage.<name>.grade`, `stage.<name>.record` |
+| a stage's grade, which carries the original stage's recorded values | `stage.<name>.grade` |
 | an asset we author with no original | `remaster.<path>` |
 
 Ids are the names the original content already carries for its records,
@@ -160,7 +160,7 @@ mapping is ours, and the material system knows none of it.
 
 | Original material data | Maps to |
 |---|---|
-| Base texture, second base texture with its blend, third base texture with a mask | base color inputs and a layer switch |
+| Base texture, second base texture with its blend, third base texture with a mask | diffuse albedo inputs and a layer switch |
 | Normal texture | normal input, a static switch |
 | Texture in the ambient-occlusion slot | the lit template's packed occlusion and reflectance texture and its static switch |
 | Specular exponent and coefficient, reflectivity, Fresnel constants | roughness and the reflectance curve of the lit template |
@@ -168,7 +168,7 @@ mapping is ours, and the material system knows none of it.
 | Alpha Fresnel constants | the lit template's opacity curve |
 | Environment reflection controls, subsurface marker and its level | recorded by name with their values; no parameter is derived from them |
 | Environment and illuminance texture slots | recorded by name with the texture id |
-| Constant color, illuminance, ambient | base color tint, emissive, and an ambient term that belongs to the renderer |
+| Constant color, illuminance, ambient | diffuse albedo tint, emissive, and an ambient term that belongs to the renderer |
 | Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
 | Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
 | Effect elements and screen filters | materials of the blended templates and of the screen-effect templates, with the filter textures as their texture ids |
@@ -197,7 +197,8 @@ and nothing is re-converted.
 
 A pipeline that upgrades many assets states a rule instead of writing each
 replacement: "every material whose base texture has normal, roughness and
-metallic maps published becomes the lit template bound to those maps". The
+reflectance maps published becomes the lit template bound to those maps".
+The
 converter knows every reference from the original material blocks and emits
 the replacement materials, each under its original id, in the same content
 version as the maps they reference.

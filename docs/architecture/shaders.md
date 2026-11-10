@@ -17,9 +17,11 @@ shader and a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
 4. C++ parameter block declarations are the single source of layout truth.
    The HLSL declarations are generated from them, and offsets are equal by
    construction and proven by test.
-5. Resources are reached by index into typed unbounded descriptor arrays,
-   one per resource type for sampled access and one per type for unordered
-   access. Every pipeline on every API binds against one fixed root layout,
+5. Resources are reached by index into typed descriptor arrays: unbounded,
+   one per resource type, for sampled access; bounded to sixty-four in all,
+   the most resource binding tier 2 allows, for unordered access, which
+   every compute pass of the frame fits. Every pipeline on every API binds
+   against one fixed root layout,
    which is fixed before any shader is compiled. There is one binding model,
    and it is the one every target can run. Inside a counted multi-draw the
    per-draw uniform buffer is not rebound per record; the shader takes the
@@ -126,7 +128,7 @@ at shader model 6.4.
 
 ```mermaid
 flowchart TB
-    H["Header: magic, format version, target, stage, entry point, permutation id, input hash"]
+    H["Header: magic, format version, target, stage (vertex, pixel, compute, or a ray tracing library of generation, hit and miss entries), entry point, permutation id, input hash"]
     R["Reflection: parameter map, resource table, packed counts, layout hash per referenced block"]
     K["Code: DXIL, SPIR-V or Metal library"]
     T["Trailer: key, size, bytes entries, closed by trailer length"]
@@ -150,9 +152,9 @@ predicate. The build compiles every permutation that remains.
 
 | Target | Bytecode | Back half | Floor |
 |---|---|---|---|
-| Direct3D 12 | DXIL | DXC, signed on a host with the validator | shader model 6.4 or later, resource binding tier 2 |
-| Metal | Metal library | the same DXIL through the Metal Shader Converter, in process | macOS 15, Apple silicon, Metal 3 |
-| Vulkan | SPIR-V | DXC SPIR-V backend, SPIRV-Tools, SPIRV-Reflect | Vulkan 1.3 with descriptor indexing |
+| Direct3D 12 | DXIL; a ray tracing library as a library target, built only where the capability can be reported | DXC, signed on a host with the validator | shader model 6.4 or later, resource binding tier 2 |
+| Metal | Metal library; ray tracing entries as the converter's compute kernels | the same DXIL through the Metal Shader Converter, in process | macOS 15, Apple silicon, Metal 3 |
+| Vulkan | SPIR-V; ray tracing entries through the ray tracing extension | DXC SPIR-V backend, SPIRV-Tools, SPIRV-Reflect | Vulkan 1.3 with descriptor indexing |
 | Xbox Series X, Dev Mode | DXIL | the Direct3D 12 backend | shader model 6.4, feature level 11.0; probed at startup, explicit failure below shader model 6.4 or resource binding tier 2; typed unordered-access loads and native 16-bit operations not assumed, reported by the probe |
 
 ## Components and ownership

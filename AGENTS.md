@@ -92,7 +92,8 @@ them as rules. Add an entry when the same mistake comes back.
   invariant is the mistake. Twice a design was shaped to fit a scene or
   frame invariant the references did not share (a one-pipeline forward pass
   to keep GPU-only visibility for a few dozen blended draws; depth of field
-  after the temporal stage from a misread of the resolution rule). Nothing is
+  placed, twice, from a reading of our own resolution rule instead of from
+  where the references put it). Nothing is
   gospel until code depends on it, and even then it is a change, not a wall.
   The check runs both ways: before a design's documents are committed, every
   earlier document is read again against the new one, for a field, pass or

@@ -20,7 +20,7 @@ flowchart LR
     W["World: places a decal, attaches it to an instance or the stage"] --> SC["Scene: a decal is an instance whose mesh is the unit box"]
     SC --> DP["Decal pass: boxes drawn in order, position from depth, clip, blend into surface data"]
     MT["Materials: decal templates with three opacities"] --> DP
-    SP["Surface pass: surface data, stencil bits"] --> DP
+    SP["Surface pass: surface data with its flags"] --> DP
     DP --> LP["Lighting pass"]
 ```
 
@@ -31,19 +31,20 @@ flowchart LR
    bounds against the main view's frustum, orders it and issues its draw, as
    [scene](scene.md) invariant 5 states.
 2. The decal pass runs after the surface pass and before the light grid and
-   the lighting pass. It reads depth and the stencil bits and writes base
-   colour, normal and roughness of the surface data, each blended by its
-   own opacity. It writes no depth and no motion vector.
-3. The decal pass draws the main view's decals in the sort order of the
-   forward pass: the instance's sort priority, then distance far to near,
-   then instance index, each draw with its own template's pipeline. The
-   world sets a later placement's sort priority above the ones it overlaps,
-   so later marks land on top.
+   the lighting pass. It reads depth and the surface flags and blends into
+   the diffuse albedo, normal and roughness of the surface data, each by
+   its own opacity. It writes no depth and no motion vector.
+3. The decal pass draws the main view's decals in the order the scene
+   gives: the instance's sort priority, then instance index, each draw with
+   its own template's pipeline. Distance is not in the key, since
+   overlapping marks are ordered by priority alone. The world sets a later
+   placement's sort priority above the ones it overlaps, so later marks
+   land on top.
 4. A pixel receives a decal only if its reconstructed position lies inside
    the box and the normal derived from the depth around it is within sixty
    degrees of the box's projection axis. Beyond that angle the pixel is
    clipped, so a decal does not stretch along a surface it grazes. The pass
-   reads depth and stencil and no target it writes.
+   reads depth and the surface flags and no target it writes.
 5. The decal's normal blends into the stored normal by fixed-function alpha
    weighted by the normal opacity, and the stored normal is normalized when
    read. Diffuse albedo and roughness blend linearly by their opacities.
@@ -51,11 +52,14 @@ flowchart LR
    instance, its transform is that instance's transform times its own, and
    it follows the instance, not any bone of it; attached to the stage, its
    own. A mark on a part a bone later moves stays where it was made.
-7. A pixel of a dispatched instance receives no decal. The surface pass
-   writes a stencil bit for those pixels and the decal pass does not draw
-   over it. Rigid-to-bone clusters receive decals like any rigid surface. A
-   surface template may further declare that it refuses normal or roughness
-   changes, and the surface pass writes that in the stencil bits too.
+7. A pixel of a weighted cluster receives no decal; a pixel of a
+   rigid-to-bone cluster or a rigid instance receives decals, whichever
+   instance the cluster belongs to. The surface pass writes the surface
+   flag for it per pixel, from the draw record's bone index and the
+   instance's kind, and the decal pass does not draw over a flagged pixel.
+   A surface template may further declare that it refuses normal or
+   roughness changes, and the surface pass writes that in the surface
+   flags too.
 8. A decal changes what the lighting pass sees and nothing the surface pass
    already read. On a mover lit by the probe grids, the probe lookup used
    the undecalled normal, so the decal's normal reaches direct light and
@@ -68,10 +72,10 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    R["Main view's decals, frustum-tested on the CPU"] --> S["Sort: priority, distance far to near, instance index"]
+    R["Main view's decals, frustum-tested by the scene on the CPU"] --> S["Sort: priority, instance index"]
     S --> D["Draw each box: front faces, or back faces when the camera is inside"]
     D --> P["Per pixel: depth to position, position to box space"]
-    P --> C{"Inside the box, depth-derived normal within sixty degrees, stencil permits"}
+    P --> C{"Inside the box, depth-derived normal within sixty degrees, surface flags permit"}
     C -- no --> X["Discard"]
     C -- yes --> T["Template: diffuse albedo, normal, roughness, three opacities, from box-space UV"]
     T --> B["Blend into surface data by each opacity"]
@@ -81,7 +85,7 @@ flowchart TD
 | Step | Reads | Writes |
 |---|---|---|
 | Sort | the decals' bounds and sort priority, the main view | the draw order |
-| Box draw | the instance's transform, depth, stencil, the template's textures and block | diffuse albedo, normal, roughness of surface data |
+| Box draw | the instance's transform, depth, the surface flags, the template's textures and block | diffuse albedo, normal, roughness of surface data |
 
 ## Decal template
 
@@ -103,7 +107,7 @@ not cut a hard line.
 |---|---|
 | Opaque or masked surface of a rigid instance or a rigid-to-bone cluster | every decal output the surface template allows |
 | Surface whose template refuses normal or roughness changes | diffuse albedo alone, or diffuse albedo and the one it allows |
-| Dispatched instance | nothing |
+| Weighted cluster of a dispatched instance | nothing |
 | Blended surface, particle, sky | nothing, since no surface data holds them |
 
 ## Components and ownership
@@ -112,7 +116,7 @@ not cut a hard line.
 |---|---|---|
 | Decal pass and its order | `src/engine/rendering/passes` | render graph |
 | Decal instance kind and the unit box mesh | `src/engine/rendering/scene` | the decal pass |
-| Stencil bits for receivers | `src/engine/rendering/passes`, written by the surface pass | the decal pass |
+| Surface flags for receivers | `src/engine/rendering/passes`, written by the surface pass | the decal pass |
 | Decal templates | `src/engine/rendering/materials/templates` | the decal pass |
 
 ## Boundaries
@@ -121,6 +125,6 @@ Above: the world, which decides when a mark is made, where, on what, how
 long it lasts, and removes it. Beside: the scene, which culls and records
 decals as instances; the material system, which owns decal templates and
 the receiver declaration of surface templates; the surface pass, which
-writes the data decals blend into and the stencil bits. Below: the render
+writes the data decals blend into and the surface flags. Below: the render
 graph and the RHI. How the game decides to place a mark, how many it keeps,
 and how it fades one out are outside this document.

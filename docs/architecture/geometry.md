@@ -15,7 +15,7 @@ instance pass through the feed, and one instance can be all three:
 | Term | Means | Gets |
 |---|---|---|
 | Skinned instance | its mesh is skinned and animation publishes a pose for it | a range in the bone buffer, uploaded when the pose changes |
-| Dispatched instance | a skinned instance with at least one weighted draw, or any instance with a nonzero shape weight | two copies of stream 0, the shape, skinning and bounds dispatches |
+| Dispatched instance | a skinned instance with at least one weighted draw, or any instance with a nonzero shape weight; it stays one until it has neither, and its copies are released after the frame that zeroed the last weight | two copies of stream 0, the shape, skinning and bounds dispatches |
 | Offset instance | its template writes a vertex offset, on a traced target | a position write-out buffer for the acceleration structure |
 
 A rigid instance is none of these and reads its mesh's own streams. A
@@ -95,15 +95,20 @@ flowchart LR
     transform; the previous slot gives its motion vector; culling transforms
     the cluster's cooked box by that one bone. A skinned instance whose every
     draw is rigid to a bone has a bone range and nothing else from the feed;
-    its bounds are the cooked union over its clips' poses.
+    its bounds are computed on the CPU from its pose, as the scene states. A
+    dispatched instance's rigid-to-bone clusters follow this rule and its
+    weighted clusters the dispatch; the unit of every per-cluster rule is
+    the cluster.
 11. On a traced target a dispatched instance's acceleration structure is
     built over its current copy; the feed signals refit each frame, and
     rebuild when the summed surface area of the pose-transformed per-bone
-    rest boxes exceeds the value at the last build by the settings ratio. A
-    rigid-to-bone draw is its own acceleration-structure instance over the
-    mesh's stream 0 under the instance transform times its bone's, so no
-    write-out is needed for it. How structures are built and owned belongs
-    to the ray tracing capability.
+    rest boxes exceeds the value at the last build by the settings ratio;
+    an instance with no weighted draw has no structure of its own to signal
+    for. A rigid-to-bone draw is its own acceleration-structure instance
+    over the mesh's stream 0 under the instance transform times its bone's;
+    when its template writes a vertex offset, its write-out applies the
+    bone's transform as every vertex shader does. How structures are built
+    and owned belongs to the ray tracing capability.
 12. A template's vertex offset is a function of the vertex, the instance
     transform and the frame values it is given, and nothing else. Every
     raster pass evaluates it in its vertex shader through one function; the
@@ -114,7 +119,8 @@ flowchart LR
     draws fetch what every other instance fetches; the write-out buffer is
     read by the acceleration structure alone. The write-out runs the
     template's vertex function over the instance's current copy when it is
-    dispatched, and over the mesh's stream 0 otherwise, and writes positions.
+    dispatched, and over the mesh's stream 0 otherwise, applying a
+    rigid-to-bone draw's bone, and writes positions.
 13. Every dispatch is sized from counts the mesh and the instance carry. A
     copy, a delta buffer, a write-out buffer or a bone range that cannot be
     allocated fails by name; nothing is skipped or drawn in bind pose in its
@@ -141,9 +147,9 @@ flowchart TD
 | Pose upload | the poses animation marked changed | the bone buffer's current slot, the instance's range | every skinned instance with a changed pose |
 | Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta per vertex, zero when no target is active | every group whose weights changed |
 | Skinning dispatch | stream 0 of the mesh, the delta buffer if any, the draw's bone map, the bone buffer's current slot | the instance's current copy: position, normal, tangent | every dispatched instance whose pose or weights changed |
-| Bounds dispatch | the current copy, the mesh's cluster index ranges, the bone buffer for rigid-to-bone clusters | the instance's cluster boxes and instance box | the same instances |
-| Write-out | the template's vertex function with current frame values, over the current copy or the mesh's stream 0 | the instance's write-out buffer of positions | every offset instance on a traced target |
-| Rebuild signal | the pose, the mesh's rest box per bone | refit or rebuild for the instance this frame | every skinned instance on a traced target |
+| Bounds dispatch | the current copy, the mesh's cluster index ranges, the bone buffer for rigid-to-bone clusters, the instance's maximum displacement | the instance's cluster boxes and instance box for this frame, the previous frame's kept beside them for phase one | the same instances |
+| Write-out | the template's vertex function with current frame values, over the current copy or the mesh's stream 0, with a rigid-to-bone draw's bone | the instance's write-out buffer of positions | every offset instance on a traced target |
+| Rebuild signal | the pose, the mesh's rest box per bone | refit or rebuild for the instance this frame | every dispatched skinned instance on a traced target |
 
 Before the dispatches run, the per-instance slot swap of invariant 8 and
 the previous-copy rule of invariants 3 and 4 are applied to the instance

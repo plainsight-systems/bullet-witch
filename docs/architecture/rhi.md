@@ -31,7 +31,7 @@ flowchart LR
 | In the contract | Reported as a capability, off until a backend proves it | Out |
 |---|---|---|
 | one device, one graphics queue, copy and compute work on it | async compute on a second queue | multiple GPUs |
-| buffers, textures, views, typed descriptor arrays per resource type for sampled and unordered access, and a sampler array | mesh and amplification shaders | Direct3D 11 |
+| buffers, textures, views, unbounded typed descriptor arrays per resource type for sampled access, one bounded array of sixty-four for unordered access, and a sampler array | mesh and amplification shaders | Direct3D 11 |
 | graphics and compute pipeline states, render passes; the counted multi-draw, the single indirect draw and the indirect dispatch, each over GPU-written arguments | ray tracing: acceleration structures with build and refit, ray tracing pipeline states, the trace dispatch | work graphs |
 | explicit resource state transitions | timestamp queries with calibrated clocks | runtime shader compilation |
 | GPU fences, frame pacing, readback to the CPU | | |
@@ -111,12 +111,12 @@ stateDiagram-v2
 Resources hold tracked access state. Transient resources that alias memory
 follow the same path with acquire and discard declared through transitions.
 
-A frame-only texture is a render target no later frame reads. The [render
-graph](render-graph.md) acquires one at its first use in a frame and gives it
-back after its last, and so gives the backend every such texture's lifetime.
-How two of them with lifetimes that do not overlap share storage is the
-backend's choice: the same memory under two textures, or one pooled texture
-serving both. The contract is the same either way, and nothing above the
+A frame-only resource is a texture or a buffer no later frame reads. The
+[render graph](render-graph.md) acquires one at its first use in a frame and
+gives it back after its last, and so gives the backend every such resource's
+lifetime. How two of them with lifetimes that do not overlap share storage
+is the backend's choice: the same memory under two resources, or one pooled
+resource serving both. The contract is the same either way, and nothing above the
 backend can tell which was chosen. Contents at acquire are undefined.
 
 ## Transitions
@@ -174,9 +174,10 @@ flowchart LR
 | Transitions | tracked hazards do the synchronization; declared transitions become compute memory barriers for unordered access only | image layout changes and pipeline barriers | resource barriers |
 | Descriptor arrays and samplers | argument buffer tables in the converter's explicit layout, resident sets declared per encoder; a sampler table | descriptor set 1 runtime arrays per type, set 0 samplers | descriptor heap tables of unbounded typed arrays, a sampler heap |
 | Root layout | one top-level argument buffer bound at the converter's fixed point | one pipeline layout | one static root signature |
-| Counted multi-draw | an indirect command buffer filled on the GPU | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
-| Draw index in the shader | the indirect command buffer binds the record per command | the draw index built-in | a root constant written per record by the command signature |
-| Temporal upscale | the platform's temporal scaler | the open upscaler's library | the open upscaler's library and the two vendor libraries, each a reported capability |
+| Counted multi-draw | an indirect command buffer executed over the whole record range, the dispatch having written empty records past the count, so no GPU-written count is needed | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
+| Draw index in the shader | the indirect command buffer sets the record's index as a per-command constant | the draw index built-in | a root constant written per record by the command signature |
+| Ray tracing | the platform's acceleration structures and intersection functions, as compute | the ray tracing extension's structures and pipelines | the ray tracing pipeline state and its structures |
+| Temporal upscale | the platform's temporal scaler | the portable loop above the contract, since the open library's Linux delivery is not stated | the open upscaler's library and the two vendor libraries, each a reported capability |
 | Present | drawable from the layer, present scheduled on the command buffer, a semaphore bounds frames in flight | swapchain acquire and present | swapchain present |
 | Display report | the layer's colour space and pixel format, the screen's maximum luminance | the surface's colour space and format, the display's HDR metadata | the swapchain's colour space and format, the output's display description |
 
@@ -218,7 +219,7 @@ shipping.
 | Metal Shader Converter runtime shim | binding converter-built pipelines | vendored, Apache 2.0, as the shader system states |
 | Vulkan headers and loader | Vulkan API | pinned when the Vulkan backend is built |
 | Direct3D 12 headers | Direct3D 12 API | pinned when the Direct3D 12 backend is built |
-| The open temporal upscaler, release 3.1 | the temporal upscale on Vulkan and Direct3D 12 | its signed libraries and the sources its licence lists as MIT, when a desktop backend is built |
+| The open temporal upscaler, release 3.1 | the temporal upscale on Direct3D 12 | its signed libraries and the sources its licence lists as MIT, when the Direct3D 12 backend is built |
 | The two vendor upscalers | the temporal upscale on their GPUs on Direct3D 12 | binary libraries under their licences, loaded only where reported |
 
 ## Boundaries
