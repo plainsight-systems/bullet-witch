@@ -7,8 +7,9 @@ are drawn, after the opaque image is complete and before the temporal stage.
 Refraction is one offset accumulation during that pass and one apply after
 it.
 
-A blended draw is a draw of a template whose blend mode is translucent,
-additive or modulate. An emitter is a source of particles with one template;
+A blended draw is a draw of a material whose blend mode is translucent,
+additive or modulate; the blend mode is the material's, and its template
+declares which blend modes it supports. An emitter is a source of particles with one template;
 the effects system simulates it and this document draws it. A particle is one
 row of an emitter's data.
 
@@ -36,10 +37,11 @@ flowchart LR
 ## Invariants
 
 1. Every blended draw of the main view is drawn by the forward pass at input
-   resolution, after the sky and fog pass and the depth of field pass and
-   before the temporal stage, so blended draws are sharp over the defocused
-   opaque image. No blended draw is drawn at a lower resolution and
-   composited.
+   resolution, after the sky and fog pass and before the temporal stage. No
+   blended draw is drawn at a lower resolution and composited. Depth of
+   field runs after the temporal stage on the whole image, so a blended
+   pixel defocuses by the opaque depth behind it; that is the stated cost of
+   one temporal stage with no separate blended composite.
 2. The forward pass draws in one total order: the instance's sort
    priority, which the world sets on entry from the template's declared
    priority and may raise, then the instance's bounds-centre distance to the
@@ -49,7 +51,7 @@ flowchart LR
    that order; the same instances and view give the same order.
 3. Each draw uses its own template's pipeline, one per template and
    permutation as in every pass, and the pipeline changes between draws as
-   the order requires. The blend state is the template's blend mode.
+   the order requires. The blend state is the material's blend mode.
 4. A blended pixel is lit by one of two forms the template declares. A
    surface form evaluates the lighting function per pixel from the light
    grid, the shadow maps and the probe grids. A particle form takes its
@@ -57,7 +59,12 @@ flowchart LR
 5. A blended draw writes no depth, no surface data and no motion vector. It
    tests against the opaque depth, fades by its distance to that depth
    where the template asks, reads the fog volume, and writes reactive
-   coverage.
+   coverage: the pixel's coverage becomes one minus (one minus the old
+   coverage) times (one minus the draw's coverage), clamped to 0.9, where
+   a translucent draw's coverage is its alpha, an additive draw's the
+   largest channel of its premultiplied colour, and a modulate draw's one
+   minus the smallest channel of its colour. Every light a forward draw
+   writes carries the frame's exposure factor, applied by renderer code.
 6. Particle data is a structure-of-arrays buffer per emitter in a layout the
    emitter declares: position, velocity, size, rotation, colour, age,
    sub-image index, ribbon id, link order, each at a declared offset, and a
@@ -72,18 +79,20 @@ flowchart LR
    of its mesh with the transform read per particle. Mesh particles are
    blended only; an opaque effect model is a world instance.
 9. An emitter is an instance of the scene. Its record holds the bounds the
-   effect fixes or the union the simulation writes. Its draw is indirect:
-   the effects system writes the instance count from the particle count,
-   and the strip build writes a ribbon's index count, so the CPU issues the
-   draw without reading either back.
+   effect fixes or a CPU simulation computes. Its draw is indirect: the
+   effects system writes the instance count from the particle count, and
+   the strip build, which the forward pass owns, writes a ribbon's index
+   count, so the CPU issues the draw without reading either back.
 10. Within a translucent emitter the particles are sorted by view depth on
     the GPU, in that emitter alone. Additive and modulate emitters are not
     sorted.
 11. A template that writes refraction has its draws also write a signed
     screen offset into the distortion target during the forward pass. After
     the forward pass one apply reads scene colour at the offset, once, where
-    the stencil bit marks a refracting pixel, and merges back. There is no
-    blur and no second apply.
+    the stencil bit marks a refracting pixel, into a frame-only texture,
+    and a merge writes it back and clears the bit. There is no blur and no
+    second apply. Scene colour is exported as the next frame's history
+    after the merge.
 12. A particle buffer or a strip buffer that cannot be allocated fails by
     name; no draw is dropped to fit.
 
@@ -130,13 +139,13 @@ flowchart TD
 | Distortion target | two signed screen offsets per pixel, accumulated additively over refracting draws |
 | Stencil bit | set by a refracting draw, cleared by the merge |
 | Apply | one bilinear read of scene colour at the pixel plus its offset, clamped to the view |
-| Order | after both forward pipelines, before the temporal stage |
+| Order | after the forward pass's draws, before the history export and the temporal stage |
 
 ## Content the pass reads
 
 | Data | Form | Written by |
 |---|---|---|
-| Effect | emitters with their templates, element kinds, curves over life, sub-image sheets with cutouts, bounds or a flag to compute them | the converter |
+| Effect | emitters, each with its material, element kind, curves over life and sub-image sheet with cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | the converter |
 | Particle data | the per-emitter buffer of invariant 6 | the effects system, each frame |
 | Blended template | shaders for the forward pass, a priority, a lighting form, refraction if written | material templates |
 

@@ -15,11 +15,11 @@ instance pass through the feed, and one instance can be all three:
 | Term | Means | Gets |
 |---|---|---|
 | Skinned instance | its mesh is skinned and animation publishes a pose for it | a range in the bone buffer, uploaded when the pose changes |
-| Dispatched instance | a skinned instance with at least one blended draw, or any instance with a nonzero shape weight | two copies of stream 0, the shape, skinning and bounds dispatches |
+| Dispatched instance | a skinned instance with at least one weighted draw, or any instance with a nonzero shape weight | two copies of stream 0, the shape, skinning and bounds dispatches |
 | Offset instance | its template writes a vertex offset, on a traced target | a position write-out buffer for the acceleration structure |
 
 A rigid instance is none of these and reads its mesh's own streams. A
-blended draw is one whose vertices weight more than one bone, or one bone
+weighted draw is one whose vertices weight more than one bone, or one bone
 below full weight; a draw whose every vertex has one influence at full
 weight is rigid to that bone.
 
@@ -67,34 +67,43 @@ flowchart LR
    per-vertex dispatch sums weight times delta over every active target in
    target order into a delta buffer, with no atomics; the skinning dispatch
    adds the delta to the bind-pose position and then applies the bones.
-   Shapes move positions and nothing else.
+   Shapes move positions and nothing else. A weight change to zero is a
+   change: the dispatch runs and the delta buffer is rewritten, to zero
+   when no target is active.
 7. A vertex's skinning transform is the weighted sum of its influences'
    transforms, resolved through its draw's bone map as cooked. Normals and
    tangents are transformed by the blended three-by-three and normalized,
    and never recomputed from triangles.
 8. Poses live in one bone buffer with a range per skinned instance and two
-   slots, current and previous. Only poses that changed are uploaded. The
-   skinning dispatch reads the current slot; rigid-to-bone clusters read
-   both. The instance record carries the range, or none.
+   slots, current and previous. Only poses that changed are uploaded, and
+   an upload swaps that instance's slots first, so its previous slot is the
+   pose before. An instance with no upload this frame reads its current slot
+   for both, so its bones contribute no motion. The skinning dispatch reads
+   the current slot; rigid-to-bone clusters read both. The instance record
+   carries the range, or none.
 9. After skinning, one dispatch per dispatched instance writes the box of
-   each of its blended clusters from the deformed positions in the cluster's
+   each of its weighted clusters from the deformed positions in the cluster's
    index range, and the instance box as the union of those and of its
-   rigid-to-bone clusters' transformed boxes. These are the boxes culling
-   tests for that frame; the mesh's cooked boxes are not used for a
-   dispatched instance's blended clusters.
+   rigid-to-bone clusters' transformed boxes, each padded by the template's
+   declared maximum displacement. These are the boxes culling tests for
+   that frame; the mesh's cooked boxes are not used for a dispatched
+   instance's weighted clusters.
 10. A draw whose every vertex has one influence at full weight is cooked as
     rigid to that bone, and its clusters carry the bone index into the draw
     record. Such a cluster is never skinned by the feed. Every pass's vertex
     shader applies the bone's current transform after the instance
     transform; the previous slot gives its motion vector; culling transforms
     the cluster's cooked box by that one bone. A skinned instance whose every
-    draw is rigid to a bone has a bone range and nothing else from the feed.
-11. On a traced target a skinned or dispatched instance's acceleration
-    structure is built over its current copy, or over the mesh's stream 0
-    when it has no copy. The feed signals refit each frame, and rebuild when
-    the summed surface area of the pose-transformed per-bone rest boxes
-    exceeds the value at the last build by the settings ratio. How
-    structures are built and owned belongs to the ray tracing capability.
+    draw is rigid to a bone has a bone range and nothing else from the feed;
+    its bounds are the cooked union over its clips' poses.
+11. On a traced target a dispatched instance's acceleration structure is
+    built over its current copy; the feed signals refit each frame, and
+    rebuild when the summed surface area of the pose-transformed per-bone
+    rest boxes exceeds the value at the last build by the settings ratio. A
+    rigid-to-bone draw is its own acceleration-structure instance over the
+    mesh's stream 0 under the instance transform times its bone's, so no
+    write-out is needed for it. How structures are built and owned belongs
+    to the ray tracing capability.
 12. A template's vertex offset is a function of the vertex, the instance
     transform and the frame values it is given, and nothing else. Every
     raster pass evaluates it in its vertex shader through one function; the
@@ -130,15 +139,15 @@ flowchart TD
 | Step | Reads | Writes | Runs for |
 |---|---|---|---|
 | Pose upload | the poses animation marked changed | the bone buffer's current slot, the instance's range | every skinned instance with a changed pose |
-| Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta per vertex | every group with a nonzero weight that changed |
+| Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta per vertex, zero when no target is active | every group whose weights changed |
 | Skinning dispatch | stream 0 of the mesh, the delta buffer if any, the draw's bone map, the bone buffer's current slot | the instance's current copy: position, normal, tangent | every dispatched instance whose pose or weights changed |
 | Bounds dispatch | the current copy, the mesh's cluster index ranges, the bone buffer for rigid-to-bone clusters | the instance's cluster boxes and instance box | the same instances |
 | Write-out | the template's vertex function with current frame values, over the current copy or the mesh's stream 0 | the instance's write-out buffer of positions | every offset instance on a traced target |
 | Rebuild signal | the pose, the mesh's rest box per bone | refit or rebuild for the instance this frame | every skinned instance on a traced target |
 
-Before the dispatches run, the slot swap and the previous-copy rule of
-invariants 3 and 4 are applied to the instance records, so culling and the
-passes see the frame's indices.
+Before the dispatches run, the per-instance slot swap of invariant 8 and
+the previous-copy rule of invariants 3 and 4 are applied to the instance
+records, so culling and the passes see the frame's indices.
 
 ## Skinning
 
@@ -167,7 +176,7 @@ convert by name.
 
 | Box | From | Read by |
 |---|---|---|
-| Cluster box of a blended cluster of a dispatched instance | the minimum and maximum of the current copy's positions over the cluster's index range | the scene's cluster stage, that frame |
+| Cluster box of a weighted cluster of a dispatched instance | the minimum and maximum of the current copy's positions over the cluster's index range | the scene's cluster stage, that frame |
 | Instance box of a dispatched instance | the union of its cluster boxes | the scene's instance stage, that frame |
 | Cluster box of a rigid-to-bone cluster | the cooked box transformed by its bone's current transform | the cluster stage |
 | Rest box per bone | the cooked box of the vertices a bone influences, in bind pose | the rebuild signal |

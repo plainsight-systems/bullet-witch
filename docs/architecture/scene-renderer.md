@@ -21,7 +21,7 @@ the frame.
 
 ```mermaid
 flowchart LR
-    GF["Geometry feed: copies, bone buffer, boxes of dispatched instances"] --> SC["Scene: instance records, views, per-view draw records, depth hierarchy"]
+    GF["Geometry feed: copies, bone buffer, boxes of dispatched instances"] --> SC["Scene: instance records, views, per-view draw records, the CPU order of blended draws and decals, depth hierarchy"]
     SC --> SR["Scene renderer: pass list, surface data, lighting pass, temporal stage"]
     MT["Materials: one pipeline per template, permutation, pass and blend mode"] --> SR
     LT["Lighting system: light grid, shadow maps, indirect light, visibility terms"] --> SR
@@ -34,9 +34,11 @@ flowchart LR
 1. An opaque or masked surface is never lit in its own pixel shader. It
    writes surface data, and the lighting pass evaluates light once per pixel
    from that data.
-2. A translucent, additive or modulate surface is lit as it is drawn. It
-   calls the same lighting function and reads the same light grid as the
-   lighting pass. There is one lighting function.
+2. A translucent, additive or modulate surface is lit as it is drawn. A
+   surface-form template calls the same lighting function and reads the
+   same light grid as the lighting pass; a particle-form template takes its
+   light from the fog volume and evaluates none, as [transparency](transparency.md)
+   states. There is one lighting function.
 3. Surface data is one set of per-pixel targets with a fixed meaning. A pass
    that needs to know the surface at a pixel reads those targets; no pass
    draws geometry again to find out.
@@ -62,7 +64,10 @@ flowchart LR
    for a term in its place. Both sources write the same target with the same
    meaning, and the lighting pass cannot tell which ran. A target that
    reports no ray tracing capability runs the rasterized source of every
-   term.
+   term. Hair pixels are the one exception: they read the shadow maps and
+   the probe grids directly on every target, as blended surfaces do, and
+   every traced source skips them by shading model id, as [character
+   shading](character-shading.md) states.
 9. The source of each term is chosen at startup from the capabilities the
    target reports and the settings, and the choice is reported. A source
    that is chosen and cannot be created fails by name. A source never
@@ -76,8 +81,12 @@ flowchart LR
     output transform run once, after post-processing. The user interface is
     drawn after them.
 12. The pass list is fixed and declared in one place. A setting or a
-    capability selects a term's source or leaves a pass out; nothing
-    reorders passes.
+    capability selects a term's source or leaves a pass out, and a pass
+    whose inputs say it has nothing to do this frame (no focus distance, a
+    camera cut) runs as nothing; nothing reorders passes.
+13. The world publishes a camera cut flag with the frame. Phase one of
+    culling, the temporal stage and motion blur read it and drop their
+    history.
 
 ## The frame
 
@@ -91,35 +100,35 @@ flowchart TD
     LG --> VT["Visibility terms: shadowing, ambient occlusion, reflections, indirect light"]
     VT --> LP["Lighting pass: every opaque pixel, from surface data, light grid and terms"]
     LP --> SS["Scattering pass: skin and eye tiles"]
-    SS --> SF["Sky and fog"]
-    SF --> DF2["Depth of field: the opaque image defocused at input resolution"]
-    DF2 --> FP["Forward pass: blended draws in CPU order, lit as drawn, sharp over the defocused image"]
-    FP --> DA["Distortion apply"]
-    DA --> TS["Temporal stage: input resolution in, output resolution out"]
-    TS --> PP["Post-processing: motion blur, screen effects, exposure, bloom"]
+    SS --> SF["Sky and fog: sky pixels get far depth and camera motion vectors"]
+    SF --> FP["Forward pass: blended draws in CPU order, lit as drawn"]
+    FP --> DA["Distortion apply, then scene color exported as next frame's history"]
+    DA --> TS["Temporal stage: input resolution in, output resolution out, sharpened above ratio one"]
+    TS --> PP["Post-processing: depth of field, motion blur, screen effects, exposure, bloom"]
     PP --> TM["Tone mapping: exposure, bloom, grade, display mapping and encoding"]
-    TM --> UI["User interface composite"]
+    TM --> E2["Screen effects after tone mapping, fade"]
+    E2 --> UI["User interface composite"]
     UI --> PR["Present"]
 ```
 
 | Pass | Reads | Writes | Resolution |
 |---|---|---|---|
 | Deformation | changed poses and shape weights, stream 0 of each dispatched mesh, bone maps | the bone buffer, the current copy of each dispatched instance, its cluster and instance boxes | its own |
-| Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy | draw records and counts per view per pipeline | its own |
+| Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy, the camera cut flag | draw records and counts per view per pipeline for opaque and masked instances; the CPU order of the main view's blended instances, emitters and decals | its own |
 | Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
 | Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data, motion vectors, emissive into scene color, baked indirect light into the indirect light target, receiver stencil bits | input |
-| Decal | the main view's decals in CPU order, depth, stencil | base color, normal and roughness of surface data | input |
+| Decal | the main view's decals in CPU order, depth, stencil | diffuse albedo, normal and roughness of surface data, the normal by fixed-function alpha blend | input |
 | Light grid and shadow maps | lights, each shadow view's draw records | light grid, shadow maps | their own |
-| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color (pre-exposed, reused by the exposure ratio), shadow maps or the ray tracing scene | one target per term | input |
-| Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness | scene color, the skin specular target for subsurface and eye pixels | input |
+| Visibility terms | surface data, depth, the depth hierarchy, motion vectors, the previous frame's scene color (pre-exposed, reused by the exposure ratio), shadow maps or the ray tracing scene | one target per term; hair pixels skipped by every traced source | input, ambient occlusion at half with a bilateral upsample |
+| Lighting | surface data, light grid, term targets, shadow maps directly for subsurface and hair thickness and for hair's shadow, probe grids directly for hair | scene color, the skin specular target for subsurface and eye pixels, both with the frame's exposure factor | input |
 | Scattering | scene color, depth, surface data, the skin specular target, on tiles with a subsurface or eye pixel | scene color | input |
-| Sky and fog | depth, light grid, shadow maps, probe grids, fog history | scene color, fog volume, fog history for the next frame | input |
-| Depth of field | scene color, depth, the camera's focus, f-stop and sensor width | scene color | input, gathering at half |
-| Forward | the main view's blended instances and emitters in CPU order, emitter particle data, depth, light grid, shadow maps, probe grids, fog volume | scene color, reactive coverage, distortion target and stencil bit, scene color as history for the next frame | input |
-| Distortion apply | scene color, distortion target, stencil | scene color | input |
-| Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, this frame's and the previous frame's exposure factor | scene color | input to output |
-| Post-processing | scene color, depth, motion vectors, the camera's shutter, the active screen effects | scene color, the bloom levels, the next frame's exposure | output, reducing internally for bloom |
+| Sky and fog | depth, light grid, shadow maps, probe grids, fog history reused by the exposure ratio | scene color, far depth and camera motion vectors for sky pixels, fog volume, fog history for the next frame | input |
+| Forward | the main view's blended instances and emitters in CPU order, emitter particle data, depth, light grid, shadow maps, probe grids, environment map, fog volume | scene color, reactive coverage, distortion target and stencil bit | input |
+| Distortion apply | scene color, distortion target, stencil | a frame-only distorted color merged back into scene color; then scene color is exported as history for the next frame | input |
+| Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, this frame's and the previous frame's exposure factor, the camera cut flag | scene color at output, depth and motion vectors resampled to output for the passes after it, sharpened above ratio one | input to output |
+| Post-processing | scene color, the resampled depth and motion vectors, the camera's focus, f-stop, sensor width and shutter, the active screen effects, the camera cut flag | scene color, the bloom levels, the next frame's exposure | output, reducing internally for bloom and the depth of field gather |
 | Tone mapping | scene color, bloom, exposure, the grade's lookup table, vignette and grain | display color | output |
+| Screen effects after tone mapping, fade | display color, the active effects | display color | output |
 | User interface composite | display color, the interface's offscreen image | display color | output |
 
 ## Surface data
@@ -130,18 +139,23 @@ pixel, which is why blended draws do not write it.
 | Datum | Read by |
 |---|---|
 | Depth | every later pass |
-| Base color | lighting, filters of traced terms |
-| Normal | lighting, visibility terms, their filters |
-| Roughness | lighting, reflections, their filters |
-| Metallic and specular | lighting, reflections; the eye model stores the iris height in the metallic slot |
+| Diffuse albedo | lighting, the decal pass, filters of traced terms |
+| Normal | lighting, visibility terms, their filters, the decal pass |
+| Roughness | lighting, reflections, their filters, the decal pass |
+| F0 and F90 | lighting, reflections; the eye model stores the iris height in the F0 slot |
 | Material ambient occlusion | lighting |
-| Shading model id | lighting |
+| Shading model id | lighting, the reflections term, the scattering pass's tiles, every traced source |
 | Shading model data: profile id and scatter scale, or fibre direction, or profile id with iris normal and iris mask | lighting, by shading model, as [character shading](character-shading.md) packs it |
 | Motion vector | temporal stage, filters of stochastic terms, post-processing |
-| Stencil bits: receives no decal, refuses decal normal, refuses decal roughness, refracting pixel | decal pass, distortion apply |
+| Stencil bits: receives no decal, refuses decal normal, refuses decal roughness | decal pass |
 
-Emissive is not surface data: the surface pass adds it to scene color. An
-unlit surface writes emissive and its shading model id and nothing else.
+The refracting-pixel stencil bit is the forward pass's, set by refracting
+draws and cleared by the distortion merge. Emissive is not surface data: the
+surface pass adds it to scene color. An unlit surface writes emissive, its
+shading model id, its motion vector and its stencil bits and nothing else.
+Every target that holds light within a frame carries the frame's exposure
+factor; every one kept across frames is reused by the ratio of the two
+frames' factors.
 
 ## Passes a template provides
 
@@ -155,7 +169,12 @@ reach.
 | Surface | opaque, masked | the attributes of its shading model as surface data, a motion vector, emissive |
 | Shadow | opaque, masked | depth from a light's view, with the masked discard |
 | Forward | translucent, additive, modulate | lit color blended into scene color, reactive coverage, and a refraction offset if the template writes one |
-| Decal | the decal domain | base color, normal, roughness and an opacity for each, into surface data |
+| Decal | the decal domain | diffuse albedo, normal, roughness and an opacity for each, into surface data |
+| Write-out | opaque, masked, on traced targets, as compute | positions through the template's vertex offset into the instance's write-out buffer |
+
+A blended template's forward shader has one permutation per draw kind
+(mesh, sprite, ribbon, mesh particle), a vertex-source dimension the
+renderer declares with the pass.
 
 Renderer code in the surface pass, not the template, writes the pixel's
 baked indirect light. Renderer code in the depth and surface passes, not the
@@ -192,18 +211,21 @@ The scene renderer owns the selection and the meaning of each term's
 target. What each source computes belongs to the lighting system. The
 rasterized source of indirect light is part of the surface pass, which
 writes baked light as it draws on every target; a traced source, where
-selected, writes the whole target afterwards. Traced
-sources need the positions of skinned and morphed geometry in buffers, so
-the scene supplies deformed positions as buffers on targets that trace,
-taking them from the geometry feed that computes them.
-Shaders of traced sources are their own set, built only for targets that
-can report the capability and loaded only when it is reported.
+selected, writes the whole target afterwards. Traced sources need the
+positions of deformed geometry in buffers, which the [geometry
+feed](geometry.md) hands the ray tracing capability directly, with the
+refit-or-rebuild signal, and a rigid-to-bone draw is its own acceleration
+structure instance under its bone's transform. A traced gather that leaves
+the scene takes the sky's radiance from the sky textures. Shaders of traced
+sources are their own set, built only for targets that can report the
+capability and loaded only when it is reported.
 
 ## Temporal stage
 
 The frame hands the stage the same inputs on every target. How the stage is
-implemented is each target's own code with its own tuning; nothing is shared
-between implementations but this hand-off.
+implemented is each target's own code with its own tuning; the
+implementations share this hand-off and nothing else, and one of them, the
+portable loop, runs on every target as the reference.
 
 | Input | Meaning |
 |---|---|
@@ -212,7 +234,12 @@ between implementations but this hand-off.
 | Motion vectors | from a pixel to its previous position, jitter removed |
 | Jitter | the frame's sub-pixel offset, from a low-discrepancy sequence whose length grows with the ratio of output to input area |
 | Exposure | this frame's and the previous frame's pre-exposure factor, so the history is rescaled by their ratio |
-| Reactive coverage | where blended draws covered the pixel |
+| Reactive coverage | one minus the product over the pixel's blended draws of one minus each draw's coverage, clamped to 0.9; a translucent draw's coverage is its alpha, an additive draw's the largest channel of its premultiplied colour, a modulate draw's one minus the smallest channel of its colour |
+| Camera cut | the world's flag; the stage drops its history |
+
+The stage writes scene color at output resolution, and depth and motion
+vectors resampled to output for the passes after it, and sharpens above a
+ratio of one; its own document states the implementations.
 
 Texture sampling in the passes before the stage uses a mip bias set from
 the ratio of input to output resolution. At a ratio of one the stage is
@@ -228,11 +255,11 @@ shaders and runs on every target; it is the reference for image comparison.
 | Deformed copies, bone buffer, boxes of dispatched instances | `src/engine/rendering/geometry`, described in [geometry feed](geometry.md) | culling, every pass |
 | Forward pass: CPU order, sprites, ribbons, mesh particles, distortion | `src/engine/rendering/passes`, described in [transparency](transparency.md) | render graph |
 | Decal pass | `src/engine/rendering/passes`, described in [decals](decals.md) | render graph |
-| The lighting function | `src/engine/rendering/scene` | lighting pass, forward pass, material templates |
+| The lighting function | `src/engine/rendering/passes` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
 | Temporal stage | `src/engine/rendering/postprocess` | post-processing |
 | Post-processing, tone mapping, output transform, screen effects | `src/engine/rendering/postprocess`, described in [post-processing](post-processing.md) | hosts |
-| Depth, surface, shadow, forward and decal shaders of each template | `src/engine/rendering/materials/templates` | pass list |
+| Depth, surface, shadow, forward, decal and write-out shaders of each template | `src/engine/rendering/materials/templates` | pass list |
 
 ## Boundaries
 
@@ -241,7 +268,8 @@ what the scene holds. Below: the render graph and the RHI. Beside: the
 material system, which gives each draw its pipeline for a pass and never
 sees a light; the lighting system, which decides what lights exist and how
 shadows, indirect light, sky and fog are computed; the scene, which decides
-what is visible and writes each view's draw records; the geometry feed,
+what is visible, writes each view's draw records and orders the blended
+draws and decals; the geometry feed,
 which computes a dispatched instance's vertices once and hands every pass
 the same copy; the effects system, which writes each emitter's particle
 data. How passes are scheduled is outside this document; what post-processing

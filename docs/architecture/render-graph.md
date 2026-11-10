@@ -7,8 +7,11 @@ frame-only texture exists, what state every resource is in before each pass,
 where API render passes begin and end, and what is cleared, loaded, stored
 or discarded at those boundaries.
 
-A frame-only texture is a render target no later frame reads. A platform is
-one of the graphics APIs the [RHI](rhi.md) has a backend for.
+A frame-only resource is a texture or a buffer no later frame reads: a
+render target, a draw record buffer, a delta buffer, a strip buffer, a tile
+list. What this document says of frame-only textures holds for frame-only
+buffers. A platform is one of the graphics APIs the [RHI](rhi.md) has a
+backend for.
 
 ## Position
 
@@ -39,8 +42,11 @@ flowchart LR
 ## Invariants
 
 1. A pass declares every resource it touches and how: sampled, written as an
-   attachment, depth tested without writing, written from compute, copied
-   from or to. A pass cannot touch what it did not declare.
+   attachment, depth tested without writing, written from compute, read as
+   draw or dispatch arguments, copied from or to. A pass cannot touch what
+   it did not declare, and no pass reads a texture it writes in the same
+   pass: a step that needs both writes a frame-only copy and a second pass
+   merges it.
 2. The graph is declared again every frame. Passes run in the order they
    were declared. The graph never reorders them.
 3. An output leaves the frame in one of three ways: it is presented, it is

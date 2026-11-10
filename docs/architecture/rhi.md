@@ -31,11 +31,11 @@ flowchart LR
 | In the contract | Reported as a capability, off until a backend proves it | Out |
 |---|---|---|
 | one device, one graphics queue, copy and compute work on it | async compute on a second queue | multiple GPUs |
-| buffers, textures, views, two descriptor arrays and a sampler array | mesh and amplification shaders | Direct3D 11 |
-| graphics and compute pipeline states, render passes | ray tracing | work graphs |
+| buffers, textures, views, typed descriptor arrays per resource type for sampled and unordered access, and a sampler array | mesh and amplification shaders | Direct3D 11 |
+| graphics and compute pipeline states, render passes; the counted multi-draw, the single indirect draw and the indirect dispatch, each over GPU-written arguments | ray tracing: acceleration structures with build and refit, ray tracing pipeline states, the trace dispatch | work graphs |
 | explicit resource state transitions | timestamp queries with calibrated clocks | runtime shader compilation |
 | GPU fences, frame pacing, readback to the CPU | | |
-| swapchain and present, offscreen targets; the swapchain's colour space, format and the display's peak luminance reported | | |
+| swapchain and present, offscreen targets; the swapchain created with the colour space and format the host asks for, and what it got reported with the display's peak luminance | temporal upscale: one operation over declared inputs and outputs, performed by a platform or vendor library below the contract | |
 | debug names, markers, a validation layer | | |
 
 ## Invariants
@@ -147,9 +147,9 @@ Two caches with different keys and owners.
 
 Sampler, rasterizer, depth-stencil and blend states are immutable objects
 created once per distinct description and shared. A graphics pipeline state
-names its shaders, those state objects, the vertex layout, the render target
-formats and sample count, and the primitive type; a compute pipeline state
-names its shader.
+names its shaders, those state objects, the render target formats and
+sample count, and the primitive type, and no vertex layout, since vertices
+are pulled; a compute pipeline state names its shader.
 
 ## Readback
 
@@ -175,18 +175,24 @@ flowchart LR
 | Descriptor arrays and samplers | argument buffer tables in the converter's explicit layout, resident sets declared per encoder; a sampler table | descriptor set 1 runtime arrays per type, set 0 samplers | descriptor heap tables of unbounded typed arrays, a sampler heap |
 | Root layout | one top-level argument buffer bound at the converter's fixed point | one pipeline layout | one static root signature |
 | Counted multi-draw | an indirect command buffer filled on the GPU | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
+| Draw index in the shader | the indirect command buffer binds the record per command | the draw index built-in | a root constant written per record by the command signature |
+| Temporal upscale | the platform's temporal scaler | the open upscaler's library | the open upscaler's library and the two vendor libraries, each a reported capability |
 | Present | drawable from the layer, present scheduled on the command buffer, a semaphore bounds frames in flight | swapchain acquire and present | swapchain present |
 | Display report | the layer's colour space and pixel format, the screen's maximum luminance | the surface's colour space and format, the display's HDR metadata | the swapchain's colour space and format, the output's display description |
 
 The Direct3D 12 backend serves Windows and the Xbox Dev Mode container; the
 latter is probed at startup for shader model 6.4 and resource binding tier 2
-and fails by name below them.
+and fails by name below them, and its typed unordered-access loads and
+native 16-bit operations are reported as capabilities the shaders do not
+assume. A temporal upscale performed by a library leaves every resource it
+touched in the state the operation declares, and the backend sets its
+tracked state to that on return.
 
 ## Components and ownership
 
 | Component | Lives in | Consumed by |
 |---|---|---|
-| Contract: device, resources, views, command list with the counted multi-draw, context, pipeline states, transitions, fences, queries, viewport | `src/engine/rendering/rhi/public/bw/rendering/rhi` | render graph, scene renderer, tools |
+| Contract: device, resources, views, command list with the counted multi-draw, the indirect draw and dispatch and the temporal upscale, context, pipeline states, transitions, fences, queries, viewport | `src/engine/rendering/rhi/public/bw/rendering/rhi` | render graph, scene renderer, tools |
 | Backend-neutral units: reference counting and the deferred delete queue, descriptor index allocator, memory suballocator, transition validation, binding structure, pipeline description cache and precompilation | headers in `src/engine/rendering/rhi/public/bw/rendering/rhi`, sources in `src/engine/rendering/rhi` | the device and the backends; tests assert each unit through its header |
 | Validation layer | `src/engine/rendering/rhi/validation` | debug and development builds, wrapping any backend |
 | Metal backend | `src/engine/rendering/rhi/backends/metal` | the contract |
@@ -212,6 +218,8 @@ shipping.
 | Metal Shader Converter runtime shim | binding converter-built pipelines | vendored, Apache 2.0, as the shader system states |
 | Vulkan headers and loader | Vulkan API | pinned when the Vulkan backend is built |
 | Direct3D 12 headers | Direct3D 12 API | pinned when the Direct3D 12 backend is built |
+| The open temporal upscaler, release 3.1 | the temporal upscale on Vulkan and Direct3D 12 | its signed libraries and the sources its licence lists as MIT, when a desktop backend is built |
+| The two vendor upscalers | the temporal upscale on their GPUs on Direct3D 12 | binary libraries under their licences, loaded only where reported |
 
 ## Boundaries
 

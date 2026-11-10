@@ -1,13 +1,13 @@
 # Post-processing
 
-What the camera does to the image: a physical camera's exposure, depth of
-field, motion blur, bloom, the grade and the tone curve, the output
-transform for the display, and the authored screen effects. Depth of field
-runs on the opaque image before the forward pass, at input resolution;
-everything else runs after the temporal stage, at output resolution. Scene
-colour stays linear and photometric through all of it; the one place it
-becomes display colour is the tone mapping pass, and the one thing that
-differs between an SDR and an HDR display is the last step of that pass.
+What happens to the image after the temporal stage: a physical camera's
+exposure, depth of field, motion blur, bloom, the grade and the tone curve,
+the output transform for the display, and the authored screen effects, all
+at output resolution. Scene colour stays linear and photometric through all
+of it; the one place it becomes display colour is the tone mapping pass,
+and what differs between an SDR and an HDR display is the display side of
+that pass: the lookup table's shaper and its last step, the mapping and
+encoding, and the white the interface is composited at.
 
 Exposure is the camera's EV100. The grade is a stage's authored look: a
 small set of parameters baked into one lookup table. A screen effect is a
@@ -16,7 +16,7 @@ full-screen template the world enables.
 ## Position
 
 The tail of the [scene renderer](scene-renderer.md)'s frame, from the
-temporal stage to present. Fed by [content](content.md), which cooks each
+temporal stage's output to present. Fed by [content](content.md), which cooks each
 stage's grade, by [materials](materials.md), whose screen-effect templates
 are the shaders of the two effect slots, and by the [RHI](rhi.md), which
 reports the swapchain's colour space, format and the display's peak
@@ -25,9 +25,7 @@ Above the [render graph](render-graph.md).
 
 ```mermaid
 flowchart LR
-    SF["Sky and fog: the opaque image at input resolution"] --> DF["Depth of field"]
-    DF --> FW["Forward pass and temporal stage"]
-    FW --> PP["Post-processing: motion blur, effects, exposure, bloom, tone mapping, effects, fade"]
+    TS["Temporal stage: scene colour, depth and motion vectors at output resolution"] --> PP["Post-processing: depth of field, motion blur, effects, exposure, bloom, tone mapping, effects, fade"]
     GR["Content: the stage's grade"] --> PP
     SE["Materials: screen-effect templates"] --> PP
     RHI["RHI: swapchain colour space and format, display peak luminance"] --> PP
@@ -40,11 +38,14 @@ flowchart LR
 1. Scene colour is linear light in photometric units, stored pre-multiplied
    by the previous frame's exposure so a 16-bit float holds its range. The
    factor is applied by renderer code in every pass that writes light into
-   scene colour, never by a template. Every reader divides it out, and every
-   buffer that holds light across frames is stored with the factor of the
-   frame that wrote it and reused by the ratio of the two factors. Exposure
-   changes the image once, at tone mapping; no light is scaled for the
-   display.
+   scene colour or any light target of the frame, never by a template.
+   Every reader divides it out, and every buffer that holds light across
+   frames is stored with the factor of the frame that wrote it and reused
+   by the ratio of the two factors. The factor lives in a GPU buffer the
+   passes read; a temporal backend that takes it as a CPU value gets the
+   fenced readback, one frame older, with the ratio rule covering the
+   difference. Exposure changes the image once, at tone mapping; no light
+   is scaled for the display.
 2. Exposure is EV100 metered by a histogram of log luminance over the frame
    after the temporal stage at reduced resolution, between the 10th and 90th
    percentiles, driven toward middle grey, adapting faster up than down,
@@ -52,21 +53,21 @@ flowchart LR
    frame is the factor of the next.
 3. Depth of field is a physical camera: circle of confusion from the focus
    distance, the f-stop and the sensor width, with the focal length from the
-   field of view. It runs on the opaque image after the sky and fog pass and
-   before the forward pass, at input resolution, gathering at half of it in
-   a foreground and a background layer, each scatter-as-gather over a tile
-   maximum, with a bilateral prefilter and a median, and recombines by a
-   circular filter. Blended draws are then drawn sharp over the defocused
-   image, and the temporal stage filters the gather's noise. It is off
-   until the world sets a focus distance.
-4. Motion blur reads the velocity buffer at output resolution: a tile
+   field of view. It runs after the temporal stage at output resolution,
+   gathering at half of it in a foreground and a background layer, each
+   scatter-as-gather over a tile maximum, with a bilateral prefilter and a
+   median, and recombines by a circular filter. It runs as nothing until
+   the world sets a focus distance. The sensor width is a camera value the
+   world sets with the focus and the f-stop.
+4. Motion blur reads the motion vectors and depth the temporal stage
+   resampled to output resolution: a tile
    maximum, a neighbourhood maximum, and a variable-width blur along the
    tile velocity weighted by depth and spread, with the background mirrored
    under the foreground. The velocity is scaled by a shutter fraction of a
    target frame time and capped at a fraction of the width. It is skipped on
    a camera cut, and a setting leaves it out.
-5. Blended pixels write no motion vector, so motion blur treats a blended
-   pixel by the opaque surface behind it. Depth of field never sees them.
+5. Blended pixels write no depth and no motion vector, so depth of field
+   and motion blur treat a blended pixel by the opaque surface behind it.
 6. Bloom takes the unthresholded scene colour through six levels of a
    downsample chain with a thirteen-fetch filter, averages fireflies on the
    first level, and upsamples progressively with a tent filter. It is added
@@ -78,12 +79,15 @@ flowchart LR
    table in a wide working space, shaped by a log curve for an SDR display
    and by PQ for an HDR one. A grade that changes in a frame is rebaked that
    frame.
-8. The lookup table's last step is the display mapping, and it is the only
-   step that differs between displays: the curve's output is mapped to the
+8. The lookup table's last step is the display mapping, and with the
+   shaper and the interface white it is what differs between displays: the
+   curve's output is mapped to the
    display's peak luminance and encoded as the swapchain reports, sRGB, PQ
    with Rec.2020 primaries, or scRGB linear. The RHI reports and presents
-   and converts nothing. An SDR display is assumed to show white at 200
-   nits. A user setting overrides the detected transfer function.
+   and converts nothing; the host creates the swapchain with the colour
+   space and format the setting asks for, and the RHI reports what it got.
+   An SDR display is assumed to show white at 200 nits. A user setting
+   overrides the detected transfer function.
 9. The tone mapping pass does, in order: exposure, bloom add, vignette,
    grain, the lookup table, and a triangular dither sized to the output's
    quantization. Nothing else is in it.
@@ -92,12 +96,12 @@ flowchart LR
     display, and as is on an SDR one.
 11. A screen effect is a full-screen template at one of two slots: before
     bloom, on scene colour in photometric units, or after tone mapping, on
-    display colour. The world enables one with parameters and a duration.
-    A fade is an after-tone-mapping effect that multiplies toward black or
-    white.
-12. Every step after the temporal stage writes at output resolution, the
-    bloom chain reducing internally by the fractions stated here. Depth of
-    field is the one step before the temporal stage and writes at input.
+    display colour. A screen effect is a material of such a template, with
+    its parameter values and textures, and the world enables one with a
+    duration. A fade is an after-tone-mapping effect that multiplies toward
+    black or white.
+12. Every step writes at output resolution; the bloom chain and the depth
+    of field gather reduce internally by the fractions stated here.
 13. The original's per-stage tone, luminance and correction values are
     recorded by name beside the stage and derive nothing. The stage's grade
     is authored content, and the converter writes a default grade with the
@@ -107,9 +111,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    SF["Sky and fog output, input resolution"] --> DF["Depth of field: gather at half, recombine at input"]
-    DF --> FW["Forward pass, distortion apply, temporal stage"]
-    FW --> MB["Motion blur: tiles, variable-width blur"]
+    TS["Temporal stage output: scene colour, depth, motion vectors at output"] --> DF["Depth of field: gather at half, recombine at output"]
+    DF --> MB["Motion blur: tiles, variable-width blur"]
     MB --> E1["Screen effects, before bloom"]
     E1 --> HG["Histogram and exposure for the next frame, from a reduced copy"]
     E1 --> BL["Bloom chain: six levels down, tent up"]
@@ -123,8 +126,8 @@ flowchart TD
 
 | Step | Reads | Writes | Resolution |
 |---|---|---|---|
-| Depth of field | the opaque scene colour, depth, the camera's focus, f-stop, sensor width | scene colour | input, gathering at half of it |
-| Motion blur | scene colour, depth, motion vectors, the shutter fraction | scene colour | output |
+| Depth of field | scene colour, the resampled depth, the camera's focus, f-stop, sensor width | scene colour | output, gathering at half of it |
+| Motion blur | scene colour, the resampled depth and motion vectors, the shutter fraction, the camera cut flag | scene colour | output |
 | Screen effects, before bloom | scene colour, the effect's parameters | scene colour | output |
 | Histogram and exposure | a reduced copy of scene colour, last frame's exposure, the grade's compensation | the exposure for the next frame | reduced |
 | Bloom chain | scene colour | six levels, summed on the way up | half to a sixty-fourth |
@@ -171,7 +174,7 @@ flowchart LR
 | Grade | per stage, the parameters of invariant 7 | the converter, a default per stage, and authored grades in the published layer |
 | Original stage record | the stage's tone, luminance and correction values by name | the converter, beside the grade |
 | Screen-effect template | a full-screen template with its slot and parameter block | material templates |
-| Camera | focus distance, f-stop, shutter fraction | the world, each frame |
+| Camera | focus distance, f-stop, sensor width, shutter fraction, the camera cut flag | the world, each frame |
 
 ## Components and ownership
 
@@ -187,7 +190,7 @@ flowchart LR
 
 ## Boundaries
 
-Above: the world, which sets the camera's focus and shutter and enables
+Above: the world, which sets the camera's focus, f-stop, sensor width and shutter and enables
 screen effects; the user interface, which draws itself offscreen and is
 composited here. Beside: the temporal stage, which hands over scene colour
 at output resolution and has its own document; the lighting system and the passes

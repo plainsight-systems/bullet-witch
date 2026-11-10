@@ -18,9 +18,14 @@ shader and a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
    The HLSL declarations are generated from them, and offsets are equal by
    construction and proven by test.
 5. Resources are reached by index into typed unbounded descriptor arrays,
-   one per resource type. Every pipeline on every API binds against one fixed
-   root layout, which is fixed before any shader is compiled. There is one
-   binding model, and it is the one every target can run.
+   one per resource type for sampled access and one per type for unordered
+   access. Every pipeline on every API binds against one fixed root layout,
+   which is fixed before any shader is compiled. There is one binding model,
+   and it is the one every target can run. Inside a counted multi-draw the
+   per-draw uniform buffer is not rebound per record; the shader takes the
+   draw's index, which each API supplies in its own way behind one
+   intrinsic of the shader library, and reads the record from the view's
+   record buffer.
 6. The set of permutations is finite, enumerated at build time and fully
    built. The game never discovers a shader variant at runtime.
 7. An artifact is self-describing and validated on its own header. Shaders
@@ -148,7 +153,7 @@ predicate. The build compiles every permutation that remains.
 | Direct3D 12 | DXIL | DXC, signed on a host with the validator | shader model 6.4 or later, resource binding tier 2 |
 | Metal | Metal library | the same DXIL through the Metal Shader Converter, in process | macOS 15, Apple silicon, Metal 3 |
 | Vulkan | SPIR-V | DXC SPIR-V backend, SPIRV-Tools, SPIRV-Reflect | Vulkan 1.3 with descriptor indexing |
-| Xbox Series X, Dev Mode | DXIL | the Direct3D 12 backend | shader model 6.4, feature level 11.0; probed at startup, explicit failure below shader model 6.4 or resource binding tier 2 |
+| Xbox Series X, Dev Mode | DXIL | the Direct3D 12 backend | shader model 6.4, feature level 11.0; probed at startup, explicit failure below shader model 6.4 or resource binding tier 2; typed unordered-access loads and native 16-bit operations not assumed, reported by the probe |
 
 ## Components and ownership
 

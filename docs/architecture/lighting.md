@@ -31,7 +31,9 @@ flowchart LR
 ## Invariants
 
 1. A light is the sun, a point light or a spot light. It has one color and
-   one intensity in photometric units. Exposure changes the image once, at
+   one intensity in photometric units; a source that carries two colors,
+   one for diffuse and one for specular, is recorded by the converter and
+   its diffuse color is the light's. Exposure changes the image once, at
    tone mapping, and no light is scaled for the display. Scene color is
    stored pre-multiplied by the previous frame's exposure for precision;
    renderer code applies that factor where light is written and removes it
@@ -48,9 +50,10 @@ flowchart LR
 5. The light grid's capacity is fixed. A frame whose lights exceed it
    reports how many were left out.
 6. Shadow maps exist on every target: cascades for the sun and one atlas for
-   local lights. Blended surfaces, the fog, and the lighting pass for a
-   subsurface or hair pixel's thickness read them directly on every target,
-   whichever source the shadowing term uses.
+   local lights. Blended surfaces, the fog, hair pixels, and the lighting
+   pass for a subsurface or hair pixel's thickness read them directly on
+   every target, whichever source the shadowing term uses. A light with no
+   map that frame gives no thickness and no transmission.
 7. The sun's cascades are stable under camera motion: a cascade moves in
    whole texels and keeps its size.
 8. The atlas has a fixed number of slots. Slots go to the casters that are
@@ -69,21 +72,28 @@ flowchart LR
     serves all of them. Renderer code in the pass writes it; a material
     template never sees it. A traced source, where selected, writes the
     whole target after the surface pass, and nothing of the baked write
-    remains. For a hair pixel the probe lookup uses the fake normal built
-    from the view direction and the fibre direction, not the card normal.
-13. Blended surfaces and fog cells read the probe grids directly on every
-    target.
+    remains. A hair pixel is left out of the traced write and keeps its
+    probe lookup, made with the fake normal built from the view direction
+    and the fibre direction, not the card normal.
+13. Blended surfaces, fog cells and hair pixels read the probe grids
+    directly on every target; blended surfaces also read the environment
+    map for their reflection.
 14. The sky is drawn from sky textures and is not computed from physical
     inputs. On a rasterized target the diffuse light of the sky is in the
-    baked data, and no pass computes it.
+    baked data, and no pass computes it; a traced gather that leaves the
+    scene reads the sky textures as its miss. The sky and fog pass writes
+    far depth and the camera's rotation as the motion vector for every sky
+    pixel, so the temporal stage and motion blur treat the sky as a surface.
 15. Fog is one volume aligned to the view. Opaque pixels, blended surfaces
     and particles all read that volume, and nothing else fogs a pixel.
 16. In the fog volume the sun's light and the probes' light are filtered
-    over time. Light from local lights is computed from the current frame
-    alone and added after that filter; only its shadowing is filtered over
-    time.
-17. No screen-space pass adds bounced light. Light from a local light
-    bounces only where a traced source runs.
+    over time; the kept history is pre-exposed and reused by the ratio of
+    the two frames' exposure factors. Light from local lights, with its
+    shadowing, is computed from the current frame alone and added after
+    that filter.
+17. No screen-space pass adds bounced diffuse light. Diffuse light from a
+    local light bounces only where a traced source runs; the reflections
+    term's screen trace is the one bounced specular on a rasterized target.
 
 ## Lights
 
@@ -106,7 +116,7 @@ flowchart TD
     SUN --> EV["Light arriving at a point: color, intensity, falloff, visibility"]
     GR --> EV
     EV --> LP["Lighting pass: every opaque pixel"]
-    EV --> FP["Forward pass: every blended pixel"]
+    EV --> FP["Forward pass: every surface-form blended pixel"]
     EV --> FG["Fog volume: every cell"]
 ```
 
@@ -118,8 +128,8 @@ record carries its shadow channel, or none.
 
 | Caster | Map | Filtering | Read by |
 |---|---|---|---|
-| Sun | cascades fitted to slices of the view, each stable under camera motion | percentage-closer | shadowing term, forward pass, fog |
-| Local light published as a caster | one slot of the atlas, sized by the light's size on screen | percentage-closer | shadowing term, forward pass, fog |
+| Sun | cascades fitted to slices of the view, each stable under camera motion | percentage-closer | shadowing term, forward pass, fog, hair pixels, thickness |
+| Local light published as a caster | one slot of the atlas, sized by the light's size on screen | percentage-closer | shadowing term, forward pass, fog, hair pixels, thickness |
 | Local light not published as a caster | none | | |
 
 For a subsurface or hair pixel the lighting pass also reads the cascade or
@@ -135,10 +145,10 @@ renderer selects the source; both write the same target.
 
 | Term | Target holds, per opaque pixel | Rasterized source | Traced source | Blended surfaces and fog |
 |---|---|---|---|---|
-| Shadowing | visibility of the sun, and of each caster by its channel | shadow maps resolved to the screen | rays toward each light, filtered | sample the shadow maps |
-| Ambient occlusion | how much of the hemisphere is open | depth and normals, filtered over time | rays over the hemisphere, filtered | none |
+| Shadowing | visibility of the sun, and of each caster by its channel; hair pixels skipped, they read the maps | shadow maps resolved to the screen | rays toward each light, filtered | sample the shadow maps |
+| Ambient occlusion | how much of the hemisphere is open | depth and normals at half resolution, filtered over time, upsampled bilaterally | rays over the hemisphere, filtered | none |
 | Reflections | light arriving along the reflected direction | a screen trace through a depth hierarchy over the previous frame's scene color, the environment map where the trace misses or the surface is rough | the same screen trace, then rays into the scene where it misses | the environment map |
-| Indirect light | diffuse light arriving from the surroundings | baked light, written by the surface pass | rays gathering light from the scene, filtered | the probe grids |
+| Indirect light | diffuse light arriving from the surroundings; hair pixels skipped, they keep the probe lookup | baked light, written by the surface pass | rays gathering light from the scene, filtered | the probe grids |
 
 ## Indirect light
 
@@ -183,7 +193,7 @@ flowchart TD
 | Sky | sky textures drawn as an unlit dome wherever no opaque surface covers the pixel |
 | Fog density | from the published fog values. There is no second fog. |
 | Volume | cells follow the view, thinner near the camera, sampled with a per-frame jitter |
-| History | the filtered part alone is kept for the next frame. A cell with no history takes more samples. |
+| History | the filtered part alone is kept for the next frame, pre-exposed, reused by the exposure ratio. A cell with no history takes more samples. |
 | Particles | a particle samples the volume for its light and evaluates no light itself |
 
 ## Content the lighting system reads
@@ -201,7 +211,7 @@ flowchart TD
 |---|---|---|
 | Light records, falloff and cone evaluation | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
-| Shadow maps: cascades, atlas, slot assignment | `src/engine/rendering/lighting` | shadowing term, forward pass, fog |
+| Shadow maps: cascades, atlas, slot assignment | `src/engine/rendering/lighting` | shadowing term, forward pass, fog, the lighting pass for hair and thickness |
 | Sources of the four terms and their filters | `src/engine/rendering/lighting` | scene renderer's term targets |
 | Probe grid lookup | `src/engine/rendering/lighting` | surface pass, forward pass, fog |
 | Sky and fog volume | `src/engine/rendering/lighting` | sky and fog pass, forward pass, particles |

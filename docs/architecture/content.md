@@ -118,15 +118,15 @@ flowchart TD
 
 | Kind | Cooked form | Consumer |
 |---|---|---|
-| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bounds; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
+| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bone maps per draw; bounds, which for a skinned mesh are the union over its clips' poses; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
 | Morph set | the shapes of one mesh group: for each target a name and a position delta per vertex of the group | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
-| Material | template name, static switch values, parameter values, texture ids | materials |
-| Effect | emitters, each with a template, an element kind (sprite, ribbon, mesh), curves over life, a sub-image sheet with its cutouts, and the effect's bounds or a flag to compute them | effects, rendering |
+| Material | template name, static switch values, parameter values, texture ids, profile ids; a screen effect is a material of a screen-effect template | materials, post-processing |
+| Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
-| Skeleton and animation | bone hierarchy, bone maps per draw, animation tracks | animation |
+| Skeleton and animation | bone hierarchy, animation tracks | animation |
 | Grade | per stage: exposure compensation, white balance, colour correction, the curve's slope, toe, shoulder, black clip and white clip, bloom intensity, vignette, grain; beside it the original stage's tone, luminance and correction values recorded by name | post-processing |
-| Profile set | the skin profiles of the game: per profile a near and a far radius per channel with a weight, a transmission tint and extinction, and the specular roughness pair and mix | rendering |
+| Profile set | the skin profiles of the game: per profile a near and a far radius per channel with a weight, a transmission tint and extinction, and the second specular lobe's roughness ratio and mix | rendering |
 | Probe set | the probe grids of one stage: for each grid an oriented box, its lattice size, and nine spherical harmonic coefficients per color channel for each probe | lighting |
 | Script, audio, text, level data | defined by their slices in the same cooked-asset frame | their systems |
 
@@ -142,6 +142,8 @@ consuming system's loader.
 | a texture record in `graphics/chara/PW0/texture/texture.cpr` | `model.pw0.texture.dds.<name>` |
 | a texture shared between models | `shared_texture.<group>.dds.<name>` |
 | a record with no name of its own | the container path from the data root, lower-cased, dots for slashes, plus the record's short name |
+| an effect, numbered inside a pack with no name | `effect.<pack>.<number>`, its emitters' materials `effect.<pack>.<number>.material.<n>`, a sub-image sheet merged from the pack's numbered textures `effect.<pack>.sheet.<first number>` |
+| a stage's grade and its record | `stage.<name>.grade`, `stage.<name>.record` |
 | an asset we author with no original | `remaster.<path>` |
 
 Ids are the names the original content already carries for its records,
@@ -169,7 +171,7 @@ mapping is ours, and the material system knows none of it.
 | Constant color, illuminance, ambient | base color tint, emissive, and an ambient term that belongs to the renderer |
 | Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
 | Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
-| Effect and post-process materials | renderer passes with their own parameter blocks, not materials |
+| Effect elements and screen filters | materials of the blended templates and of the screen-effect templates, with the filter textures as their texture ids |
 
 The 14 feature axes of the original collapse onto a handful of switches
 because several axes only add lighting inputs. The converter records every

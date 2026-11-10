@@ -4,7 +4,7 @@ How a mark is projected onto surfaces that already exist: a scorch, a bullet
 impact, blood on a wall. A decal is a box in the scene. After the surface
 pass has written every opaque pixel, the decal pass draws each visible box,
 finds the surface under each of its pixels from depth, and blends the
-decal's base colour, normal and roughness into the surface data. The
+decal's diffuse albedo, normal and roughness into the surface data. The
 lighting pass then lights the result and never knows a decal was there.
 
 ## Position
@@ -40,27 +40,29 @@ flowchart LR
    world sets a later placement's sort priority above the ones it overlaps,
    so later marks land on top.
 4. A pixel receives a decal only if its reconstructed position lies inside
-   the box and its surface normal is within sixty degrees of the box's
-   projection axis. Beyond that angle the pixel is clipped, so a decal does
-   not stretch along a surface it grazes.
-5. The decal's normal replaces the surface normal by a normalized linear
-   blend weighted by the normal opacity. Base colour and roughness blend
-   linearly by their opacities.
-6. A decal is attached to a rigid instance or to the stage, never to a
-   skinned instance. Attached to an instance, its transform is that
-   instance's transform times its own; attached to the stage, its own.
-7. A pixel of a skinned instance, rigid-to-bone clusters included, receives
-   no decal. The surface pass writes a stencil bit for those pixels and the
-   decal pass does not draw over it. A surface template may further
-   declare that it refuses normal or roughness changes, and the surface pass
-   writes that in the stencil bits too.
+   the box and the normal derived from the depth around it is within sixty
+   degrees of the box's projection axis. Beyond that angle the pixel is
+   clipped, so a decal does not stretch along a surface it grazes. The pass
+   reads depth and stencil and no target it writes.
+5. The decal's normal blends into the stored normal by fixed-function alpha
+   weighted by the normal opacity, and the stored normal is normalized when
+   read. Diffuse albedo and roughness blend linearly by their opacities.
+6. A decal is attached to an instance or to the stage. Attached to an
+   instance, its transform is that instance's transform times its own, and
+   it follows the instance, not any bone of it; attached to the stage, its
+   own. A mark on a part a bone later moves stays where it was made.
+7. A pixel of a dispatched instance receives no decal. The surface pass
+   writes a stencil bit for those pixels and the decal pass does not draw
+   over it. Rigid-to-bone clusters receive decals like any rigid surface. A
+   surface template may further declare that it refuses normal or roughness
+   changes, and the surface pass writes that in the stencil bits too.
 8. A decal changes what the lighting pass sees and nothing the surface pass
    already read. On a mover lit by the probe grids, the probe lookup used
    the undecalled normal, so the decal's normal reaches direct light and
    reflections and not the indirect term.
 9. Decals are correct under baked light because the surface pass writes
    irradiance into the indirect light target, not lit colour, and the
-   lighting pass multiplies it by the base colour the decal pass left.
+   lighting pass multiplies it by the diffuse albedo the decal pass left.
 
 ## The pass
 
@@ -69,9 +71,9 @@ flowchart TD
     R["Main view's decals, frustum-tested on the CPU"] --> S["Sort: priority, distance far to near, instance index"]
     S --> D["Draw each box: front faces, or back faces when the camera is inside"]
     D --> P["Per pixel: depth to position, position to box space"]
-    P --> C{"Inside the box, normal within sixty degrees, stencil permits"}
+    P --> C{"Inside the box, depth-derived normal within sixty degrees, stencil permits"}
     C -- no --> X["Discard"]
-    C -- yes --> T["Template: base colour, normal, roughness, three opacities, from box-space UV"]
+    C -- yes --> T["Template: diffuse albedo, normal, roughness, three opacities, from box-space UV"]
     T --> B["Blend into surface data by each opacity"]
     B --> LP["Lighting pass"]
 ```
@@ -79,14 +81,14 @@ flowchart TD
 | Step | Reads | Writes |
 |---|---|---|
 | Sort | the decals' bounds and sort priority, the main view | the draw order |
-| Box draw | the instance's transform, depth, stencil, the template's textures and block | base colour, normal, roughness of surface data |
+| Box draw | the instance's transform, depth, stencil, the template's textures and block | diffuse albedo, normal, roughness of surface data |
 
 ## Decal template
 
 | Output | Blend | Opacity |
 |---|---|---|
-| Base colour | linear | colour opacity |
-| Normal | normalized linear blend with the surface normal | normal opacity |
+| Diffuse albedo | linear | colour opacity |
+| Normal | fixed-function alpha blend on the stored normal, normalized on read | normal opacity |
 | Roughness | linear | roughness opacity |
 
 A decal template writes the three outputs and their three opacities from the
@@ -99,9 +101,9 @@ not cut a hard line.
 
 | Pixel | Receives |
 |---|---|
-| Opaque or masked surface of a rigid instance | every decal output the surface template allows |
-| Surface whose template refuses normal or roughness changes | base colour alone, or base colour and the one it allows |
-| Skinned instance, rigid-to-bone cluster included | nothing |
+| Opaque or masked surface of a rigid instance or a rigid-to-bone cluster | every decal output the surface template allows |
+| Surface whose template refuses normal or roughness changes | diffuse albedo alone, or diffuse albedo and the one it allows |
+| Dispatched instance | nothing |
 | Blended surface, particle, sky | nothing, since no surface data holds them |
 
 ## Components and ownership

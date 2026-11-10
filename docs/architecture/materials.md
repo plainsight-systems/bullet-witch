@@ -92,19 +92,22 @@ template. On a traced target the [geometry feed](geometry.md) runs the
 template's vertex function in a write-out pass to give the acceleration
 structure the offset positions.
 
-A blended template declares a priority for the forward pass's order and a
-lighting form, surface or particle, as [transparency](transparency.md)
-states. A decal template is a template of the decal domain: it writes base
-color, normal and roughness with an opacity for each, from the box-space UV,
-and reaches the decal pass alone. A surface template may declare that it
-refuses normal or roughness changes from decals, as [decals](decals.md)
-states.
+A blended template declares the blend modes it supports, a priority for the
+forward pass's order and a lighting form, surface or particle, as
+[transparency](transparency.md) states; a particle-form template reads the
+fog volume and no light. A decal template is a template of the decal domain:
+it writes diffuse albedo, normal and roughness with an opacity for each,
+from the box-space UV, declares a priority, and reaches the decal pass alone.
+A surface template may declare that it refuses normal or roughness changes
+from decals, as [decals](decals.md) states. The attribute table above is the
+set for the five shading models; a decal template's outputs and a
+particle-form template's inputs are the two sets the sentences here state.
 
 Shading models: unlit, lit, subsurface, hair, eye. Blend modes: opaque,
 masked, translucent, additive, modulate. Each template declares one shading
 model; the blend mode is a material property that the renderer's pass
-selection and pipeline state honor. Subsurface, hair and eye are opaque or
-masked only; [character shading](character-shading.md) states what each
+selection and pipeline state honor. Subsurface and hair are opaque or masked
+only and eye is opaque; [character shading](character-shading.md) states what each
 computes. A template also declares whether it is two-sided, which enters the
 pipeline description's raster state. An eye template requires a mesh with a
 frontal-projection UV set; the converter assigns a lit template of the same
@@ -126,12 +129,15 @@ flowchart LR
     K --> C["RHI pipeline description cache, keyed by content"]
 ```
 
-Pass dimensions such as the depth-only or shadow variant of a template are
-permutation dimensions declared by the renderer, so the one build-time
-enumeration that builds the switch domain builds the pass set. Blend mode
-and pass render targets enter the pipeline description, not the
-permutation; the masked blend mode alone is also a switch, because it adds
-a discard. Vertices are pulled, so no vertex layout enters either: a
+Pass dimensions such as the depth-only or shadow variant of a template, the
+write-out variant on traced targets, and the vertex-source dimension of a
+blended template (mesh, sprite, ribbon, mesh particle) are permutation
+dimensions declared by the renderer, so the one build-time enumeration that
+builds the switch domain builds the pass set. Blend mode, two-sidedness and
+pass render targets enter the pipeline description, not the permutation,
+and the enumeration lists each pass's finite set of those states, so every
+pipeline is precompiled, including the decal pass's inside-the-box state;
+the masked blend mode alone is also a switch, because it adds a discard. Vertices are pulled, so no vertex layout enters either: a
 permutation states the vertex attributes it reads, and a draw whose mesh
 lacks one fails by name when it is created.
 
@@ -155,12 +161,14 @@ sequenceDiagram
 |---|---|---|---|
 | Scalar, vector | the template's parameter block | yes | no |
 | Texture | a 32-bit descriptor index in the same block | yes | no |
+| Profile | an 8-bit id into the profile set, in the same block | yes | no |
 | Static switch | the template's permutation domain | no | yes |
 
 Every material block lives in one buffer reached through the descriptor
-arrays. A draw names its material by that buffer's index and the block's
-byte offset, carried in its per-draw block; the shader reads the block from
-there at the offsets the C++ declaration gives. A block is filled only when
+arrays. A draw's shader finds its material block through the instance
+record, which holds the block's byte offset per range of the instance's
+mesh, as [scene](scene.md) states; the shader reads the block from there at
+the offsets the C++ declaration gives. A block is filled only when
 an instance's values change, and the range it fills is shared by every draw
 of that instance in the frame. Blocks differ per template, so a material
 block is never one of the root layout's static slots.

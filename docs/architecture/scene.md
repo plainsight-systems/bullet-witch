@@ -2,14 +2,15 @@
 
 What the renderer draws from and how it decides, each frame, what each view
 draws. The scene is a flat set of instances with records on the GPU. One
-dispatch per frame tests every instance against every view, then every
-cluster of the survivors, and writes each view's draw records; the CPU
-issues one counted multi-draw per pipeline per view and does no per-instance
-work. The main view's occlusion runs in two phases against the frame's own
-depth hierarchy.
+dispatch per frame tests every opaque and masked instance against every
+view, then every cluster of the survivors, and writes each view's draw
+records; the CPU issues one counted multi-draw per pipeline per view and
+does no per-instance work for them. The few blended instances, emitters and
+decals the CPU tests and orders itself. The main view's occlusion runs in
+two phases against the frame's own depth hierarchy.
 
-An instance is one placed mesh with one material instance, one transform,
-one set of bounds and its flags. A cluster is a contiguous index range of a
+An instance is one placed mesh with the material instances its ranges
+name, one transform, one set of bounds and its flags. A cluster is a contiguous index range of a
 mesh with its own box and, when its draw is rigid to one bone, that bone's
 index. A view is a frustum with a purpose: the main view,
 one of the sun's cascades, or one atlas slot of a local light.
@@ -25,10 +26,10 @@ supplies the shadow views. Above the [render graph](render-graph.md) and the
 
 ```mermaid
 flowchart LR
-    W["World: instances exist, move and leave"] --> S["Scene: instance records, views, culling dispatch, draw records, depth hierarchy"]
+    W["World and effects system: instances, emitters and decals exist, move and leave"] --> S["Scene: instance records, views, culling dispatch, draw records, CPU order of blended draws, depth hierarchy"]
     CT["Content: meshes with clusters and detail levels"] --> S
     LT["Lighting system: cascade and atlas slot views"] --> S
-    S --> SR["Scene renderer: depth, surface, shadow and forward passes draw the records"]
+    S --> SR["Scene renderer: depth, surface and shadow passes draw the records, forward and decal passes draw the CPU order"]
     SR --> RG["Render graph"]
     RG --> RHI["RHI: counted multi-draw"]
 ```
@@ -42,9 +43,13 @@ flowchart LR
    scene owns every record built from them. Only records that changed are
    uploaded in a frame.
 3. Every instance has a record on the GPU holding its transform, its
-   previous transform, its world bounds, its mesh, its material block offset
-   and its flags. A pass's shader reaches an instance's data by its index and
-   in no other way; no per-draw constant carries a transform.
+   previous transform, its world bounds, its mesh, the material block offset
+   of each of its ranges and its flags. A pass's shader reaches an
+   instance's data by its index and in no other way; no per-draw constant
+   carries a transform. In a counted multi-draw the shader finds the record
+   through the draw's index into the view's record buffer, which each
+   backend supplies in its own way; a CPU-issued draw carries the index as
+   its one constant.
 4. At the start of a frame every instance's previous transform is the
    transform it had the frame before. An instance that enters this frame has
    previous equal to current, so its motion vector is zero.
@@ -65,21 +70,25 @@ flowchart LR
    by the dispatch and read by the GPU; the CPU never reads it back. A
    blended instance or decal is one draw the CPU issues in its sorted
    place, with the instance index as the draw's one constant; an emitter is
-   one indirect draw whose arguments the effects system writes on the GPU.
+   one indirect draw whose arguments are written on the GPU, the instance
+   count by the effects system and a ribbon's index count by the strip
+   build.
 9. The main view's occlusion is two-phase. Phase one tests against the
    previous frame's hierarchy and draws its survivors into depth; the
    hierarchy is built; phase two retests only what phase one culled and
    draws its survivors into depth; the hierarchy is built again. The surface
    pass draws the union. Nothing drawn is late by a frame.
-10. When no usable previous hierarchy exists, phase one tests the frustum
-    alone. Phase two makes the frame correct either way.
+10. When no usable previous hierarchy exists, on the first frame, after a
+    resolution change, or when the world's camera cut flag is set, phase one
+    tests the frustum alone. Phase two makes the frame correct either way.
 11. Shadow views are frustum-culled and never occlusion-culled.
 12. The depth hierarchy is one texture of the frame. Phase two reads the
     build after phase one; the visibility terms and the next frame's phase
     one read the build after phase two.
-13. A detail level is chosen per instance in the culling dispatch from the
-    instance's projected size, with a dithered transition between two
-    levels. A mesh with one level is chosen without a test.
+13. A detail level is chosen per instance from the instance's projected
+    size, with a dithered transition between two levels: in the culling
+    dispatch for opaque and masked instances, on the CPU by the same rule
+    for blended ones. A mesh with one level is chosen without a test.
 14. The draw record buffers of a frame hold every cluster of every instance
     for every view, so a dispatch cannot run out of room and nothing is
     dropped.
@@ -88,9 +97,9 @@ flowchart LR
     and [decals](decals.md) state, and issues their draws in that order with
     whatever pipeline each needs. The same instances and view give the same
     order.
-16. An emitter is an instance whose bounds the effect fixes or the effects
-    system writes each frame, and whose draw arguments the effects system
-    writes on the GPU from its particle count. A decal is an instance whose
+16. An emitter is an instance the effects system publishes, whose bounds the
+    effect fixes or a CPU simulation computes, and whose draw arguments are
+    written on the GPU. A decal is an instance the world publishes, whose
     mesh is the unit box. The CPU reads back neither.
 
 ## The instance
@@ -100,21 +109,27 @@ flowchart LR
 | Id | the scene, on entry | the world, to move or remove the instance |
 | Transform | the world, when it changes | culling, every pass's vertex shader |
 | Previous transform | the scene, at frame start | phase one, motion vectors |
-| World bounds | the scene, from the mesh bounds and the transform, when either changes, padded by the template's declared maximum displacement when the template writes a vertex offset | culling |
+| World bounds | the scene, from the mesh bounds and the transform, when either changes, padded by the template's declared maximum displacement when the template writes a vertex offset; a skinned mesh's cooked bounds are the union over its clips' poses, so a skinned instance with no dispatch is bounded | culling, the CPU frustum test |
 | Mesh: cluster table, detail levels | content, through the scene on entry | culling, vertex fetch |
 | Deformed stream: current and previous copy indices, or none | the geometry feed, each frame it dispatches the instance or applies its no-dispatch rule | vertex fetch, motion vectors |
 | Bone range: the instance's range in the bone buffer, or none | the geometry feed, on entry of a skinned instance | rigid-to-bone clusters' vertex fetch and culling |
-| Material block offset | the material system, on entry and on change | every pass's shaders |
+| Material block offset, per range | the material system, on entry and on change | every pass's shaders |
 | Sort priority | the world, on entry, from the template's declared priority, and raised when it places a decal over others | the CPU order of blended instances and decals |
-| Flags: carries baked light or is a mover, casts a shadow, blend mode, kind (mesh, emitter, decal) | the world, on entry | the surface pass, shadow views, the forward pass, the decal pass |
+| Flags: carries baked light or is a mover, casts a shadow, kind (mesh, emitter, decal) | the world, or the effects system for an emitter, on entry | the surface pass, shadow views, the forward pass, the decal pass |
 
 A dispatched instance's bounds for the frame, its cluster boxes and its
 deformed positions come from the [geometry feed](geometry.md), which owns
 skinning and shapes; the scene records what it is given and tests those
-boxes in place of the mesh's cooked ones that frame. A cluster cooked rigid
-to one bone carries the bone's index; culling transforms its cooked box by
-that bone's current transform, and every pass's vertex shader applies the
-same transform after the instance transform.
+boxes in place of the mesh's cooked ones that frame; the CPU test of a
+blended dispatched instance uses the cooked bounds at the transform. A
+cluster cooked rigid to one bone carries the bone's index; culling
+transforms its cooked box by that bone's current transform, and every
+pass's vertex shader applies the same transform after the instance
+transform. A cluster box is padded by the declared maximum displacement
+like the instance box. An emitter's bounds are the effect's authored bounds
+or, for an emitter simulated on the CPU, the bounds that simulation
+computes; an emitter simulated on the GPU must carry authored bounds, since
+the CPU reads nothing back.
 
 ## Views
 
@@ -166,8 +181,10 @@ covers that rectangle in a fixed footprint.
 | Bone index, or none | the bone a rigid-to-bone cluster is transformed by, in the instance's bone range |
 | Detail level and transition weight | which level's clusters, and the dither between two |
 
-Records are written into one buffer per view per pipeline, each with a
-count. The depth pass and the surface pass read the same records; the
+The record is the scene's own layout; a backend's draw arguments are its
+leading fields, and the shader reads the rest from the record buffer by the
+draw's index. Records are written into one buffer per view per pipeline,
+each with a count. The depth pass and the surface pass read the same records; the
 shadow passes read each shadow view's. The forward and decal passes draw no
 records: their draws are the CPU's, in sorted order. The RHI exposes one
 operation, the counted
@@ -185,8 +202,9 @@ performs it in its own form, stated in [rhi](rhi.md).
 | Builds per frame | two: after the first depth draw, after the second |
 | Readers | phase two (first build); reflections' screen trace, ambient occlusion and the next frame's phase one (second build) |
 
-The hierarchy is a frame-only texture of the render graph, which drops
-either build that nothing reads.
+The hierarchy is a history texture the scene owns and imports into the
+render graph each frame, since the next frame's phase one reads the second
+build; the first build is frame-only and dropped when nothing reads it.
 
 ## Detail levels
 
@@ -201,8 +219,8 @@ tested and drawn.
 
 | Data | Form | Read by |
 |---|---|---|
-| Mesh | vertex streams, index buffer, clusters as index ranges with boxes, detail levels as cluster ranges with screen sizes, mesh bounds | culling, vertex fetch |
-| Material instance | its block offset | every pass's shaders, through the instance record |
+| Mesh | vertex streams, index buffer, clusters as index ranges with boxes, detail levels as cluster ranges with screen sizes, mesh bounds, material id per range | culling, vertex fetch |
+| Material instance | its block offset, one per range | every pass's shaders, through the instance record |
 
 ## Components and ownership
 
@@ -211,7 +229,8 @@ tested and drawn.
 | Instance set, ids, records and their upload | `src/engine/rendering/scene` | every pass, the world's publication |
 | Views, frustums, jitter, previous-frame view data | `src/engine/rendering/scene` | culling, every pass, material templates |
 | Culling dispatch: both stages, both phases, detail level choice | `src/engine/rendering/scene` | scene renderer |
-| Draw record buffers and counts, per view per pipeline | `src/engine/rendering/scene` | depth, surface, shadow and forward passes |
+| CPU frustum test, order and detail level of blended instances, emitters and decals | `src/engine/rendering/scene` | the forward and decal passes |
+| Draw record buffers and counts, per view per pipeline | `src/engine/rendering/scene` | depth, surface and shadow passes |
 | Depth hierarchy build | `src/engine/rendering/scene` | culling, visibility terms |
 | Counted multi-draw | `src/engine/rendering/rhi` | the passes, through the render graph |
 | Clusters and detail levels in the cooked mesh | the content converter and the mesh payload reader | the scene on instance entry |

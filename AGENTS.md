@@ -94,6 +94,11 @@ them as rules. Add an entry when the same mistake comes back.
   to keep GPU-only visibility for a few dozen blended draws; depth of field
   after the temporal stage from a misread of the resolution rule). Nothing is
   gospel until code depends on it, and even then it is a change, not a wall.
+  The check runs both ways: before a design's documents are committed, every
+  earlier document is read again against the new one, for a field, pass or
+  rule the new one relies on and the earlier one does not provide, and for a
+  statement the new research contradicts. One pass over eleven documents
+  found sixty such places that six forward-only reviews had missed.
 
 ## Sources and citations
 
