@@ -197,7 +197,7 @@ flowchart LR
 Above: the world, which sets the camera's focus, f-stop, sensor width and shutter and enables
 screen effects; the user interface, which draws itself offscreen and is
 composited here. Beside: the temporal stage, which hands over scene colour
-at output resolution and has its own document; the lighting system and the passes
+at output resolution and is [anti-aliasing](anti-aliasing.md)'s; the lighting system and the passes
 before it, which write light pre-exposed by this document's rule; content,
 which delivers grades. Below: the render graph and the RHI, which reports
 the display and presents. How the interface is drawn, how video is decoded,

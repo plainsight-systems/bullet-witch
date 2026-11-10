@@ -36,7 +36,8 @@ frame, [scene renderer](scene-renderer.md) for how a frame is made,
 [decals](decals.md) for marks projected onto surfaces, [character
 shading](character-shading.md) for skin, hair and eyes,
 [post-processing](post-processing.md) for exposure, the grade and the
-display,
+display, [anti-aliasing](anti-aliasing.md) for the temporal stage's
+implementations per target,
 [lighting](lighting.md) for lights, shadows, indirect light and fog,
 [render graph](render-graph.md) for how its passes become GPU work, and
 [content](content.md) for how assets reach the game. In one line:

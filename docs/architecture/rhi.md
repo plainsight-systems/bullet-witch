@@ -177,7 +177,7 @@ flowchart LR
 | Counted multi-draw | an indirect command buffer executed over the whole record range, the dispatch having written empty records past the count, so no GPU-written count is needed | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
 | Draw index in the shader | the indirect command buffer sets the record's index as a per-command constant | the draw index built-in | a root constant written per record by the command signature |
 | Ray tracing | the platform's acceleration structures and intersection functions, as compute | the ray tracing extension's structures and pipelines | the ray tracing pipeline state and its structures |
-| Temporal upscale | the platform's temporal scaler | the portable loop above the contract, since the open library's Linux delivery is not stated | the open upscaler's library and the two vendor libraries, each a reported capability |
+| Temporal upscale, as [anti-aliasing](anti-aliasing.md) states | the platform's temporal scaler | the portable loop above the contract, since the open library's Linux delivery is not stated | the open upscaler's library and the two vendor libraries, each a reported capability |
 | Present | drawable from the layer, present scheduled on the command buffer, a semaphore bounds frames in flight | swapchain acquire and present | swapchain present |
 | Display report | the layer's colour space and pixel format, the screen's maximum luminance | the surface's colour space and format, the display's HDR metadata | the swapchain's colour space and format, the output's display description |
 

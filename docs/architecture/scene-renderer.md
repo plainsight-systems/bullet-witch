@@ -249,8 +249,8 @@ portable loop, runs on every target as the reference.
 The stage's own wrapper, renderer code around whichever implementation
 ran, writes scene color at output resolution, resamples depth and motion
 vectors to output by nearest depth for the passes after it, since a library
-implementation produces color alone, and sharpens above a ratio of one; the
-anti-aliasing document states the implementations.
+implementation produces color alone, and sharpens above a ratio of one;
+[anti-aliasing](anti-aliasing.md) states the implementations.
 
 Texture sampling in the passes before the stage uses a mip bias set from
 the ratio of input to output resolution. At a ratio of one the stage is
@@ -268,7 +268,7 @@ shaders and runs on every target; it is the reference for image comparison.
 | Decal pass | `src/engine/rendering/passes`, described in [decals](decals.md) | render graph |
 | The lighting function | `src/engine/rendering/passes` | lighting pass, forward pass, material templates |
 | Light grid | `src/engine/rendering/lighting` | lighting pass, forward pass, fog |
-| Temporal stage | `src/engine/rendering/postprocess` | post-processing |
+| Temporal stage | `src/engine/rendering/postprocess`, described in [anti-aliasing](anti-aliasing.md) | post-processing |
 | Post-processing, tone mapping, output transform, screen effects | `src/engine/rendering/postprocess`, described in [post-processing](post-processing.md) | hosts |
 | Depth, surface, shadow, forward, decal and write-out shaders of each template | `src/engine/rendering/materials/templates` | pass list |
 
