@@ -13,6 +13,8 @@
 namespace {
 
 using bw::platform::kWindowEventCapacity;
+using bw::platform::MouseButton;
+using bw::platform::PixelPoint;
 using bw::platform::PixelSize;
 using bw::platform::WindowEvent;
 using bw::platform::WindowEventKind;
@@ -118,6 +120,37 @@ void full_queue_drops_and_reports() {
   require(queue.empty(), "only the accepted events were queued");
 }
 
+// (window.hpp, WindowEventQueue invariant 5): a MouseMoved pushed while the
+// newest queued event is a MouseMoved replaces it; a button event between two
+// moves keeps both moves; a Scrolled never coalesces.
+void mouse_moves_coalesce() {
+  using bw::platform::mouse_button_event;
+  using bw::platform::mouse_moved_event;
+  using bw::platform::scrolled_event;
+  const std::uint8_t left = bw::platform::mouse_button_bit(MouseButton::Left);
+  WindowEventQueue queue;
+  require(queue.push(mouse_moved_event(PixelPoint{1, 2}, 0)), "the first move is accepted");
+  require(queue.push(mouse_moved_event(PixelPoint{3, 4}, 0)), "a second move is accepted");
+  require(queue.push(mouse_moved_event(PixelPoint{-5, 6}, left)), "a third move is accepted");
+  require(queue.size() == 1U, "consecutive moves coalesce to one event");
+  WindowEvent popped{};
+  require(queue.pop(popped) && popped == mouse_moved_event(PixelPoint{-5, 6}, left),
+          "the coalesced move is the last position and buttons");
+
+  const std::array kept{mouse_moved_event(PixelPoint{10, 10}, 0),
+                        mouse_button_event(MouseButton::Left, true, PixelPoint{10, 10}),
+                        mouse_moved_event(PixelPoint{12, 11}, left), scrolled_event(1.0F),
+                        scrolled_event(-2.0F)};
+  for (const WindowEvent& event : kept) {
+    require(queue.push(event), "an event pushed into a queue with room is accepted");
+  }
+  require(queue.size() == kept.size(),
+          "a button between two moves keeps both moves and two scrolls stay two");
+  for (const WindowEvent& expected : kept) {
+    require(queue.pop(popped) && popped == expected, "the events pop as pushed");
+  }
+}
+
 using Scenario = bw::testing::Scenario<void>;
 
 constexpr std::array kScenarios{
@@ -125,6 +158,7 @@ constexpr std::array kScenarios{
     Scenario{"consecutive_resizes_coalesce", &consecutive_resizes_coalesce},
     Scenario{"close_is_sticky", &close_is_sticky},
     Scenario{"full_queue_drops_and_reports", &full_queue_drops_and_reports},
+    Scenario{"mouse_moves_coalesce", &mouse_moves_coalesce},
 };
 
 } // namespace

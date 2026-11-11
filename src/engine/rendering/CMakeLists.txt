@@ -10,13 +10,15 @@ add_library(bw_texture_asset texture_asset.cpp)
 target_link_libraries(bw_texture_asset PUBLIC bw_texture_asset_headers)
 # A model as the renderer holds it (public/bw/rendering/model_resources.hpp),
 # a model drawn with its own materials through the forward pass
-# (model_draw.hpp), and the fixture cube draw (pulled_cube_fixture.hpp), which
+# (model_draw.hpp), one model as a scene declared on the frame graph
+# (model_scene.hpp), and the fixture cube draw (pulled_cube_fixture.hpp), which
 # leaves with the fixture shaders. Both draws record inside a pass the render
 # graph opens (bw/rendering/graph/executor.hpp). The modules a model is made of are linked publicly because the
 # headers name their types.
 add_library(bw_model
   model_resources.cpp
   model_draw.cpp
+  model_scene.cpp
   pulled_cube_fixture.cpp)
 target_link_libraries(bw_model PUBLIC bw_mesh_resources bw_texture_asset bw_content bw_materials
-  bw_material_buffer bw_scene bw_animation bw_math)
+  bw_material_buffer bw_scene bw_animation bw_math bw_graph)

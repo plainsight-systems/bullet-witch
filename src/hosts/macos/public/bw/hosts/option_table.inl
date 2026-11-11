@@ -34,7 +34,7 @@ inline OptionParse<Options> parse_options(std::span<const OptionRow<Options>> ro
     if (r == rows.size()) {
       return failure(OptionError::UnknownOption, argument);
     }
-    if (!given[r].empty()) {
+    if (!given[r].empty() && !rows[r].repeatable) {
       return failure(OptionError::DuplicateOption, argument);
     }
     given[r] = argument;
@@ -77,6 +77,9 @@ inline std::string usage_line(std::string_view program, std::span<const OptionRo
       line += row.value_name;
     }
     line += ']';
+    if (row.repeatable) {
+      line += "...";
+    }
   }
   return line;
 }

@@ -1,6 +1,8 @@
 // The macOS window adapter (bw/platform/os/macos/window.hpp): an NSWindow
-// whose content view hosts a CAMetalLayer, the AppKit event pump, and the
-// delegates that turn AppKit notifications into WindowEvents.
+// whose content view hosts a CAMetalLayer, the AppKit event pump, the
+// delegates that turn AppKit notifications into WindowEvents, and the
+// content view's overrides that turn mouse, scroll and key events into the
+// input kinds (window.hpp, Input).
 //
 // Memory: compiled with ARC (-fobjc-arc, src/platform/CMakeLists.txt). The
 // C++ window holds the NSWindow, its content view, the layer and the window
@@ -61,6 +63,16 @@ class MacWindow;
 // The application's delegate, one per process, set on the first
 // create_window.
 @interface BWApplicationDelegate : NSObject <NSApplicationDelegate>
+@end
+
+// The content view: it hosts the layer and receives the window's mouse,
+// scroll and key events, each forwarded to the C++ window. It accepts first
+// responder, so key events reach it once the window makes it first
+// responder, and it keeps one tracking area over its visible rectangle so
+// moves arrive with no button held. `owner` is cleared by the window's
+// destructor before the view is released.
+@interface BWContentView : NSView
+@property(nonatomic, assign) bw::platform::macos::MacWindow* owner;
 @end
 
 namespace bw::platform::macos {
@@ -138,6 +150,12 @@ public:
   void notice_mode_refused();
   void notice_close();
 
+  // From the content view (window.hpp, Input).
+  void notice_mouse_button(NSEvent* event, bool pressed);
+  void notice_mouse_moved(NSEvent* event);
+  void notice_scroll(NSEvent* event);
+  void notice_key(NSEvent* event, bool pressed);
+
 private:
   // Into the queue while pump() runs, into the pending queue otherwise.
   void push(const WindowEvent& event);
@@ -148,7 +166,7 @@ private:
   void request_toggle();
 
   NSWindow* window_{nil};
-  NSView* view_{nil};
+  BWContentView* view_{nil};
   CAMetalLayer* layer_{nil};
   BWWindowDelegate* delegate_{nil};
   WindowEventQueue queue_{};
@@ -159,6 +177,12 @@ private:
   // set when the toggle is sent, cleared when AppKit reports the transition
   // entered, exited or failed.
   bool transition_pending_{};
+  // The buttons held, as mouse_button_bit bits, from the down and up events
+  // this view received.
+  std::uint8_t buttons_{};
+
+  // An event's position in pixels of the content area, top-left origin.
+  [[nodiscard]] PixelPoint pixel_point(NSEvent* event) const;
 };
 
 // The layer is assigned before wantsLayer is set, which makes the view
@@ -166,11 +190,13 @@ private:
 // layer's contentsScale current, so the window sets it to the backing scale
 // here and on every backing change; the drawable size stays the viewport's
 // (window.hpp, Sizes).
-// The window is a normal opaque window; input is not this slice. The layer
-// is the view's root and fills it, its other properties keep their defaults,
-// and its device and framebufferOnly are the viewport's. The delegate's
-// windowShouldClose: reports a close. The window is centered; remembering
-// placement is the settings slice.
+// The window is a normal opaque window whose content view reports input
+// (BWContentView); the view is made first responder once the window is
+// shown, so key events reach it. The layer is the view's root and fills
+// it, its other properties keep their defaults, and its device and
+// framebufferOnly are the viewport's. The delegate's windowShouldClose:
+// reports a close. The window is centered; remembering placement is the
+// settings slice.
 WindowError MacWindow::create(const WindowDescription& description) {
   @autoreleasepool {
     NSString* title = [[NSString alloc] initWithBytes:description.title.data()
@@ -208,7 +234,8 @@ WindowError MacWindow::create(const WindowDescription& description) {
     layer_.minificationFilter = kCAFilterNearest;
     layer_.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
     [layer_ removeAllAnimations];
-    view_ = [[NSView alloc] initWithFrame:content];
+    view_ = [[BWContentView alloc] initWithFrame:content];
+    view_.owner = this;
     view_.layer = layer_;
     view_.wantsLayer = YES;
     view_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -220,6 +247,7 @@ WindowError MacWindow::create(const WindowDescription& description) {
 
     [window_ center];
     [window_ makeKeyAndOrderFront:nil];
+    [window_ makeFirstResponder:view_];
     // The same request set_mode makes, so a set_mode during this transition
     // is ModeChangePending (window.hpp, Mode).
     if (description.mode == WindowMode::BorderlessFullscreen) {
@@ -239,6 +267,7 @@ WindowError MacWindow::create(const WindowDescription& description) {
 MacWindow::~MacWindow() {
   @autoreleasepool {
     delegate_.owner = nullptr;
+    view_.owner = nullptr;
     window_.delegate = nil;
     [window_ close];
     window_ = nil;
@@ -402,6 +431,71 @@ void MacWindow::notice_mode_refused() {
 // open.
 void MacWindow::notice_close() { push(close_requested_event()); }
 
+// window.hpp, Input: locationInWindow is in the window's base coordinates;
+// converted to the view it is in points with the origin at the view's
+// bottom-left corner (the view is not flipped), which pixel_point_from_view
+// turns into the contract's pixels (macos/window.hpp). locationInWindow is
+// valid for every mouse event, and convertPoint:fromView: with nil converts
+// from the window's coordinates.
+PixelPoint MacWindow::pixel_point(NSEvent* event) const {
+  const NSPoint point = [view_ convertPoint:event.locationInWindow fromView:nil];
+  return pixel_point_from_view(point.x, point.y, view_.bounds.size.height,
+                               window_.backingScaleFactor);
+}
+
+// window.hpp, Input: button numbers 0, 1 and 2 are the left, right and
+// middle buttons; others are not reported. The held set is kept from the
+// down and up events, not read from the OS's current state
+// (pressedMouseButtons), which is not suitable for tracking.
+void MacWindow::notice_mouse_button(NSEvent* event, bool pressed) {
+  MouseButton button = MouseButton::Left;
+  switch (event.buttonNumber) {
+  case 0:
+    button = MouseButton::Left;
+    break;
+  case 1:
+    button = MouseButton::Right;
+    break;
+  case 2:
+    button = MouseButton::Middle;
+    break;
+  default:
+    return;
+  }
+  const std::uint8_t bit = mouse_button_bit(button);
+  buttons_ = pressed ? static_cast<std::uint8_t>(buttons_ | bit)
+                     : static_cast<std::uint8_t>(buttons_ & static_cast<std::uint8_t>(~bit));
+  push(mouse_button_event(button, pressed, pixel_point(event)));
+}
+
+// A move and a drag are both MouseMoved, with the buttons held.
+void MacWindow::notice_mouse_moved(NSEvent* event) {
+  push(mouse_moved_event(pixel_point(event), buttons_));
+}
+
+// window.hpp, Input: scroll_lines converts the delta (macos/window.hpp). A
+// delta of zero lines (a horizontal-only scroll, or a phase change) is not
+// reported. hasPreciseScrollingDeltas says whether scrollingDeltaY is in
+// points or in lines.
+void MacWindow::notice_scroll(NSEvent* event) {
+  const float lines = scroll_lines(event.scrollingDeltaY, event.hasPreciseScrollingDeltas != NO);
+  if (lines == 0.0F) {
+    return;
+  }
+  push(scrolled_event(lines));
+}
+
+// window.hpp, Input: one pressed event per physical press; the OS's
+// auto-repeats are dropped.
+// The key is named by key_from_virtual_code (macos/window.hpp) from
+// keyCode, the device-independent key number.
+void MacWindow::notice_key(NSEvent* event, bool pressed) {
+  if (pressed && event.isARepeat) {
+    return;
+  }
+  push(key_event(key_from_virtual_code(event.keyCode), pressed));
+}
+
 } // namespace
 
 // macos/window.hpp, create_window: the description's pure checks first
@@ -507,6 +601,97 @@ std::unique_ptr<platform::Window> create_window(const WindowDescription& descrip
   static_cast<void>(window);
   if (self.owner != nullptr) {
     self.owner->notice_mode_refused();
+  }
+}
+
+@end
+
+@implementation BWContentView
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+// One tracking area over the visible rectangle, so moves arrive while the
+// window is key with no button held; AppKit asks for it again whenever the
+// view's geometry changes. NSTrackingMouseMoved sends mouseMoved: to the
+// owner inside the area, ActiveInKeyWindow limits it to the key window and
+// InVisibleRect follows the visible rectangle.
+- (void)updateTrackingAreas {
+  for (NSTrackingArea* area in [self.trackingAreas copy]) {
+    if (area.owner == self) {
+      [self removeTrackingArea:area];
+    }
+  }
+  const NSTrackingAreaOptions options =
+      NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+  [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                                     options:options
+                                                       owner:self
+                                                    userInfo:nil]];
+  [super updateTrackingAreas];
+}
+
+- (void)forwardButton:(NSEvent*)event pressed:(BOOL)pressed {
+  if (self.owner != nullptr) {
+    self.owner->notice_mouse_button(event, pressed == YES);
+  }
+}
+
+- (void)forwardMove:(NSEvent*)event {
+  if (self.owner != nullptr) {
+    self.owner->notice_mouse_moved(event);
+  }
+}
+
+- (void)mouseDown:(NSEvent*)event {
+  [self forwardButton:event pressed:YES];
+}
+- (void)mouseUp:(NSEvent*)event {
+  [self forwardButton:event pressed:NO];
+}
+- (void)rightMouseDown:(NSEvent*)event {
+  [self forwardButton:event pressed:YES];
+}
+- (void)rightMouseUp:(NSEvent*)event {
+  [self forwardButton:event pressed:NO];
+}
+- (void)otherMouseDown:(NSEvent*)event {
+  [self forwardButton:event pressed:YES];
+}
+- (void)otherMouseUp:(NSEvent*)event {
+  [self forwardButton:event pressed:NO];
+}
+- (void)mouseMoved:(NSEvent*)event {
+  [self forwardMove:event];
+}
+- (void)mouseDragged:(NSEvent*)event {
+  [self forwardMove:event];
+}
+- (void)rightMouseDragged:(NSEvent*)event {
+  [self forwardMove:event];
+}
+- (void)otherMouseDragged:(NSEvent*)event {
+  [self forwardMove:event];
+}
+
+- (void)scrollWheel:(NSEvent*)event {
+  if (self.owner != nullptr) {
+    self.owner->notice_scroll(event);
+  }
+}
+
+// Neither key method calls super: NSResponder's keyDown: passes an
+// unhandled key up the responder chain, which ends in the system's alert
+// sound.
+- (void)keyDown:(NSEvent*)event {
+  if (self.owner != nullptr) {
+    self.owner->notice_key(event, true);
+  }
+}
+- (void)keyUp:(NSEvent*)event {
+  if (self.owner != nullptr) {
+    self.owner->notice_key(event, false);
   }
 }
 

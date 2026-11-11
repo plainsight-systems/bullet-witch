@@ -32,3 +32,15 @@ foreach(scenario IN LISTS rendering_graph_scenarios)
   add_test(NAME unit.rendering.graph.${scenario} COMMAND rendering_graph_tests ${scenario})
   set_tests_properties(unit.rendering.graph.${scenario} PROPERTIES TIMEOUT 10)
 endforeach()
+
+# Unit tests of the orbit camera (scene/orbit.hpp), one CTest entry per
+# scenario. Pure functions over values; it links the scene module.
+set(scene_orbit_scenarios
+  reset_matches_frame_sphere
+  turn_and_dolly_clamp)
+add_executable(scene_orbit_tests scene/orbit_tests.cpp)
+target_link_libraries(scene_orbit_tests PRIVATE bw_test_harness bw_scene)
+foreach(scenario IN LISTS scene_orbit_scenarios)
+  add_test(NAME unit.scene.orbit.${scenario} COMMAND scene_orbit_tests ${scenario})
+  set_tests_properties(unit.scene.orbit.${scenario} PROPERTIES TIMEOUT 10)
+endforeach()

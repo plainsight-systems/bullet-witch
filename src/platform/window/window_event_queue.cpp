@@ -2,8 +2,9 @@
 
 #include <cstddef>
 
-// The four invariants of WindowEventQueue (window.hpp): a fixed ring of
-// kWindowEventCapacity events, no allocation.
+// The five invariants of WindowEventQueue (window.hpp): a fixed ring of
+// kWindowEventCapacity events, no allocation. Resized and MouseMoved are
+// the two kinds that coalesce with a newest event of their own kind.
 //
 // A CloseRequested pushed while one is already queued since the last clear()
 // is dropped and push returns true: the request it carries is already
@@ -19,9 +20,11 @@ bool WindowEventQueue::push(const WindowEvent& event) noexcept {
       return true;
     }
   }
-  if (event.kind == WindowEventKind::Resized && count_ != 0U) {
+  const bool coalesces =
+      event.kind == WindowEventKind::Resized || event.kind == WindowEventKind::MouseMoved;
+  if (coalesces && count_ != 0U) {
     WindowEvent& newest = events_[(head_ + count_ - 1U) % kWindowEventCapacity];
-    if (newest.kind == WindowEventKind::Resized) {
+    if (newest.kind == event.kind) {
       newest = event;
       return true;
     }

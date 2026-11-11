@@ -207,6 +207,8 @@ set(BW_GAME_DATA "" CACHE PATH
 set(BW_PW0_TEST_CACHE "${CMAKE_BINARY_DIR}/tests/pw0_cache")
 add_subdirectory(unit/content)
 add_subdirectory(unit/tools/content_converter)
+add_subdirectory(unit/tools/capture)
+add_subdirectory(unit/tools/character_viewer)
 add_subdirectory(integration/content)
 add_subdirectory(integration/tools/content_converter)
 # game_host's command line, the pure parse the Apple host links.
@@ -228,6 +230,7 @@ add_subdirectory(integration/platform/window)
 if(APPLE AND BW_SHADER_TOOLCHAIN)
   add_subdirectory(integration/hosts)
   add_subdirectory(integration/rendering)
+  add_subdirectory(integration/tools/character_viewer)
 endif()
 
 # Integration: memory.

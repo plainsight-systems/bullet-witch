@@ -11,8 +11,10 @@
 // "Components and ownership": the window and its layer live under
 // src/platform/os/<os> and are consumed by the backend's viewport; nothing
 // above the platform boundary names an OS type). One window with a native
-// surface in it, the event pump, the events the host reads, the mode toggle,
-// and the native handle the RHI turns into a viewport (bw/rendering/rhi/viewport.hpp).
+// surface in it, the event pump, the events the host reads (the window's
+// own: resize, close, focus, mode; and the input a tool reads directly:
+// mouse, scroll and a small key set), the mode toggle, and the native
+// handle the RHI turns into a viewport (bw/rendering/rhi/viewport.hpp).
 // The macOS adapter is selected by bw/platform/os/macos/window.hpp.
 //
 // Contract.
@@ -52,6 +54,25 @@
 //   stays in, so a refusal is never silent. mode() reads the window's actual
 //   state, which the user may also change through the window's own
 //   controls, and the same events report that.
+//   Input: the adapter produces four more kinds from the events it pumps.
+//   Positions are in pixels of the content area, origin at its top-left
+//   corner, x to the right and y down: the back buffer's and a dumped
+//   image's row order, which the adapter converts to from the OS's view
+//   coordinates and backing scale (PixelPoint). MouseMoved reports
+//   the pointer's new position and the buttons held at that moment, with
+//   or without a button held (the adapter tracks the pointer over the
+//   whole content area while the window is key). MouseButton reports one
+//   button pressed or released, with the position. Scrolled reports the
+//   vertical wheel or trackpad delta in lines, with the OS's sign after
+//   the user's scroll-direction preference: a wheel notch is one line, and
+//   a device that reports precise deltas in points has them divided by
+//   kScrollPointsPerLine, since the OS reports no line height. Key reports
+//   one of the keys in Key pressed or released, by the key's position
+//   (virtual key code), not the character it produces; a key not in the
+//   set is Other, so a host that counts presses still sees them; a key the
+//   OS auto-repeats produces one pressed event per physical press, not one
+//   per repeat. Modifier keys, text input and horizontal scroll are not
+//   reported (the plan's Scope: the input slice).
 //   Activation: create_window shows the window and asks the OS to activate
 //   the application and make the window key; the OS grants that at its
 //   discretion (a process launched without an application bundle may not be
@@ -78,14 +99,23 @@
 // size and a cached scale would leave it stale.
 // Menus, cursor capture, text input, accessibility, multiple windows,
 // remembering size and position between runs: not this slice (the plan's
-// Scope); remembering is the settings slice.
+// Scope); remembering is the settings slice. Keys are reported by position:
+// the letter and punctuation codes name the keys at those positions on a
+// US layout, and a layout that moves them is the input slice's (plan Scope,
+// keyboard layouts).
+// The OS reports a precise scroll delta in points and a coarse one in
+// lines, and gives no line height; the points per line below are this
+// contract's. Letter and punctuation key codes name key positions on a US
+// keyboard; Escape and the arrows have layout-independent codes.
 //
 // Core guidelines read: C.122 (an abstract class at the platform boundary),
 // R.1 and I.11 (the window is created into a unique_ptr and released by its
 // destructor), I.1 (every input is in the description; the handle is an
-// explicit value), E.27 (named error codes). Performance guidelines read:
-// EMB.2 (the event queue is a fixed-capacity container; no allocation per
-// event), MEM.9 (the adapter allocates at creation, not per pump).
+// explicit value), E.27 (named error codes), Enum.3 (the button and key
+// sets are class enums). Performance guidelines read: EMB.2 (the event
+// queue is a fixed-capacity container; no allocation per event), MEM.9 (the
+// adapter allocates at creation, not per pump), COPY.4 (an event is a plain
+// struct copied by value).
 namespace bw::platform {
 
 enum class WindowMode : std::uint8_t { Windowed, BorderlessFullscreen };
@@ -94,6 +124,15 @@ struct PixelSize {
   std::uint32_t width{};
   std::uint32_t height{};
   [[nodiscard]] friend constexpr bool operator==(PixelSize, PixelSize) noexcept = default;
+};
+
+// A position in pixels of the content area, origin at its top-left corner,
+// x to the right and y down; signed because a held button keeps reporting
+// a pointer that has left the area.
+struct PixelPoint {
+  std::int32_t x{};
+  std::int32_t y{};
+  [[nodiscard]] friend constexpr bool operator==(PixelPoint, PixelPoint) noexcept = default;
 };
 
 // width and height are the content area in points. The title is copied at
@@ -123,17 +162,68 @@ enum class WindowEventKind : std::uint8_t {
   // The OS refused a transition set_mode requested; mode is the mode the
   // window stays in.
   ModeRefused,
+  // Input (the contract's Input paragraph).
+  MouseMoved,
+  MouseButton,
+  Scrolled,
+  Key,
 };
 
-// size is set for Resized, mode for ModeChanged and ModeRefused, focused for
-// FocusChanged; the other fields are zero. The five constructors below are
-// the only way an adapter builds an event, each setting its kind's field
-// and zeroing the others, so the rule holds by construction.
+enum class MouseButton : std::uint8_t { Left, Right, Middle };
+// The bit of a button in WindowEvent::buttons: Left 1, Right 2, Middle 4.
+[[nodiscard]] constexpr std::uint8_t mouse_button_bit(MouseButton button) noexcept {
+  return static_cast<std::uint8_t>(1U << static_cast<unsigned>(button));
+}
+
+// The keys reported by name; every other key is Other. The letters, Equal,
+// Minus and the brackets are the keys at those positions on a US layout.
+enum class Key : std::uint8_t {
+  Other,
+  Escape,
+  R,
+  P,
+  W,
+  A,
+  S,
+  D,
+  Left,
+  Right,
+  Up,
+  Down,
+  Equal,
+  Minus,
+  LeftBracket,
+  RightBracket,
+};
+
+// Points of precise scroll travel that count as one line; a coarse wheel
+// notch is one line as the OS reports it.
+inline constexpr float kScrollPointsPerLine = 10.0F;
+
+// Which fields a kind sets; the others are zero:
+//   Resized                 size
+//   ModeChanged, ModeRefused mode
+//   FocusChanged            focused
+//   MouseMoved              position, buttons
+//   MouseButton             button, pressed, position
+//   Scrolled                lines
+//   Key                     key, pressed
+// The nine constructors below are the only way an adapter builds an event,
+// each setting its kind's fields and zeroing the others, so the rule holds
+// by construction.
 struct WindowEvent {
   WindowEventKind kind{WindowEventKind::Resized};
   PixelSize size{};
   WindowMode mode{WindowMode::Windowed};
   bool focused{};
+  PixelPoint position{};
+  // The buttons held, as mouse_button_bit bits.
+  std::uint8_t buttons{};
+  MouseButton button{MouseButton::Left};
+  bool pressed{};
+  // Vertical scroll in lines; see Input.
+  float lines{};
+  Key key{Key::Other};
   [[nodiscard]] friend constexpr bool operator==(const WindowEvent&,
                                                  const WindowEvent&) noexcept = default;
 };
@@ -151,6 +241,36 @@ struct WindowEvent {
 }
 [[nodiscard]] constexpr WindowEvent mode_refused_event(WindowMode mode) noexcept {
   return WindowEvent{WindowEventKind::ModeRefused, PixelSize{}, mode, false};
+}
+[[nodiscard]] constexpr WindowEvent mouse_moved_event(PixelPoint position,
+                                                      std::uint8_t buttons) noexcept {
+  WindowEvent event{};
+  event.kind = WindowEventKind::MouseMoved;
+  event.position = position;
+  event.buttons = buttons;
+  return event;
+}
+[[nodiscard]] constexpr WindowEvent mouse_button_event(MouseButton button, bool pressed,
+                                                       PixelPoint position) noexcept {
+  WindowEvent event{};
+  event.kind = WindowEventKind::MouseButton;
+  event.button = button;
+  event.pressed = pressed;
+  event.position = position;
+  return event;
+}
+[[nodiscard]] constexpr WindowEvent scrolled_event(float lines) noexcept {
+  WindowEvent event{};
+  event.kind = WindowEventKind::Scrolled;
+  event.lines = lines;
+  return event;
+}
+[[nodiscard]] constexpr WindowEvent key_event(Key key, bool pressed) noexcept {
+  WindowEvent event{};
+  event.kind = WindowEventKind::Key;
+  event.key = key;
+  event.pressed = pressed;
+  return event;
 }
 
 enum class WindowError : std::uint8_t {
@@ -224,7 +344,13 @@ validate_window_description(const WindowDescription& d) noexcept {
 //      stays true until clear().
 //   4. A full queue drops the pushed event and push returns false; a
 //      dropped CloseRequested still sets close_requested().
-// The capacity holds every event one pump can produce in the game's use.
+//   5. A MouseMoved pushed while the newest queued event is a MouseMoved
+//      replaces it: consecutive moves coalesce to the last position and
+//      buttons. No other input kind coalesces: every button, scroll and
+//      key event is its own entry, and a button event between two moves
+//      keeps both moves.
+// The capacity holds every event one pump can produce in the game's use:
+// moves coalesce, and the buttons, notches and keys of one frame are few.
 inline constexpr std::size_t kWindowEventCapacity = 64;
 
 class WindowEventQueue {

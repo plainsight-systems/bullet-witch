@@ -89,29 +89,59 @@ void create_pump_and_pixel_size() {
 
 // (window.hpp, Pump; Window::pump, poll_event): the wiring probe. pump()
 // returns, and every event poll_event reads has a kind in WindowEventKind.
-// Which events arrive is the OS's (activation and focus are at its
-// discretion), so their number is printed, not asserted; the form of each
-// event is the constructors' unit test (unit.window.event).
+// (window.hpp, WindowEvent and the nine constructors): every event read sets
+// only its kind's fields, so it equals the constructor of its kind built from
+// its own fields. Which events arrive is the OS's (activation, focus and any
+// pointer or key the person at the Mac moves are at its discretion), so
+// their number is printed, not asserted.
 void pumped_events_well_formed() {
+  namespace platform = bw::platform;
   std::unique_ptr<Window> window = open_window();
-  std::array<int, 5> read{};
+  std::array<int, 9> read{};
   pump_and_read(*window, 10, [&read](const WindowEvent& event) {
+    WindowEvent rebuilt{};
     switch (event.kind) {
     case WindowEventKind::Resized:
+      rebuilt = platform::resized_event(event.size);
+      break;
     case WindowEventKind::CloseRequested:
+      rebuilt = platform::close_requested_event();
+      break;
     case WindowEventKind::FocusChanged:
+      rebuilt = platform::focus_event(event.focused);
+      break;
     case WindowEventKind::ModeChanged:
+      rebuilt = platform::mode_changed_event(event.mode);
+      break;
     case WindowEventKind::ModeRefused:
-      ++read.at(static_cast<std::size_t>(event.kind));
-      return;
+      rebuilt = platform::mode_refused_event(event.mode);
+      break;
+    case WindowEventKind::MouseMoved:
+      rebuilt = platform::mouse_moved_event(event.position, event.buttons);
+      break;
+    case WindowEventKind::MouseButton:
+      rebuilt = platform::mouse_button_event(event.button, event.pressed, event.position);
+      break;
+    case WindowEventKind::Scrolled:
+      rebuilt = platform::scrolled_event(event.lines);
+      break;
+    case WindowEventKind::Key:
+      rebuilt = platform::key_event(event.key, event.pressed);
+      break;
+    default:
+      require(false, "an event's kind is in WindowEventKind: " +
+                         std::to_string(static_cast<unsigned>(event.kind)));
     }
-    require(false, "an event's kind is in WindowEventKind: " +
-                       std::to_string(static_cast<unsigned>(event.kind)));
+    require(event == rebuilt, "an event of kind " +
+                                  std::to_string(static_cast<unsigned>(event.kind)) +
+                                  " sets only its kind's fields");
+    ++read.at(static_cast<std::size_t>(event.kind));
   });
   // What the OS delivered in this run, for the reader of the test output.
   std::cout << "events read: resized=" << read[0] << " close_requested=" << read[1]
             << " focus_changed=" << read[2] << " mode_changed=" << read[3]
-            << " mode_refused=" << read[4] << '\n';
+            << " mode_refused=" << read[4] << " mouse_moved=" << read[5]
+            << " mouse_button=" << read[6] << " scrolled=" << read[7] << " key=" << read[8] << '\n';
   window.reset();
 }
 

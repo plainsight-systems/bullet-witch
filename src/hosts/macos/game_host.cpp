@@ -4,7 +4,8 @@
 // viewport.hpp), and a frame loop on the main thread that runs until the
 // window is asked to close or the seconds limit passes. What it draws is
 // chosen by its options: without --asset the cube scene (cube_scene.hpp);
-// with --cache and --asset the model scene (model_scene.hpp). The shell
+// with --cache and --asset the engine's model scene through its adapter
+// (model_scene.hpp, bw/rendering/model_scene.hpp). The shell
 // holds the one scene through host_scene.hpp and one frame graph
 // (bw/rendering/graph/builder.hpp) with the schedule policy of the device's
 // backend; each frame it imports the back buffer in the state the viewport
@@ -37,7 +38,8 @@
 //
 // Window events: Resized resizes the viewport to the event's pixel size;
 // CloseRequested ends the run; ModeChanged, FocusChanged and, without
-// --fullscreen, ModeRefused print one stdout line each. A frame whose back
+// --fullscreen, ModeRefused print one stdout line each; the input events
+// (mouse, scroll, keys) are ignored. A frame whose back
 // buffer's size does not match the viewport's (BackBufferSizeMismatch) is
 // not drawn: the viewport is resized to the window's pixel size and the
 // next frame is drawn (viewport.hpp, invariant 4); a second mismatch before
@@ -241,6 +243,12 @@ int Host::run_frames() {
         break;
       case platform::WindowEventKind::FocusChanged:
         std::cout << "focus_changed focused=" << (event.focused ? 1 : 0) << '\n';
+        break;
+      // game_host reads no input yet.
+      case platform::WindowEventKind::MouseMoved:
+      case platform::WindowEventKind::MouseButton:
+      case platform::WindowEventKind::Scrolled:
+      case platform::WindowEventKind::Key:
         break;
       }
     }

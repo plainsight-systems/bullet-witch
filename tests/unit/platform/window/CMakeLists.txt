@@ -5,7 +5,8 @@ set(window_event_queue_scenarios
   pop_in_push_order
   consecutive_resizes_coalesce
   close_is_sticky
-  full_queue_drops_and_reports)
+  full_queue_drops_and_reports
+  mouse_moves_coalesce)
 add_executable(window_event_queue_tests window_event_queue_tests.cpp)
 target_link_libraries(window_event_queue_tests PRIVATE bw_test_harness bw_window_events)
 foreach(scenario IN LISTS window_event_queue_scenarios)
@@ -15,14 +16,17 @@ foreach(scenario IN LISTS window_event_queue_scenarios)
 endforeach()
 
 # Unit: the pure window decisions (window.hpp, validate_window_description,
-# decide_mode_request, mode_request_error), one table-driven scenario per
-# CTest entry. The functions are in the header, so the target links the
-# header library only.
+# decide_mode_request, mode_request_error) and the macOS adapter's pure input
+# conversions (macos/window.hpp, key_from_virtual_code, pixel_point_from_view,
+# scroll_lines), one table-driven scenario per CTest entry. The functions are
+# in the headers, so the target links the header libraries only.
 set(window_decisions_scenarios
   description_validation_order
-  mode_request_decision)
+  mode_request_decision
+  macos_input_conversions)
 add_executable(window_decisions_tests window_decisions_tests.cpp)
-target_link_libraries(window_decisions_tests PRIVATE bw_test_harness bw_platform_window_headers)
+target_link_libraries(window_decisions_tests PRIVATE bw_test_harness bw_platform_window_headers
+  bw_macos_window_headers)
 foreach(scenario IN LISTS window_decisions_scenarios)
   add_test(NAME unit.window.decisions.${scenario}
     COMMAND window_decisions_tests ${scenario})
