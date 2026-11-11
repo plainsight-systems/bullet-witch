@@ -6,14 +6,15 @@
 #include "bw/math/rotation/quaternion.hpp"
 #include "bw/math/vector/vector3.hpp"
 #include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
+#include "bw/rendering/graph/access.hpp"
+#include "bw/rendering/graph/builder.hpp"
+#include "bw/rendering/graph/declaration.hpp"
 #include "bw/rendering/pulled_cube_fixture.hpp"
-#include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
-#include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/scene/view.hpp"
-#include "bw/rendering/target_pass.hpp"
 
+#include <array>
 #include <filesystem>
 #include <iostream>
 
@@ -59,11 +60,17 @@ bool build_scene(rhi::Device& device, const std::filesystem::path& shader_direct
   return true;
 }
 
-bool Scene::record(rhi::Device& /*device*/, rhi::CommandList& list, rhi::Texture& back_buffer,
-                   rhi::Extent2 size, double elapsed) {
-  rendering::begin_cleared_pass(list, back_buffer, nullptr, size, "game_host frame");
-  rendering::record_pulled_cube(list, cube, cube_world_to_clip(elapsed, size));
-  list.end_render_pass();
+void Scene::Record::operator()(graph::RecordContext& context) const {
+  rendering::record_pulled_cube(context.list(), scene->cube, scene->world_to_clip);
+}
+
+bool Scene::declare(rhi::Device& /*device*/, graph::FrameGraph& graph, graph::TextureHandle target,
+                    rhi::Extent2 size, double elapsed) {
+  world_to_clip = cube_world_to_clip(elapsed, size);
+  const std::array<graph::TextureUse, 1> uses{
+      graph::TextureUse{target, graph::Access::Attachment, graph::Contents::Clear, 0}};
+  graph.add_pass(
+      graph::PassDeclaration{"game_host frame", graph::PassKind::Raster, uses, {}, record});
   return true;
 }
 

@@ -36,7 +36,8 @@
 //      records one draw_indexed of index_count indices.
 //      Preconditions: `list` is inside a render pass with one color target
 //      of the format in 1 and no depth target, with the viewport and
-//      scissor set (begin_cleared_pass with a null depth does both).
+//      scissor set, as the render graph's executor leaves them for a pass
+//      (bw/rendering/graph/executor.hpp, contract 1c).
 //   3. On a failure `out` is left empty. The detail text carries the
 //      failing step's error and detail; its wording is not part of the
 //      contract.

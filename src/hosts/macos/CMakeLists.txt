@@ -32,7 +32,7 @@ if(APPLE)
     cube_scene.hpp cube_scene.cpp model_scene.hpp model_scene.cpp)
   target_sources(game_host PRIVATE ../../engine/core/memory/global_allocation.cpp)
   target_link_libraries(game_host PRIVATE bw_game_host_options bw_window bw_allocator
-    bw_platform_time bw_platform_process bw_model bw_scene)
+    bw_platform_time bw_platform_process bw_model bw_graph bw_scene)
   if(BW_SHADER_TOOLCHAIN)
     add_dependencies(game_host shader_artifacts)
   endif()

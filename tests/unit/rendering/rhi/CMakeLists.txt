@@ -35,7 +35,8 @@ set(rhi_resources_scenarios
   array_for_by_dimension_and_kind
   initial_data_validation_named
   lock_validation_named
-  back_buffer_usage_reserved)
+  back_buffer_usage_reserved
+  memoryless_usage_rules)
 set(rhi_transitions_scenarios
   unknown_before_resolves_from_tracked
   legal_and_illegal_pairs

@@ -88,7 +88,8 @@ private:
 // (pipeline_states.hpp, RenderPassError): color targets 0..n-1 without gaps,
 // each with RenderTarget usage and a mip and slice inside it, one sample
 // count and extent across the targets, stencil actions only on a stencil
-// format, no clear on a read-only aspect; the first violation is named.
+// format, no clear on a read-only aspect, no load or store on a Memoryless
+// target; the first violation is named.
 void render_pass_validation_named() {
   const Targets t;
   require(bw::rhi::validate_render_pass(t.two_colors_and_depth()) == RenderPassError::None,
@@ -158,6 +159,19 @@ void render_pass_validation_named() {
   pass.depth_stencil.depth_load = LoadAction::Load;
   pass.depth_stencil.depth_store = StoreAction::NoAction;
   require(bw::rhi::validate_render_pass(pass) == RenderPassError::None, "a read-only load");
+  DeferredDeleteQueue queue;
+  TextureDescription memoryless = bw_rhi_test::render_target_description("Memoryless");
+  memoryless.usage = TextureUsage::Memoryless | TextureUsage::RenderTarget;
+  const Ref<TestTexture> memoryless_target = bw_rhi_test::make<TestTexture>(queue, memoryless);
+  RenderPassDescription memoryless_pass{};
+  memoryless_pass.color_count = 1;
+  memoryless_pass.colors[0] =
+      bw::rhi::ColorTarget{memoryless_target.get(), 0, 0, LoadAction::Clear, StoreAction::NoAction};
+  require(bw::rhi::validate_render_pass(memoryless_pass) == RenderPassError::None,
+          "a Memoryless target cleared and not stored");
+  memoryless_pass.colors[0].store = StoreAction::Store;
+  require(bw::rhi::validate_render_pass(memoryless_pass) == RenderPassError::MemorylessStored,
+          "a Memoryless target stored");
 }
 
 // (pipeline_states.hpp, render_target_layout) and

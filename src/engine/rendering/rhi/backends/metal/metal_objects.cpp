@@ -17,11 +17,14 @@ MetalBuffer::~MetalBuffer() {
 
 // A back buffer owns neither a texture nor a heap range.
 MetalTexture::~MetalTexture() {
-  if (memory_ == nullptr) {
+  // A back buffer's texture is the drawable's, owned by the viewport.
+  if (back_buffer_) {
     return;
   }
   texture_->release();
-  memory_->free(placement_);
+  if (memory_ != nullptr) {
+    memory_->free(placement_);
+  }
 }
 
 MetalShaderResourceView::~MetalShaderResourceView() {

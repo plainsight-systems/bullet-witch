@@ -11,19 +11,21 @@
 #include "bw/math/rotation/quaternion.hpp"
 #include "bw/math/vector/vector3.hpp"
 #include "bw/rendering/geometry/mesh_resources.hpp"
+#include "bw/rendering/graph/access.hpp"
+#include "bw/rendering/graph/builder.hpp"
+#include "bw/rendering/graph/declaration.hpp"
 #include "bw/rendering/materials/material.hpp"
 #include "bw/rendering/materials/material_buffer.hpp"
 #include "bw/rendering/model_draw.hpp"
 #include "bw/rendering/model_resources.hpp"
-#include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/view.hpp"
-#include "bw/rendering/target_pass.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -148,19 +150,17 @@ bool build_asset_scene(rhi::Device& device, const GameHostOptions& options,
   return true;
 }
 
-// The depth target follows the viewport's size (target_pass.hpp,
-// resize_depth_target): a frame whose viewport no longer matches it (after
-// a Resized event or a mismatch resize) gets a new one. The scene blocks
-// follow the view (model_draw.hpp, update_scene_blocks). False after a
-// failure line.
-bool AssetScene::record(rhi::Device& device, rhi::CommandList& list, rhi::Texture& back_buffer,
-                        rhi::Extent2 size, double elapsed) {
-  const rhi::Status<rhi::ResourceError> resized = rendering::resize_depth_target(
-      device, size, rendering::kModelDepthFormat, "game_host depth", depth);
-  if (!resized.ok()) {
-    fail("depth target", resized.error(), resized.detail());
-    return false;
-  }
+void AssetScene::Record::operator()(graph::RecordContext& context) const {
+  rendering::bind_scene_blocks(context.list(), scene->blocks);
+  rendering::record_model_draw(context.list(), scene->draw, scene->model, scene->object_to_world);
+}
+
+// The scene blocks follow the view (model_draw.hpp, update_scene_blocks).
+// The depth texture is frame-only: the graph creates it at the viewport's
+// size for the frame and gives it back after the pass, so a resized
+// viewport needs no step here. False after a failure line.
+bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::TextureHandle target,
+                         rhi::Extent2 size, double elapsed) {
   const std::optional<bw::scene::PerspectiveView> view = asset_view(size, model.mesh);
   // The startup check framed this sphere at the aspect that gives the
   // nearest eye, so this is not reached; the empty result is still handled.
@@ -176,10 +176,15 @@ bool AssetScene::record(rhi::Device& device, rhi::CommandList& list, rhi::Textur
     fail("scene blocks", updated.error(), updated.detail());
     return false;
   }
-  rendering::begin_cleared_pass(list, back_buffer, depth.get(), size, "game_host frame");
-  rendering::bind_scene_blocks(list, blocks);
-  rendering::record_model_draw(list, draw, model, asset_object_to_world(elapsed, model.mesh));
-  list.end_render_pass();
+  object_to_world = asset_object_to_world(elapsed, model.mesh);
+  // Cleared to the far plane (the default clear depth, 1).
+  const graph::TextureHandle depth = graph.create_texture(
+      graph::FrameTextureDescription{size, rendering::kModelDepthFormat, {}, "game_host depth"});
+  const std::array<graph::TextureUse, 2> uses{
+      graph::TextureUse{target, graph::Access::Attachment, graph::Contents::Clear, 0},
+      graph::TextureUse{depth, graph::Access::DepthWrite, graph::Contents::Clear, 0}};
+  graph.add_pass(
+      graph::PassDeclaration{"game_host frame", graph::PassKind::Raster, uses, {}, record});
   return true;
 }
 

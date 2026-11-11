@@ -250,6 +250,10 @@ ResourceError validate_initial_data(const TextureDescription& description,
   if (data.empty()) {
     return ResourceError::None;
   }
+  // A memoryless texture has no storage to hold initial contents.
+  if (has_usage(d.usage, TextureUsage::Memoryless)) {
+    return ResourceError::InitialDataMismatch;
+  }
   if (data.size() != subresource_count(d)) {
     return ResourceError::InitialDataMismatch;
   }
@@ -308,9 +312,18 @@ ResourceError validate_texture(const TextureDescription& description, const Text
     return ResourceError::NoUsage;
   }
   const bool supported = format_supported(d.format, format_capability);
+  // A memoryless texture is a render target or a depth target and nothing
+  // else: no usage that reads or copies its contents outside the pass.
+  const bool memoryless = has_usage(d.usage, TextureUsage::Memoryless);
+  const auto allowed_with_memoryless = static_cast<std::uint32_t>(
+      TextureUsage::Memoryless | TextureUsage::RenderTarget | TextureUsage::DepthStencil);
+  const bool memoryless_misused =
+      memoryless && ((static_cast<std::uint32_t>(d.usage) & ~allowed_with_memoryless) != 0U ||
+                     (!has_usage(d.usage, TextureUsage::RenderTarget) &&
+                      !has_usage(d.usage, TextureUsage::DepthStencil)));
   if ((has_usage(d.usage, TextureUsage::DepthStencil) &&
        has_usage(d.usage, TextureUsage::RenderTarget)) ||
-      (supported && !usage_within_capability(d.usage, format_capability))) {
+      memoryless_misused || (supported && !usage_within_capability(d.usage, format_capability))) {
     return ResourceError::IncompatibleUsage;
   }
   if (d.initial_access == Access::Unknown) {
@@ -353,6 +366,11 @@ ResourceError validate_texture(const TextureDescription& description, const Text
                                d.dimension != TextureDimension::Texture2DArray) ||
                               !has_capability(format_capability, FormatCapability::Multisample))) {
     return ResourceError::SampleCountUnsupported;
+  }
+  // Last: a description that is otherwise valid asks for tile memory the
+  // device does not offer.
+  if (memoryless && !limits.memoryless) {
+    return ResourceError::MemorylessUnsupported;
   }
   return ResourceError::None;
 }

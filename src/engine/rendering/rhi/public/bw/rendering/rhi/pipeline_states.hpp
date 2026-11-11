@@ -466,6 +466,9 @@ enum class RenderPassError : std::uint8_t {
   // other than NoAction, or a read-only flag on a load of Clear.
   StencilOnDepthOnlyFormat,
   ClearOnReadOnlyTarget,
+  // A target with TextureUsage::Memoryless (resources.hpp) whose load action
+  // is Load or whose store action (depth_store for a depth target) is Store.
+  MemorylessStored,
 };
 [[nodiscard]] RenderPassError validate_render_pass(const RenderPassDescription& pass) noexcept;
 // Precondition: validate_render_pass returned None.
