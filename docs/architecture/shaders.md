@@ -8,7 +8,10 @@ shader and a fixed binding layout out, for Metal, Vulkan and Direct3D 12.
 
 1. One HLSL source per shader. There is no per-target shader source; target
    differences are confined to one include that places the descriptor arrays
-   in each API's register spaces or sets.
+   in each API's register spaces or sets. A kernel an RHI backend carries in
+   its API's own language to perform one operation of the RHI contract is
+   the backend's, not a shader of this system, and
+   [source layout](source-layout.md) states the one condition for it.
 2. Compilation is offline. The game ships bytecode and never ships source or
    a compiler.
 3. The same source revision, defines and compiler arguments produce

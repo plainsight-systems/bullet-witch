@@ -174,8 +174,8 @@ flowchart LR
 | Transitions | tracked hazards do the synchronization; declared transitions become compute memory barriers for unordered access only | image layout changes and pipeline barriers | resource barriers |
 | Descriptor arrays and samplers | argument buffer tables in the converter's explicit layout, resident sets declared per encoder; a sampler table | descriptor set 1 runtime arrays per type, set 0 samplers | descriptor heap tables of unbounded typed arrays, a sampler heap |
 | Root layout | one top-level argument buffer bound at the converter's fixed point | one pipeline layout | one static root signature |
-| Counted multi-draw | an indirect command buffer executed over the whole record range, the dispatch having written empty records past the count, so no GPU-written count is needed | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
-| Draw index in the shader | the indirect command buffer sets the record's index as a per-command constant | the draw index built-in | a root constant written per record by the command signature |
+| Counted multi-draw | an indirect command buffer encoded from the record buffer by a kernel of the backend's own, in the platform's shading language, and executed over a range read from the count buffer, at most 16,384 records per execution | the indirect-count indexed draw over a record buffer and a count buffer | one indirect execution over a record buffer with a count buffer |
+| Draw index in the shader | each command of the indirect command buffer binds its own record, so the record's index is the per-command constant | the draw index built-in | a root constant written per record by the command signature |
 | Ray tracing | the platform's acceleration structures and intersection functions, as compute | the ray tracing extension's structures and pipelines | the ray tracing pipeline state and its structures |
 | Temporal upscale, as [anti-aliasing](anti-aliasing.md) states | the platform's temporal scaler | the portable loop above the contract, since the open library's Linux delivery is not stated | the open upscaler's library and the two vendor libraries, each a reported capability |
 | Present | drawable from the layer, present scheduled on the command buffer, a semaphore bounds frames in flight | swapchain acquire and present | swapchain present |
@@ -217,6 +217,7 @@ shipping.
 |---|---|---|
 | metal-cpp, the release matching the macOS SDK in use | Metal API from C++ | vendored, Apache 2.0, with its license |
 | Metal Shader Converter runtime shim | binding converter-built pipelines | vendored, Apache 2.0, as the shader system states |
+| Metal toolchain of the Xcode in use | building the Metal backend's own kernel, as [source layout](source-layout.md) permits | no; a build prerequisite with the SDK |
 | Vulkan headers and loader | Vulkan API | pinned when the Vulkan backend is built |
 | Direct3D 12 headers | Direct3D 12 API | pinned when the Direct3D 12 backend is built |
 | The open temporal upscaler, release 3.1 | the temporal upscale on Direct3D 12 | its signed libraries and the sources its licence lists as MIT, when the Direct3D 12 backend is built |

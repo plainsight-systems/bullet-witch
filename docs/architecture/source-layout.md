@@ -75,7 +75,7 @@ src/
   hosts/                    # target entry points and runtime composition
 
 tools/
-  shader_compiler/          # drives DXC and the Metal Shader Converter; the only shader build path
+  shader_compiler/          # drives DXC and the Metal Shader Converter; the only build path for the renderer's shaders
   content_converter/        # original-format readers and per-kind writers of the cooked format; the only reader of original formats
   character_viewer/
   ai_scenarios/
@@ -89,7 +89,13 @@ cmake/                      # common build/quality policies; modules declare own
 ```
 
 Compiled shader artifacts are build outputs under `<build>/shaders/<target>/`
-and are never committed; see [shaders](shaders.md).
+and are never committed; see [shaders](shaders.md). Every shader the renderer
+runs is HLSL through that one path. An RHI backend may carry a kernel in its
+API's own language for one reason only: to perform an operation of the RHI
+contract that the API offers no other way to perform. Such a kernel lives
+under that backend, is built with it, and is invisible above the contract;
+the Metal backend's encoding of a counted multi-draw into an indirect command
+buffer is the case there is, as [rhi](rhi.md) states.
 
 The content converter holds the Bullet Witch-specific format readers. The
 engine content loader reads the cooked format only and never absorbs original
