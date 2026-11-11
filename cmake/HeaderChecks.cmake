@@ -93,6 +93,11 @@ set(BW_PUBLIC_HEADERS
   bw/content_converter/texture_reader.hpp
   bw/content_converter/material_mapping.hpp
   bw/content_converter/conversion.hpp
+  bw/rendering/scene/orbit.hpp
+  bw/rendering/model_scene.hpp
+  bw/capture/png.hpp
+  bw/character_viewer/viewer_options.hpp
+  bw/character_viewer/script.hpp
 )
 # The shader_compiler tool's headers exist as a target only with the shader
 # toolchain configured (tools/shader_compiler is added under it).
@@ -141,7 +146,7 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
     bw_platform_window_headers bw_macos_window_headers bw_geometry_headers
     bw_game_host_options_headers bw_content_headers bw_animation_headers
     bw_texture_asset_headers bw_materials_headers bw_content_converter_headers
-    bw_scene_headers bw_graph_headers
+    bw_scene_headers bw_graph_headers bw_capture_headers bw_character_viewer_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE

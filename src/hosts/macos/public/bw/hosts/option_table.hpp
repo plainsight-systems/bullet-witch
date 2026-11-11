@@ -14,7 +14,8 @@
 // environment, the file system or a global, so the same rows and arguments
 // always give the same result.
 //
-// Grammar, for any table: each option at most once, in any order. A row
+// Grammar, for any table: each option at most once, in any order, except
+// a row marked repeatable, which may be given any number of times. A row
 // with an empty value_name is a flag and takes no value. Otherwise the
 // argument after the option is its value, and the value is missing when
 // that argument is absent or starts with "--".
@@ -23,22 +24,23 @@
 //   1. Arguments are read left to right and the first argument in error
 //      ends the parse; that error and the argument it names are returned.
 //      For one option: an argument that matches no row is UnknownOption
-//      (argument: itself); an option given before is DuplicateOption
-//      (argument: the option); a missing value is
-//      MissingValue (argument: the option); otherwise the row's apply is
-//      called with the value, or with an empty view for a flag, and a
-//      non-empty return is InvalidValue (argument: the value, reason: the
-//      return).
+//      (argument: itself); an option given before whose row is not
+//      repeatable is DuplicateOption (argument: the option); a missing
+//      value is MissingValue (argument: the option); otherwise the row's
+//      apply is called with the value, or with an empty view for a flag,
+//      and a non-empty return is InvalidValue (argument: the value,
+//      reason: the return).
 //   2. After every argument parsed without error: a given option whose
 //      `needs` names an option that was not given is RequiredOptionMissing
 //      (argument: the option that was given). With several such, which one
 //      is named is not promised. A `needs` that names no row is never
 //      satisfied, so every use of that option is RequiredOptionMissing.
-//   3. apply is called at most once per row, only for a given option, in
-//      argument order. On an error the options returned are not meaningful.
+//   3. apply is called at most once per row, or once per occurrence of a
+//      repeatable row, only for a given option, in argument order. On an
+//      error the options returned are not meaningful.
 //   4. usage_line(program, rows) is "Usage: " program, then for each row in
 //      table order " [" name "]" for a flag and " [" name " " value_name
-//      "]" otherwise.
+//      "]" otherwise, with "..." appended for a repeatable row.
 //   Where one argument breaks two of the rules in 1, which is named is not
 //   promised. Preconditions: names distinct and starting with "--", every
 //   apply non-null. The reason text is for the person at the terminal; its
@@ -59,6 +61,9 @@ template <class Options> struct OptionRow {
   std::string_view (*apply)(Options& options, std::string_view value){};
   // The name of an option that must also be given; empty for none.
   std::string_view needs{};
+  // The option may be given more than once; apply is called per occurrence
+  // and accumulates (a list option). False for the rows of game_host.
+  bool repeatable{};
 };
 
 enum class OptionError : std::uint8_t {

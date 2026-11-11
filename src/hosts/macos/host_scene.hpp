@@ -10,8 +10,10 @@
 // shell holds one scene and one frame graph (bw/rendering/graph/builder.hpp);
 // each frame it imports the back buffer, lets the scene declare its passes,
 // then compiles and executes the graph. The scene is destroyed after the
-// command list and before the viewport. Host-private: a source of the
-// game_host target, included by no test.
+// command list and before the viewport. The cube scene is the host's own;
+// the asset scene adapts the engine's model scene
+// (bw/rendering/model_scene.hpp), which the character viewer composes too.
+// Host-private: a source of the game_host target, included by no test.
 namespace bw::hosts {
 
 class HostScene {

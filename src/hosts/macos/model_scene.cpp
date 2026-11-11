@@ -1,6 +1,5 @@
 #include "model_scene.hpp"
 
-#include "host_failure.hpp"
 #include "scene_support.hpp"
 
 #include "bw/content/asset_id.hpp"
@@ -11,23 +10,13 @@
 #include "bw/math/rotation/quaternion.hpp"
 #include "bw/math/vector/vector3.hpp"
 #include "bw/rendering/geometry/mesh_resources.hpp"
-#include "bw/rendering/graph/access.hpp"
 #include "bw/rendering/graph/builder.hpp"
 #include "bw/rendering/graph/declaration.hpp"
-#include "bw/rendering/materials/material.hpp"
-#include "bw/rendering/materials/material_buffer.hpp"
-#include "bw/rendering/model_draw.hpp"
-#include "bw/rendering/model_resources.hpp"
+#include "bw/rendering/model_scene.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
-#include "bw/rendering/rhi/resources.hpp"
-#include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/view.hpp"
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -45,15 +34,6 @@ math::Matrix4f asset_object_to_world(double elapsed_seconds, const geometry::Mes
   const math::Quaternion4f turn = math::Quaternion4f::from_axis_angle(
       math::Vector3f{0.0F, 1.0F, 0.0F}, turn_angle(elapsed_seconds, 0.5));
   return math::Matrix4f::translation(-center) * math::Matrix4f::rotation_translation(turn, center);
-}
-
-// The view that frames the mesh's bounding sphere at the target's aspect
-// (bw/rendering/scene/view.hpp, frame_sphere); empty when the sphere cannot
-// be framed.
-std::optional<bw::scene::PerspectiveView> asset_view(rhi::Extent2 size,
-                                                     const geometry::MeshResources& mesh) {
-  const math::Vector3f center{mesh.center[0], mesh.center[1], mesh.center[2]};
-  return bw::scene::frame_sphere(center, mesh.radius, aspect_of(size));
 }
 
 // The failure line of a mesh whose bounding sphere cannot be framed; false.
@@ -112,79 +92,34 @@ bool build_asset_scene(rhi::Device& device, const GameHostOptions& options,
               << static_cast<unsigned>(id.error) << '\n';
     return false;
   }
-  const rendering::ModelLoadFailure loaded = rendering::load_model(
-      device, loader, id.id, rendering::model_texture_parameters(), scene.model);
-  if (!loaded.ok()) {
-    std::cerr << "game_host: loading the model " << options.asset << " failed: error "
-              << static_cast<unsigned>(loaded.error) << " for " << loaded.id << ": "
-              << loaded.detail << '\n';
-    return false;
-  }
-  const geometry::MeshResources& mesh = scene.model.mesh;
-  // A square target puts the eye nearest the center, so a sphere framed
-  // here is framed at every aspect.
-  if (!asset_view(rhi::Extent2{1, 1}, mesh).has_value()) {
-    return fail_unframeable(options.asset, mesh);
-  }
-  // Room for every material's block at the largest block size.
-  const auto capacity = static_cast<std::uint32_t>(
-      std::max<std::size_t>(scene.model.materials.size(), 1U) * materials::kMaxMaterialBlockBytes);
-  const materials::MaterialBufferFailure buffer = materials::create_material_buffer(
-      device, capacity, "game_host material buffer", scene.material_buffer);
-  if (!buffer.ok()) {
-    std::cerr << "game_host: the material buffer of " << options.asset << " failed: error "
-              << static_cast<unsigned>(buffer.error) << ": " << buffer.detail << '\n';
-    return false;
-  }
-  const rendering::ModelDrawFailure made = rendering::create_model_draw(
-      device, scene.model, options.shaders, scene.material_buffer, target_format, scene.draw);
-  if (!made.ok()) {
-    std::cerr << "game_host: the draw of " << options.asset << " with its materials failed: error "
-              << static_cast<unsigned>(made.error) << " at index " << made.index;
-    if (!made.name.empty()) {
-      std::cerr << " (" << made.name << ")";
-    }
-    std::cerr << ": " << made.detail << '\n';
+  const rendering::ModelSceneFailure built = rendering::build_model_scene(
+      device, loader, id.id, target_format, options.shaders, scene.scene);
+  if (!built.ok()) {
+    std::cerr << "game_host: " << rendering::model_scene_failure_text(built, options.asset) << '\n';
     return false;
   }
   return true;
 }
 
-void AssetScene::Record::operator()(graph::RecordContext& context) const {
-  rendering::bind_scene_blocks(context.list(), scene->blocks);
-  rendering::record_model_draw(context.list(), scene->draw, scene->model, scene->object_to_world);
-}
-
-// The scene blocks follow the view (model_draw.hpp, update_scene_blocks).
-// The depth texture is frame-only: the graph creates it at the viewport's
-// size for the frame and gives it back after the pass, so a resized
-// viewport needs no step here. False after a failure line.
+// The framing view at the target's aspect and the turn at `elapsed`, handed
+// to the model scene. False after a failure line.
 bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::TextureHandle target,
                          rhi::Extent2 size, double elapsed) {
-  const std::optional<bw::scene::PerspectiveView> view = asset_view(size, model.mesh);
-  // The startup check framed this sphere at the aspect that gives the
-  // nearest eye, so this is not reached; the empty result is still handled.
+  const geometry::MeshResources& mesh = scene.model.mesh;
+  const math::Vector3f center{mesh.center[0], mesh.center[1], mesh.center[2]};
+  const std::optional<bw::scene::PerspectiveView> view =
+      bw::scene::frame_sphere(center, mesh.radius, aspect_of(size));
+  // The build framed this sphere at the aspect that gives the nearest eye,
+  // so this is not reached; the empty result is still handled.
   if (!view.has_value()) {
-    return fail_unframeable(asset, model.mesh);
+    return fail_unframeable(asset, mesh);
   }
-  const bw::scene::View view_block =
-      bw::scene::make_view(bw::scene::world_to_clip(*view, aspect_of(size)), view->eye,
-                           static_cast<float>(size.width), static_cast<float>(size.height));
-  const rhi::Status<rhi::ResourceError> updated =
-      rendering::update_scene_blocks(device, view_block, bw::scene::fixture_light(), blocks);
-  if (!updated.ok()) {
-    fail("scene blocks", updated.error(), updated.detail());
+  const rendering::ModelSceneFailure declared = rendering::declare_model_scene(
+      scene, device, graph, target, size, *view, asset_object_to_world(elapsed, mesh));
+  if (!declared.ok()) {
+    std::cerr << "game_host: " << rendering::model_scene_failure_text(declared, asset) << '\n';
     return false;
   }
-  object_to_world = asset_object_to_world(elapsed, model.mesh);
-  // Cleared to the far plane (the default clear depth, 1).
-  const graph::TextureHandle depth = graph.create_texture(
-      graph::FrameTextureDescription{size, rendering::kModelDepthFormat, {}, "game_host depth"});
-  const std::array<graph::TextureUse, 2> uses{
-      graph::TextureUse{target, graph::Access::Attachment, graph::Contents::Clear, 0},
-      graph::TextureUse{depth, graph::Access::DepthWrite, graph::Contents::Clear, 0}};
-  graph.add_pass(
-      graph::PassDeclaration{"game_host frame", graph::PassKind::Raster, uses, {}, record});
   return true;
 }
 
