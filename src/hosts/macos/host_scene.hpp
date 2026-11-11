@@ -1,16 +1,17 @@
 #ifndef BW_HOSTS_MACOS_HOST_SCENE_HPP
 #define BW_HOSTS_MACOS_HOST_SCENE_HPP
 
-#include "bw/rendering/rhi/command_list.hpp"
+#include "bw/rendering/graph/builder.hpp"
+#include "bw/rendering/graph/declaration.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
-#include "bw/rendering/rhi/resources.hpp"
 
 // Responsibility: what game_host's shell calls on the scene it draws. The
-// shell holds one scene, records it once per frame between the back
-// buffer's two transitions, and destroys it after the command list and
-// before the viewport. Host-private: a source of the game_host target,
-// included by no test.
+// shell holds one scene and one frame graph (bw/rendering/graph/builder.hpp);
+// each frame it imports the back buffer, lets the scene declare its passes,
+// then compiles and executes the graph. The scene is destroyed after the
+// command list and before the viewport. Host-private: a source of the
+// game_host target, included by no test.
 namespace bw::hosts {
 
 class HostScene {
@@ -22,12 +23,14 @@ public:
   HostScene& operator=(HostScene&&) = delete;
   virtual ~HostScene() = default;
 
-  // The scene's commands for one frame into `list`, drawing to
-  // `back_buffer` of `size` at `elapsed` seconds into the run. False after
-  // a failure line on stderr, which ends the run.
-  [[nodiscard]] virtual bool record(rhi::Device& device, rhi::CommandList& list,
-                                    rhi::Texture& back_buffer, rhi::Extent2 size,
-                                    double elapsed) = 0;
+  // The scene's passes for one frame, declared into `graph`, drawing to the
+  // imported back buffer `target` of `size` at `elapsed` seconds into the
+  // run. The record functions the passes name are members of the scene, so
+  // they live until the graph is executed. False after a failure line on
+  // stderr, which ends the run.
+  [[nodiscard]] virtual bool declare(rhi::Device& device, graph::FrameGraph& graph,
+                                     graph::TextureHandle target, rhi::Extent2 size,
+                                     double elapsed) = 0;
 };
 
 } // namespace bw::hosts

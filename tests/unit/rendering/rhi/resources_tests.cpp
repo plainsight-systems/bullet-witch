@@ -75,6 +75,23 @@ void back_buffer_usage_reserved() {
   require(check(valid_texture()) == ResourceError::None, "without the mark");
 }
 
+// (resources.hpp, TextureUsage::Memoryless, ResourceError::MemorylessUnsupported):
+// legal with RenderTarget alone where the limits admit it, IncompatibleUsage
+// with any usage beside RenderTarget or DepthStencil, and
+// MemorylessUnsupported where TextureLimits::memoryless is false.
+void memoryless_usage_rules() {
+  TextureLimits memoryless_limits = kLimits;
+  memoryless_limits.memoryless = true;
+  TextureDescription d = valid_texture();
+  d.usage = TextureUsage::Memoryless | TextureUsage::RenderTarget;
+  require(bw::rhi::validate_texture(d, memoryless_limits, kColor) == ResourceError::None,
+          "Memoryless with RenderTarget alone");
+  require(check(d) == ResourceError::MemorylessUnsupported,
+          "MemorylessUnsupported where limits.memoryless is false");
+  d.usage = TextureUsage::Memoryless | TextureUsage::ShaderResource;
+  require(check(d) == ResourceError::IncompatibleUsage, "Memoryless with ShaderResource");
+}
+
 // (resources.hpp, validate_buffer) and (resources.hpp, ResourceError): usage
 // None, initial access Unknown and an empty debug name are errors; each rule
 // has its code; the first in ResourceError's order that applies is returned.
@@ -462,6 +479,14 @@ void initial_data_validation_named() {
               volume, std::array{bw::rhi::SubresourceData{volume_all.first(127), 16, 64}}) ==
               ResourceError::InitialDataMismatch,
           "bytes short of the last slice");
+  TextureDescription memoryless = valid_texture();
+  memoryless.usage = TextureUsage::Memoryless | TextureUsage::RenderTarget;
+  const std::array<std::byte, std::size_t{64} * 32 * 4> memoryless_bytes{};
+  require(bw::rhi::validate_initial_data(
+              memoryless, std::array{bw::rhi::SubresourceData{
+                              std::span<const std::byte>{memoryless_bytes}, 64 * 4, 0}}) ==
+              ResourceError::InitialDataMismatch,
+          "data on a Memoryless texture");
 }
 
 // (resources.hpp, validate_lock): NotUploadBuffer first, then
@@ -499,6 +524,7 @@ constexpr std::array scenarios{
     Scenario{"initial_data_validation_named", initial_data_validation_named},
     Scenario{"lock_validation_named", lock_validation_named},
     Scenario{"back_buffer_usage_reserved", back_buffer_usage_reserved},
+    Scenario{"memoryless_usage_rules", memoryless_usage_rules},
 };
 } // namespace
 

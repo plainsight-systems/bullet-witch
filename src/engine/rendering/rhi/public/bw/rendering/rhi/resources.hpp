@@ -140,6 +140,15 @@ enum class TextureUsage : std::uint8_t {
   // the viewport's own texture, never by a caller; validate_texture rejects
   // it with BackBufferUsageReserved.
   BackBuffer = 1U << 6U,
+  // A render target or depth target whose contents exist only inside one
+  // render pass: no storage is allocated, the load action is Clear or
+  // NoAction and the store action NoAction (pipeline_states.hpp,
+  // RenderPassError::MemorylessStored). Legal only with RenderTarget or
+  // DepthStencil and no other usage (IncompatibleUsage), with no initial
+  // data (InitialDataMismatch), and only where TextureLimits::memoryless
+  // is true (MemorylessUnsupported). The render graph sets it from its
+  // schedule (graph/executor.hpp).
+  Memoryless = 1U << 7U,
 };
 [[nodiscard]] constexpr TextureUsage operator|(TextureUsage a, TextureUsage b) noexcept {
   // A flag combination is not an enumerator.
@@ -200,7 +209,8 @@ enum class ResourceError : std::uint8_t {
   None,
   ZeroSize,
   NoUsage,
-  // Upload with UnorderedAccess; DepthStencil with RenderTarget; a usage the
+  // Upload with UnorderedAccess; DepthStencil with RenderTarget; Memoryless
+  // with any usage other than RenderTarget or DepthStencil; a usage the
   // format's capabilities do not include.
   IncompatibleUsage,
   UnknownInitialAccess,
@@ -233,6 +243,9 @@ enum class ResourceError : std::uint8_t {
   BackendRejected,
   // TextureUsage::BackBuffer in a caller's description (viewport.hpp).
   BackBufferUsageReserved,
+  // TextureUsage::Memoryless where TextureLimits::memoryless is false;
+  // the last check of validate_texture.
+  MemorylessUnsupported,
 };
 
 // The limits the texture validation checks against; from the capability
@@ -243,6 +256,8 @@ struct TextureLimits {
   std::uint32_t max_dimension_cube{};
   std::uint16_t max_array_size{};
   std::uint8_t max_sample_count{};
+  // TextureUsage::Memoryless is accepted.
+  bool memoryless{};
 };
 
 // Pure validation of a descriptor against its own rules and the limits;
@@ -250,12 +265,14 @@ struct TextureLimits {
 // validate_texture checks that the format is known and supported, and checks
 // the extents against the maximum dimensions, the depth, the array size, the
 // samples and the mips; a usage with BackBuffer is BackBufferUsageReserved,
-// checked first. A buffer of size 0 is ZeroSize.
+// checked first, and Memoryless where the limits do not admit it is
+// MemorylessUnsupported, checked last. A buffer of size 0 is ZeroSize.
 [[nodiscard]] ResourceError validate_buffer(const BufferDescription& description) noexcept;
 // Initial data checks (InitialDataMismatch or None): a buffer's data is
 // empty or exactly description.size bytes; a texture's data is empty or
 // one SubresourceData per subresource in subresource_index order, each
-// meeting the pitch rule above SubresourceData.
+// meeting the pitch rule above SubresourceData; a Memoryless texture's data
+// is empty.
 [[nodiscard]] ResourceError validate_buffer_initial_data(const BufferDescription& description,
                                                          std::span<const std::byte> data) noexcept;
 [[nodiscard]] ResourceError validate_initial_data(const TextureDescription& description,

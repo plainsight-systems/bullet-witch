@@ -99,6 +99,19 @@ RenderPassError validate_render_pass(const RenderPassDescription& pass) noexcept
       return RenderPassError::ClearOnReadOnlyTarget;
     }
   }
+  // A memoryless target has no storage to load from or store to.
+  for (std::uint32_t i = 0; i < pass.color_count; ++i) {
+    const ColorTarget& target = pass.colors[i];
+    if (has_usage(target.texture->description().usage, TextureUsage::Memoryless) &&
+        (target.load == LoadAction::Load || target.store == StoreAction::Store)) {
+      return RenderPassError::MemorylessStored;
+    }
+  }
+  if (depth != nullptr && has_usage(depth->description().usage, TextureUsage::Memoryless) &&
+      (pass.depth_stencil.depth_load == LoadAction::Load ||
+       pass.depth_stencil.depth_store == StoreAction::Store)) {
+    return RenderPassError::MemorylessStored;
+  }
   return RenderPassError::None;
 }
 

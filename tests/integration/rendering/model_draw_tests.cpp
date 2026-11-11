@@ -16,6 +16,12 @@
 #include "bw/math/vector/vector3.hpp"
 #include "bw/rendering/geometry/mesh_asset.hpp"
 #include "bw/rendering/geometry/vertex_streams.hpp"
+#include "bw/rendering/graph/access.hpp"
+#include "bw/rendering/graph/builder.hpp"
+#include "bw/rendering/graph/compiled_frame.hpp"
+#include "bw/rendering/graph/declaration.hpp"
+#include "bw/rendering/graph/executor.hpp"
+#include "bw/rendering/graph/schedule_policy.hpp"
 #include "bw/rendering/materials/material.hpp"
 #include "bw/rendering/materials/material_asset.hpp"
 #include "bw/rendering/materials/material_buffer.hpp"
@@ -25,11 +31,9 @@
 #include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
-#include "bw/rendering/rhi/transitions.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/forward_pass.hpp"
 #include "bw/rendering/scene/view.hpp"
-#include "bw/rendering/target_pass.hpp"
 #include "bw/rendering/texture_asset.hpp"
 #include "bw/testing/harness.hpp"
 
@@ -342,8 +346,10 @@ std::vector<float> to_floats(std::span<const std::byte> halves) {
   return out;
 }
 
-// One frame of the model into a cleared target of `format`; the target's
-// texels as read back.
+// One frame of the model into a cleared target of `format` through the
+// render graph: the target imported, a frame-only depth texture, one raster
+// pass, the target read back through the graph's readback mark; the
+// target's texels as read back.
 struct Frame {
   rhi::StagingLayout layout{};
   std::vector<std::byte> bytes{};
@@ -361,29 +367,37 @@ Frame draw_frame(rhi::Device& device, const rendering::ModelResources& model,
   target_description.debug_name = "model draw target";
   const rhi::Ref<rhi::Texture> target =
       take(device.create_texture(target_description), "create the target");
-  rhi::Ref<rhi::Texture> depth;
-  require(rendering::resize_depth_target(device, extent, rendering::kModelDepthFormat,
-                                         "model draw depth", depth)
-              .ok(),
-          "create the depth target");
   rendering::SceneBlocks blocks;
   require(rendering::update_scene_blocks(device, view, light, blocks).ok(), "the scene blocks");
-
-  rhi::CommandList list;
-  rendering::begin_cleared_pass(list, *target, depth.get(), extent, "model draw");
-  rendering::bind_scene_blocks(list, blocks);
-  rendering::record_model_draw(list, draw, model, object_to_world);
-  list.end_render_pass();
 
   Frame frame{rhi::staging_layout(target->description(), 0), {}};
   const rhi::Ref<rhi::StagingBuffer> staging =
       take(device.create_staging_buffer(frame.layout.total_bytes, "model draw readback"),
            "create_staging_buffer");
   const rhi::Ref<rhi::GpuFence> fence = take(device.create_fence("model draw"), "create_fence");
-  const rhi::Transition to_copy{target.get(), rhi::Access::RenderTarget, rhi::Access::CopySource};
-  list.transition(rhi::TransitionBatch{std::span<const rhi::Transition>{&to_copy, 1}});
-  list.copy_texture_to_staging(*target, 0, 0, *staging, 0);
-  list.write_fence(*fence);
+
+  namespace graph = bw::graph;
+  graph::FrameGraph frame_graph;
+  const graph::TextureHandle color = frame_graph.import_texture(
+      graph::ImportedTexture{target.get(), rhi::Access::RenderTarget, rhi::Access::CopySource});
+  const graph::TextureHandle depth = frame_graph.create_texture(graph::FrameTextureDescription{
+      extent, rendering::kModelDepthFormat, rhi::ClearValue{}, "model draw depth"});
+  const std::array<graph::TextureUse, 2> uses{
+      graph::TextureUse{color, graph::Access::Attachment, graph::Contents::Clear, 0},
+      graph::TextureUse{depth, graph::Access::DepthWrite, graph::Contents::Clear, 0}};
+  auto record = [&](graph::RecordContext& context) {
+    rendering::bind_scene_blocks(context.list(), blocks);
+    rendering::record_model_draw(context.list(), draw, model, object_to_world);
+  };
+  frame_graph.add_pass(
+      graph::PassDeclaration{"model draw", graph::PassKind::Raster, uses, {}, record});
+  frame_graph.mark_readback(color, graph::ReadBack{staging.get(), fence.get(), 0});
+  const graph::SchedulePolicy* policy = graph::schedule_policy_for(rhi::BackendKind::Metal);
+  require(policy != nullptr, "the Metal schedule policy");
+  graph::CompiledFrame compiled;
+  require(frame_graph.compile(*policy, device.capabilities(), compiled).ok(), "the graph compiles");
+  rhi::CommandList list;
+  require(graph::execute(compiled, frame_graph, device, list).ok(), "the graph executes");
   require(device.execute(list).ok(), "execute succeeds");
   const rhi::EndFrameResult ended = device.end_frame();
   const rhi::StagingLock lock =

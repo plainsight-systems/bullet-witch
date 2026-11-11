@@ -14,7 +14,7 @@ set_tests_properties(integration.rendering.materials.material_buffer_ranges PROP
 
 add_executable(rendering_model_draw_tests model_draw_tests.cpp)
 target_link_libraries(rendering_model_draw_tests PRIVATE bw_test_harness bw_model
-  bw_content_converter)
+  bw_content_converter bw_graph)
 add_dependencies(rendering_model_draw_tests shader_artifacts)
 set(model_draw_shaders "${CMAKE_BINARY_DIR}/shaders/metal")
 foreach(scenario IN ITEMS forward_lit_pixels failures_named)

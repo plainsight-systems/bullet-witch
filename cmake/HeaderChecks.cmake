@@ -68,7 +68,6 @@ set(BW_PUBLIC_HEADERS
   bw/rendering/scene/view.hpp
   bw/rendering/model_resources.hpp
   bw/rendering/pulled_cube_fixture.hpp
-  bw/rendering/target_pass.hpp
   bw/rendering/texture_asset.hpp
   bw/rendering/materials/material_asset.hpp
   bw/rendering/materials/shading.hpp
@@ -78,6 +77,12 @@ set(BW_PUBLIC_HEADERS
   bw/rendering/scene/fixture_light.hpp
   bw/rendering/scene/forward_pass.hpp
   bw/rendering/model_draw.hpp
+  bw/rendering/graph/access.hpp
+  bw/rendering/graph/declaration.hpp
+  bw/rendering/graph/compiled_frame.hpp
+  bw/rendering/graph/schedule_policy.hpp
+  bw/rendering/graph/builder.hpp
+  bw/rendering/graph/executor.hpp
   bw/platform/process/executable_directory.hpp
   bw/animation/skeleton_asset.hpp
   bw/content_converter/cpr_container.hpp
@@ -136,7 +141,7 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
     bw_platform_window_headers bw_macos_window_headers bw_geometry_headers
     bw_game_host_options_headers bw_content_headers bw_animation_headers
     bw_texture_asset_headers bw_materials_headers bw_content_converter_headers
-    bw_scene_headers
+    bw_scene_headers bw_graph_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE

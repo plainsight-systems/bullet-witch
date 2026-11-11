@@ -229,6 +229,10 @@ BackendResult MetalBackend::create(const BackendOptions& options) {
   capabilities.timestamp_queries = false;
   capabilities.texture_limits = kApple7TextureLimits;
   capabilities.texture_limits.max_sample_count = max_sample_count(*device);
+  // Every Apple-family GPU keeps a render pass's attachments in tile memory,
+  // and the floor above is GPUFamilyApple7, so memoryless render and depth
+  // targets are always available.
+  capabilities.texture_limits.memoryless = true;
   capabilities.uniform_buffer_alignment = kBufferOffsetAlignment;
   capabilities.surface_kind = platform::NativeSurfaceKind::MetalLayer;
   capabilities.frames_in_flight = options.frames_in_flight;
@@ -441,7 +445,8 @@ BufferResult MetalBackend::create_buffer(const BufferDescription& description,
 
 // Builds the descriptor from the RHI's, takes heapTextureSizeAndAlign, finds
 // or allocates a private block and creates the texture with
-// newTexture(descriptor, offset).
+// newTexture(descriptor, offset); a memoryless texture is created with
+// newTexture(descriptor) and no block.
 TextureResult MetalBackend::create_texture(const TextureDescription& description,
                                            std::span<const SubresourceData> initial_data) {
   const AutoreleaseScope pool;
@@ -475,9 +480,24 @@ TextureResult MetalBackend::create_texture(const TextureDescription& description
     usage |= MTL::TextureUsagePixelFormatView;
   }
   descriptor->setUsage(static_cast<MTL::TextureUsage>(usage));
-  descriptor->setStorageMode(MTL::StorageModePrivate);
   descriptor->setCpuCacheMode(MTL::CPUCacheModeDefaultCache);
   descriptor->setHazardTrackingMode(MTL::HazardTrackingModeTracked);
+
+  // A memoryless texture lives in tile memory for one render pass and takes
+  // no heap memory, so it is created from the device, not at a heap offset.
+  // The device rejects initial data for it (validate_initial_data).
+  if (has_usage(description.usage, TextureUsage::Memoryless)) {
+    descriptor->setStorageMode(MTL::StorageModeMemoryless);
+    MTL::Texture* memoryless = device_->newTexture(descriptor.get());
+    if (memoryless == nullptr) {
+      return TextureResult::failure(ResourceError::BackendRejected,
+                                    fail_with("newTexture returned no memoryless texture"));
+    }
+    set_label(*memoryless, description.debug_name);
+    return TextureResult::success(
+        Ref<Texture>(new MetalTexture(*options_.delete_queue, description, memoryless)));
+  }
+  descriptor->setStorageMode(MTL::StorageModePrivate);
 
   const MTL::SizeAndAlign size = device_->heapTextureSizeAndAlign(descriptor.get());
   const std::optional<HeapPlacement> placement = memory_->allocate(StorageClass::Private, size);

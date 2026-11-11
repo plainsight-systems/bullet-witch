@@ -59,13 +59,18 @@ public:
   MetalTexture(DeferredDeleteQueue& queue, const TextureDescription& description,
                MTL::Texture* texture, HeapPlacement placement, ResourceMemory& memory) noexcept
       : Texture(queue, description), texture_(texture), placement_(placement), memory_(&memory) {}
+  // A memoryless texture (TextureUsage::Memoryless): owned, with no heap
+  // placement, since it takes no memory.
+  MetalTexture(DeferredDeleteQueue& queue, const TextureDescription& description,
+               MTL::Texture* texture) noexcept
+      : Texture(queue, description), texture_(texture), placement_{}, memory_(nullptr) {}
   // A back buffer of `viewport`; the description carries the BackBuffer mark.
   MetalTexture(DeferredDeleteQueue& queue, const TextureDescription& description,
                MetalViewport& viewport) noexcept
       : Texture(queue, description), texture_(nullptr), placement_{}, memory_(nullptr),
-        viewport_(&viewport) {}
+        viewport_(&viewport), back_buffer_(true) {}
   [[nodiscard]] MTL::Texture* texture() const noexcept { return texture_; }
-  [[nodiscard]] bool is_back_buffer() const noexcept { return memory_ == nullptr; }
+  [[nodiscard]] bool is_back_buffer() const noexcept { return back_buffer_; }
   // Back buffer only.
   [[nodiscard]] MetalViewport* viewport() const noexcept { return viewport_; }
   void set_drawable_texture(MTL::Texture* texture) noexcept { texture_ = texture; }
@@ -78,9 +83,10 @@ private:
   ~MetalTexture() override;
   MTL::Texture* texture_;
   HeapPlacement placement_;
-  // Null for a back buffer.
+  // Null for a back buffer and for a memoryless texture: no placement to free.
   ResourceMemory* memory_;
   MetalViewport* viewport_{};
+  bool back_buffer_{};
 };
 
 // A view keeps its resource alive through View's Ref; texture_view is the

@@ -5,8 +5,13 @@
 // window is asked to close or the seconds limit passes. What it draws is
 // chosen by its options: without --asset the cube scene (cube_scene.hpp);
 // with --cache and --asset the model scene (model_scene.hpp). The shell
-// holds the one scene through host_scene.hpp and records it each frame
-// between the back buffer's two transitions.
+// holds the one scene through host_scene.hpp and one frame graph
+// (bw/rendering/graph/builder.hpp) with the schedule policy of the device's
+// backend; each frame it imports the back buffer in the state the viewport
+// hands it in, marks it presented, lets the scene declare its passes, then
+// compiles the graph and executes it into the frame's command list. A
+// backend without a schedule policy in this build is a named failure at
+// startup.
 //
 // Command line: bw/hosts/game_host_options.hpp states the rows and parses
 // them. Without --shaders the directory is
@@ -22,7 +27,8 @@
 // the detail; 2 on a usage error, with a line naming the error and the
 // argument, then the usage line, on stderr. Named failures include an
 // executable path the OS cannot give or resolve when --shaders is absent,
-// the OS refusing the borderless fullscreen --fullscreen asked for, and for
+// the OS refusing the borderless fullscreen --fullscreen asked for, a frame
+// graph that does not compile or whose execute fails, and for
 // --asset: layers that do not open (with a second line naming the
 // content_converter command for every failure of the converted layer), a
 // model that does not load (the id concerned and the failing layer's own
@@ -51,12 +57,16 @@
 #include "bw/platform/os/macos/window.hpp"
 #include "bw/platform/process/executable_directory.hpp"
 #include "bw/platform/window/window.hpp"
+#include "bw/rendering/graph/builder.hpp"
+#include "bw/rendering/graph/compiled_frame.hpp"
+#include "bw/rendering/graph/declaration.hpp"
+#include "bw/rendering/graph/executor.hpp"
+#include "bw/rendering/graph/schedule_policy.hpp"
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
 #include "bw/rendering/rhi/resources.hpp"
-#include "bw/rendering/rhi/transitions.hpp"
 #include "bw/rendering/rhi/viewport.hpp"
 
 #include <cstddef>
@@ -73,6 +83,7 @@
 
 namespace {
 
+namespace graph = bw::graph;
 namespace platform = bw::platform;
 namespace rhi = bw::rhi;
 
@@ -91,8 +102,8 @@ public:
   // Creates everything and runs the frame loop; the exit code.
   int run();
 
-  // Waits for the GPU, then destroys in order: command list, resources,
-  // viewport, device, window.
+  // Waits for the GPU, then destroys in order: command list, the frame
+  // graph's frame, resources, viewport, device, window.
   void shut_down();
 
 private:
@@ -102,8 +113,11 @@ private:
   enum class FrameOutcome : std::uint8_t { Drawn, Resized, Failed };
 
   int run_frames();
-  // One frame: the recorded list, execute, end_frame.
+  // One frame: the graph declared, compiled and executed into the list, the
+  // list executed, end_frame.
   FrameOutcome draw_frame(double elapsed);
+  // The frame graph of one frame into the list; false after a failure line.
+  bool record_frame(rhi::Texture& back_buffer, rhi::Extent2 size, double elapsed);
   // The answer to BackBufferSizeMismatch (viewport.hpp, invariant 4).
   FrameOutcome resize_after_mismatch();
 
@@ -115,6 +129,12 @@ private:
   // The one scene: the asset's with --asset, else the cube's.
   std::unique_ptr<bw::hosts::HostScene> scene_{};
   std::unique_ptr<rhi::CommandList> list_{};
+  // The schedule policy of the device's backend (process lifetime), and the
+  // graph declared again each frame with its compiled form; both keep their
+  // storage across frames.
+  const graph::SchedulePolicy* policy_{};
+  graph::FrameGraph graph_{};
+  graph::CompiledFrame compiled_{};
   std::uint64_t frames_{};
   std::uint64_t waited_frames_{};
   // A mismatch resized the viewport and no frame has been drawn since. Only
@@ -144,6 +164,12 @@ int Host::run() {
     return fail("device creation", device.error(), device.detail());
   }
   device_ = std::move(device.value());
+  policy_ = graph::schedule_policy_for(device_->capabilities().backend);
+  if (policy_ == nullptr) {
+    std::cerr << "game_host: the render graph has no schedule policy for the device's backend "
+              << static_cast<unsigned>(device_->capabilities().backend) << '\n';
+    return 1;
+  }
 
   const platform::PixelSize pixels = window_->pixel_size();
   rhi::ViewportDescription viewport_description{};
@@ -241,13 +267,9 @@ Host::FrameOutcome Host::draw_frame(double elapsed) {
 
   rhi::CommandList& list = *list_;
   list.reset();
-  const rhi::Transition to_target{&back_buffer, rhi::Access::Present, rhi::Access::RenderTarget};
-  list.transition(rhi::TransitionBatch{std::span<const rhi::Transition>{&to_target, 1}});
-  if (!scene_->record(*device_, list, back_buffer, size, elapsed)) {
+  if (!record_frame(back_buffer, size, elapsed)) {
     return FrameOutcome::Failed;
   }
-  const rhi::Transition to_present{&back_buffer, rhi::Access::RenderTarget, rhi::Access::Present};
-  list.transition(rhi::TransitionBatch{std::span<const rhi::Transition>{&to_present, 1}});
 
   const rhi::Status<rhi::ExecuteError> executed = device_->execute(list);
   if (!executed.ok()) {
@@ -273,12 +295,42 @@ Host::FrameOutcome Host::draw_frame(double elapsed) {
   return FrameOutcome::Drawn;
 }
 
+// The back buffer enters the frame in Present, the state the viewport hands
+// it in and the state every frame leaves it in, and leaves in Present through
+// the mark (graph/declaration.hpp, contract 7). The graph is reset first, so
+// the previous frame's handles and imported pointers are gone.
+bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size, double elapsed) {
+  graph_.reset();
+  const graph::TextureHandle target = graph_.import_texture(
+      graph::ImportedTexture{&back_buffer, rhi::Access::Present, rhi::Access::Present});
+  graph_.mark_presented(target);
+  if (!scene_->declare(*device_, graph_, target, size, elapsed)) {
+    return false;
+  }
+  const graph::CompileResult compiled =
+      graph_.compile(*policy_, device_->capabilities(), compiled_);
+  if (!compiled.ok()) {
+    std::cerr << "game_host: the frame graph did not compile: "
+              << graph::graph_error_name(compiled.error) << " at pass '" << compiled.pass
+              << "' resource '" << compiled.resource << "'\n";
+    return false;
+  }
+  const graph::ExecuteFailure executed = graph::execute(compiled_, graph_, *device_, *list_);
+  if (!executed.ok()) {
+    std::cerr << "game_host: the frame graph's execute failed: error "
+              << static_cast<unsigned>(executed.error) << " resource error "
+              << static_cast<unsigned>(executed.resource_error) << ": " << executed.detail << '\n';
+    return false;
+  }
+  return true;
+}
+
 // The replay stopped at the pass that would have acquired the back buffer,
 // and a mismatch holds nothing (viewport.hpp, after_acquire), so the resize
 // is accepted in the frame being recorded (validate_resize). The frame is
 // not drawn: it gets no end_frame and is not counted, and the next loop
 // iteration records it again under the same frame number; what the replay
-// ran before the failed pass (the transition of the replaced back buffer)
+// ran before the failed pass (any transition of the replaced back buffer)
 // is submitted with that frame, and the replaced back buffer stays alive in
 // the delete queue until the frame completes. The size is the window's
 // current pixel size, not a size from an earlier event.
@@ -304,6 +356,7 @@ void Host::shut_down() {
     device_->wait_idle();
   }
   list_.reset();
+  graph_.reset();
   scene_.reset();
   viewport_.reset();
   device_.reset();
@@ -314,9 +367,9 @@ void Host::shut_down() {
 
 // An exception (allocation, path handling) is a failure like any other: one
 // line on stderr and exit 1. The host's members are declared in teardown
-// order, so leaving by an exception destroys the command list, the
-// resources, the viewport, the device (which waits for the GPU) and the
-// window in that order.
+// order, so leaving by an exception destroys the frame graph, the command
+// list, the resources, the viewport, the device (which waits for the GPU)
+// and the window in that order.
 int main(int argc, char** argv) {
   try {
     const std::span<char*> raw(argv, static_cast<std::size_t>(argc));

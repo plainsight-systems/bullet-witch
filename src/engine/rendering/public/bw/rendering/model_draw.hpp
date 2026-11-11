@@ -30,7 +30,7 @@
 // (docs/architecture/materials.md, "Material to pipelines";
 // bw/rendering/scene/forward_pass.hpp). The host's window and the
 // offscreen test both draw a model through these functions, inside a pass
-// begun by bw/rendering/target_pass.hpp.
+// the render graph opened for them (bw/rendering/graph/executor.hpp).
 //
 // Contract.
 //   1. A model drawn here is loaded with model_texture_parameters(): the
@@ -76,8 +76,8 @@
 //      first_index, 0, 0): exactly model.mesh.draws.size() draws.
 //      Preconditions: `list` is inside a render pass whose targets have
 //      the formats in 2d with the viewport and scissor set
-//      (begin_cleared_pass with a depth target of kModelDepthFormat does
-//      both); bind_scene_blocks was recorded in this frame; `draw` was
+//      (the render graph's executor sets both for a pass, graph/executor.hpp
+//      contract 1c); bind_scene_blocks was recorded in this frame; `draw` was
 //      created from `model`; `material_buffer` outlives the draw.
 //   4. Scene blocks. update_scene_blocks makes a uniform buffer holding
 //      `view` and one holding `light` (usage Uniform, the block's bytes as
