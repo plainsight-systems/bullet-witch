@@ -7,7 +7,9 @@ view, then every cluster of the survivors, and writes each view's draw
 records; the CPU issues one counted multi-draw per pipeline per view and
 does no per-instance work for them. The few blended instances, emitters and
 decals the CPU tests and orders itself. The main view's occlusion runs in
-two phases against the frame's own depth hierarchy.
+two phases against the frame's own depth hierarchy. One result of the
+dispatch is read back: a bit per skinned instance saying whether it was
+drawn, which the world passes to [animation](animation.md).
 
 An instance is one placed mesh with the material instances its ranges
 name, one transform, one set of bounds and its flags. A cluster is a contiguous index range of a
@@ -30,6 +32,7 @@ flowchart LR
     CT["Content: meshes with clusters and detail levels"] --> S
     LT["Lighting system: cascade and atlas slot views"] --> S
     S --> SR["Scene renderer: depth, surface and shadow passes draw the records, forward and decal passes draw the CPU order"]
+    S --> WD["World: which skinned instances were drawn, some frames after the frame"]
     SR --> RG["Render graph"]
     RG --> RHI["RHI: counted multi-draw"]
 ```
@@ -105,6 +108,16 @@ flowchart LR
     effect fixes or a CPU simulation computes, and whose draw arguments are
     written on the GPU. A decal is an instance the world publishes, whose
     mesh is the unit box. The CPU reads back neither.
+17. The dispatch writes one bit per skinned instance per frame: set when
+    the instance survived the instance stage in any view of the frame, the
+    main view in either phase or any shadow view. A skinned instance whose
+    ranges are all blended takes the result of its CPU frustum test in its
+    place. The bits are copied out through the RHI's readback and reach the
+    CPU when the GPU has finished them, some frames after the frame they
+    describe; nothing waits for them. The scene reports each skinned
+    instance's latest bit to the world by instance id. This is the only
+    result of the dispatch the CPU reads: counts and records are never read
+    back, and nothing the scene draws depends on the bits.
 
 ## The instance
 
@@ -161,6 +174,9 @@ flowchart TD
     D1 --> H1["Depth hierarchy, first build"]
     H1 --> P2["Phase two: the main view's culled instances and clusters against the new hierarchy, current transforms and view"]
     P2 --> R2["Phase two records appended to the main view's lists"]
+    P1 --> DB["Drawn bits: one per skinned instance, set by a survivor of the instance stage in any view"]
+    P2 --> DB
+    DB --> RB["Readback: the bits reach the CPU some frames later and are reported to the world"]
     R2 --> D2["Depth pass, second draw: the phase two records"]
     D2 --> H2["Depth hierarchy, second build: what the terms and the next frame read"]
     H2 --> SP["Surface pass: both sets of records"]
@@ -239,6 +255,7 @@ tested and drawn.
 | Culling dispatch: both stages, both phases, detail level choice | `src/engine/rendering/scene` | scene renderer |
 | CPU frustum test, order and detail level of blended instances, emitters and decals | `src/engine/rendering/scene` | the forward and decal passes |
 | Draw record buffers and counts, per view per pipeline | `src/engine/rendering/scene` | depth, surface and shadow passes |
+| Drawn bits of skinned instances, their readback and the report by instance id | `src/engine/rendering/scene` | the world, for animation |
 | Depth hierarchy build | `src/engine/rendering/scene` | culling, visibility terms |
 | Counted multi-draw | `src/engine/rendering/rhi` | the passes, through the render graph |
 | Clusters and detail levels in the cooked mesh | the content converter and the mesh payload reader | the scene on instance entry |
@@ -246,7 +263,8 @@ tested and drawn.
 ## Boundaries
 
 Above: the world, which decides what exists, where it is and what it is for,
-and publishes that. Below: the render graph and the RHI. Beside: the scene
+and publishes that, and which takes the drawn bits and decides nothing in
+the scene by them. Below: the render graph and the RHI. Beside: the scene
 renderer, which owns the passes and the lighting function and draws the
 records the scene writes; the lighting system, which decides the shadow
 views and never sees an instance; the material system, which gives an

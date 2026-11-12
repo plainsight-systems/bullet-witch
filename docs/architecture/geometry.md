@@ -87,7 +87,11 @@ flowchart LR
    rigid-to-bone clusters' transformed boxes, each padded by the template's
    declared maximum displacement. These are the boxes culling tests for
    that frame; the mesh's cooked boxes are not used for a dispatched
-   instance's weighted clusters.
+   instance's weighted clusters. The boxes are in the instance's own space
+   and culling applies the instance's transform to them. An instance not
+   dispatched in a frame keeps the boxes of its last dispatch, with its
+   previous boxes set equal to them, so it is culled where it now stands by
+   the shape it last had.
 10. A draw whose every vertex has one influence at full weight is cooked as
     rigid to that bone, and its clusters carry the bone index into the draw
     record. Such a cluster is never skinned by the feed. Every pass's vertex

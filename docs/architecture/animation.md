@@ -18,6 +18,8 @@ controller beside it names nothing in animation terms.
 | Control | a step after the layers that moves bones in model space: a chain or an aim |
 | Request | play this source on this layer, looping or not, over this blend time on this curve, at this rate; or play this weight-track clip, looping or not, at this rate |
 | Fact | what a character controller states about its character: velocity, facing, grounded, an aim point, an action begun |
+| Pose option | per character, whether its pose is built always or only when it was drawn recently |
+| Drawn recently | the [scene](scene.md) reported the character's instance as drawn into a view within the last second of the world's time |
 
 ## Position
 
@@ -25,14 +27,15 @@ Between the character code of the game, which decides what a character
 does, and the [geometry feed](geometry.md), which turns a published pose
 into vertices. Fed by [content](content.md), which holds skeletons, clips
 and the authored rig configuration. Beside the world, which owns each
-character's transform and says which characters need a pose.
+character's transform and passes on the [scene](scene.md)'s report of which
+characters were drawn.
 
 ```mermaid
 flowchart LR
     CC["Character controller: intent, movement, gameplay state, facts"] --> AC["Animation controller, one per character kind: facts in, requests out"]
     AC --> AN["Animation: layers, sources, fades, controls, phases of an update"]
     CT["Content: skeleton, clips, weight-track clips, clip sets, rig configuration"] --> AN
-    W["World: character transform, which characters need a pose, the tick's step"] --> AN
+    W["World: character transform, the tick's step, which characters were drawn recently as the scene reports it"] --> AN
     AN --> GF["Geometry feed: skinning transforms, shape weights, a note when either changed"]
     AN --> MV["Movement: root motion"]
     AN --> EV["Game and audio: typed events"]
@@ -42,9 +45,9 @@ flowchart LR
 ## Invariants
 
 1. Animation is a mechanism. It plays what requests name and holds no rule
-   about which source follows which or when. The same requests, facts and
-   steps in the same order give the same poses; time enters through the
-   tick's step alone.
+   about which source follows which or when. The same requests, facts,
+   drawn notes and steps in the same order give the same poses; time enters
+   through the tick's step alone.
 2. A character's requests come from its one animation controller and from
    nothing else, for its layers, its aims and its weight-track clips
    alike. A character controller owns intent, movement and gameplay state
@@ -116,11 +119,20 @@ flowchart LR
     requests it, and when a bone is farther from its target than the
     chain's threshold. The time a chain takes in one evaluation is clamped
     and the excess is dropped.
-18. Advance runs for every character every tick. Evaluation runs for the
-    characters the world says need a pose that tick. A character that is
-    not evaluated loses no time, no event and no root motion; its chains'
-    state is untouched and accumulates no time, and they continue from it
-    when evaluation resumes.
+18. Advance runs for every character every tick. Each character carries a
+    pose option its animation controller sets: always, which it has unless
+    set otherwise, or when drawn. An always character is evaluated every
+    tick. A when-drawn character is evaluated on its first tick and on
+    every tick it is drawn recently. Whether an instance was drawn is the
+    [scene](scene.md)'s to say, for the main view and the shadow views
+    alike; the report describes a frame some frames back, and the world
+    holds it for one second of its time and passes it on as a note per
+    character. With no renderer no character is drawn recently. A
+    character that is not evaluated loses no time, no event and no root
+    motion; its pose, its bone transforms and its weight tracks stay those
+    of its last evaluation and are not stated as changed; its chains' state
+    is untouched and accumulates no time, and they continue from it when
+    evaluation resumes.
 19. Evaluation of one character reads its advanced state and immutable
     skeleton and clip data, and writes its own pose and control state.
     Characters are evaluated as tasks that share nothing else.
@@ -132,19 +144,21 @@ flowchart LR
     naming a bone the skeleton lacks fails by name. Nothing plays the rest
     pose in its place.
 22. Animation depends on content, core and the platform's tasks, and on
-    nothing in rendering. A run with no renderer runs all three phases.
+    nothing in rendering; the drawn note reaches it as an input, from the
+    world. A run with no renderer runs all three phases, with no character
+    drawn recently.
 23. A rigid object with a skeleton of its own uses the same clips, layers
-    and phases as a character. Its requests come from the world code that
-    owns the object, and from nothing else.
+    and phases as a character. Its requests and its pose option come from
+    the world code that owns the object, and from nothing else.
 
 ## An update
 
 ```mermaid
 flowchart TD
-    RQ["Requests, the character's world transform, the tick's step"] --> AD["Advance, every character: apply requests, move time, advance fades, collect events, take the root difference"]
-    AD --> NP{"World says this character needs a pose"}
+    RQ["Requests, the character's world transform, its drawn note, the tick's step"] --> AD["Advance, every character: apply requests, move time, advance fades, collect events, take the root difference"]
+    AD --> NP{"Pose option is always, or this is the first tick, or the character was drawn recently"}
     NP -- no --> PB
-    NP -- yes --> SM["Sample each live source of each layer"]
+    NP -- yes --> SM["Sample each live source of each layer and each weight-track clip"]
     SM --> BL["Blend: fades within a layer, then the stack from the base up"]
     BL --> CN["Controls: chains, aims, in model space"]
     CN --> LM["Local to model: parents before children"]
@@ -154,8 +168,8 @@ flowchart TD
 | Phase | Reads | Writes | Runs for |
 |---|---|---|---|
 | Advance | requests, the step, each source's clip lengths and rates, the root track, the event tables | each layer's sources, times and fade weights; each weight-track clip's time; the collected events; the root difference; finished and time-left notes | every character |
-| Evaluate | the advanced state, clip tracks, the skeleton's local rest transforms, masks, control bindings, the character's world transform | the pose in local and in model space; chain positions, velocities and accumulated time; an aim's interpolated point | characters that need a pose, as tasks |
-| Publish | the model-space pose, the skeleton's inverse bind, sampled weight tracks | skinning transforms as model space times inverse bind, three rows of four floats per bone in skeleton order; shape weights; model-space bone transforms; root motion; events | every character, at one fence |
+| Evaluate | the advanced state, clip tracks, weight-track clips' tracks, the skeleton's local rest transforms, masks, control bindings, the character's world transform | the pose in local and in model space; the sampled weight tracks; chain positions, velocities and accumulated time; an aim's interpolated point | always characters every tick; when-drawn characters on their first tick and when drawn recently; as tasks |
+| Publish | the model-space pose, the skeleton's inverse bind, sampled weight tracks | skinning transforms as model space times inverse bind, three rows of four floats per bone in skeleton order; shape weights; model-space bone transforms; root motion; events | every character, at one fence; a character not evaluated publishes its root motion and events, and nothing else as changed |
 
 ## Layers, sources and fades
 
@@ -275,8 +289,10 @@ Above: the animation controllers, which decide what plays, and the
 character controllers above them, which decide what a character does.
 Below: content, which holds what is played, and the platform's tasks, which
 run evaluation. Beside: the world, which orders the tick, owns each
-character's transform, says which characters need a pose and places things
-on bones; the geometry feed, which takes the published pose and weights as
+character's transform, passes on the drawn note and places things on
+bones; the [scene](scene.md), which alone decides what was drawn and
+reports it to the world, and of which animation reads nothing; the
+geometry feed, which takes the published pose and weights as
 given and decides nothing about them; movement, which takes root motion and
 decides where the character goes. Which clip plays when, cutscene
 timelines, what an event does, what binds a texture-transform track to a
