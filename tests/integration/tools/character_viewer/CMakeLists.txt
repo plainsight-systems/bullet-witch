@@ -39,3 +39,18 @@ add_test(NAME integration.tools.character_viewer.dump_without_asset_exits_2
     "${CMAKE_BINARY_DIR}/shaders/metal" "${CMAKE_CURRENT_BINARY_DIR}")
 set_tests_properties(integration.tools.character_viewer.dump_without_asset_exits_2
   PROPERTIES TIMEOUT 30)
+# image_unchanged compares the PW0 frame at 320 by 180 points with a
+# reference frame this path dumped at an earlier run (model_scene.hpp,
+# contract 2a, its last sentence); the reference's path is BW_SCENE_REFERENCE_FRAME (tests/CMakeLists.txt),
+# given on the configure command line, and the scenario is registered
+# DISABLED without it or without BW_GAME_DATA.
+add_test(NAME integration.tools.character_viewer.image_unchanged
+  COMMAND character_viewer_tests image_unchanged "$<TARGET_FILE:character_viewer>"
+    "${CMAKE_BINARY_DIR}/shaders/metal" "${CMAKE_CURRENT_BINARY_DIR}" "${BW_PW0_TEST_CACHE}"
+    "${BW_SCENE_REFERENCE_FRAME}")
+set_tests_properties(integration.tools.character_viewer.image_unchanged
+  PROPERTIES TIMEOUT 60 FIXTURES_REQUIRED pw0_cache)
+if(BW_GAME_DATA STREQUAL "" OR BW_SCENE_REFERENCE_FRAME STREQUAL "")
+  set_tests_properties(integration.tools.character_viewer.image_unchanged
+    PROPERTIES DISABLED TRUE)
+endif()

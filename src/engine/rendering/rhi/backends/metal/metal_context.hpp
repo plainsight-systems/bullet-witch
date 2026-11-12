@@ -1,25 +1,44 @@
 #ifndef BW_RENDERING_RHI_BACKENDS_METAL_METAL_CONTEXT_HPP
 #define BW_RENDERING_RHI_BACKENDS_METAL_METAL_CONTEXT_HPP
 // The Metal backend's one execution context (backend.hpp, Context): it turns
-// replayed commands into the frame's MTL::CommandBuffer and its encoders.
+// replayed commands into the frame's MTL::CommandBuffers and their encoders.
 //
 // Contract.
-//   Driven by the one submission thread (backend.hpp). The frame's command
-//   buffer is created at the first command of the frame that needs one and
-//   handed to the backend by finish_frame, which ends any open encoder
-//   first. One encoder is open at a time: a render encoder from
-//   begin_render_pass to end_render_pass, else a blit encoder for copies or
-//   a compute encoder for dispatches, ended when another kind is needed.
+//   Driven by the one submission thread (backend.hpp). The frame's commands
+//   go to a sequence of command buffers, its segments: the current segment
+//   is created at the first command of the frame that needs one, and every
+//   begin_render_pass ends the current segment and opens the pass on a new
+//   one, so the work recorded before a pass is a segment of its own that
+//   ends where the pass begins (the pass's segment before it). finish_frame
+//   ends any open encoder and hands the segments to the backend in
+//   recording order, which commits them in that order on the one queue;
+//   tracked hazards order a resource's uses across them as within one
+//   command buffer, as observed (metal_context.cpp,
+//   draw_indexed_indirect_count). One encoder is open at a time
+//   on the current segment: a render encoder from begin_render_pass to
+//   end_render_pass, else a blit encoder for copies or a compute encoder for
+//   dispatches, ended when another kind is needed.
+//   The counted multi-draw (command_list.hpp, Indirect work) needs work
+//   before its pass: its encode kernel is appended, as a compute encoder
+//   opened and ended at once, to the pass's segment before it, after
+//   whatever that segment recorded, and the pass then executes the commands
+//   the kernel wrote (metal_multi_draw.hpp), each binding its own copy of
+//   the top-level argument buffer with the draw's index in the last root
+//   constant word; every other draw's argument buffer holds 0 there.
+//   Nothing is recorded above the contract for it (backend.hpp).
+//   Markers on a command buffer (begin_marker between encoders) stay
+//   balanced per segment: at a split every open one is popped from the
+//   ending segment and pushed again, by name, on the new one.
 //   Back buffers (viewport.hpp): begin_render_pass acquires every back
 //   buffer among its color targets from its viewport before it touches the
 //   command buffer (metal_viewport.hpp, acquire), all or nothing: a failed
 //   acquisition releases, unpresented, every drawable the same pass
 //   acquired, leaves those viewports holding nothing, tracks nothing and is
 //   returned with no encoder opened or ended. When every acquisition
-//   succeeded, the frame's command buffer is created first and the
-//   viewports are then registered with the backend for present at
-//   submit_frame. Invariant: a viewport the backend tracks in a frame
-//   implies that frame has a command buffer, which finish_frame returns. A
+//   succeeded, the pass's segment is created first and the viewports are
+//   then registered with the backend for present at submit_frame.
+//   Invariant: a viewport the backend tracks in a frame implies that frame
+//   has a segment, which finish_frame returns. A
 //   copy from a back buffer that holds no drawable records nothing (the
 //   validation layer names it, BackBufferNotAcquired).
 //   Binding (binding_structure.hpp): the context keeps the 160-byte top
@@ -50,11 +69,13 @@
 #include "bw/rendering/rhi/build.hpp"
 
 #include "metal_api.hpp"
+#include "metal_multi_draw.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -99,6 +120,10 @@ public:
   void draw(const DrawArguments& arguments) override;
   void draw_indexed(const DrawIndexedArguments& arguments) override;
   void dispatch(const DispatchArguments& arguments) override;
+  void draw_indexed_indirect(Buffer& arguments, std::uint64_t offset) override;
+  void draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                   const MultiDrawArguments& arguments) override;
+  void dispatch_indirect(Buffer& arguments, std::uint64_t offset) override;
   void copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy) override;
   void copy_texture(Texture& source, Texture& destination,
                     const TextureCopyRegion& region) override;
@@ -116,10 +141,11 @@ public:
   void end_marker() override;
 
   // The backend's frame hooks. finish_frame ends any open encoder and
-  // returns the frame's command buffer (owned by the caller from here, +1),
-  // or null when the frame recorded no work. reset_rings rewinds every ring
-  // whose last frame is at or below completed_frame.
-  [[nodiscard]] MTL::CommandBuffer* finish_frame();
+  // replaces the contents of `segments` with the frame's command buffers in
+  // recording order (each owned by the caller from here, +1), none when the
+  // frame recorded no work. reset_rings rewinds every ring whose last frame
+  // is at or below completed_frame.
+  void finish_frame(std::vector<MTL::CommandBuffer*>& segments);
   void reset_rings(std::uint64_t completed_frame) noexcept;
 
 private:
@@ -136,9 +162,12 @@ private:
   struct Marker {
     MarkerWhere where{MarkerWhere::Closed};
     std::uint64_t encoder_serial{};
+    // A command buffer marker's name, to push it again on the next segment.
+    std::string name{};
   };
 
   MTL::CommandBuffer* command_buffer();
+  void split_for_pass();
   void end_encoder();
   MTL::BlitCommandEncoder* blit_encoder();
   MTL::ComputeCommandEncoder* compute_encoder();
@@ -148,11 +177,18 @@ private:
   void declare_written(MTL::ComputeCommandEncoder& encoder);
   void reset_bindings() noexcept;
   void bind_render_arguments();
+  [[nodiscard]] MTL::ComputeCommandEncoder* prepare_dispatch();
+  void encode_multi_draw(const MultiDrawPool::Slot& slot, Buffer& records, Buffer& counts,
+                         const MultiDrawArguments& arguments);
   [[nodiscard]] Ring& frame_ring() noexcept;
 
   MetalBackend* backend_;
   std::vector<Ring> rings_;
   MTL::CommandBuffer* command_buffer_{};
+  // The frame's ended segments, in recording order (each +1), and the one
+  // before the open pass (an observer of the last of them).
+  std::vector<MTL::CommandBuffer*> segments_{};
+  MTL::CommandBuffer* pre_pass_{};
   MTL::RenderCommandEncoder* render_encoder_{};
   MTL::BlitCommandEncoder* blit_encoder_{};
   MTL::ComputeCommandEncoder* compute_encoder_{};

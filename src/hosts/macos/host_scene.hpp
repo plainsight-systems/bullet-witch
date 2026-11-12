@@ -33,6 +33,10 @@ public:
   [[nodiscard]] virtual bool declare(rhi::Device& device, graph::FrameGraph& graph,
                                      graph::TextureHandle target, rhi::Extent2 size,
                                      double elapsed) = 0;
+
+  // The frame declare declared last was not executed to its end. A scene
+  // that keeps nothing from one frame for the next has nothing to drop.
+  virtual void frame_dropped() {}
 };
 
 } // namespace bw::hosts

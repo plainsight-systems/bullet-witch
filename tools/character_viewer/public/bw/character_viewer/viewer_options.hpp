@@ -37,6 +37,10 @@
 //   --script FILE     the input script (bw/character_viewer/script.hpp)
 //                     applied one command per frame; refused when empty.
 //                     Needs --asset.
+//   --grid N          every asset is drawn as N by N copies
+//                     (bw/rendering/model_scene.hpp, contract 1e): a
+//                     decimal integer from 1 to kMaxViewerGrid; refused
+//                     otherwise. Default 1. Needs --asset.
 // The executable requires at least one --asset; that is its check, after
 // the parse, with the usage line and exit 2 like a table error, since a
 // table row cannot state "at least once".
@@ -46,6 +50,8 @@
 namespace bw::character_viewer {
 
 inline constexpr std::uint32_t kMaxWindowPoints = 16384;
+// rendering::kMaxModelGrid.
+inline constexpr std::uint32_t kMaxViewerGrid = 64;
 
 struct ViewerOptions {
   double seconds{};
@@ -61,11 +67,12 @@ struct ViewerOptions {
   std::filesystem::path dump{};
   // Empty when --script is absent.
   std::filesystem::path script{};
+  std::uint32_t grid{1};
 };
 
 using ViewerParse = hosts::OptionParse<ViewerOptions>;
 
-// The nine rows above. The span views static storage.
+// The ten rows above. The span views static storage.
 [[nodiscard]] std::span<const hosts::OptionRow<ViewerOptions>> viewer_option_rows() noexcept;
 
 // parse_options over viewer_option_rows(): the arguments after the program

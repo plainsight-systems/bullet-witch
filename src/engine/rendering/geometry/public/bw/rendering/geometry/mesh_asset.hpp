@@ -13,8 +13,9 @@
 // Responsibility: the mesh payload of a cooked asset and its reader
 // (docs/architecture/content.md, "Asset kinds": vertex streams in the
 // vertex-pulling layout, a 16-bit index buffer, a draw list with base vertex
-// and material ids, bounds, the skeleton id it binds to; readers of a
-// payload live with the consuming system). The converter writes this
+// and material ids, clusters as index ranges each with a box, detail levels
+// as cluster ranges each with a screen size, bounds, the skeleton id it
+// binds to; readers of a payload live with the consuming system). The converter writes this
 // layout; the renderer uploads the stream and index bytes as they are and
 // pulls vertices with vertex_streams.hpp.
 //
@@ -22,7 +23,10 @@
 // or two vertex streams and one index buffer; draws under a group, each a
 // triangle-list range with a base vertex and a material; a bone map per
 // skinned draw listing skeleton bone positions; an axis-aligned box, a
-// center and a radius; morph targets for some groups. A Tangent
+// center and a radius; morph targets for some groups; clusters, each a run
+// of whole triangles of one draw with the box of its vertices and, when
+// its draw is bound whole to one bone, that bone; detail levels, each a run
+// of clusters with the screen size it is chosen at. A Tangent
 // attribute's w is the bitangent's sign, -1 or +1, equal over the vertices
 // of each triangle; the writer establishes it and decode does not read it.
 //
@@ -31,7 +35,8 @@
 //   MeshPayloadHeader at 0; then at the offsets it names, each a multiple
 //   of 16 from the payload start: group records, draw records, bone map
 //   records, bone entries (u32 skeleton bone positions), the string table
-//   (bytes, no terminators), and each group's stream and index bytes at
+//   (bytes, no terminators), cluster records, level records, and each
+//   group's stream and index bytes at
 //   the offsets its record names. Offsets are from the payload start.
 //
 // Contract (decode_mesh_asset refuses a payload that breaks a rule below and
@@ -66,8 +71,30 @@
 //      (content asset_id.hpp, split_asset_id).
 //   9. morph_set: kNoMorphSet, or n for the asset "<mesh id>.shapes.<n>";
 //      the shapes asset names this group and its vertex count.
+//  10. Each cluster: draw is below draw_count
+//      (ClusterDrawOutOfRange); index_count is a multiple of 3, at least 3
+//      and at most kMaxClusterIndices, and [first_index, first_index +
+//      index_count) lies within its draw's index range, first_index in the
+//      draw's group's index buffer as the draw's is
+//      (ClusterIndexRangeInvalid); bone is kNoClusterBone unless its draw
+//      has a bone map (ClusterBoneWithoutMap). The box is not checked
+//      against the vertices.
+//  11. Levels: level_count is 1 to kMaxMeshLevels; the levels' cluster
+//      ranges [first_cluster, first_cluster + cluster_count) are
+//      consecutive, in level order, each at least one cluster, and cover
+//      every cluster once (LevelRangeInvalid); within a level the
+//      clusters' draw indices do not decrease, so a draw's clusters at a
+//      level are one run (ClusterOrderInvalid). Level 0 is the most
+//      detailed. screen_size is not checked.
 //   Bounds: max, min, center, radius. They are not checked against the
 //   vertices; a mesh may carry zeros.
+//
+// A cluster is the unit culling tests and a draw record draws
+// (docs/architecture/scene.md, invariant 6). The 128-triangle ceiling is
+// the converter's rule and this reader's bound.
+// A cluster record carries a plain box and no backface or visibility data:
+// the dispatch tests a box against a frustum and a hierarchy and nothing
+// else.
 //
 // Core guidelines read: SL.con.3 (every offset and count is checked before
 // use), C.183 (records are copied out of the bytes, no punning), I.1 and
@@ -85,6 +112,10 @@ inline constexpr std::uint32_t kMeshSectionAlignment = 16;
 inline constexpr std::uint32_t kNoMaterial = 0xFFFFFFFFU;
 inline constexpr std::uint32_t kNoBoneMap = 0xFFFFFFFFU;
 inline constexpr std::uint32_t kNoMorphSet = 0xFFFFFFFFU;
+inline constexpr std::uint32_t kNoClusterBone = 0xFFFFFFFFU;
+// 128 triangles.
+inline constexpr std::uint32_t kMaxClusterIndices = 384;
+inline constexpr std::uint32_t kMaxMeshLevels = 8;
 
 struct MeshPayloadHeader {
   std::uint32_t group_count{};
@@ -104,11 +135,12 @@ struct MeshPayloadHeader {
   std::uint32_t bone_maps_offset{};
   std::uint32_t bone_entries_offset{};
   std::uint32_t strings_offset{};
-  std::uint32_t reserved0{};
-  std::uint32_t reserved1{};
-  std::uint32_t reserved2{};
+  std::uint32_t cluster_count{};
+  std::uint32_t level_count{};
+  std::uint32_t clusters_offset{};
+  std::uint32_t levels_offset{};
 };
-static_assert(sizeof(MeshPayloadHeader) == 104);
+static_assert(sizeof(MeshPayloadHeader) == 108);
 static_assert(std::is_trivially_copyable_v<MeshPayloadHeader>);
 
 struct MeshAttributeRecord {
@@ -161,8 +193,32 @@ struct MeshBoneMapRecord {
 };
 static_assert(sizeof(MeshBoneMapRecord) == 8);
 
-// Named failures; the index of the group, draw or map concerned is reported
-// beside it.
+// One cluster: a run of whole triangles of one draw. first_index is in the
+// draw's group's index buffer; the box is in the mesh's space; bone is the
+// skeleton bone position every vertex of the draw is bound to at full
+// weight, or kNoClusterBone.
+struct MeshClusterRecord {
+  std::uint32_t first_index{};
+  std::uint32_t index_count{};
+  std::uint32_t draw{};
+  std::uint32_t bone{kNoClusterBone};
+  std::array<float, 3> box_min{};
+  std::array<float, 3> box_max{};
+};
+static_assert(sizeof(MeshClusterRecord) == 40);
+
+// One detail level: a run of clusters and the screen size it is chosen at
+// (bw/rendering/scene/detail_level.hpp).
+struct MeshLevelRecord {
+  std::uint32_t first_cluster{};
+  std::uint32_t cluster_count{};
+  float screen_size{};
+  std::uint32_t reserved{};
+};
+static_assert(sizeof(MeshLevelRecord) == 16);
+
+// Named failures; the index of the group, draw, map, cluster or level
+// concerned is reported beside it.
 enum class MeshAssetError : std::uint8_t {
   None,
   HeaderTruncated,
@@ -185,11 +241,16 @@ enum class MeshAssetError : std::uint8_t {
   BoneMapOutOfRange,
   BoneEntriesOutOfRange,
   SkeletonIdInvalid,
+  ClusterDrawOutOfRange,
+  ClusterIndexRangeInvalid,
+  ClusterBoneWithoutMap,
+  LevelRangeInvalid,
+  ClusterOrderInvalid,
 };
 
 struct MeshAssetFailure {
   MeshAssetError error{MeshAssetError::None};
-  // The group, draw or bone map index concerned, or 0.
+  // The group, draw, bone map, cluster or level index concerned, or 0.
   std::uint32_t index{};
   VertexStreamError layout_error{VertexStreamError::None};
 };
@@ -202,11 +263,15 @@ public:
   [[nodiscard]] std::uint32_t group_count() const noexcept { return header_.group_count; }
   [[nodiscard]] std::uint32_t draw_count() const noexcept { return header_.draw_count; }
   [[nodiscard]] std::uint32_t bone_map_count() const noexcept { return header_.bone_map_count; }
+  [[nodiscard]] std::uint32_t cluster_count() const noexcept { return header_.cluster_count; }
+  [[nodiscard]] std::uint32_t level_count() const noexcept { return header_.level_count; }
   // Preconditions: the index is below the matching count.
   [[nodiscard]] MeshGroupRecord group(std::uint32_t index) const noexcept;
   [[nodiscard]] MeshDrawRecord draw(std::uint32_t index) const noexcept;
   [[nodiscard]] MeshBoneMapRecord bone_map(std::uint32_t index) const noexcept;
   [[nodiscard]] std::uint32_t bone_entry(std::uint32_t index) const noexcept;
+  [[nodiscard]] MeshClusterRecord cluster(std::uint32_t index) const noexcept;
+  [[nodiscard]] MeshLevelRecord level(std::uint32_t index) const noexcept;
   // The VertexStreamLayout the group's record states; validated by decode.
   [[nodiscard]] VertexStreamLayout layout(const MeshGroupRecord& group) const noexcept;
   // stream is 0 or 1 and below the group's stream_count.

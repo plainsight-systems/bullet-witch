@@ -12,6 +12,7 @@
 #include "bw/content/layers.hpp"
 #include "bw/content/loader.hpp"
 #include "bw/content_converter/asset_data.hpp"
+#include "bw/content_converter/clusters.hpp"
 #include "bw/math/matrix/matrix4.hpp"
 #include "bw/math/vector/vector3.hpp"
 #include "bw/rendering/geometry/mesh_asset.hpp"
@@ -31,8 +32,17 @@
 #include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/synchronization.hpp"
+#include "bw/rendering/scene/cpu_order.hpp"
+#include "bw/rendering/scene/culling.hpp"
+#include "bw/rendering/scene/depth_hierarchy.hpp"
+#include "bw/rendering/scene/depth_pass.hpp"
+#include "bw/rendering/scene/draw_records.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/forward_pass.hpp"
+#include "bw/rendering/scene/frame_views.hpp"
+#include "bw/rendering/scene/instance.hpp"
+#include "bw/rendering/scene/instance_set.hpp"
+#include "bw/rendering/scene/scene_geometry.hpp"
 #include "bw/rendering/scene/view.hpp"
 #include "bw/rendering/texture_asset.hpp"
 #include "bw/testing/harness.hpp"
@@ -306,8 +316,12 @@ void load_synthetic(rhi::Device& device, const SyntheticModel& model, const fs::
   fs::remove_all(root);
   fs::create_directories(root);
   cc::EncodeFailure failure;
-  write_asset(root, content::AssetKind::Mesh, kMeshId,
-              cc::encode_mesh_asset(mesh_of(model), failure), failure);
+  // The cluster and level tables the scene reads (mesh_asset.hpp, rules
+  // 10 and 11), as the converter writes them.
+  cc::MeshAssetData mesh = mesh_of(model);
+  require(cc::build_clusters(mesh).ok(), "the synthetic mesh's clusters build");
+  write_asset(root, content::AssetKind::Mesh, kMeshId, cc::encode_mesh_asset(mesh, failure),
+              failure);
   for (std::uint32_t i = 0; i < model.materials.size(); ++i) {
     write_asset(root, content::AssetKind::Material,
                 std::string(kMeshId) + ".material." + std::to_string(i),
@@ -347,17 +361,23 @@ std::vector<float> to_floats(std::span<const std::byte> halves) {
 }
 
 // One frame of the model into a cleared target of `format` through the
-// render graph: the target imported, a frame-only depth texture, one raster
-// pass, the target read back through the graph's readback mark; the
-// target's texels as read back.
+// render graph, the way model_scene.hpp declares one: the model's draws
+// entered as instances at `object_to_world`, the culling dispatch, the
+// depth pass with the hierarchy built after each of its draws, and the
+// forward pass drawing the main view's records and then the CPU order's
+// blended draws (model_draw.hpp, contract 3); the target read back through
+// the graph's readback mark.
 struct Frame {
   rhi::StagingLayout layout{};
   std::vector<std::byte> bytes{};
 };
-Frame draw_frame(rhi::Device& device, const rendering::ModelResources& model,
-                 const rendering::ModelDraw& draw, rhi::Format format, rhi::Extent2 extent,
-                 const bw::scene::View& view, const bw::scene::FixtureLight& light,
-                 const bw::math::Matrix4f& object_to_world) {
+Frame draw_frame(rhi::Device& device, const fs::path& shaders,
+                 const rendering::ModelResources& model, const rendering::ModelDraw& draw,
+                 const bw::scene::PipelineTable& table, rhi::Format format, rhi::Extent2 extent,
+                 const bw::scene::View& view, const bw::math::Matrix4f& view_to_clip,
+                 const bw::scene::FixtureLight& light, const bw::math::Matrix4f& object_to_world) {
+  namespace graph = bw::graph;
+  namespace scene = bw::scene;
   rhi::TextureDescription target_description{};
   target_description.extent = rhi::Extent3{extent.width, extent.height, 1};
   target_description.format = format;
@@ -370,27 +390,136 @@ Frame draw_frame(rhi::Device& device, const rendering::ModelResources& model,
   rendering::SceneBlocks blocks;
   require(rendering::update_scene_blocks(device, view, light, blocks).ok(), "the scene blocks");
 
+  // The scene: the mesh's tables and one instance per draw.
+  const geometry::MeshAssetView& mesh = model.mesh_view;
+  std::uint32_t indices = 0;
+  for (std::uint32_t g = 0; g < mesh.group_count(); ++g) {
+    indices += mesh.group(g).index_count;
+  }
+  scene::SceneGeometry tables(scene::SceneGeometryCapacity{
+      mesh.cluster_count(), mesh.draw_count() * mesh.level_count(), indices});
+  std::vector<geometry::VertexStreams> streams;
+  streams.reserve(model.mesh.groups.size());
+  for (const geometry::MeshGroupResources& group : model.mesh.groups) {
+    streams.push_back(group.block);
+  }
+  scene::SceneMesh scene_mesh;
+  require(tables.add_mesh(mesh, streams, scene_mesh).ok(), "the mesh's tables");
+  scene::InstanceSet instances(mesh.draw_count());
+  for (std::uint32_t d = 0; d < mesh.draw_count(); ++d) {
+    const std::uint32_t material = model.mesh.draws[d].material;
+    scene::InstanceDescription description{};
+    description.geometry = scene_mesh.draws[d];
+    description.material = draw.material_buffer->reference(draw.slots[material]);
+    description.blend_mode = draw.instances[material].blend_mode();
+    description.pipeline = draw.pipelines[draw.draw_pipelines[d]].table_index;
+    description.transform = object_to_world;
+    scene::InstanceId id{};
+    require(instances.enter(description, id) == scene::InstanceError::None, "an instance");
+  }
+  scene::InstanceBuffer instance_buffer;
+  scene::GeometryBuffers geometry_buffers;
+  require(scene::upload_geometry(device, tables, geometry_buffers).ok(), "upload_geometry");
+  bw::math::Matrix4f world_to_clip{};
+  std::memcpy(&world_to_clip, &view.world_to_clip, sizeof(world_to_clip));
+  scene::SceneViewDescription main{};
+  main.world_to_clip = world_to_clip;
+  main.view_to_clip = view_to_clip;
+  main.eye = bw::math::Vector3f{view.eye_position.x, view.eye_position.y, view.eye_position.z};
+  main.viewport_width = static_cast<float>(extent.width);
+  main.viewport_height = static_cast<float>(extent.height);
+  scene::FrameViews views;
+  views.begin_frame(scene::make_scene_view(main), false, 0.0);
+  scene::Culling culling;
+  require(scene::create_culling(device, shaders, culling).ok(), "create_culling");
+  scene::DepthHierarchy hierarchy;
+  require(scene::create_depth_hierarchy(device, shaders, hierarchy).ok() &&
+              hierarchy.begin_frame(device, extent).ok(),
+          "the depth hierarchy");
+  scene::DepthPass depth_pass;
+  require(
+      scene::create_depth_pass(device, shaders, rendering::kModelDepthFormat, depth_pass).ok() &&
+          depth_pass.prepare(device, table).ok(),
+      "the depth pass");
+  scene::CpuOrder order;
+  scene::order_cpu_draws(views.main(), instances.records(), tables.levels(), order);
+  std::vector<scene::DrawRecord> cpu(std::max<std::size_t>(order.blended.size(), 1U));
+  for (std::size_t k = 0; k < order.blended.size(); ++k) {
+    cpu[k].instance = order.blended[k].instance;
+    cpu[k].detail_level = order.blended[k].detail_level;
+  }
+  rhi::BufferDescription cpu_description{};
+  cpu_description.size = cpu.size() * sizeof(scene::DrawRecord);
+  cpu_description.usage = rhi::BufferUsage::ShaderResource;
+  cpu_description.initial_access = rhi::kShaderResourceMask;
+  cpu_description.debug_name = "cpu records";
+  const rhi::Ref<rhi::Buffer> cpu_records = take(
+      device.create_buffer(cpu_description, std::as_bytes(std::span<const scene::DrawRecord>(cpu))),
+      "the CPU records");
+  const rhi::Ref<rhi::ShaderResourceView> cpu_view = take(
+      device.create_shader_resource_view(cpu_records, rhi::BufferViewDescription{}), "its view");
+
   Frame frame{rhi::staging_layout(target->description(), 0), {}};
   const rhi::Ref<rhi::StagingBuffer> staging =
       take(device.create_staging_buffer(frame.layout.total_bytes, "model draw readback"),
            "create_staging_buffer");
   const rhi::Ref<rhi::GpuFence> fence = take(device.create_fence("model draw"), "create_fence");
 
-  namespace graph = bw::graph;
   graph::FrameGraph frame_graph;
+  require(scene::declare_instance_upload(device, instances, instance_buffer, frame_graph).ok(),
+          "declare_instance_upload");
   const graph::TextureHandle color = frame_graph.import_texture(
       graph::ImportedTexture{target.get(), rhi::Access::RenderTarget, rhi::Access::CopySource});
+  const scene::DepthHierarchyFrame built = scene::declare_depth_hierarchy(hierarchy, frame_graph);
+  scene::CullingFrame lists;
+  require(scene::declare_culling_phase_one(
+              culling, device, frame_graph,
+              scene::CullingInputs{&views, &instances, &instance_buffer, &tables, &geometry_buffers,
+                                   &hierarchy, built.history},
+              lists)
+              .ok(),
+          "culling phase one");
   const graph::TextureHandle depth = frame_graph.create_texture(graph::FrameTextureDescription{
       extent, rendering::kModelDepthFormat, rhi::ClearValue{}, "model draw depth"});
+  scene::DepthDrawInputs depth_draw{depth,
+                                    graph::Contents::Clear,
+                                    &lists,
+                                    scene::DrawPhase::PhaseOne,
+                                    &instance_buffer,
+                                    &geometry_buffers,
+                                    blocks.view.get()};
+  scene::declare_depth_draw(depth_pass, frame_graph, depth_draw);
+  scene::declare_depth_hierarchy_build(hierarchy, frame_graph, built, depth,
+                                       scene::DepthHierarchyBuild::First);
+  scene::declare_culling_phase_two(culling, frame_graph, lists, built.first_build);
+  depth_draw.contents = graph::Contents::Keep;
+  depth_draw.phase = scene::DrawPhase::PhaseTwo;
+  scene::declare_depth_draw(depth_pass, frame_graph, depth_draw);
+  scene::declare_depth_hierarchy_build(hierarchy, frame_graph, built, depth,
+                                       scene::DepthHierarchyBuild::Second);
   const std::array<graph::TextureUse, 2> uses{
       graph::TextureUse{color, graph::Access::Attachment, graph::Contents::Clear, 0},
-      graph::TextureUse{depth, graph::Access::DepthWrite, graph::Contents::Clear, 0}};
+      graph::TextureUse{depth, graph::Access::DepthTest, graph::Contents::Keep, 0}};
+  const std::array<graph::BufferUse, 3> list_uses{
+      graph::BufferUse{lists.records, graph::Access::Arguments},
+      graph::BufferUse{lists.counts, graph::Access::Arguments},
+      graph::BufferUse{instance_buffer.handle, graph::Access::Sampled}};
   auto record = [&](graph::RecordContext& context) {
     rendering::bind_scene_blocks(context.list(), blocks);
-    rendering::record_model_draw(context.list(), draw, model, object_to_world);
+    rendering::ModelDrawFrame drawn{};
+    drawn.culling = &lists;
+    drawn.records = context.buffer(lists.records);
+    drawn.counts = context.buffer(lists.counts);
+    drawn.instance_buffer = &instance_buffer;
+    drawn.geometry_buffers = &geometry_buffers;
+    drawn.order = &order;
+    drawn.instances = &instances;
+    drawn.geometry = &tables;
+    drawn.cpu_records_index = cpu_view->buffer_index();
+    rendering::record_model_draw(context.list(), draw, drawn);
   };
   frame_graph.add_pass(
-      graph::PassDeclaration{"model draw", graph::PassKind::Raster, uses, {}, record});
+      graph::PassDeclaration{"model draw", graph::PassKind::Raster, uses, list_uses, record});
   frame_graph.mark_readback(color, graph::ReadBack{staging.get(), fence.get(), 0});
   const graph::SchedulePolicy* policy = graph::schedule_policy_for(rhi::BackendKind::Metal);
   require(policy != nullptr, "the Metal schedule policy");
@@ -405,6 +534,7 @@ Frame draw_frame(rhi::Device& device, const rendering::ModelResources& model,
   require(!ended.gpu_fault, "the GPU reports no fault");
   frame.bytes.assign(lock.bytes.begin(), lock.bytes.end());
   require(device.unlock_staging(*staging) == rhi::StagingError::None, "unlock_staging");
+  device.wait_idle();
   return frame;
 }
 
@@ -562,13 +692,12 @@ Texel texel_at(const Frame& frame, std::uint32_t cell, std::uint32_t column) {
 // tinted toward the base hue, the opacity curve, a reflectance under 2
 // percent seen at a grazing half vector in a second frame whose light is
 // the view mirrored about the quad's normal (the grazing fade), the
-// additive blend over the clear color, the depth test and write (a far
-// opaque quad drawn after a near one is hidden; an opaque quad drawn after a
-// nearer translucent one shows), a quad wound the other way (no cull), and
-// a dark base masking its reflectance by its luminance. The tinted
-// reflection's quad is authored one cell to the right and read in a third
-// frame whose object_to_world, a 90-degree turn about the view axis then a
-// translation, brings it back (the vertex stage's row-vector transform).
+// additive blend over the clear color, the depth (a far opaque quad entered
+// after a near one is hidden; a translucent quad in front of an opaque one
+// blends over it, since blended draws follow every opaque one), a quad wound the other way (no
+// cull), and a dark base masking its reflectance by its luminance. The tinted reflection's quad is
+// authored one cell to the right and read in a third frame whose object_to_world, a 90-degree turn
+// about the view axis then a translation, brings it back (the vertex stage's row-vector transform).
 // Each reads its LitMaterial through the generated loader on the GPU.
 void forward_lit_pixels(const Arguments& args) {
   using B = m::BlendMode;
@@ -643,8 +772,8 @@ void forward_lit_pixels(const Arguments& args) {
   model.quads[kMovedCell].shift = 1.0F;
   model.quads[kShownCell].z = 0.25F;
   model.quads[kReversedCell].reversed = true;
-  // Drawn after every cell's quad: behind the near opaque quad of the hidden
-  // cell, and an opaque quad behind the shown cell's translucent one.
+  // Entered after every cell's quad: behind the near opaque quad of the
+  // hidden cell, and an opaque quad behind the shown cell's translucent one.
   model.quads.push_back({.cell = kHiddenCell, .material = kCells, .z = 0.75F});
   model.quads.push_back({.cell = kShownCell, .material = kCells + 1});
   const std::unique_ptr<rhi::Device> device = metal_device();
@@ -657,8 +786,9 @@ void forward_lit_pixels(const Arguments& args) {
               .ok(),
           "the material buffer");
   rendering::ModelDraw draw;
+  bw::scene::PipelineTable table;
   const rendering::ModelDrawFailure made = rendering::create_model_draw(
-      *device, resources, args.shaders, buffer, rhi::Format::R16G16B16A16Float, draw);
+      *device, resources, args.shaders, buffer, table, rhi::Format::R16G16B16A16Float, draw);
   require(made.ok(), "the draw is made: " + made.detail);
 
   const V3 eye{0.0F, 0.0F, 10.0F};
@@ -670,8 +800,9 @@ void forward_lit_pixels(const Arguments& args) {
   light.direction = {l[0], l[1], l[2]};
   light.color = {2.0F, 2.0F, 2.0F};
   light.ambient = {0.1F, 0.2F, 0.3F};
-  const Frame frame = draw_frame(*device, resources, draw, rhi::Format::R16G16B16A16Float, kTarget,
-                                 view, light, kIdentity);
+  const Frame frame =
+      draw_frame(*device, args.shaders, resources, draw, table, rhi::Format::R16G16B16A16Float,
+                 kTarget, view, kIdentity, light, kIdentity);
   // The second frame's light: the view at the grazing cell's centre
   // mirrored about its normal.
   bw::scene::FixtureLight grazing_light = light;
@@ -686,8 +817,9 @@ void forward_lit_pixels(const Arguments& args) {
     grazing_light.direction = {mirrored[0], mirrored[1], mirrored[2]};
     grazing_light.color = {4.0F, 4.0F, 4.0F};
   }
-  const Frame grazing_frame = draw_frame(*device, resources, draw, rhi::Format::R16G16B16A16Float,
-                                         kTarget, view, grazing_light, kIdentity);
+  const Frame grazing_frame =
+      draw_frame(*device, args.shaders, resources, draw, table, rhi::Format::R16G16B16A16Float,
+                 kTarget, view, kIdentity, grazing_light, kIdentity);
   // The third frame's object_to_world: (x, y) to (-y, x), then the
   // translation that takes the moved quad's authored centre to its cell's.
   bw::math::Matrix4f moved = kIdentity;
@@ -703,8 +835,9 @@ void forward_lit_pixels(const Arguments& args) {
     moved =
         turn * bw::math::Matrix4f::translation(bw::math::Vector3f{cx + cy, cy - authored_x, 0.0F});
   }
-  const Frame moved_frame = draw_frame(*device, resources, draw, rhi::Format::R16G16B16A16Float,
-                                       kTarget, view, light, moved);
+  const Frame moved_frame =
+      draw_frame(*device, args.shaders, resources, draw, table, rhi::Format::R16G16B16A16Float,
+                 kTarget, view, kIdentity, light, moved);
 
   // Per cell, one or two texels: the column in the cell, drawn or left the
   // clear color; the quad whose shading is expected (the cell's own unless
@@ -717,6 +850,9 @@ void forward_lit_pixels(const Arguments& args) {
     std::string_view name;
     std::vector<Probe> probes;
     std::optional<std::uint32_t> quad{};
+    // The opaque quad a blended one is drawn over, when not the clear
+    // color.
+    std::optional<std::uint32_t> under{};
   };
   constexpr std::uint32_t kCenter = kCellPixels / 2U;
   const std::array<Row, kCells> rows{{
@@ -734,7 +870,10 @@ void forward_lit_pixels(const Arguments& args) {
       {"reflectance under 2 percent at a grazing half vector", {{kCenter}}},
       {"additive over", {{kCenter}}},
       {"depth: a far opaque quad drawn after a near one is hidden", {{kCenter}}},
-      {"depth: an opaque quad drawn after a nearer translucent one shows", {{kCenter}}, kCells + 1},
+      {"depth: a translucent quad in front of an opaque one blends over it",
+       {{kCenter}},
+       std::nullopt,
+       kCells + 1},
       {"back-facing quad drawn", {{kCenter}}},
       {"reflectance masked by base luminance", {{kCenter}}},
   }};
@@ -748,6 +887,12 @@ void forward_lit_pixels(const Arguments& args) {
       const V3 v =
           normalized({eye[0] - texel.world[0], eye[1] - texel.world[1], eye[2] - texel.world[2]});
       V3 expected{kClear[0], kClear[1], kClear[2]};
+      if (rows[cell].under.has_value()) {
+        // The opaque quad behind, drawn before every blended draw
+        // (model_draw.hpp, contract 3).
+        const Quad& behind = model.quads[*rows[cell].under];
+        expected = shade(template_attributes(specs[behind.material], behind, v), v, light);
+      }
       if (probe.drawn) {
         const Attributes a = template_attributes(spec, quad, v);
         const V3 lit = shade(a, v, grazing ? grazing_light : light);
@@ -755,7 +900,7 @@ void forward_lit_pixels(const Arguments& args) {
         const float opacity = blended ? a.opacity : 1.0F;
         const float under = spec.blend == B::Additive ? 1.0F : 1.0F - opacity;
         for (std::size_t c = 0; c < 3; ++c) {
-          expected[c] = (lit[c] * opacity) + (kClear[c] * under);
+          expected[c] = (lit[c] * opacity) + (expected[c] * under);
         }
       }
       for (std::size_t c = 0; c < 3; ++c) {
@@ -823,8 +968,9 @@ void failures_named(const Arguments& args) {
     require(m::create_material_buffer(*device, capacity, "model draw", buffer).ok(), i,
             "the material buffer");
     rendering::ModelDraw draw;
+    bw::scene::PipelineTable table;
     const rendering::ModelDrawFailure failure = rendering::create_model_draw(
-        *device, resources, shaders, buffer, rhi::Format::R16G16B16A16Float, draw);
+        *device, resources, shaders, buffer, table, rhi::Format::R16G16B16A16Float, draw);
     const std::optional<std::string_view> name = rows[i].name;
     const bool named = name.has_value() ? failure.name == *name : !failure.name.empty();
     const bool material_error = rows[i].error != E::MaterialFailed ||
@@ -856,8 +1002,9 @@ void pw0_draws_with_materials(const Arguments& args) {
           "the material buffer");
   constexpr rhi::Format kColor = rhi::Format::R8G8B8A8Unorm;
   rendering::ModelDraw draw;
+  bw::scene::PipelineTable table;
   const rendering::ModelDrawFailure made =
-      rendering::create_model_draw(*device, model, args.shaders, buffer, kColor, draw);
+      rendering::create_model_draw(*device, model, args.shaders, buffer, table, kColor, draw);
   require(made.ok(), "PW0's draw is made: index " + std::to_string(made.index) + " " + made.name +
                          ": " + made.detail);
   require(draw.instances.size() == model.materials.size() &&
@@ -873,8 +1020,10 @@ void pw0_draws_with_materials(const Arguments& args) {
   }
   const bw::scene::View scene_view =
       bw::scene::make_view(bw::scene::world_to_clip(*view, 1.0F), view->eye, 64.0F, 64.0F);
-  const Frame frame = draw_frame(*device, model, draw, kColor, kExtent, scene_view,
-                                 bw::scene::fixture_light(), kIdentity);
+  const Frame frame = draw_frame(
+      *device, args.shaders, model, draw, table, kColor, kExtent, scene_view,
+      bw::math::Matrix4f::perspective(view->vertical_fov, 1.0F, view->near_plane, view->far_plane),
+      bw::scene::fixture_light(), kIdentity);
 
   rendering::SceneBlocks blocks;
   require(

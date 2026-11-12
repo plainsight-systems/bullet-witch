@@ -39,6 +39,9 @@ enum class Command : std::uint8_t {
   Draw,
   DrawIndexed,
   Dispatch,
+  DrawIndexedIndirect,
+  DrawIndexedIndirectCount,
+  DispatchIndirect,
   CopyBuffer,
   CopyTexture,
   CopyBufferToTexture,
@@ -95,6 +98,15 @@ struct DrawBlockPayload {
 struct RootConstantsPayload {
   std::uint32_t first_word{};
   std::uint32_t count{};
+};
+struct IndirectPayload {
+  Buffer* arguments{};
+  std::uint64_t offset{};
+};
+struct MultiDrawPayload {
+  Buffer* records{};
+  Buffer* counts{};
+  MultiDrawArguments arguments{};
 };
 struct CopyBufferPayload {
   Buffer* source{};
@@ -301,6 +313,22 @@ void CommandList::dispatch(const DispatchArguments& arguments) {
   ++command_count_;
 }
 
+void CommandList::draw_indexed_indirect(Buffer& arguments, std::uint64_t offset) {
+  append(bytes_, Command::DrawIndexedIndirect, IndirectPayload{&arguments, offset});
+  ++command_count_;
+}
+
+void CommandList::draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                              const MultiDrawArguments& arguments) {
+  append(bytes_, Command::DrawIndexedIndirectCount, MultiDrawPayload{&records, &counts, arguments});
+  ++command_count_;
+}
+
+void CommandList::dispatch_indirect(Buffer& arguments, std::uint64_t offset) {
+  append(bytes_, Command::DispatchIndirect, IndirectPayload{&arguments, offset});
+  ++command_count_;
+}
+
 void CommandList::copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy) {
   append(bytes_, Command::CopyBuffer, CopyBufferPayload{&source, &destination, copy});
   ++command_count_;
@@ -462,6 +490,21 @@ Status<ExecuteError> CommandList::replay(Context& context) const {
     case Command::Dispatch:
       context.dispatch(record.payload<DispatchArguments>());
       break;
+    case Command::DrawIndexedIndirect: {
+      const auto payload = record.payload<IndirectPayload>();
+      context.draw_indexed_indirect(*payload.arguments, payload.offset);
+      break;
+    }
+    case Command::DrawIndexedIndirectCount: {
+      const auto payload = record.payload<MultiDrawPayload>();
+      context.draw_indexed_indirect_count(*payload.records, *payload.counts, payload.arguments);
+      break;
+    }
+    case Command::DispatchIndirect: {
+      const auto payload = record.payload<IndirectPayload>();
+      context.dispatch_indirect(*payload.arguments, payload.offset);
+      break;
+    }
     case Command::CopyBuffer: {
       const auto payload = record.payload<CopyBufferPayload>();
       context.copy_buffer(*payload.source, *payload.destination, payload.copy);

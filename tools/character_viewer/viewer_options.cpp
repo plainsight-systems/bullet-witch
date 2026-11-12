@@ -103,6 +103,21 @@ std::string_view take_script(ViewerOptions& options, std::string_view value) {
   return {};
 }
 
+// A decimal integer that is the whole text, in [1, kMaxViewerGrid].
+std::string_view take_grid(ViewerOptions& options, std::string_view text) {
+  std::uint32_t value = 0;
+  const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (text.empty() || parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+      value == 0U || value > kMaxViewerGrid) {
+    return "is not a whole number from 1 to 64";
+  }
+  options.grid = value;
+  return {};
+}
+
+// The refusal names the ceiling in words, so it follows the constant.
+static_assert(kMaxViewerGrid == 64);
+
 constexpr std::array kRows{
     Row{"--seconds", "N", &take_seconds, {}, false},
     Row{"--fullscreen", {}, &take_fullscreen, {}, false},
@@ -113,6 +128,7 @@ constexpr std::array kRows{
     Row{"--asset", "ID", &take_asset, "--cache", true},
     Row{"--dump", "FILE", &take_dump, "--asset", false},
     Row{"--script", "FILE", &take_script, "--asset", false},
+    Row{"--grid", "N", &take_grid, "--asset", false},
 };
 
 } // namespace

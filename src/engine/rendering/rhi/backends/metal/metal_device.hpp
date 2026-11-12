@@ -9,16 +9,20 @@
 //   RequiredCapabilityMissing naming TypedDescriptorArrays when argument
 //   buffers are below tier 2 and ShaderFloor below the Apple7 family;
 //   BackendInitializationFailed naming the step when the queue, an event,
-//   the descriptor heaps or the rings cannot be created, when the
+//   the descriptor heaps, the rings or the multi-draw encode pipeline
+//   (metal_multi_draw.hpp) cannot be created, when the
 //   converter's bind points are not 0, 1, 2, or when the binding structure
 //   is not the 160-byte layout the converter builds.
-//   Frames: one MTL::CommandBuffer per frame (metal_context.hpp). submit_frame
-//   presents every drawable the frame acquired on it (metal_viewport.hpp),
-//   commits it, then a second command buffer that signals the frame's value
-//   on the frame event; completed_frame is the event's value; the waits block
-//   in the event and never spin. Fences written in the frame become
-//   Submitted at its submit. take_gpu_fault reports, once, that either
-//   command buffer of a frame completed with an error.
+//   Frames: the frame's command buffers, its segments (metal_context.hpp).
+//   submit_frame presents every drawable the frame acquired on the last
+//   segment (metal_viewport.hpp), commits the segments in recording order,
+//   then one more command buffer that signals the frame's value on the frame
+//   event; completed_frame is the event's value; the waits block in the
+//   event and never spin. Fences written in the frame become Submitted at
+//   its submit. take_gpu_fault reports, once, that any command buffer of a
+//   frame completed with an error.
+//   Capabilities::max_multi_draw_count is kMaxMultiDrawCount
+//   (metal_multi_draw.hpp).
 //   Viewports: the surface kind is MetalLayer; create_viewport configures
 //   the layer and makes the back buffer (metal_viewport.hpp);
 //   resize_viewport and set_vsync forward to the viewport.
@@ -38,6 +42,7 @@
 #include "metal_context.hpp"
 #include "metal_formats.hpp"
 #include "metal_memory.hpp"
+#include "metal_multi_draw.hpp"
 
 #include <array>
 #include <atomic>
@@ -124,6 +129,7 @@ public:
   [[nodiscard]] ResourceMemory& memory() noexcept { return *memory_; }
   [[nodiscard]] const DescriptorHeaps& descriptor_heaps() const noexcept { return *descriptors_; }
   [[nodiscard]] const WritableResources& writable_resources() const noexcept { return *writable_; }
+  [[nodiscard]] MultiDrawPool& multi_draw() noexcept { return *multi_draw_; }
   [[nodiscard]] const BindingStructure& binding_structure() const noexcept {
     return *options_.binding_structure;
   }
@@ -176,7 +182,10 @@ private:
   std::unique_ptr<ResourceMemory> memory_{};
   std::unique_ptr<DescriptorHeaps> descriptors_{};
   std::unique_ptr<WritableResources> writable_{};
+  std::unique_ptr<MultiDrawPool> multi_draw_{};
   std::unique_ptr<MetalContext> context_{};
+  // The frame's segments at submit_frame; kept to reuse its storage.
+  std::vector<MTL::CommandBuffer*> frame_segments_{};
   std::vector<MetalGpuFence*> fences_written_{};
   // Observers: a viewport is destroyed by the delete queue only after the
   // frame that acquired its back buffer completed, which is after that

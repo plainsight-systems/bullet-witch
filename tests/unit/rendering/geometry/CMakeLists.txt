@@ -17,6 +17,7 @@ endforeach()
 # holds the decoders.
 set(geometry_mesh_asset_scenarios
   rejections_named
+  cluster_tables
   morph_targets_rejections_named)
 add_executable(geometry_mesh_asset_tests mesh_asset_tests.cpp)
 target_link_libraries(geometry_mesh_asset_tests PRIVATE bw_test_harness bw_geometry)

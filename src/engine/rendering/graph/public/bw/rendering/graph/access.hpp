@@ -32,12 +32,17 @@
 //        DepthWrite       DepthStencilWrite
 //        ComputeWrite     Raster: UnorderedAccessGraphics
 //                         Compute: UnorderedAccessCompute
-//        Arguments        IndirectArguments
+//        Arguments        Raster: IndirectArguments | ShaderResourcePixel |
+//                         ShaderResourceNonPixel
+//                         Compute: IndirectArguments
 //        CopySource       CopySource
 //        CopyDestination  CopyDestination
 //      A Raster pass's sampled state carries both shader stages because a
 //      vertex shader pulls its vertices from buffers (geometry.md), so one
-//      state serves every draw of the pass.
+//      state serves every draw of the pass. A Raster pass's argument
+//      state carries the same two stages because a counted multi-draw's
+//      shaders read the record they are drawn from (bw/rendering/scene/
+//      draw_records.hpp, contract 2), and a pass names a resource once.
 //   3. is_read(access) is true for Sampled, DepthTest, Arguments and
 //      CopySource; is_write for the rest. is_attachment is true for
 //      Attachment, DepthTest and DepthWrite: the uses a render pass binds.
@@ -118,7 +123,10 @@ enum class Access : std::uint8_t {
     return kind == PassKind::Compute ? rhi::Access::UnorderedAccessCompute
                                      : rhi::Access::UnorderedAccessGraphics;
   case Access::Arguments:
-    return rhi::Access::IndirectArguments;
+    return kind == PassKind::Raster
+               ? rhi::Access::IndirectArguments | rhi::Access::ShaderResourcePixel |
+                     rhi::Access::ShaderResourceNonPixel
+               : rhi::Access::IndirectArguments;
   case Access::CopySource:
     return rhi::Access::CopySource;
   case Access::CopyDestination:

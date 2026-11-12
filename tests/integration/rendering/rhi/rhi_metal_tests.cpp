@@ -1616,6 +1616,190 @@ void cube_offscreen_matches_reference(const std::filesystem::path& artifacts) {
   require(triangles_of_seen_faces == 6U, "three faces each cover at least 200 compared texels");
 }
 
+// ---- Indirect work ------------------------------------------------------------------
+
+// The indirect fixtures (permutation.cpp, IndirectQuads and IndirectStore):
+// indirect_quads draws quad q, 16 pixels wide at x 16 q, from indices
+// [6 q, 6 q + 6) of kQuadIndices, colored ((i + 1) / 4, 1, 0, 1) with i the
+// draw's index (bindless.hlsli, BW_DRAW_INDEX);
+// indirect_store stores root constant 2 at byte root constant 1 + 4 g of the
+// storage buffer root constant 0 names, once per thread group g.
+constexpr std::array<std::uint16_t, 24> kQuadIndices{0, 1, 2,  2,  1, 3,  4,  5,  6,  6,  5,  7,
+                                                     8, 9, 10, 10, 9, 11, 12, 13, 14, 14, 13, 15};
+constexpr std::array<float, 4> kOpaqueBlack{0.0F, 0.0F, 0.0F, 1.0F};
+
+struct IndirectScene {
+  Fixtures quads;
+  std::unique_ptr<LoadedArtifact> store;
+  Ref<GraphicsPipeline> draw;
+  Ref<ComputePipeline> compute;
+  Ref<Buffer> indices;
+  Ref<Texture> target;
+};
+
+IndirectScene make_indirect_scene(Device& device, const std::filesystem::path& artifacts) {
+  IndirectScene scene{};
+  scene.quads = Fixtures{load_fixture(artifacts, "indirect_quads"),
+                         load_fixture(artifacts, bw::geometry::kVertexColorShader)};
+  scene.store = load_fixture(artifacts, "indirect_store");
+  scene.draw = make_pipeline(device, scene.quads, Format::R8G8B8A8Unorm, CullMode::None);
+  scene.compute = take(
+      device.compute_pipeline(ComputePipelineDescription{&scene.store->artifact, "indirect store"}),
+      "compute_pipeline");
+  BufferDescription description{};
+  description.size = sizeof(kQuadIndices);
+  description.stride = 2;
+  description.usage = BufferUsage::Index;
+  description.initial_access = Access::VertexOrIndexBuffer;
+  description.debug_name = "quad indices";
+  scene.indices = take(device.create_buffer(description, std::as_bytes(std::span(kQuadIndices))),
+                       "create the quad indices");
+  scene.target = make_target(device, Extent3{64, 64, 1}, Format::R8G8B8A8Unorm, kOpaqueBlack,
+                             "indirect target");
+  return scene;
+}
+
+// A buffer with `usage` in `access`, holding `words`.
+Ref<Buffer> make_words(Device& device, std::span<const std::uint32_t> words, BufferUsage usage,
+                       Access access, std::string_view name) {
+  BufferDescription description{};
+  description.size = words.size_bytes();
+  description.usage = usage;
+  description.initial_access = access;
+  description.debug_name = name;
+  return take(device.create_buffer(description, std::as_bytes(words)), "create_buffer");
+}
+
+// Records indirect_store over the storage buffer `view` names: words 0 to 2
+// of the root constants as above.
+void bind_store(CommandList& list, const IndirectScene& scene, const UnorderedAccessView& view,
+                std::uint32_t offset, std::uint32_t value) {
+  list.set_compute_pipeline(*scene.compute);
+  const std::array<std::uint32_t, 3> constants{view.storage_buffer_index().value, offset, value};
+  list.set_root_constants(0, constants);
+}
+
+void transition_buffer(CommandList& list, Buffer& buffer, Access before, Access after) {
+  const Transition one{&buffer, before, after};
+  list.transition(TransitionBatch{std::span<const Transition>{&one, 1}});
+}
+
+// Quad q of the staged target holds the color of the draw with index
+// `draw_index`, or the clear color for kNotDrawn, at the texel in the middle
+// of its column.
+constexpr std::int32_t kNotDrawn = -1;
+void require_quad(const StagedTexture& staged, std::uint32_t quad, std::int32_t draw_index) {
+  const bool drawn = draw_index != kNotDrawn;
+  const std::array<long, 4> color{
+      drawn ? to_unorm8(static_cast<float>(draw_index + 1) * 0.25F).value : 0L, drawn ? 255L : 0L,
+      0L, 255L};
+  require_texel(staged, quad * 16U + 8U, 32U, color,
+                "quad " + std::to_string(quad) +
+                    (drawn ? " drawn with index " + std::to_string(draw_index) : " not drawn"));
+}
+
+// (command_list.hpp, Indirect work: draw_indexed_indirect_count draws
+// min(n, maximum) times, draw i with record i, and reads nothing of a record
+// at or past that number; the CPU never reads the count). Four records over
+// a maximum of 4, the count buffer created holding 4 and overwritten with 2
+// by a dispatch earlier in the same frame: records 0 and 1 (quads 2 and 0)
+// are drawn, records 2 and 3 (quads 1 and 3) are not, so the count the GPU
+// wrote was read and nothing past it was drawn. (command_list.hpp, Indirect
+// work: a shader reads the index of its draw through the bindless include):
+// quad 2 holds index 0's color and quad 0 index 1's, so the index reached
+// the shader per draw.
+void multi_draw_draws_count_records(const std::filesystem::path& artifacts) {
+  const std::unique_ptr<Device> device = make_device(create_on_miss());
+  const IndirectScene scene = make_indirect_scene(*device, artifacts);
+  constexpr std::array<std::uint32_t, 4> kRecordQuads{2, 0, 1, 3};
+  std::array<IndirectDrawRecord, 4> records{};
+  for (std::uint32_t i = 0; i < records.size(); ++i) {
+    records[i] = IndirectDrawRecord{i, DrawIndexedArguments{6, 1, 6U * kRecordQuads[i], 0, 0}};
+  }
+  BufferDescription description{};
+  description.size = sizeof(records);
+  description.usage = BufferUsage::IndirectArguments;
+  description.initial_access = Access::IndirectArguments;
+  description.debug_name = "records";
+  const Ref<Buffer> record_buffer =
+      take(device->create_buffer(description, std::as_bytes(std::span(records))), "records");
+  const std::array<std::uint32_t, 1> initial_count{4};
+  const Ref<Buffer> count = make_words(
+      *device, initial_count, BufferUsage::UnorderedAccess | BufferUsage::IndirectArguments,
+      Access::UnorderedAccessCompute, "count");
+  const Ref<UnorderedAccessView> count_view =
+      take(device->create_unordered_access_view(count, BufferViewDescription{}), "count view");
+
+  CommandList list;
+  bind_store(list, scene, *count_view, 0, 2);
+  list.dispatch(DispatchArguments{1, 1, 1});
+  transition_buffer(list, *count, Access::UnorderedAccessCompute, Access::IndirectArguments);
+  list.begin_render_pass(clear_pass(*scene.target, "multi-draw"));
+  list.set_graphics_pipeline(*scene.draw);
+  list.set_index_buffer(*scene.indices, IndexFormat::Uint16, 0);
+  list.draw_indexed_indirect_count(*record_buffer, *count,
+                                   MultiDrawArguments{0, kIndirectDrawRecordBytes, 0, 4});
+  list.end_render_pass();
+  const StagedTexture staged = stage_texture(*device, list, *scene.target);
+  require_quad(staged, 2, 0);
+  require_quad(staged, 0, 1);
+  require_quad(staged, 1, kNotDrawn);
+  require_quad(staged, 3, kNotDrawn);
+  device->wait_idle();
+}
+
+// (command_list.hpp, Indirect work: draw_indexed_indirect draws once with the
+// DrawIndexedArguments at `offset`; dispatch_indirect dispatches once with
+// the DispatchArguments there). The arguments sit at offset 16 of buffers
+// the CPU filled, so a backend that drew or dispatched with direct
+// arguments, or read at offset 0, is caught: the draw covers quad 1 alone,
+// and three thread groups store 7 into words 0 to 2 of a buffer whose word 3
+// keeps its 0.
+void indirect_single_draw_and_dispatch(const std::filesystem::path& artifacts) {
+  const std::unique_ptr<Device> device = make_device(create_on_miss());
+  const IndirectScene scene = make_indirect_scene(*device, artifacts);
+  const std::array<std::uint32_t, 9> draw_words{0, 0, 0, 0, 6, 1, 6, 0, 0};
+  const Ref<Buffer> draw_arguments = make_words(*device, draw_words, BufferUsage::IndirectArguments,
+                                                Access::IndirectArguments, "draw args");
+  const std::array<std::uint32_t, 7> dispatch_words{0, 0, 0, 0, 3, 1, 1};
+  const Ref<Buffer> dispatch_arguments =
+      make_words(*device, dispatch_words, BufferUsage::IndirectArguments, Access::IndirectArguments,
+                 "dispatch args");
+  const std::array<std::uint32_t, 4> zeros{};
+  const Ref<Buffer> stored =
+      make_words(*device, zeros, BufferUsage::UnorderedAccess | BufferUsage::CopySource,
+                 Access::UnorderedAccessCompute, "stored");
+  const Ref<UnorderedAccessView> stored_view =
+      take(device->create_unordered_access_view(stored, BufferViewDescription{}), "stored view");
+  const Ref<StagingBuffer> staging =
+      take(device->create_staging_buffer(sizeof(zeros), "stored readback"), "staging");
+  const Ref<GpuFence> fence = take(device->create_fence("stored fence"), "create_fence");
+
+  CommandList list;
+  bind_store(list, scene, *stored_view, 0, 7);
+  list.dispatch_indirect(*dispatch_arguments, 16);
+  transition_buffer(list, *stored, Access::UnorderedAccessCompute, Access::CopySource);
+  list.copy_buffer_to_staging(*stored, *staging, BufferCopy{0, 0, sizeof(zeros)});
+  list.write_fence(*fence);
+  list.begin_render_pass(clear_pass(*scene.target, "indirect draw"));
+  list.set_graphics_pipeline(*scene.draw);
+  list.set_index_buffer(*scene.indices, IndexFormat::Uint16, 0);
+  list.draw_indexed_indirect(*draw_arguments, 16);
+  list.end_render_pass();
+  const StagedTexture staged = stage_texture(*device, list, *scene.target);
+  for (std::uint32_t quad = 0; quad < 4; ++quad) {
+    require_quad(staged, quad, quad == 1U ? 0 : kNotDrawn);
+  }
+  const StagingLock lock =
+      take(device->lock_staging(*staging, *fence, WaitPolicy::Block), "lock_staging(Block)");
+  for (std::size_t word = 0; word < 4; ++word) {
+    require(get_u32(lock.bytes, word * 4U) == (word < 3U ? 7U : 0U),
+            "word " + std::to_string(word) + " holds what three groups store");
+  }
+  require(device->unlock_staging(*staging) == StagingError::None, "unlock_staging");
+  device->wait_idle();
+}
+
 #if BW_RHI_DEBUG
 // (backend.hpp, wrap_with_validation: the validation layer reports a failure
 // once with the code, the resource's debug name and the command's name) and
@@ -1684,6 +1868,8 @@ constexpr std::array kScenarios{
     Scenario{"decode_from_second_stream", &decode_from_second_stream},
     Scenario{"decode_with_base_vertex", &decode_with_base_vertex},
     Scenario{"cube_offscreen_matches_reference", &cube_offscreen_matches_reference},
+    Scenario{"multi_draw.draws_count_records", &multi_draw_draws_count_records},
+    Scenario{"indirect.single_draw_and_dispatch", &indirect_single_draw_and_dispatch},
 #if BW_RHI_DEBUG
     Scenario{"validation_rejects_undeclared_transition_by_name",
              &validation_rejects_undeclared_transition_by_name},

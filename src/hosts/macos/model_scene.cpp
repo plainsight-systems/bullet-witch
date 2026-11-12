@@ -93,7 +93,7 @@ bool build_asset_scene(rhi::Device& device, const GameHostOptions& options,
     return false;
   }
   const rendering::ModelSceneFailure built = rendering::build_model_scene(
-      device, loader, id.id, target_format, options.shaders, scene.scene);
+      device, loader, id.id, target_format, options.shaders, 1, scene.scene);
   if (!built.ok()) {
     std::cerr << "game_host: " << rendering::model_scene_failure_text(built, options.asset) << '\n';
     return false;
@@ -114,13 +114,16 @@ bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::T
   if (!view.has_value()) {
     return fail_unframeable(asset, mesh);
   }
-  const rendering::ModelSceneFailure declared = rendering::declare_model_scene(
-      scene, device, graph, target, size, *view, asset_object_to_world(elapsed, mesh));
+  const rendering::ModelSceneFailure declared =
+      rendering::declare_model_scene(scene, device, graph, target, size, *view,
+                                     asset_object_to_world(elapsed, mesh), false, elapsed);
   if (!declared.ok()) {
     std::cerr << "game_host: " << rendering::model_scene_failure_text(declared, asset) << '\n';
     return false;
   }
   return true;
 }
+
+void AssetScene::frame_dropped() { scene.hierarchy.invalidate(); }
 
 } // namespace bw::hosts

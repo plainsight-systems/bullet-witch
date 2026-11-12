@@ -560,7 +560,7 @@ void access_rhi_access_table() {
       {Access::ComputeWrite, PassKind::Raster, true, A::UnorderedAccessGraphics},
       {Access::ComputeWrite, PassKind::Compute, true, A::UnorderedAccessCompute},
       {Access::ComputeWrite, PassKind::Copy, false, A::Unknown},
-      {Access::Arguments, PassKind::Raster, true, A::IndirectArguments},
+      {Access::Arguments, PassKind::Raster, true, A::IndirectArguments | raster_sampled},
       {Access::Arguments, PassKind::Compute, true, A::IndirectArguments},
       {Access::Arguments, PassKind::Copy, false, A::Unknown},
       {Access::CopySource, PassKind::Raster, false, A::Unknown},

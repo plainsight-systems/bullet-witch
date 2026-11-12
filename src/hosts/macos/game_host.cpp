@@ -282,6 +282,9 @@ Host::FrameOutcome Host::draw_frame(double elapsed) {
   const rhi::Status<rhi::ExecuteError> executed = device_->execute(list);
   if (!executed.ok()) {
     if (executed.error() == rhi::ExecuteError::BackBufferSizeMismatch) {
+      // The frame's graph did not run to its end; every other failure ends
+      // the run.
+      scene_->frame_dropped();
       return resize_after_mismatch();
     }
     fail("frame execute", executed.error(), executed.detail());

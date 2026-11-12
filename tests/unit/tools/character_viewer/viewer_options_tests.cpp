@@ -32,13 +32,15 @@ struct Row {
   std::array<std::string_view, 2> assets{};
   std::size_t asset_count{};
   std::string_view script{};
+  std::uint32_t grid{1};
 };
 
-// (viewer_options.hpp, the rows --size, --asset, --dump and --script;
+// (viewer_options.hpp, the rows --size, --asset, --dump, --script and --grid;
 // option_table.hpp, contract 1, 2 and 4 as amended for a repeatable row): the
 // default size; two --asset accumulate in argument order; --size's accepted
 // and refused forms; --dump and --script without --asset and with an empty
-// file; --script stored; the usage line's repeatable, --dump and --script
+// file; --script stored; --grid's default, accepted value and refusal
+// above kMaxViewerGrid; the usage line's repeatable, --dump and --script
 // entries.
 void rows() {
   const std::string usage = bw::character_viewer::viewer_usage();
@@ -76,6 +78,20 @@ void rows() {
           "s.txt"},
       Row{{"--script", "s.txt"}, 2, OptionError::RequiredOptionMissing, "--script"},
       Row{{"--cache", "c", "--asset", "model.a", "--script", ""}, 6, OptionError::InvalidValue, ""},
+      Row{{"--cache", "c", "--asset", "model.a", "--grid", "3"},
+          6,
+          OptionError::None,
+          "",
+          1280,
+          720,
+          {"model.a"},
+          1,
+          "",
+          3},
+      Row{{"--cache", "c", "--asset", "model.a", "--grid", "65"},
+          6,
+          OptionError::InvalidValue,
+          "65"},
   };
   for (std::size_t i = 0; i < table.size(); ++i) {
     const Row& row = table[i];
@@ -95,6 +111,7 @@ void rows() {
       require(parse.options.assets[a] == row.assets.at(a), i, "the assets in argument order");
     }
     require(parse.options.script == row.script, i, "the script " + parse.options.script.string());
+    require(parse.options.grid == row.grid, i, "the grid " + std::to_string(parse.options.grid));
   }
 }
 

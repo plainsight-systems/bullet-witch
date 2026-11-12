@@ -38,10 +38,11 @@
 //
 // Uses. validate_use rejects use during a transition and use without the
 // required access. A use does not change the tracked access: it changes only
-// through a declared transition (resources.hpp, Viewable). transitions.hpp
-// also names an indirect buffer in IndirectArguments; no Context command
-// takes an indirect buffer (backend.hpp, Context), so there is no use to
-// check.
+// through a declared transition (resources.hpp, Viewable). The three indirect
+// commands check each buffer they read for IndirectArguments
+// (transitions.hpp; command_list.hpp, Indirect work); a buffer whose tracked
+// access holds more bits, as a record buffer a Raster pass also reads in its
+// shaders does, passes, since the check is that the required bits are held.
 //
 // Per-resource state. The layer keeps a TransitionState only while a
 // transition is open on the resource, keyed by the Viewable's address; a
@@ -435,11 +436,11 @@ public:
     return inner_->set_draw_block(bytes, layout);
   }
 
-  // command_list.hpp, Blocks: first + n above kRootConstantWords is
-  // RootConstantsOutOfRange.
+  // command_list.hpp, Blocks: first + n above kCallerRootConstantWords is
+  // RootConstantsOutOfRange (the last word of the block is the backend's).
   void set_root_constants(std::uint32_t first_word, std::span<const std::uint32_t> words) override {
-    if (first_word > shaders::kRootConstantWords ||
-        words.size() > shaders::kRootConstantWords - first_word) {
+    if (first_word > shaders::kCallerRootConstantWords ||
+        words.size() > shaders::kCallerRootConstantWords - first_word) {
       report(ValidationFailure{.code = ValidationCode::RootConstantsOutOfRange,
                                .command = "set_root_constants"});
     }
@@ -451,26 +452,49 @@ public:
   // Order: CommandOutsideRenderPass; NoPipelineBound; DrawBlockNotSet;
   // StaticSlotNotSet (check_bindings).
   void draw(const DrawArguments& arguments) override {
-    check_draw("draw");
+    static_cast<void>(check_draw("draw"));
     inner_->draw(arguments);
   }
 
   void draw_indexed(const DrawIndexedArguments& arguments) override {
-    check_draw("draw_indexed");
+    static_cast<void>(check_draw("draw_indexed"));
     inner_->draw_indexed(arguments);
   }
 
   // Order: CommandInsideRenderPass; NoPipelineBound (no compute pipeline);
   // DrawBlockNotSet; StaticSlotNotSet (check_bindings).
   void dispatch(const DispatchArguments& arguments) override {
-    if (!report_if_inside_pass("dispatch", {})) {
-      if (compute_pipeline_ == nullptr) {
-        report(ValidationFailure{.code = ValidationCode::NoPipelineBound, .command = "dispatch"});
-      } else {
-        check_bindings(compute_pipeline_->binding(), compute_pipeline_->debug_name(), "dispatch");
-      }
-    }
+    static_cast<void>(check_dispatch("dispatch"));
     inner_->dispatch(arguments);
+  }
+
+  // command_list.hpp, Indirect work: the two draws are legal only inside a
+  // pass and dispatch_indirect only outside one, each with the checks of its
+  // direct form first, then the use of each buffer it reads (records before
+  // the count). Order: check_draw or check_dispatch; the buffers' uses
+  // (IndirectArguments). The offsets, the stride and the maximum are
+  // preconditions this layer has no code for and does not check.
+  void draw_indexed_indirect(Buffer& arguments, std::uint64_t offset) override {
+    if (!check_draw("draw_indexed_indirect")) {
+      static_cast<void>(check_use(arguments, Access::IndirectArguments, "draw_indexed_indirect"));
+    }
+    inner_->draw_indexed_indirect(arguments, offset);
+  }
+
+  void draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                   const MultiDrawArguments& arguments) override {
+    constexpr std::string_view command = "draw_indexed_indirect_count";
+    if (!check_draw(command) && !check_use(records, Access::IndirectArguments, command)) {
+      static_cast<void>(check_use(counts, Access::IndirectArguments, command));
+    }
+    inner_->draw_indexed_indirect_count(records, counts, arguments);
+  }
+
+  void dispatch_indirect(Buffer& arguments, std::uint64_t offset) override {
+    if (!check_dispatch("dispatch_indirect")) {
+      static_cast<void>(check_use(arguments, Access::IndirectArguments, "dispatch_indirect"));
+    }
+    inner_->dispatch_indirect(arguments, offset);
   }
 
   // ---- Copies --------------------------------------------------------------
@@ -710,35 +734,51 @@ private:
     }
   }
 
-  void check_draw(std::string_view command) const noexcept {
+  // Returns true when it reported.
+  bool check_draw(std::string_view command) const noexcept {
     if (report_if_outside_pass(command, {})) {
-      return;
+      return true;
     }
     if (graphics_pipeline_ == nullptr) {
       report(ValidationFailure{.code = ValidationCode::NoPipelineBound, .command = command});
-      return;
+      return true;
     }
-    check_bindings(graphics_pipeline_->binding(), graphics_pipeline_->description().debug_name,
-                   command);
+    return check_bindings(graphics_pipeline_->binding(),
+                          graphics_pipeline_->description().debug_name, command);
+  }
+
+  // Returns true when it reported.
+  bool check_dispatch(std::string_view command) const noexcept {
+    if (report_if_inside_pass(command, {})) {
+      return true;
+    }
+    if (compute_pipeline_ == nullptr) {
+      report(ValidationFailure{.code = ValidationCode::NoPipelineBound, .command = command});
+      return true;
+    }
+    return check_bindings(compute_pipeline_->binding(), compute_pipeline_->debug_name(), command);
   }
 
   // command_list.hpp, Blocks: a pipeline that reads the draw block with none
   // set since the frame began is DrawBlockNotSet; one whose static slot mask
   // names a slot not set since then is StaticSlotNotSet. Each names the
-  // pipeline; one failure per command, the draw block first.
-  void check_bindings(const PipelineBinding& binding, std::string_view name,
+  // pipeline; one failure per command, the draw block first. Returns true
+  // when it reported.
+  bool check_bindings(const PipelineBinding& binding, std::string_view name,
                       std::string_view command) const noexcept {
     if (binding.uses_draw_block && !draw_block_set_) {
       report(ValidationFailure{
           .code = ValidationCode::DrawBlockNotSet, .resource_name = name, .command = command});
-      return;
+      return true;
     }
     const unsigned missing = static_cast<unsigned>(binding.static_slot_mask) &
                              ~static_cast<unsigned>(static_slots_set_) & 0xFFU;
     if (missing != 0U) {
       report(ValidationFailure{
           .code = ValidationCode::StaticSlotNotSet, .resource_name = name, .command = command});
+      return true;
     }
+    return false;
   }
 
   [[nodiscard]] static bool is_back_buffer(const Viewable& resource) noexcept {

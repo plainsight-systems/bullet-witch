@@ -51,6 +51,23 @@
 // from byte 80, outside the 64 bytes of 16 root constants. uint4[4] is the
 // same 64 dense bytes the root signature declares. The Vulkan push constant
 // block is dense (array stride 4) and keeps uint root[16].
+//
+// The draw's index within a counted multi-draw is read through BW_DRAW_INDEX
+// (bw/rendering/rhi/command_list.hpp, Indirect work): i for draw i of a
+// counted multi-draw, 0 in every other draw. It is the one read for every
+// target, so a shader's own text has no target difference:
+//   DXIL targets: root constant word kDrawIndexRootConstantWord (15,
+//   root_layout.hpp), the block's last word, which callers do not write
+//   (kCallerRootConstantWords) and the backend writes per draw.
+//   Vulkan: the DrawIndex built-in. A push constant cannot vary within one
+//   multi-draw, so the word is not used there. The built-in is declared
+//   here as a global input (inline SPIR-V: the DrawParameters capability and
+//   its extension), so no entry point names it; the declaration makes every
+//   Vulkan shader declare the capability, which the counted multi-draw
+//   requires of the device in any case.
+// DrawIndex is a vertex-stage input on Vulkan, so only a vertex shader reads
+// BW_DRAW_INDEX; a pixel shader that needs the value receives it from its
+// vertex shader as a nointerpolation output.
 #ifndef BW_BINDLESS_HLSLI
 #define BW_BINDLESS_HLSLI
 
@@ -86,6 +103,10 @@ struct BwPushConstants {
   [[vk::binding(8, 2)]] ConstantBuffer<Type> bw_block_8[];                                         \
   static const Type Name = bw_block_8[bw_push.draw_index];
 
+[[vk::ext_extension("SPV_KHR_shader_draw_parameters")]] [[vk::ext_capability(/* DrawParameters */ 4427)]] [[vk::ext_builtin_input(/* DrawIndex */ 4426)]] static const uint bw_vk_draw_index;
+
+#define BW_DRAW_INDEX bw_vk_draw_index
+
 #else // BW_TARGET_D3D12 or BW_TARGET_METAL: the same DXIL.
 
 SamplerState bw_sampler[] : register(s0, space10);
@@ -106,6 +127,9 @@ cbuffer bw_root_constants : register(b0, space3) {
 #define BW_STATIC_BLOCK(Type, Name, slot) ConstantBuffer<Type> Name : register(b##slot, space4);
 
 #define BW_DRAW_BLOCK(Type, Name) ConstantBuffer<Type> Name : register(b0, space0);
+
+#define BW_DRAW_INDEX_ROOT_CONSTANT_WORD 15
+#define BW_DRAW_INDEX BW_ROOT_CONSTANT(BW_DRAW_INDEX_ROOT_CONSTANT_WORD)
 
 #endif
 

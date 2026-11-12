@@ -37,12 +37,14 @@ namespace {
 using bw::testing::require;
 
 // cache is given to the dump and script runs alone, which need it
-// non-empty; the usage probe takes three arguments.
+// non-empty; the usage probe takes three arguments; image_unchanged takes
+// the reference frame fifth.
 struct Arguments {
   std::string viewer;
   std::string shaders;
   std::string output;
   std::string cache;
+  std::string reference;
 };
 
 struct ChildResult {
@@ -373,8 +375,27 @@ void dump_without_asset_exits_2(const Arguments& args) {
           "stderr has no usage line: " + result.transcript);
 }
 
+// (model_scene.hpp, contract 2a, its last sentence): the PW0 asset drawn
+// at 320 by 180 points under an empty script dumps the same bytes as the
+// reference frame this path dumped at an earlier run.
+void image_unchanged(const Arguments& args) {
+  const std::string file = args.output + "/image_unchanged.png";
+  const std::string script = args.output + "/image_unchanged.script";
+  std::error_code removed;
+  std::filesystem::remove(file, removed);
+  std::ofstream(script, std::ios::trunc).close();
+  run_child(args.viewer, args.output,
+            {"--cache", args.cache.c_str(), "--shaders", args.shaders.c_str(), "--asset",
+             "model.pw0.mesh", "--size", "320x180", "--script", script.c_str(), "--dump",
+             file.c_str()},
+            "image_unchanged", 0);
+  require(read_file(file) == read_file(args.reference),
+          "the dump " + file + " equals the reference " + args.reference);
+}
+
 using Scenario = bw::testing::Scenario<Arguments>;
 constexpr std::array kScenarios{
+    Scenario{"image_unchanged", &image_unchanged},
     Scenario{"dumps_first_frame", &dumps_first_frame},
     Scenario{"dump_without_asset_exits_2", &dump_without_asset_exits_2},
     Scenario{"scripted_input_dumps", &scripted_input_dumps},
@@ -397,20 +418,29 @@ int main(int argc, char** argv) {
   return bw::testing::run_scenario(
       argc, argv, kScenarios,
       "<character_viewer> <metal artifact directory> <output directory>, then for "
-      "dumps_first_frame and scripted_input_dumps only <PW0 cache>",
+      "dumps_first_frame and scripted_input_dumps only <PW0 cache>, and for image_unchanged "
+      "<PW0 cache> <reference frame>",
       [scenario](std::span<char* const> rest, Arguments& out) {
+        if (scenario == "image_unchanged") {
+          if (rest.size() != 5U || std::string_view(rest[3]).empty() ||
+              std::string_view(rest[4]).empty()) {
+            return false;
+          }
+          out = Arguments{rest[0], rest[1], rest[2], rest[3], rest[4]};
+          return true;
+        }
         if (std::find(kCacheScenarios.begin(), kCacheScenarios.end(), scenario) !=
             kCacheScenarios.end()) {
           if (rest.size() != 4U || std::string_view(rest[3]).empty()) {
             return false;
           }
-          out = Arguments{rest[0], rest[1], rest[2], rest[3]};
+          out = Arguments{rest[0], rest[1], rest[2], rest[3], {}};
           return true;
         }
         if (rest.size() != 3U) {
           return false;
         }
-        out = Arguments{rest[0], rest[1], rest[2], {}};
+        out = Arguments{rest[0], rest[1], rest[2], {}, {}};
         return true;
       });
 }

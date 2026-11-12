@@ -205,6 +205,12 @@ set(BW_GAME_DATA "" CACHE PATH
 # (integration/tools/content_converter); the scenarios that read converted
 # PW0 assets require the fixture and are given this path.
 set(BW_PW0_TEST_CACHE "${CMAKE_BINARY_DIR}/tests/pw0_cache")
+# A PNG the character viewer dumped of the PW0 asset at 320 by 180 points
+# at an earlier run of this path, given on the configure command line and
+# never written into a tracked file; empty registers the image comparison
+# DISABLED (integration/tools/character_viewer).
+set(BW_SCENE_REFERENCE_FRAME "" CACHE PATH
+  "Reference frame of the PW0 asset for the character viewer's image comparison")
 add_subdirectory(unit/content)
 add_subdirectory(unit/tools/content_converter)
 add_subdirectory(unit/tools/capture)

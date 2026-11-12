@@ -6,9 +6,11 @@
 #include "bw/rendering/rhi/synchronization.hpp"
 #include "bw/rendering/rhi/transitions.hpp"
 #include "bw/rendering/rhi/viewport.hpp"
+#include "bw/rendering/shaders/root_layout.hpp"
 
 #include "metal_device.hpp"
 #include "metal_formats.hpp"
+#include "metal_multi_draw.hpp"
 #include "metal_objects.hpp"
 #include "metal_viewport.hpp"
 
@@ -16,6 +18,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <span>
@@ -65,6 +69,9 @@ MetalContext::~MetalContext() {
   if (command_buffer_ != nullptr) {
     command_buffer_->release();
   }
+  for (MTL::CommandBuffer* segment : segments_) {
+    segment->release();
+  }
   for (const Ring& ring : rings_) {
     ring.buffer->release();
   }
@@ -90,6 +97,34 @@ MTL::CommandBuffer* MetalContext::command_buffer() {
 #endif
   }
   return command_buffer_;
+}
+
+// Ends the current segment where a pass begins (metal_context.hpp, contract).
+// Precondition: no encoder is open. A frame whose first command is the pass
+// gets an empty segment before it, so a multi-draw in the pass has a segment
+// to encode into. Command buffer markers are popped from the ending segment
+// and pushed again on the new one, outermost first.
+void MetalContext::split_for_pass() {
+  MTL::CommandBuffer* previous = command_buffer();
+#if BW_RHI_DEBUG
+  for (auto it = markers_.rbegin(); it != markers_.rend(); ++it) {
+    if (it->where == MarkerWhere::CommandBuffer) {
+      previous->popDebugGroup();
+    }
+  }
+#endif
+  segments_.push_back(previous);
+  pre_pass_ = previous;
+  command_buffer_ = nullptr;
+#if BW_RHI_DEBUG
+  MTL::CommandBuffer* next = command_buffer();
+  const AutoreleaseScope pool;
+  for (const Marker& marker : markers_) {
+    if (marker.where == MarkerWhere::CommandBuffer) {
+      next->pushDebugGroup(make_string(marker.name));
+    }
+  }
+#endif
 }
 
 // Ends whichever encoder is open and resets the per-encoder bindings. No
@@ -313,13 +348,14 @@ void MetalContext::end_transitions(const TransitionBatch& batch) {
 
 // ---- Render passes -------------------------------------------------------------
 
-// Ends any open encoder, starts the command buffer if needed, builds the
-// render pass descriptor (load and store actions from metal_formats.hpp),
-// takes the pass's visibility buffer when it has occlusion queries, begins
-// the render encoder, then sets the viewport to the whole of color target 0.
-// The clear values are the textures' (resources.hpp, ClearValue). The
-// scissor is reset to the whole target with the viewport. The description's
-// load and store actions pass through unchanged.
+// Ends any open encoder, ends the current segment and starts the pass's own
+// (split_for_pass), builds the render pass descriptor (load and store
+// actions from metal_formats.hpp), takes the pass's visibility buffer when it
+// has occlusion queries, begins the render encoder, then sets the viewport to
+// the whole of color target 0. The clear values are the textures'
+// (resources.hpp, ClearValue). The scissor is reset to the whole target with
+// the viewport. The description's load and store actions pass through
+// unchanged.
 // Back buffers first, all or nothing: each one among the color targets is
 // acquired from its viewport for the frame being recorded. On the first
 // failure, every drawable this pass acquired (not one an earlier pass of the
@@ -328,8 +364,8 @@ void MetalContext::end_transitions(const TransitionBatch& batch) {
 // nothing is tracked (backend.hpp, begin_render_pass). A back buffer whose
 // viewport replaced or released it reaches no viewport and is
 // BackBufferUnavailable. Only after every acquisition succeeded is the
-// command buffer created, and only then are the viewports tracked for
-// present, so a tracked viewport always has the frame's command buffer
+// pass's segment created, and only then are the viewports tracked for
+// present, so a tracked viewport always has a segment of the frame
 // (metal_context.hpp, Back buffers).
 ExecuteError MetalContext::begin_render_pass(const RenderPassDescription& pass) {
   const AutoreleaseScope pool;
@@ -373,6 +409,7 @@ ExecuteError MetalContext::begin_render_pass(const RenderPassDescription& pass) 
     return error;
   }
   end_encoder();
+  split_for_pass();
   MTL::CommandBuffer* commands = command_buffer();
   for (std::size_t i = 0; i < viewport_count; ++i) {
     backend_->track_viewport(*viewports[i]);
@@ -571,8 +608,11 @@ ExecuteError MetalContext::set_draw_block(std::span<const std::byte> bytes,
 
 void MetalContext::set_root_constants(std::uint32_t first_word,
                                       std::span<const std::uint32_t> words) {
+  // The caller's words only: the last word is the draw's index, which stays
+  // 0 here (command_list.hpp, Blocks; draw_indexed_indirect_count).
   const RootParameter& constants = backend_->binding_structure().root_constants();
-  const std::uint32_t capacity = constants.argument_size / kRootConstantWordBytes;
+  const std::uint32_t capacity =
+      std::min(constants.argument_size / kRootConstantWordBytes, shaders::kCallerRootConstantWords);
   if (first_word >= capacity) {
     return;
   }
@@ -616,6 +656,15 @@ void MetalContext::dispatch(const DispatchArguments& arguments) {
   if (compute_pipeline_ == nullptr || render_encoder_ != nullptr) {
     return;
   }
+  MTL::ComputeCommandEncoder* encoder = prepare_dispatch();
+  const auto& group = compute_pipeline_->thread_group_size();
+  encoder->dispatchThreadgroups(MTL::Size::Make(arguments.x, arguments.y, arguments.z),
+                                MTL::Size::Make(group[0], group[1], group[2]));
+}
+
+// The compute encoder with the bound pipeline, its residency and the
+// top-level argument buffer set, for a direct or an indirect dispatch.
+MTL::ComputeCommandEncoder* MetalContext::prepare_dispatch() {
   MTL::ComputeCommandEncoder* encoder = compute_encoder();
   encoder->setComputePipelineState(compute_pipeline_->state());
   declare_residency(*encoder);
@@ -623,9 +672,181 @@ void MetalContext::dispatch(const DispatchArguments& arguments) {
     declare_written(*encoder);
   }
   encoder->setBytes(arguments_.data(), arguments_.size(), kArgumentBufferBindPoint);
+  return encoder;
+}
+
+// ---- Indirect work ---------------------------------------------------------------
+
+// The converter runtime's indirect indexed draw over the bound index buffer:
+// it binds the arguments at the draw arguments bind point and the index type
+// at the uniforms bind point for the vertex stage, as its direct draw binds
+// them, and draws with the arguments the GPU reads at `offset`
+// (MTLDrawIndexedPrimitivesIndirectArguments has DrawIndexedArguments' five
+// words in the same order). The first index is in indices from the bound
+// index buffer offset.
+void MetalContext::draw_indexed_indirect(Buffer& arguments, std::uint64_t offset) {
+  if (render_encoder_ == nullptr || graphics_pipeline_ == nullptr || index_buffer_ == nullptr) {
+    return;
+  }
+  bind_render_arguments();
+  IRRuntimeDrawIndexedPrimitives(render_encoder_, primitive_, index_type(index_format_),
+                                 index_buffer_, index_offset_,
+                                 static_cast<MetalBuffer&>(arguments).buffer(), offset);
+}
+
+// dispatch with the thread group counts the GPU reads at `offset`
+// (MTLDispatchThreadgroupsIndirectArguments: three 32-bit counts, as
+// DispatchArguments).
+void MetalContext::dispatch_indirect(Buffer& arguments, std::uint64_t offset) {
+  if (compute_pipeline_ == nullptr || render_encoder_ != nullptr) {
+    return;
+  }
+  MTL::ComputeCommandEncoder* encoder = prepare_dispatch();
   const auto& group = compute_pipeline_->thread_group_size();
-  encoder->dispatchThreadgroups(MTL::Size::Make(arguments.x, arguments.y, arguments.z),
+  encoder->dispatchThreadgroups(static_cast<MetalBuffer&>(arguments).buffer(), offset,
                                 MTL::Size::Make(group[0], group[1], group[2]));
+}
+
+namespace {
+
+// The encode kernel's arguments, set with setBytes at its buffer 0: the
+// layout of EncodeArguments in multi_draw_encode.metal.
+struct EncodeArguments {
+  MTL::ResourceID commands{};
+  std::uint64_t records{};
+  std::uint64_t count{};
+  std::uint64_t ranges{};
+  std::uint64_t indices{};
+  std::uint64_t copies{};
+  std::uint64_t resource_heap{};
+  std::uint64_t sampler_heap{};
+  std::uint32_t stride{};
+  std::uint32_t maximum{};
+  std::uint32_t index_32{};
+  std::uint32_t primitive{};
+  std::uint32_t draw_index_word{};
+  std::uint32_t padding{};
+};
+static_assert(sizeof(EncodeArguments) == 88);
+// The kernel copies the top-level argument buffer as 40 words into copies
+// 64 words apart (multi_draw_encode.metal, kArgumentWords, kCopyStrideWords).
+static_assert(kEngineArgumentBufferBytes == 40U * sizeof(std::uint32_t));
+static_assert(kArgumentCopyStride == 64U * sizeof(std::uint32_t));
+static_assert(kEngineArgumentBufferBytes <= kArgumentCopyStride);
+
+} // namespace
+
+// The counted multi-draw (command_list.hpp, Indirect work). The kernel is
+// appended to the pass's segment before it (metal_context.hpp, contract), so
+// it is ordered after every command recorded before the pass, the ones that
+// wrote the records and the count among them, and before the pass. The
+// order between the segments rests on hazard tracking of the heap buffers
+// and of the indirect command buffer, range buffer and copies buffer across
+// command buffers of one queue: observed on this machine (the RHI
+// integration tests and the Metal API and shader validation layers report
+// nothing), not a documented guarantee.
+// The draw's index (command_list.hpp, Indirect work; root_layout.hpp,
+// kDrawIndexRootConstantWord): command i binds its own copy of the
+// top-level argument buffer, as it stands when the multi-draw is replayed,
+// with root constant word kDrawIndexRootConstantWord set to i, and the two
+// descriptor heaps, for both stages; the kernel writes the copies. Every
+// other draw binds the context's own argument buffer, in which that word
+// stays 0: set_root_constants writes only the caller's words and
+// reset_bindings zeroes the block at each frame's end.
+// The pass then declares the resources the commands reach resident (the
+// heaps, the ring, the descriptor heaps, what the storage table names, and
+// the copies) and executes the ranges the kernel wrote: range r covers
+// commands [16384 r, 16384 r + 16384) and holds min(count, maximum) minus
+// its first command, clamped to [0, 16384].
+// A precondition broken (maximum 0 or above max_multi_draw_count) or a call
+// outside a pass with a pipeline and index buffer records nothing, as the
+// direct draws do (command_list.hpp: without the validation layer the
+// behavior is undefined).
+// The contract gives the operation no failure, so a pool entry the device
+// cannot create (out of memory) ends the process with one line naming it
+// rather than drawing a frame without its multi-draw.
+// The range buffer holds an MTLIndirectCommandBufferExecutionRange at the
+// offset, whose length is at most 16,384 on the Mac GPU family. The
+// kernel's encoder declares the indirect command buffer with useResource,
+// and a resource reached other than through a buffer bound on the encoder
+// is declared before the draws that read it.
+// A command binds only bind points 0 to 2, not the converter runtime's draw
+// arguments and index type at 4 and 5. No vertex function the engine builds
+// reads them: disassembly of every Metal vertex artifact of the registry
+// shows no use of either parameter, and the converter reports
+// needs_draw_params false for the SV_VertexID and SV_InstanceID inputs.
+void MetalContext::draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                               const MultiDrawArguments& arguments) {
+  if (render_encoder_ == nullptr || graphics_pipeline_ == nullptr || index_buffer_ == nullptr ||
+      pre_pass_ == nullptr || arguments.maximum == 0U || arguments.maximum > kMaxMultiDrawCount) {
+    return;
+  }
+  const AutoreleaseScope pool;
+  const MultiDrawPool::Slot slot =
+      backend_->multi_draw().acquire(arguments.maximum, backend_->recording_frame());
+  if (slot.commands == nullptr) {
+    std::fputs("bw::rhi::metal: the device refused the ", stderr);
+    std::fputs(slot.refused, stderr);
+    std::fputs(" of a counted multi-draw (metal_multi_draw.hpp, acquire)\n", stderr);
+    std::abort();
+  }
+  encode_multi_draw(slot, records, counts, arguments);
+  declare_residency(*render_encoder_);
+  if (graphics_pipeline_->binding().uses_storage_table) {
+    declare_written(*render_encoder_);
+  }
+  render_encoder_->useResource(slot.copies, MTL::ResourceUsageRead, kVertexAndFragment);
+  const std::uint32_t ranges = (arguments.maximum + kRangeCommands - 1U) / kRangeCommands;
+  for (std::uint32_t r = 0; r < ranges; ++r) {
+    render_encoder_->executeCommandsInBuffer(
+        slot.commands, slot.ranges, static_cast<NS::UInteger>(r) * 2U * sizeof(std::uint32_t));
+  }
+}
+
+// One compute encoder on the pass's segment before it: the kernel's pipeline,
+// its arguments and the context's top-level argument buffer as bytes, every
+// resource heap resident (the records, the count and the index buffer are
+// heap buffers, reached by address), the indirect command buffer, the range
+// buffer and the copies written, and one thread per command up to the
+// maximum. Ended at once, so the current segment's encoder stays the only
+// one open there.
+void MetalContext::encode_multi_draw(const MultiDrawPool::Slot& slot, Buffer& records,
+                                     Buffer& counts, const MultiDrawArguments& arguments) {
+  MultiDrawPool& multi_draw = backend_->multi_draw();
+  const DescriptorHeaps& heaps = backend_->descriptor_heaps();
+  const RootParameter& constants = backend_->binding_structure().root_constants();
+  MTL::ComputeCommandEncoder* encoder = pre_pass_->computeCommandEncoder();
+  set_label(*encoder, "bw.rhi.metal.multi_draw_encode");
+  encoder->setComputePipelineState(&multi_draw.pipeline());
+  const EncodeArguments encode{
+      .commands = slot.commands->gpuResourceID(),
+      .records =
+          static_cast<MetalBuffer&>(records).buffer()->gpuAddress() + arguments.record_offset,
+      .count = static_cast<MetalBuffer&>(counts).buffer()->gpuAddress() + arguments.count_offset,
+      .ranges = slot.ranges->gpuAddress(),
+      .indices = index_buffer_->gpuAddress() + index_offset_,
+      .copies = slot.copies->gpuAddress(),
+      .resource_heap = heaps.resource_heap()->gpuAddress(),
+      .sampler_heap = heaps.sampler_heap()->gpuAddress(),
+      .stride = arguments.stride,
+      .maximum = arguments.maximum,
+      .index_32 = index_format_ == IndexFormat::Uint32 ? 1U : 0U,
+      .primitive = static_cast<std::uint32_t>(primitive_),
+      .draw_index_word =
+          constants.argument_offset / kRootConstantWordBytes + shaders::kDrawIndexRootConstantWord};
+  encoder->setBytes(&encode, sizeof(encode), 0);
+  encoder->setBytes(arguments_.data(), arguments_.size(), 1);
+  static_cast<void>(backend_->memory().heaps(heap_scratch_));
+  if (!heap_scratch_.empty()) {
+    encoder->useHeaps(heap_scratch_.data(), heap_scratch_.size());
+  }
+  encoder->useResource(slot.commands, MTL::ResourceUsageWrite);
+  encoder->useResource(slot.ranges, MTL::ResourceUsageWrite);
+  encoder->useResource(slot.copies, MTL::ResourceUsageWrite);
+  const NS::UInteger width =
+      std::min<NS::UInteger>(multi_draw.pipeline().maxTotalThreadsPerThreadgroup(), 64U);
+  encoder->dispatchThreads(MTL::Size::Make(arguments.maximum, 1, 1), MTL::Size::Make(width, 1, 1));
+  encoder->endEncoding();
 }
 
 // ---- Copies ------------------------------------------------------------------------
@@ -722,7 +943,7 @@ void MetalContext::copy_buffer_to_staging(Buffer& source, StagingBuffer& destina
 // ---- Fences and queries ------------------------------------------------------------
 
 // Signals the fence's shared event at this point of the context's stream: the
-// event is signalled with the write's value on the frame's command buffer,
+// event is signalled with the write's value on the current segment,
 // after the open encoder ends (a command buffer encodes events between
 // encoders).
 void MetalContext::write_fence(GpuFence& fence) {
@@ -784,7 +1005,7 @@ void MetalContext::begin_marker(std::string_view name) {
     break;
   case EncoderKind::None:
     command_buffer()->pushDebugGroup(text);
-    markers_.push_back(Marker{MarkerWhere::CommandBuffer, 0});
+    markers_.push_back(Marker{MarkerWhere::CommandBuffer, 0, std::string{name}});
     break;
   }
 #else
@@ -831,22 +1052,27 @@ void MetalContext::end_marker() {
 
 // ---- Frame hooks -----------------------------------------------------------------
 
-MTL::CommandBuffer* MetalContext::finish_frame() {
+void MetalContext::finish_frame(std::vector<MTL::CommandBuffer*>& segments) {
   end_encoder();
   // Markers must balance within a list (command_list.hpp); any left open are
-  // closed so the command buffer's groups balance before it is committed.
+  // closed so the current segment's groups balance before it is committed
+  // (the ended segments' were closed at their split).
   while (!markers_.empty()) {
     if (markers_.back().where == MarkerWhere::CommandBuffer && command_buffer_ != nullptr) {
       command_buffer_->popDebugGroup();
     }
     markers_.pop_back();
   }
-  MTL::CommandBuffer* commands = command_buffer_;
+  if (command_buffer_ != nullptr) {
+    segments_.push_back(command_buffer_);
+  }
+  segments.assign(segments_.begin(), segments_.end());
+  segments_.clear();
   command_buffer_ = nullptr;
+  pre_pass_ = nullptr;
   compute_pipeline_ = nullptr;
   index_buffer_ = nullptr;
   reset_bindings();
-  return commands;
 }
 
 // command_list.hpp, Blocks: bindings do not survive end_frame. In the argument

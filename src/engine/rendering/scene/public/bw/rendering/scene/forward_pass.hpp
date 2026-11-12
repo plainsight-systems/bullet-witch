@@ -4,7 +4,9 @@
 #include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/materials/lit_template.hpp"
 #include "bw/rendering/materials/material.hpp"
+#include "bw/rendering/scene/draw_records.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
+#include "bw/rendering/scene/instance.hpp"
 #include "bw/rendering/scene/view.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
 
@@ -20,7 +22,8 @@
 // src/engine/rendering/scene/hlsl/bw/scene/lit_shading.hlsli and is
 // durable; the light it is called with this slice is the fixture's
 // (fixture_light.hpp). Whoever records draws (bw/rendering/model_draw.hpp)
-// fills a ForwardDraw per draw.
+// binds a RecordDraw per record list (draw_records.hpp); no per-draw
+// constant carries a transform (docs/architecture/scene.md, invariant 3).
 //
 // Stand-in: the scene renderer lights opaque and masked surfaces from
 // surface data in a lighting pass and keeps this pass for the blended
@@ -32,12 +35,17 @@
 //   1. Shaders. kForwardLitVertexShader (vertex, entry main) and
 //      kForwardLitPixelShader (pixel, entry main) both have the lit
 //      template's domain and predicate (lit_template.hpp), the per-draw
-//      block ForwardDraw and the static blocks View and FixtureLight.
-//      The pixel shader reads a LitMaterial from the buffer array at
-//      ForwardDraw.material and declares it as its buffer block; the
-//      vertex shader reads no material and declares none. One artifact of
-//      each exists for every admitted permutation.
-//   2. Vertex stage. The vertex is SV_VertexID + streams.base_vertex
+//      block RecordDraw and the static blocks View and FixtureLight. The
+//      vertex shader reads the DrawRecord at the draw's index in the list
+//      RecordDraw names and the InstanceRecord it names (draw_records.hpp,
+//      contract 2), and declares both as buffer blocks; it reads no
+//      material. The pixel shader has no draw index of its own: it reads
+//      the InstanceRecord at the instance index the vertex stage passes it
+//      (contract 4) and a LitMaterial from the buffer array at that
+//      instance's material, and declares those two as buffer blocks. One
+//      artifact of each exists for every admitted permutation.
+//   2. Vertex stage. The streams and object_to_world are the instance
+//      record's. The vertex is SV_VertexID + streams.base_vertex
 //      (vertex_streams.hpp). It reads the attributes of
 //      lit_vertex_attributes for its permutation, each with the type
 //      lit_template.hpp states. World position is the position as a row
@@ -75,8 +83,9 @@
 //      The lit attributes the pass has no input for are world position
 //      offset and pixel depth offset: the attribute struct has no member
 //      for either, so a template that writes one does not compile.
-//   4. ForwardDraw: object_to_world at 0, the VertexStreams block at 64,
-//      the MaterialReference at 144; size 160.
+//   4. The instance index reaches the pixel stage unchanged across a
+//      triangle. While an instance's bone range is kNone, a record's bone
+//      is not applied (instance.hpp, contract 2).
 //
 // The diffuse is Lambert; the specular is D F G / (4 n.l n.v) with a GGX D
 // and a = roughness^2, a Schlick F written as F = f90 * Fc + (1 - Fc) * f0
@@ -109,18 +118,6 @@ inline constexpr float kMinimumRoughness = 0.04F;
 // percent up, fading to none below.
 inline constexpr float kGrazingFadeScale = 50.0F;
 
-struct alignas(shaders::kBlockAlignment) ForwardDraw {
-  shaders::Float4x4 object_to_world{};
-  geometry::VertexStreams streams{};
-  materials::MaterialReference material{};
-};
-inline constexpr std::uint32_t kForwardDrawBytes = 160;
-static_assert(sizeof(ForwardDraw) == kForwardDrawBytes);
-
 } // namespace bw::scene
 
-using ForwardDraw = bw::scene::ForwardDraw;
-BW_PARAMETER_BLOCK_LAYOUT(ForwardDraw, BW_PARAMETER_MEMBER(ForwardDraw, object_to_world),
-                          BW_PARAMETER_MEMBER(ForwardDraw, streams),
-                          BW_PARAMETER_MEMBER(ForwardDraw, material));
 #endif

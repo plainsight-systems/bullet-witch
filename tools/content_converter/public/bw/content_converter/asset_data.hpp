@@ -57,6 +57,10 @@ struct MeshAssetData {
   std::vector<geometry::MeshDrawRecord> draws{};
   std::uint32_t material_count{};
   std::vector<std::vector<std::uint32_t>> bone_maps{};
+  // The cluster and level tables of mesh_asset.hpp, rules 10 and 11;
+  // build_clusters (clusters.hpp) fills both.
+  std::vector<geometry::MeshClusterRecord> clusters{};
+  std::vector<geometry::MeshLevelRecord> levels{};
   std::array<float, 3> bounds_max{};
   std::array<float, 3> bounds_min{};
   std::array<float, 3> center{};

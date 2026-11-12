@@ -15,8 +15,12 @@
 #include "bw/rendering/rhi/pipeline_states.hpp"
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/result.hpp"
+#include "bw/rendering/scene/cpu_order.hpp"
+#include "bw/rendering/scene/draw_records.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/forward_pass.hpp"
+#include "bw/rendering/scene/instance.hpp"
+#include "bw/rendering/scene/scene_geometry.hpp"
 #include "bw/rendering/scene/view.hpp"
 #include "bw/rendering/shaders/artifact_file.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
@@ -27,8 +31,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -108,16 +115,18 @@ ModelDrawFailure create_states(rhi::Device& device, ModelDraw& built) {
                   rasterizer.detail());
   }
   built.rasterizer = std::move(rasterizer.value());
-  for (const bool write : {true, false}) {
+  // Equal for the opaque and masked records the depth pass drew first,
+  // LessEqual for the blended draws; neither writes depth.
+  for (const bool equal : {true, false}) {
     rhi::DepthStencilDescription depth{};
-    depth.depth_write = write;
-    depth.depth_test = rhi::CompareFunction::LessEqual;
+    depth.depth_write = false;
+    depth.depth_test = equal ? rhi::CompareFunction::Equal : rhi::CompareFunction::LessEqual;
     rhi::DepthStencilStateResult state = device.depth_stencil_state(depth);
     if (!state.ok()) {
       return failed(ModelDrawError::StateFailed, 0, "depth stencil state", state.error(),
                     state.detail());
     }
-    (write ? built.depth_write : built.depth_read) = std::move(state.value());
+    (equal ? built.depth_equal : built.depth_read) = std::move(state.value());
   }
   // None, source alpha over, added.
   const std::array<std::pair<rhi::BlendFactor, rhi::BlendFactor>, 3> factors{{
@@ -195,7 +204,8 @@ ModelDrawFailure create_materials(rhi::Device& device, const ModelResources& mod
 // dropped after the pipeline is made (a pipeline keeps their hashes only).
 ModelDrawFailure create_pipeline(rhi::Device& device, const std::filesystem::path& shader_directory,
                                  shaders::PermutationId permutation, materials::BlendMode blend,
-                                 rhi::Format color_format, ModelDraw& built) {
+                                 std::uint32_t table_index, rhi::Format color_format,
+                                 ModelDraw& built) {
   shaders::ArtifactFile vertex;
   shaders::ArtifactFile pixel;
   for (const auto& [name, file] : {std::pair{scene::kForwardLitVertexShader, &vertex},
@@ -215,7 +225,7 @@ ModelDrawFailure create_pipeline(rhi::Device& device, const std::filesystem::pat
   description.vertex_shader = &vertex.artifact;
   description.pixel_shader = &pixel.artifact;
   description.rasterizer = &*built.rasterizer;
-  description.depth_stencil = blended ? &*built.depth_read : &*built.depth_write;
+  description.depth_stencil = blended ? &*built.depth_read : &*built.depth_equal;
   description.blend = blend == materials::BlendMode::Translucent ? &*built.blend_over
                       : blend == materials::BlendMode::Additive  ? &*built.blend_add
                                                                  : &*built.blend_none;
@@ -236,7 +246,8 @@ ModelDrawFailure create_pipeline(rhi::Device& device, const std::filesystem::pat
     return failed(ModelDrawError::PipelineFailed, 0, "graphics pipeline", pipeline.error(),
                   pipeline.detail());
   }
-  built.pipelines.push_back(ModelPipeline{permutation, blend, std::move(pipeline.value())});
+  built.pipelines.push_back(
+      ModelPipeline{permutation, blend, table_index, std::move(pipeline.value())});
   return {};
 }
 
@@ -306,7 +317,8 @@ std::span<const std::string_view> model_texture_parameters() noexcept {
 ModelDrawFailure create_model_draw(rhi::Device& device, const ModelResources& model,
                                    const std::filesystem::path& shader_directory,
                                    materials::MaterialBuffer& material_buffer,
-                                   rhi::Format color_format, ModelDraw& out) {
+                                   scene::PipelineTable& table, rhi::Format color_format,
+                                   ModelDraw& out) {
   out = ModelDraw{};
   // a. Every draw names a material.
   for (std::uint32_t d = 0; d < model.mesh.draws.size(); ++d) {
@@ -368,8 +380,24 @@ ModelDrawFailure create_model_draw(rhi::Device& device, const ModelResources& mo
       }
     }
     if (found == built.pipelines.size()) {
+      // The pair's index in the scene's table when the culling dispatch
+      // draws it (draw_records.hpp, contract 3); the CPU draws the rest.
+      std::uint32_t table_index = scene::kNone;
+      if (instance.blend_mode() == materials::BlendMode::Opaque ||
+          instance.blend_mode() == materials::BlendMode::Masked) {
+        const std::optional<std::uint32_t> index = table.index_of(scene::PipelineKey{
+            instance.material_template(), instance.permutation(), instance.blend_mode()});
+        if (!index.has_value()) {
+          ModelDrawFailure full{};
+          full.error = ModelDrawError::PipelineTableFull;
+          full.detail = "the scene's pipeline table holds " + std::to_string(scene::kMaxPipelines) +
+                        " other keys";
+          return full;
+        }
+        table_index = *index;
+      }
       failure = create_pipeline(device, shader_directory, instance.permutation(),
-                                instance.blend_mode(), color_format, built);
+                                instance.blend_mode(), table_index, color_format, built);
       if (!failure.ok()) {
         return failure;
       }
@@ -380,28 +408,78 @@ ModelDrawFailure create_model_draw(rhi::Device& device, const ModelResources& mo
   return {};
 }
 
-void record_model_draw(rhi::CommandList& list, const ModelDraw& draw, const ModelResources& model,
-                       const math::Matrix4f& object_to_world) {
-  scene::ForwardDraw block{};
-  block.object_to_world = scene::shader_matrix(object_to_world);
-  auto bound_group = static_cast<std::uint32_t>(model.mesh.groups.size());
-  auto bound_pipeline = static_cast<std::uint32_t>(draw.pipelines.size());
-  for (std::size_t d = 0; d < model.mesh.draws.size(); ++d) {
-    const geometry::MeshDrawRange& range = model.mesh.draws[d];
-    if (draw.draw_pipelines[d] != bound_pipeline) {
-      bound_pipeline = draw.draw_pipelines[d];
-      list.set_graphics_pipeline(*draw.pipelines[bound_pipeline].pipeline);
+// Issues one multi-draw per pipeline over the compacted records; the opaque
+// pass draws the records the depth pass drew.
+void record_model_draw(rhi::CommandList& list, const ModelDraw& draw, const ModelDrawFrame& frame) {
+  const scene::DrawListLayout& layout = frame.culling->layout;
+  const shaders::BufferIndex instances = frame.instance_buffer->view->buffer_index();
+  list.set_index_buffer(*frame.geometry_buffers->indices, rhi::IndexFormat::Uint16, 0);
+  for (const ModelPipeline& pipeline : draw.pipelines) {
+    // A blended pipeline has no list; the CPU's draws below use it.
+    if (pipeline.table_index == scene::kNone) {
+      continue;
     }
-    const geometry::MeshGroupResources& group = model.mesh.groups[range.group];
-    if (range.group != bound_group) {
-      list.set_index_buffer(*group.indices, rhi::IndexFormat::Uint16, 0);
-      bound_group = range.group;
+    // At or past the layout's count, no instance of it has a cluster.
+    if (pipeline.table_index >= layout.pipeline_count) {
+      continue;
     }
-    block.streams = group.block;
-    block.streams.base_vertex = range.base_vertex;
-    block.material = draw.material_buffer->reference(draw.slots[range.material]);
-    list.set_draw_block(block);
-    list.draw_indexed(rhi::DrawIndexedArguments{range.index_count, 1, range.first_index, 0, 0});
+    list.set_graphics_pipeline(*pipeline.pipeline);
+    for (const scene::DrawPhase phase : {scene::DrawPhase::PhaseOne, scene::DrawPhase::PhaseTwo}) {
+      const scene::DrawList drawn = layout.list(scene::kMainView, pipeline.table_index, phase);
+      if (drawn.capacity == 0U) {
+        continue;
+      }
+      list.set_draw_block(scene::RecordDraw{frame.culling->records_index,
+                                            static_cast<std::uint32_t>(drawn.record_offset),
+                                            instances, 0});
+      list.draw_indexed_indirect_count(*frame.records, *frame.counts,
+                                       rhi::MultiDrawArguments{drawn.record_offset,
+                                                               scene::kDrawRecordBytes,
+                                                               drawn.count_offset, drawn.capacity});
+    }
+  }
+  // The CPU's draws, in its order. An instance's pipeline is its
+  // material's: the instance record names the material block it reads.
+  const std::span<const scene::InstanceRecord> records = frame.instances->records();
+  const std::span<const scene::LevelRecord> levels = frame.geometry->levels();
+  const std::span<const scene::ClusterRecord> clusters = frame.geometry->clusters();
+  auto bound = static_cast<std::uint32_t>(draw.pipelines.size());
+  for (std::size_t k = 0; k < frame.order->blended.size(); ++k) {
+    const scene::CpuDraw& entry = frame.order->blended[k];
+    const scene::InstanceRecord& record = records[entry.instance];
+    auto pipeline = static_cast<std::uint32_t>(draw.pipelines.size());
+    for (std::uint32_t m = 0; m < draw.slots.size(); ++m) {
+      const materials::MaterialReference reference = draw.material_buffer->reference(draw.slots[m]);
+      if (reference.buffer.value != record.material.buffer.value ||
+          reference.offset != record.material.offset) {
+        continue;
+      }
+      for (std::uint32_t p = 0; p < draw.pipelines.size(); ++p) {
+        if (draw.pipelines[p].permutation == draw.instances[m].permutation() &&
+            draw.pipelines[p].blend_mode == draw.instances[m].blend_mode()) {
+          pipeline = p;
+        }
+      }
+    }
+    if (pipeline == draw.pipelines.size()) {
+      std::fputs("bw::rendering: record_model_draw was given a blended instance whose material "
+                 "is none of the draw's slots (model_draw.hpp, contract 3)\n",
+                 stderr);
+      std::abort();
+    }
+    if (pipeline != bound) {
+      list.set_graphics_pipeline(*draw.pipelines[pipeline].pipeline);
+      bound = pipeline;
+    }
+    list.set_draw_block(scene::RecordDraw{frame.cpu_records_index,
+                                          static_cast<std::uint32_t>(k * scene::kDrawRecordBytes),
+                                          instances, 0});
+    const scene::LevelRecord& level = levels[record.first_level + entry.detail_level];
+    for (std::uint32_t c = 0; c < level.cluster_count; ++c) {
+      const scene::ClusterRecord& cluster = clusters[level.first_cluster + c];
+      list.draw_indexed(
+          rhi::DrawIndexedArguments{cluster.index_count, 1, cluster.first_index, 0, 0});
+    }
   }
 }
 

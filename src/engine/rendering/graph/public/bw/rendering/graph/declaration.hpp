@@ -35,10 +35,10 @@
 //      and debug name; a frame-only buffer is byte addressed. The RHI usage of a frame-only
 //      resource is derived from the accesses declared on it over the frame, never written by a
 //      pass: Sampled gives ShaderResource, Attachment gives RenderTarget, DepthTest and DepthWrite
-//      give DepthStencil, ComputeWrite gives UnorderedAccess, Arguments gives IndirectArguments,
-//      the copies give CopySource and CopyDestination. Contents at first use are undefined
-//      (invariant 5): a read before any running pass wrote the resource is
-//      GraphError::UnwrittenFrameOnlyRead (invariant 11).
+//      give DepthStencil, ComputeWrite gives UnorderedAccess, Arguments gives IndirectArguments
+//      and, in a Raster pass, ShaderResource with it, the copies give CopySource and
+//      CopyDestination. Contents at first use are undefined (invariant 5): a read before any
+//      running pass wrote the resource is GraphError::UnwrittenFrameOnlyRead (invariant 11).
 //   3. Contents (invariant 9). An Attachment or DepthWrite use states what
 //      the pass does to the texture's contents before it draws: Clear
 //      (to the texture's clear value), Overwrite (every pixel is written,
