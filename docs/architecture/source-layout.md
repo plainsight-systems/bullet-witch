@@ -134,7 +134,10 @@ A target-specific graphics or physics backend depends on its subsystem contract
 and any required platform services; it does not turn the general platform tree
 into a collection of every implementation for that target.
 
-Controllers own intent, possession and requests. Animation owns pose, joints,
+Character controllers own intent and possession and state facts about their
+character. An animation controller per character kind, beside its character
+controller under `game/characters`, turns those facts into requests and is
+the only requester; see [animation](animation.md). Animation owns pose, joints,
 blending and skeletal controls. Skeleton/rig mappings belong to prepared asset
 and animation configuration. An Alicia controller must not contain a special
 joint solver merely because she is the first character brought up.

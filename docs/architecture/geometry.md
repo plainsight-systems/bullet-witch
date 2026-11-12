@@ -25,7 +25,7 @@ weight is rigid to that bone.
 
 ## Position
 
-Between animation, which owns the pose, and the [scene](scene.md), which
+Between [animation](animation.md), which owns the pose, and the [scene](scene.md), which
 culls what the feed bounds and draws what the feed wrote. Fed by
 [content](content.md), which cooks the deformable stream, the bone maps, the
 shapes and the per-bone rest boxes. Beside [materials](materials.md), whose

@@ -31,7 +31,8 @@ system, [rhi](rhi.md) for the rendering hardware interface,
 [materials](materials.md) for the material system, [scene](scene.md) for
 what is drawn and how each view's visibility is found, [geometry
 feed](geometry.md) for how a moving instance's vertices are made each
-frame, [scene renderer](scene-renderer.md) for how a frame is made,
+frame, [animation](animation.md) for how a character's pose is made each
+tick, [scene renderer](scene-renderer.md) for how a frame is made,
 [transparency](transparency.md) for blended draws and particles,
 [decals](decals.md) for marks projected onto surfaces, [character
 shading](character-shading.md) for skin, hair and eyes,
