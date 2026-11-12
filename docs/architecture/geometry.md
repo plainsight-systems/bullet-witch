@@ -1,8 +1,9 @@
 # Geometry feed
 
 How an instance's vertices are made each frame when they move. Animation
-publishes a pose and shape weights; the feed turns them, once per frame and
-before culling, into this frame's positions, normals and tangents in buffers
+publishes a pose and named weight tracks; the feed binds the tracks to shape
+targets and turns pose and shapes, once per frame and before culling, into
+this frame's positions, normals and tangents in buffers
 that every pass reads as if the mesh were rigid. The same buffers give the
 frame's bounds for culling, the previous frame's positions for motion
 vectors, and the geometry a traced target's acceleration structures are
@@ -15,12 +16,13 @@ instance pass through the feed, and one instance can be all three:
 | Term | Means | Gets |
 |---|---|---|
 | Skinned instance | its mesh is skinned and animation publishes a pose for it | a range in the bone buffer, uploaded when the pose changes |
-| Dispatched instance | a skinned instance with at least one weighted draw, or any instance with a nonzero shape weight; it stays one until it has neither, and its copies are released after the frame that zeroed the last weight | two copies of stream 0, the shape, skinning and bounds dispatches |
+| Dispatched instance | a skinned instance with at least one weighted draw, or any instance with an active shape; it stays one until it has neither, and its copies are released after the frame that rewrote its last delta buffer to zero | two copies of stream 0, the shape, skinning and bounds dispatches |
 | Offset instance | its template writes a vertex offset, on a traced target | a position write-out buffer for the acceleration structure |
 
-A rigid instance is none of these and reads its mesh's own streams. A
-weighted draw is one whose vertices weight more than one bone, or one bone
-below full weight; a draw whose every vertex has one influence at full
+A shape is active while the absolute value of its weight is above
+0.00000001. A rigid instance is none of these and reads its mesh's own
+streams. A weighted draw is one whose vertices weight more than one bone,
+or one bone below full weight; a draw whose every vertex has one influence at full
 weight is rigid to that bone.
 
 ## Position
@@ -34,7 +36,7 @@ and the [RHI](rhi.md).
 
 ```mermaid
 flowchart LR
-    AN["Animation: a pose per skinned instance, shape weights, a note when either changed"] --> GF["Geometry feed: bone buffer, delta buffer, copies, write-out buffers, cluster and instance boxes, rebuild signal"]
+    AN["Animation: a pose per skinned instance with a note when it changed, weight tracks by name"] --> GF["Geometry feed: bone buffer, delta buffer, copies, write-out buffers, cluster and instance boxes, rebuild signal"]
     CT["Content: deformable stream, bone maps, shapes, rest box per bone"] --> GF
     GF --> SC["Scene: culling reads the boxes, every pass fetches the copies"]
     GF --> RT["Ray tracing capability: structures over the current copy"]
@@ -60,16 +62,25 @@ flowchart LR
    frame, so its deformation contributes no motion that frame. An instance
    not dispatched this frame has its previous copy index set equal to its
    current copy index, and the copies are not swapped.
-5. The feed uploads a pose and dispatches an instance only when animation
-   states that its pose or its shape weights changed. Nothing in the feed
-   compares poses.
-6. Shapes are applied before bones. For a group with active shapes, a
+5. The feed uploads a pose only when animation states that it changed, and
+   compares no poses. Shape weights it compares itself, per instance and
+   group: the shape dispatch of an instance's group runs when the group's
+   active targets or their weights differ from those of that instance's
+   last dispatch of it, a weight differing when the difference is
+   0.00000001 or more. An instance is dispatched when its pose changed or
+   the shape dispatch of one of its groups ran.
+6. The feed binds animation's weight tracks to a group's targets by name.
+   A target's weight is the value of the track of its name, and zero when
+   no such track is published; a track that names no target of the group
+   is ignored. An active weight is clamped to between minus and plus the
+   settings' maximum shape weight, which is 5 unless set.
+   Shapes are applied before bones. For a group with active shapes, a
    per-vertex dispatch sums weight times delta over every active target in
    target order into a delta buffer, with no atomics; the skinning dispatch
    adds the delta to the bind-pose position and then applies the bones.
-   Shapes move positions and nothing else. A weight change to zero is a
-   change: the dispatch runs and the delta buffer is rewritten, to zero
-   when no target is active.
+   Shapes move positions and nothing else. When a group's last active
+   target stops being active the dispatch runs once more and rewrites the
+   delta buffer to zero.
 7. A vertex's skinning transform is the weighted sum of its influences'
    transforms, resolved through its draw's bone map as cooked. Normals and
    tangents are transformed by the blended three-by-three and normalized,
@@ -134,8 +145,9 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    PB["Animation publishes: changed poses, changed shape weights"] --> UP["Upload changed poses into the bone buffer's current slot"]
-    UP --> MR["Shape dispatch, per group with active shapes: delta buffer"]
+    PB["Animation publishes: changed poses, weight tracks by name"] --> UP["Upload changed poses into the bone buffer's current slot"]
+    UP --> WB["Weight binding, per group with shapes: active targets and clamped weights, compared with the last dispatch"]
+    WB --> MR["Shape dispatch, per group whose targets or weights differ: delta buffer"]
     MR --> SK["Skinning dispatch, per dispatched instance and group: current copy of stream 0"]
     SK --> BX["Bounds dispatch, per dispatched instance: cluster boxes and instance box"]
     BX --> CU["Scene culling: instance and cluster boxes of the frame"]
@@ -149,8 +161,9 @@ flowchart TD
 | Step | Reads | Writes | Runs for |
 |---|---|---|---|
 | Pose upload | the poses animation marked changed | the bone buffer's current slot, the instance's range | every skinned instance with a changed pose |
-| Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta per vertex, zero when no target is active | every group whose weights changed |
-| Skinning dispatch | stream 0 of the mesh, the delta buffer if any, the draw's bone map, the bone buffer's current slot | the instance's current copy: position, normal, tangent | every dispatched instance whose pose or weights changed |
+| Weight binding | animation's weight tracks, the group's target names, the active targets and weights of the group's last dispatch | the group's active targets and their clamped weights, and whether they differ | every group with shapes of every instance, on the CPU |
+| Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta per vertex, zero when no target is active | every group whose active targets or weights differ from its last dispatch |
+| Skinning dispatch | stream 0 of the mesh, the delta buffer if any, the draw's bone map, the bone buffer's current slot | the instance's current copy: position, normal, tangent | every dispatched instance whose pose changed or whose shape dispatch ran |
 | Bounds dispatch | the current copy, the mesh's cluster index ranges, the bone buffer for rigid-to-bone clusters, the instance's maximum displacement | the instance's cluster boxes and instance box for this frame, the previous frame's kept beside them for phase one | the same instances |
 | Write-out | the template's vertex function with current frame values, over the current copy or the mesh's stream 0, with a rigid-to-bone draw's bone | the instance's write-out buffer of positions | every offset instance on a traced target |
 | Rebuild signal | the pose, the mesh's rest box per bone | refit or rebuild for the instance this frame | every dispatched skinned instance on a traced target |
@@ -176,7 +189,7 @@ flowchart LR
 | Bone map | per draw, up to thirty-two skeleton bone indices, cooked with the mesh |
 | Skinning transform | three rows of four floats per bone, model space times inverse bind, in skeleton bone order |
 | Bone buffer | one buffer, a range per skinned instance, two slots per range |
-| Delta buffer | one position delta of three floats per vertex of the group, rewritten when weights change |
+| Delta buffer | one position delta of three floats per vertex of the group, rewritten when the shape dispatch runs |
 | Copy of stream 0 | the mesh's own stream 0 layout, so the vertex fetch reads it with the mesh's attribute table |
 
 A mesh with more influences per vertex than the format's slots fails to
@@ -203,7 +216,7 @@ same for the same pose whatever the dispatch order.
 | Shapes | per group, position deltas for every vertex per target, named, as the morph set asset | the converter |
 | Rest box per bone | per skinned mesh, one box per bone | the converter |
 | Pose | skinning transforms per bone | animation, each frame it changes |
-| Shape weights | one weight per target of a group | animation, each frame they change |
+| Weight tracks | one float per named track | animation, every frame |
 
 ## Components and ownership
 
@@ -211,6 +224,7 @@ same for the same pose whatever the dispatch order.
 |---|---|---|
 | Registry of skinned, dispatched and offset instances: copies, ranges, write-out buffers, the previous-copy rule | `src/engine/rendering/geometry` | the scene's instance records |
 | Bone buffer and pose upload | `src/engine/rendering/geometry` | skinning dispatch, rigid-to-bone fetch |
+| Binding of weight tracks to shape targets: the active rule, the clamp and the comparison with the last dispatch | `src/engine/rendering/geometry` | the shape dispatch |
 | Shape, skinning and bounds dispatches and their shaders | `src/engine/rendering/geometry` | the scene's culling, every pass |
 | Write-out buffers | `src/engine/rendering/geometry` | the ray tracing capability |
 | Rebuild signal from the pose | `src/engine/rendering/geometry` | the ray tracing capability |
@@ -219,8 +233,9 @@ same for the same pose whatever the dispatch order.
 
 ## Boundaries
 
-Above: animation, which decides the pose and the weights and says when they
-changed, and the world, which decides which instances exist. Below: the
+Above: animation, which decides the pose and says when it changed, and
+publishes weight tracks by name knowing nothing of shapes, and the world,
+which decides which instances exist. Below: the
 render graph and the RHI. Beside: the scene, which owns the instance records
 and culling and takes the feed's boxes and copy indices as given; the
 material system, which owns the vertex offset function and declares its

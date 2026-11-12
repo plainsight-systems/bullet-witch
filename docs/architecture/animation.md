@@ -2,7 +2,7 @@
 
 How a character's pose is made each tick. Animation plays the clips it is
 asked to play, blends them in layers, moves the bones no clip drives, and
-publishes one pose per character, its shape weights, its root motion and
+publishes one pose per character, its weight tracks, its root motion and
 its timed events. It holds no rule about which clip follows which: that is
 an animation controller's, one per kind of character, and the character
 controller beside it names nothing in animation terms.
@@ -36,7 +36,7 @@ flowchart LR
     AC --> AN["Animation: layers, sources, fades, controls, phases of an update"]
     CT["Content: skeleton, clips, weight-track clips, clip sets, rig configuration"] --> AN
     W["World: character transform, the tick's step, which characters were drawn recently as the scene reports it"] --> AN
-    AN --> GF["Geometry feed: skinning transforms, shape weights, a note when either changed"]
+    AN --> GF["Geometry feed: skinning transforms with a note when changed, weight tracks by name"]
     AN --> MV["Movement: root motion"]
     AN --> EV["Game and audio: typed events"]
     AN --> AC
@@ -108,8 +108,9 @@ flowchart LR
     weighted set reports the events of its heaviest clip.
 15. A weight-track clip is played by request beside the layers, with its
     own time, rate and looping, and produces no pose. Its tracks are
-    published by name. A shape weight at or under the threshold is
-    published as zero, and reaching zero is stated as a change.
+    published by name, each at its sampled value and nothing else; a track
+    no playing clip carries is not published. What a name drives is its
+    consumer's to bind.
 16. Controls run after the layers, in model space, before anything is
     published. Each has a weight, and its result is blended with the pose
     it was given, in local space, by that weight.
@@ -130,14 +131,15 @@ flowchart LR
     character. With no renderer no character is drawn recently. A
     character that is not evaluated loses no time, no event and no root
     motion; its pose, its bone transforms and its weight tracks stay those
-    of its last evaluation and are not stated as changed; its chains' state
+    of its last evaluation, and its pose is not stated as changed; its
+    chains' state
     is untouched and accumulates no time, and they continue from it when
     evaluation resumes.
 19. Evaluation of one character reads its advanced state and immutable
     skeleton and clip data, and writes its own pose and control state.
     Characters are evaluated as tasks that share nothing else.
-20. Everything is published at one fence per tick: skinning transforms and
-    shape weights with a note when either changed, model-space bone
+20. Everything is published at one fence per tick: skinning transforms
+    with a note when they changed, weight tracks by name, model-space bone
     transforms, root motion, and then the events.
 21. A request that names a source of another skeleton, a layer the
     character does not have, a set with no samples, or a mask or binding
@@ -162,14 +164,14 @@ flowchart TD
     SM --> BL["Blend: fades within a layer, then the stack from the base up"]
     BL --> CN["Controls: chains, aims, in model space"]
     CN --> LM["Local to model: parents before children"]
-    LM --> PB["Publish at the fence: skinning transforms, shape weights, bone transforms, root motion, then events"]
+    LM --> PB["Publish at the fence: skinning transforms, weight tracks, bone transforms, root motion, then events"]
 ```
 
 | Phase | Reads | Writes | Runs for |
 |---|---|---|---|
 | Advance | requests, the step, each source's clip lengths and rates, the root track, the event tables | each layer's sources, times and fade weights; each weight-track clip's time; the collected events; the root difference; finished and time-left notes | every character |
 | Evaluate | the advanced state, clip tracks, weight-track clips' tracks, the skeleton's local rest transforms, masks, control bindings, the character's world transform | the pose in local and in model space; the sampled weight tracks; chain positions, velocities and accumulated time; an aim's interpolated point | always characters every tick; when-drawn characters on their first tick and when drawn recently; as tasks |
-| Publish | the model-space pose, the skeleton's inverse bind, sampled weight tracks | skinning transforms as model space times inverse bind, three rows of four floats per bone in skeleton order; shape weights; model-space bone transforms; root motion; events | every character, at one fence; a character not evaluated publishes its root motion and events, and nothing else as changed |
+| Publish | the model-space pose, the skeleton's inverse bind, sampled weight tracks | skinning transforms as model space times inverse bind, three rows of four floats per bone in skeleton order; weight tracks by name; model-space bone transforms; root motion; events | every character, at one fence; a character not evaluated publishes its root motion and events, its weight tracks as last sampled, and no pose as changed |
 
 ## Layers, sources and fades
 
@@ -263,8 +265,7 @@ from which an action may be cancelled, is a typed event on the clip.
 | Output | Form | Read by |
 |---|---|---|
 | Skinning transforms | three rows of four floats per bone, model space times inverse bind, in skeleton order, with a note when changed | the geometry feed |
-| Shape weights | one weight per named target, with a note when changed | the geometry feed |
-| Other weight tracks | one float per named track | whichever system binds the name |
+| Weight tracks | one float per named track of a playing clip, as sampled | whichever system binds the name; the geometry feed binds shape targets |
 | Model-space bone transforms | one transform per bone | the world, for what is placed on a bone |
 | Root motion | one transform per character per tick | movement |
 | Events | kind, payload and the character, in time order | gameplay and audio |
@@ -292,8 +293,9 @@ run evaluation. Beside: the world, which orders the tick, owns each
 character's transform, passes on the drawn note and places things on
 bones; the [scene](scene.md), which alone decides what was drawn and
 reports it to the world, and of which animation reads nothing; the
-geometry feed, which takes the published pose and weights as
-given and decides nothing about them; movement, which takes root motion and
+geometry feed, which takes the published pose as given, binds the weight
+tracks that name its shape targets, and decides nothing about what plays;
+movement, which takes root motion and
 decides where the character goes. Which clip plays when, cutscene
 timelines, what an event does, what binds a texture-transform track to a
 material, and how a character is moved are outside this document.

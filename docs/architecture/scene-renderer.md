@@ -117,7 +117,7 @@ flowchart TD
 
 | Pass | Reads | Writes | Resolution |
 |---|---|---|---|
-| Deformation | changed poses and shape weights, stream 0 of each dispatched mesh, bone maps | the bone buffer, the current copy of each dispatched instance, its cluster and instance boxes | its own |
+| Deformation | changed poses and weight tracks, stream 0 of each dispatched mesh, bone maps | the bone buffer, the current copy of each dispatched instance, its cluster and instance boxes | its own |
 | Culling | instance records, the frame's views (the main view, and the cascades and atlas slots the lighting system fits and assigns at frame start), the previous frame's depth hierarchy, the camera cut flag | draw records and counts per view per pipeline for opaque and masked instances; the CPU order of the main view's blended instances, emitters and decals | its own |
 | Depth | the main view's opaque and masked draw records, in two draws: phase one, then phase two after the depth hierarchy is built | depth, the depth hierarchy twice | input |
 | Surface | the same records, depth, probe grids, each dispatched instance's previous copy and the bone buffer's previous slot | surface data with its flags, motion vectors, emissive into scene color, baked indirect light into the indirect light target | input |
