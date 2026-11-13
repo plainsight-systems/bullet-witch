@@ -352,6 +352,21 @@ public:
   void dispatch(const bw::rhi::DispatchArguments& arguments) override {
     record("dispatch", describe(arguments));
   }
+  void draw_indexed_indirect(bw::rhi::Buffer& arguments, std::uint64_t offset) override {
+    record("draw_indexed_indirect",
+           (Args{} << static_cast<const void*>(&arguments) << offset).str());
+  }
+  void draw_indexed_indirect_count(bw::rhi::Buffer& records, bw::rhi::Buffer& counts,
+                                   const bw::rhi::MultiDrawArguments& arguments) override {
+    record("draw_indexed_indirect_count",
+           (Args{} << static_cast<const void*>(&records) << static_cast<const void*>(&counts)
+                   << arguments.record_offset << arguments.count_offset
+                   << static_cast<std::uint64_t>(arguments.maximum))
+               .str());
+  }
+  void dispatch_indirect(bw::rhi::Buffer& arguments, std::uint64_t offset) override {
+    record("dispatch_indirect", (Args{} << static_cast<const void*>(&arguments) << offset).str());
+  }
   // The signature is Context's (backend.hpp).
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   void copy_buffer(bw::rhi::Buffer& source, bw::rhi::Buffer& destination,

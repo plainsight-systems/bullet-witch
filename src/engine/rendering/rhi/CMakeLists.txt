@@ -56,9 +56,42 @@ if(APPLE)
     backends/metal/metal_formats.cpp
     backends/metal/metal_implementation.cpp
     backends/metal/metal_memory.cpp
+    backends/metal/metal_multi_draw.cpp
     backends/metal/metal_objects.cpp
     backends/metal/metal_viewport.cpp)
   target_link_libraries(bw_rhi PRIVATE bw_metal_cpp bw_metal_irconverter_runtime)
   target_compile_definitions(bw_rhi PRIVATE BW_RHI_METAL=1)
   target_include_directories(bw_rhi PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+  # The Metal backend's own kernel (docs/architecture/source-layout.md): the
+  # counted multi-draw's encode kernel in the Metal Shading Language, built
+  # by the Metal toolchain of the Xcode in use (a build prerequisite with the
+  # SDK, rhi.md Dependencies) and embedded in bw_rhi as bytes. The air, the
+  # metallib and the generated source are build products, never committed.
+  foreach(bw_metal_tool IN ITEMS metal metallib)
+    execute_process(COMMAND xcrun -sdk macosx -f ${bw_metal_tool}
+      RESULT_VARIABLE bw_metal_tool_result OUTPUT_QUIET ERROR_QUIET)
+    if(NOT bw_metal_tool_result EQUAL 0)
+      message(FATAL_ERROR "The Metal backend needs the Metal toolchain: "
+        "'xcrun -sdk macosx -f ${bw_metal_tool}' failed. Install it with "
+        "'xcodebuild -downloadComponent MetalToolchain'.")
+    endif()
+  endforeach()
+  set(bw_encode_source "${CMAKE_CURRENT_SOURCE_DIR}/backends/metal/multi_draw_encode.metal")
+  set(bw_encode_air "${CMAKE_CURRENT_BINARY_DIR}/multi_draw_encode.air")
+  set(bw_encode_library "${CMAKE_CURRENT_BINARY_DIR}/multi_draw_encode.metallib")
+  set(bw_encode_embedded "${CMAKE_CURRENT_BINARY_DIR}/multi_draw_encode_library.cpp")
+  add_custom_command(OUTPUT "${bw_encode_air}"
+    COMMAND xcrun -sdk macosx metal -std=metal3.1 -c "${bw_encode_source}" -o "${bw_encode_air}"
+    DEPENDS "${bw_encode_source}"
+    COMMENT "Metal kernel multi_draw_encode" VERBATIM)
+  add_custom_command(OUTPUT "${bw_encode_library}"
+    COMMAND xcrun -sdk macosx metallib "${bw_encode_air}" -o "${bw_encode_library}"
+    DEPENDS "${bw_encode_air}" VERBATIM)
+  add_custom_command(OUTPUT "${bw_encode_embedded}"
+    COMMAND "${CMAKE_COMMAND}" "-DINPUT=${bw_encode_library}" "-DOUTPUT=${bw_encode_embedded}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/backends/metal/embed_library.cmake"
+    DEPENDS "${bw_encode_library}" "${CMAKE_CURRENT_SOURCE_DIR}/backends/metal/embed_library.cmake"
+    VERBATIM)
+  target_sources(bw_rhi PRIVATE "${bw_encode_embedded}")
 endif()

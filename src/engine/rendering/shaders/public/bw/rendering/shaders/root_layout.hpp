@@ -117,6 +117,15 @@ inline constexpr std::uint32_t kMaxStaticBlocks = 8;
 // minimum every Vulkan 1.3 device guarantees. One fixed size is what makes
 // the layout fixed.
 inline constexpr std::uint32_t kRootConstantWords = 16;
+// The last word is not a caller's: it holds the index of a draw within a
+// counted multi-draw, and 0 in every other draw
+// (bw/rendering/rhi/command_list.hpp, Indirect work). A backend whose API
+// sets a constant per record writes it there, and a shader reads it
+// through the bindless-access include. The block keeps its sixteen words,
+// so the layout and its hash do not change; a caller writes the words
+// below kCallerRootConstantWords.
+inline constexpr std::uint32_t kDrawIndexRootConstantWord = kRootConstantWords - 1;
+inline constexpr std::uint32_t kCallerRootConstantWords = kRootConstantWords - 1;
 // HLSL register spaces for the Direct3D 12 and Metal (DXIL) targets.
 inline constexpr std::uint32_t kDrawBlockSpace = 0;
 inline constexpr std::uint32_t kRootConstantSpace = 3;

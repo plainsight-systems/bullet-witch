@@ -129,6 +129,20 @@ public:
   void dispatch(const bw::rhi::DispatchArguments& arguments) override {
     calls.push_back(Call{.name = "dispatch", .groups = arguments});
   }
+  void draw_indexed_indirect(Buffer& arguments, std::uint64_t offset) override {
+    calls.push_back(Call{.name = "draw_indexed_indirect", .number = offset, .object = &arguments});
+  }
+  void draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                   const bw::rhi::MultiDrawArguments& arguments) override {
+    calls.push_back(Call{.name = "draw_indexed_indirect_count",
+                         .number = arguments.record_offset,
+                         .slot = arguments.maximum,
+                         .object = &records,
+                         .other = &counts});
+  }
+  void dispatch_indirect(Buffer& arguments, std::uint64_t offset) override {
+    calls.push_back(Call{.name = "dispatch_indirect", .number = offset, .object = &arguments});
+  }
   // The signature is Context's (backend.hpp).
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   void copy_buffer(Buffer& source, Buffer& destination, const bw::rhi::BufferCopy& copy) override {

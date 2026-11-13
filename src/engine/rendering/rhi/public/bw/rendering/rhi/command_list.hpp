@@ -59,12 +59,45 @@
 //   next set_draw_block; the layout hash travels with the bytes so the
 //   validation layer can compare it with the pipeline's draw block hash.
 //   set_root_constants writes words [first, first + n) of the root constant
-//   block (first + n <= shaders::kRootConstantWords, else
-//   RootConstantsOutOfRange). Bindings do not survive end_frame: a draw or
+//   block (first + n <= shaders::kCallerRootConstantWords, else
+//   RootConstantsOutOfRange); the block's last word,
+//   shaders::kDrawIndexRootConstantWord, is the backend's and no caller
+//   writes it. Bindings do not survive end_frame: a draw or
 //   dispatch whose pipeline uses the draw block, or a static slot in its
 //   mask, that has not been set since the frame began is a violation
 //   (DrawBlockNotSet, StaticSlotNotSet). Descriptor indices are not bound
 //   here: they are values in the blocks.
+//   Indirect work (docs/architecture/rhi.md, the scope table and the
+//   Backends table): three operations whose arguments are read from a
+//   buffer on the device, which GPU work may have written.
+//   draw_indexed_indirect draws once with the DrawIndexedArguments at
+//   `offset` of `arguments`; dispatch_indirect dispatches once with the
+//   DispatchArguments there. draw_indexed_indirect_count is the counted
+//   multi-draw: with n the 32-bit count at `count_offset` of `counts`, it
+//   draws min(n, maximum) times, draw i with the IndirectDrawRecord at
+//   record_offset + i * stride of `records`, in index order, and reads
+//   nothing of a record at or past that number. The CPU never reads the
+//   count. Each draw is an indexed draw with the bound pipeline, index
+//   buffer, blocks and root constants, as draw_indexed is. In a record,
+//   instance_count is 1 and base_vertex and first_instance are 0
+//   (bw/rendering/geometry/vertex_streams.hpp: the base vertex travels in
+//   a block), and draw_index is i: whoever writes the records writes it,
+//   because one API sets a draw's constant from its record and reads it
+//   there. A shader reads the index of its draw within the multi-draw
+//   through the bindless include; in every other draw that index is 0.
+//   On the targets whose shaders read it from the root constant block it
+//   is the word shaders::kDrawIndexRootConstantWord, which the backend
+//   writes: i for draw i of a multi-draw, 0 for every other draw.
+//   Preconditions: every offset and the stride are multiples of 4; stride
+//   is at least kIndirectDrawRecordBytes; maximum is at least 1 and at
+//   most Capabilities::max_multi_draw_count; records + maximum * stride
+//   and the count lie within their buffers; each buffer was created with
+//   BufferUsage::IndirectArguments and is in Access::IndirectArguments.
+//   The two draws are legal only inside a pass, dispatch_indirect only
+//   outside one. Of these the validation layer checks the placement, the
+//   pipeline, the bindings and the buffers' access; the offsets, stride,
+//   maximum, spans and creation usage are the caller's and no
+//   ValidationCode names them.
 //   Transitions: begin_transitions and end_transitions take a batch; the
 //   combined transition is begin then end in one command. The arrays are
 //   copied.
@@ -81,6 +114,25 @@
 // Algorithm: a vector of bytes holding (kind, size) headers followed by the
 // command's plain struct and any trailing array bytes, 8-byte aligned;
 // replay reads headers in order. Appending is amortized O(1); replay O(n).
+//
+// The counted multi-draw's record carries the draw's index before the
+// arguments because Direct3D 12 applies a record's arguments in order, so a
+// constant the draw reads precedes the draw; Vulkan numbers the draws
+// itself and Metal's indirect commands are encoded from the records.
+// On Direct3D 12 the count is the minimum of the maximum and a 32-bit value
+// in the count buffer, offsets are 4-byte aligned, and both buffers are in
+// the indirect argument state; a record's arguments are tightly packed in
+// order with an arbitrary stride between records, and the indexed draw
+// arguments are 20 bytes. On Vulkan the stride is a multiple of 4 and at
+// least the command's size, the count is 32-bit, offsets are multiples of
+// 4, the count is at most maxDrawIndirectCount, and a shader's draw index
+// is zero in a direct draw and the draw's number in an indirect one. On
+// Metal an execution range is read from a buffer, at most 16,384 commands
+// on one GPU family.
+// Every draw of the renderer is indexed and every list has a GPU-written
+// count, so there is no non-indexed indirect draw and no uncounted
+// multi-draw. One index buffer and one binding serve a multi-draw, so a
+// record carries no vertex buffer, index buffer or descriptor arguments.
 //
 // Core guidelines read: I.1 (every argument is explicit and copied; no
 // state is read from the device at record time), C.67 (the list is not
@@ -143,6 +195,24 @@ struct DispatchArguments {
   std::uint32_t x{1};
   std::uint32_t y{1};
   std::uint32_t z{1};
+};
+
+// One record of a counted multi-draw: the draw's index within the
+// multi-draw, then its arguments. 24 bytes; a record buffer's stride may be
+// larger, and what follows these bytes is the writer's.
+struct IndirectDrawRecord {
+  std::uint32_t draw_index{};
+  DrawIndexedArguments arguments{};
+};
+inline constexpr std::uint32_t kIndirectDrawRecordBytes = 24;
+static_assert(sizeof(IndirectDrawRecord) == kIndirectDrawRecordBytes);
+
+// Where a counted multi-draw's records and count are.
+struct MultiDrawArguments {
+  std::uint64_t record_offset{};
+  std::uint32_t stride{kIndirectDrawRecordBytes};
+  std::uint64_t count_offset{};
+  std::uint32_t maximum{};
 };
 
 struct Offset3 {
@@ -212,6 +282,11 @@ public:
   void draw(const DrawArguments& arguments);
   void draw_indexed(const DrawIndexedArguments& arguments);
   void dispatch(const DispatchArguments& arguments);
+  // Indirect work: arguments the GPU wrote.
+  void draw_indexed_indirect(Buffer& arguments, std::uint64_t offset);
+  void draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                   const MultiDrawArguments& arguments);
+  void dispatch_indirect(Buffer& arguments, std::uint64_t offset);
 
   // Copies.
   void copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy);

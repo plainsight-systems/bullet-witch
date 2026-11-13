@@ -82,7 +82,8 @@ Padding padding_of(std::span<const std::byte> payload, std::span<const Section> 
 // Group 0: two streams (position float3 in stream 1, stride 12; normal
 // short4n and texture coordinate half2 in stream 0, stride 12), 4 vertices,
 // 6 indices, two draws, morph set 0. Group 1: one stream (position, bone
-// slots, bone weights, stride 20), 3 vertices, 3 indices, one draw.
+// slots, bone weights, stride 20), 3 vertices, 3 indices, one draw. One
+// cluster per draw, the last rigid to bone 124, in one level.
 cc::MeshAssetData mesh_data() {
   using A = g::VertexAttribute;
   using T = g::VertexElementType;
@@ -119,6 +120,10 @@ cc::MeshAssetData mesh_data() {
              {0, 0, 3, 0, 3, g::kNoMaterial, 1, 0}};
   m.material_count = 2;
   m.bone_maps = {{5, 9}, {124}};
+  m.clusters = {{0, 3, 0, g::kNoClusterBone, {0.0F, 1.0F, 2.0F}, {3.0F, 4.0F, 5.0F}},
+                {3, 3, 1, g::kNoClusterBone, {-1.0F, -2.0F, -3.0F}, {1.0F, 2.0F, 3.0F}},
+                {0, 3, 2, 124, {6.0F, 7.0F, 8.0F}, {9.0F, 10.0F, 11.0F}}};
+  m.levels = {{0, 3, 0.5F, 0}};
   m.bounds_max = {1.0F, 2.0F, 3.0F};
   m.bounds_min = {-1.0F, -2.0F, -3.0F};
   m.center = {0.0F, 0.5F, 0.0F};
@@ -181,6 +186,17 @@ void mesh_round_trip() {
     }
     require(entries == m.bone_maps[b], b, "bone map entries");
   }
+  require(view.cluster_count() == 3U && view.level_count() == 1U, "table counts");
+  for (std::uint32_t c = 0; c < 3; ++c) {
+    const g::MeshClusterRecord x = view.cluster(c);
+    const g::MeshClusterRecord& y = m.clusters[c];
+    require(x.first_index == y.first_index && x.index_count == y.index_count && x.draw == y.draw &&
+                x.bone == y.bone && x.box_min == y.box_min && x.box_max == y.box_max,
+            c, "cluster");
+  }
+  require(view.level(0).first_cluster == 0U && view.level(0).cluster_count == 3U &&
+              view.level(0).screen_size == 0.5F,
+          "level");
 
   std::vector<Section> sections{
       {0, sizeof(g::MeshPayloadHeader)},
@@ -188,7 +204,9 @@ void mesh_round_trip() {
       {h.draws_offset, h.draw_count * sizeof(g::MeshDrawRecord)},
       {h.bone_maps_offset, h.bone_map_count * sizeof(g::MeshBoneMapRecord)},
       {h.bone_entries_offset, h.bone_entry_count * sizeof(std::uint32_t)},
-      {h.strings_offset, h.string_bytes}};
+      {h.strings_offset, h.string_bytes},
+      {h.clusters_offset, h.cluster_count * sizeof(g::MeshClusterRecord)},
+      {h.levels_offset, h.level_count * sizeof(g::MeshLevelRecord)}};
   for (std::uint32_t gi = 0; gi < h.group_count; ++gi) {
     const g::MeshGroupRecord rec = view.group(gi);
     sections.push_back({rec.stream0_offset, rec.stream0_size});

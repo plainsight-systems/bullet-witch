@@ -12,7 +12,12 @@
 #include "bw/rendering/rhi/pipeline_states.hpp"
 #include "bw/rendering/rhi/resources.hpp"
 #include "bw/rendering/rhi/result.hpp"
+#include "bw/rendering/scene/cpu_order.hpp"
+#include "bw/rendering/scene/culling.hpp"
+#include "bw/rendering/scene/draw_records.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
+#include "bw/rendering/scene/instance_set.hpp"
+#include "bw/rendering/scene/scene_geometry.hpp"
 #include "bw/rendering/scene/view.hpp"
 #include "bw/rendering/shaders/permutation.hpp"
 
@@ -26,7 +31,8 @@
 // Responsibility: a loaded model drawn with its own materials: each
 // material asset made into a material and an instance in the material
 // buffer, one pipeline per (permutation, blend mode) the model's materials
-// use, and the draws recorded through the forward pass's lit shaders
+// use, each with its index in the scene's pipeline table, and the scene's
+// draw records drawn through the forward pass's lit shaders
 // (docs/architecture/materials.md, "Material to pipelines";
 // bw/rendering/scene/forward_pass.hpp). The host's window and the
 // offscreen test both draw a model through these functions, inside a pass
@@ -50,16 +56,22 @@
 //         template decodes (VertexAttributeMissing, index the draw, name
 //         the attribute);
 //      d. for each distinct (permutation, blend mode) among the materials
-//         that a draw uses, the two forward lit artifacts of that
+//         that a draw uses, its index in `table` when the mode is Opaque
+//         or Masked (PipelineTableFull) and kNone otherwise, and
+//         the two forward lit artifacts of that
 //         permutation are read from `shader_directory` (ArtifactFailed,
 //         detail artifact_file_failure_text) and one pipeline is made and
 //         precompiled before it is created: no cull; one color target of
 //         `color_format`, depth kModelDepthFormat, one sample, triangle
-//         lists; depth tested LessEqual; and by blend mode
-//           Opaque, Masked  depth written, no blending;
-//           Translucent     depth not written, source alpha over
-//                           (SourceAlpha, InverseSourceAlpha);
-//           Additive        depth not written, added (SourceAlpha, One)
+//         lists; and by blend mode
+//           Opaque, Masked  depth tested Equal and not written, since
+//                           the depth pass drew the same records first
+//                           (scene/depth_pass.hpp); no blending;
+//           Translucent     depth tested LessEqual and not written,
+//                           source alpha over (SourceAlpha,
+//                           InverseSourceAlpha);
+//           Additive        depth tested LessEqual and not written,
+//                           added (SourceAlpha, One)
 //         with the same factors for the alpha channel as for color
 //         (StateFailed, PipelineFailed).
 //      The one sampler is made before the materials of b, since each
@@ -67,18 +79,31 @@
 //      pipelines holds one entry per distinct pair, in first-use order by
 //      draw; draw_pipelines has one entry per model.mesh.draws, the index
 //      of the draw's pipeline. No vertex layout enters a pipeline.
-//   3. record_model_draw records, for each draw in model.mesh.draws order
-//      (the mesh asset's order is kept; nothing here sorts blended
-//      draws): the draw's pipeline when it changes, the
-//      group's index buffer when the group changes, a ForwardDraw block
-//      (object_to_world, the group's block with the draw's base vertex,
-//      the draw's material reference) and draw_indexed(index_count, 1,
-//      first_index, 0, 0): exactly model.mesh.draws.size() draws.
+//   3. record_model_draw records the scene's index buffer once and, for
+//      each entry of pipelines in order, the pipeline and then, for the
+//      main view's PhaseOne list and then its PhaseTwo list of that
+//      pipeline's table index, a RecordDraw naming the list and one
+//      counted multi-draw of it with the list's capacity as the maximum:
+//      two multi-draws per dispatched pipeline, whatever is visible, and
+//      no draw per instance of one; a list of capacity 0, and a pipeline
+//      the frame's layout holds no list for (no instance of it has a
+//      cluster), has no record and gets no multi-draw. Then, for each
+//      entry of
+//      frame.order->blended in order (scene/cpu_order.hpp), the instance's
+//      pipeline when it changes, a RecordDraw naming the one-record list
+//      at that entry's place in the buffer frame.cpu_records_index
+//      names, whose record names the
+//      instance, and one draw_indexed per cluster of the entry's detail
+//      level: the CPU's draws, in its order, each reaching its instance
+//      by index as a record does.
 //      Preconditions: `list` is inside a render pass whose targets have
 //      the formats in 2d with the viewport and scissor set
 //      (the render graph's executor sets both for a pass, graph/executor.hpp
 //      contract 1c); bind_scene_blocks was recorded in this frame; `draw` was
-//      created from `model`; `material_buffer` outlives the draw.
+//      created from `model`; `material_buffer` outlives the draw; every
+//      blended entry's instance carries the material of one of `draw`'s
+//      slots, and a broken one stops the process with a line on stderr:
+//      no blended draw is skipped.
 //   4. Scene blocks. update_scene_blocks makes a uniform buffer holding
 //      `view` and one holding `light` (usage Uniform, the block's bytes as
 //      initial data) when `blocks` has none or the block's bytes differ
@@ -102,6 +127,9 @@ inline constexpr rhi::Format kModelDepthFormat = rhi::Format::D32Float;
 struct ModelPipeline {
   shaders::PermutationId permutation{};
   materials::BlendMode blend_mode{materials::BlendMode::Opaque};
+  // The pair's index in the scene's pipeline table; scene::kNone for a
+  // blended mode, whose draws the CPU issues.
+  std::uint32_t table_index{};
   rhi::Ref<rhi::GraphicsPipeline> pipeline{};
 };
 
@@ -116,8 +144,8 @@ struct ModelDraw {
   std::vector<std::uint32_t> draw_pipelines{};
   rhi::Ref<rhi::Sampler> sampler{};
   rhi::Ref<rhi::RasterizerState> rasterizer{};
-  // Depth written, and depth tested only.
-  rhi::Ref<rhi::DepthStencilState> depth_write{};
+  // Depth tested Equal, and tested LessEqual; neither written.
+  rhi::Ref<rhi::DepthStencilState> depth_equal{};
   rhi::Ref<rhi::DepthStencilState> depth_read{};
   // By blend mode: none, source alpha over, added.
   rhi::Ref<rhi::BlendState> blend_none{};
@@ -134,6 +162,7 @@ enum class ModelDrawError : std::uint8_t {
   MaterialFailed,
   MaterialBufferFailed,
   VertexAttributeMissing,
+  PipelineTableFull,
   ArtifactFailed,
   StateFailed,
   PipelineFailed,
@@ -156,10 +185,29 @@ struct ModelDrawFailure {
 [[nodiscard]] ModelDrawFailure create_model_draw(rhi::Device& device, const ModelResources& model,
                                                  const std::filesystem::path& shader_directory,
                                                  materials::MaterialBuffer& material_buffer,
+                                                 scene::PipelineTable& table,
                                                  rhi::Format color_format, ModelDraw& out);
 
-void record_model_draw(rhi::CommandList& list, const ModelDraw& draw, const ModelResources& model,
-                       const math::Matrix4f& object_to_world);
+// What record_model_draw draws from: the frame's lists, resolved to the
+// frame's buffers, and the scene's buffers. Observers. The record buffer's
+// index for RecordDraw is culling->records_index.
+struct ModelDrawFrame {
+  const scene::CullingFrame* culling{};
+  rhi::Buffer* records{};
+  rhi::Buffer* counts{};
+  const scene::InstanceBuffer* instance_buffer{};
+  const scene::GeometryBuffers* geometry_buffers{};
+  // The CPU's draws: their order, the instance records and the scene's
+  // tables to find each one's pipeline and clusters, and a buffer of one
+  // DrawRecord per entry of order->blended, in that order, with its index
+  // in the buffer array.
+  const scene::CpuOrder* order{};
+  const scene::InstanceSet* instances{};
+  const scene::SceneGeometry* geometry{};
+  shaders::BufferIndex cpu_records_index{};
+};
+
+void record_model_draw(rhi::CommandList& list, const ModelDraw& draw, const ModelDrawFrame& frame);
 
 struct SceneBlocks {
   rhi::Ref<rhi::Buffer> view{};

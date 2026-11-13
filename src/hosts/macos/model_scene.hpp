@@ -42,6 +42,9 @@ struct AssetScene : HostScene {
   [[nodiscard]] bool declare(rhi::Device& device, graph::FrameGraph& graph,
                              graph::TextureHandle target, rhi::Extent2 size,
                              double elapsed) override;
+  // The depth hierarchy's history is not the dropped frame's
+  // (model_scene.hpp, contract 2).
+  void frame_dropped() override;
 };
 
 // Opens the layers over --cache and --overrides, checks the --asset id and

@@ -70,15 +70,34 @@ float bw_lit_curve(float facing, float grazing, float exponent, float n_v) {
   return facing + (grazing - facing) * shape;
 }
 
-BwMaterialAttributes bw_lit_attributes(BW_LitMaterial material, BwLitPixel pixel) {
-  BwMaterialAttributes attributes = (BwMaterialAttributes)0;
+// base for the pixel at texture coordinate set 0 `uv0`; uv0 is read only
+// with BW_BASE_COLOR_MAP. The forward pass and the depth pass's masked
+// pixel stage both take base and the opacity mask from these two
+// functions, so the two passes keep and discard the same pixels.
+float4 bw_lit_base(BW_LitMaterial material, float2 uv0) {
   float4 base = material.base_color_tint;
 #if BW_BASE_COLOR_MAP
-  base *= BW_TEXTURE2D(material.base_color).Sample(BW_SAMPLER(material.sampler), pixel.uv0);
+  base *= BW_TEXTURE2D(material.base_color).Sample(BW_SAMPLER(material.sampler), uv0);
+#endif
+  return base;
+}
+
+#if BW_MASKED
+float bw_lit_opacity_mask(BW_LitMaterial material, float4 base) {
+  return base.a - material.opacity_mask_threshold;
+}
+#endif
+
+BwMaterialAttributes bw_lit_attributes(BW_LitMaterial material, BwLitPixel pixel) {
+  BwMaterialAttributes attributes = (BwMaterialAttributes)0;
+#if BW_BASE_COLOR_MAP || BW_NORMAL_MAP
+  const float4 base = bw_lit_base(material, pixel.uv0);
+#else
+  const float4 base = bw_lit_base(material, float2(0.0, 0.0));
 #endif
   attributes.diffuse_albedo = base.rgb;
 #if BW_MASKED
-  attributes.opacity_mask = base.a - material.opacity_mask_threshold;
+  attributes.opacity_mask = bw_lit_opacity_mask(material, base);
 #endif
 #if BW_NORMAL_MAP
   const float2 t_xy =

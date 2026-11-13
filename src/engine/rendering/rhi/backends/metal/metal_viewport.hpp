@@ -20,7 +20,7 @@
 //   texture is the back buffer's texture().
 //   Present: the backend takes the drawable at submit_frame of the frame
 //   that acquired it (take_drawable, presents_at_end_of_frame) and presents
-//   it on that frame's command buffer; the viewport then holds nothing
+//   it on that frame's last command buffer; the viewport then holds nothing
 //   (after_frame_end). The context also takes it, and releases it
 //   unpresented, when another back buffer of the same pass failed to
 //   acquire (metal_context.hpp, Back buffers).

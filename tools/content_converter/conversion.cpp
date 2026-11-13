@@ -6,6 +6,7 @@
 #include "bw/content/install.hpp"
 #include "bw/content/layers.hpp"
 #include "bw/content_converter/asset_data.hpp"
+#include "bw/content_converter/clusters.hpp"
 #include "bw/content_converter/cpr_container.hpp"
 #include "bw/content_converter/material_mapping.hpp"
 #include "bw/content_converter/mesh_reader.hpp"
@@ -82,7 +83,7 @@
 //   that file names it ("unmapped fields file: " and the OS message); the
 //   file's bytes count in bytes_written, and the material counts once, as
 //   converted, when its asset is written.
-//   Mesh inputs: the text "mesh-conversion 2", header.bin, then every
+//   Mesh inputs: the text "mesh-conversion 3", header.bin, then every
 //   buffer record a VTX, VTXS or IDX chunk names, in document order of the
 //   chunks, then motion.bil and motion._bl when present, then each
 //   shapeoffset record a VTXS names that exists, in document order. A morph
@@ -268,6 +269,11 @@ std::string_view name_of(TangentHandednessError e) noexcept {
                                                           "DrawRangesOverlap",
                                                           "MorphVertexCountMismatch",
                                                           "VertexCountOverflow"};
+  return enum_name(e, kNames);
+}
+std::string_view name_of(ClusterError e) noexcept {
+  static constexpr std::array<std::string_view, 4> kNames{"None", "PositionMissing",
+                                                          "DrawRangeInvalid", "SlotOutOfRange"};
   return enum_name(e, kNames);
 }
 std::string_view name_of(EncodeError e) noexcept {
@@ -1184,6 +1190,13 @@ void run_model_job(const JobContext& context, const ConversionJob& job,
          [&](std::string& failure) {
            if (has_skeleton) {
              mesh.skeleton_id = std::string(skeleton_id.view());
+           }
+           // The cluster and level tables, over the indices the handedness
+           // rule above may have remapped (clusters.hpp).
+           if (const ClusterFailure clusters = build_clusters(mesh); !clusters.ok()) {
+             failure = "clusters: " + std::string(name_of(clusters.error)) + " draw " +
+                       decimal(clusters.draw);
+             return std::vector<std::byte>{};
            }
            EncodeFailure encode{};
            std::vector<std::byte> payload = encode_mesh_asset(mesh, encode);

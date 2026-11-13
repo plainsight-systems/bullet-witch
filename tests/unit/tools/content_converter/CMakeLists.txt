@@ -6,6 +6,8 @@
 # vendored block decoders, against which it checks the encoder.
 set(content_converter_asset_data_scenarios
   round_trips)
+set(content_converter_clusters_scenarios
+  split_and_boxes)
 set(content_converter_cpr_container_scenarios
   synthetic_container
   errors_named
@@ -32,7 +34,7 @@ set(content_converter_material_mapping_scenarios
   blend_rule
   refusals_named
   unmapped_fields_file)
-foreach(header IN ITEMS asset_data cpr_container rat_index mesh_reader skeleton_reader
+foreach(header IN ITEMS asset_data clusters cpr_container rat_index mesh_reader skeleton_reader
     texture_reader material_mapping)
   add_executable(content_converter_${header}_tests ${header}_tests.cpp)
   target_link_libraries(content_converter_${header}_tests PRIVATE bw_test_harness

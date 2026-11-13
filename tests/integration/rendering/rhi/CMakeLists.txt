@@ -69,6 +69,13 @@ if(APPLE AND BW_SHADER_TOOLCHAIN)
       COMMAND rhi_metal_tests ${scenario} "${CMAKE_BINARY_DIR}/shaders/metal")
     set_tests_properties(integration.rhi.metal.${scenario} PROPERTIES TIMEOUT 120)
   endforeach()
+  # The indirect work of command_list.hpp, in the same executable under the
+  # test names of the scene slice's list.
+  foreach(scenario IN ITEMS multi_draw.draws_count_records indirect.single_draw_and_dispatch)
+    add_test(NAME integration.rhi.${scenario}
+      COMMAND rhi_metal_tests ${scenario} "${CMAKE_BINARY_DIR}/shaders/metal")
+    set_tests_properties(integration.rhi.${scenario} PROPERTIES TIMEOUT 120)
+  endforeach()
 
   # The probes of the Metal viewport against its surface: the acquisition
   # failure through Device::execute and vsync applied to the layer.

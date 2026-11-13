@@ -65,7 +65,13 @@
 //   meanings; two can fail: set_draw_block, with the frame's transient
 //   budget, which it reports rather than growing the ring, and
 //   begin_render_pass, when a back buffer among its targets cannot be
-//   acquired (viewport.hpp, invariant 4); a transition a backend's API
+//   acquired (viewport.hpp, invariant 4); the three indirect operations
+//   are each backend's own form of the one contract (rhi.md, "Backends":
+//   the counted multi-draw and the draw index in the shader), and whatever
+//   work a backend needs before the pass that issues one, it arranges
+//   itself, with nothing recorded for it, and an object of that work the
+//   API refuses to make ends the process with one line on stderr naming
+//   the object (no ExecuteError names it); a transition a backend's API
 //   tracks itself may execute as no work, but it writes the tracked access of every resource in the
 //   batch at end_transitions (transitions.hpp).
 //   Viewports: create_viewport receives a description the device validated
@@ -122,6 +128,10 @@ struct Capabilities {
   // Limits.
   TextureLimits texture_limits{};
   std::uint32_t uniform_buffer_alignment{};
+  // The largest `maximum` a counted multi-draw takes (command_list.hpp,
+  // Indirect work); at least 1 on every backend, since the operation is in
+  // the contract.
+  std::uint32_t max_multi_draw_count{};
   // The native surface this backend's viewports render into
   // (viewport.hpp; platform/window/window.hpp): MetalLayer for Metal.
   platform::NativeSurfaceKind surface_kind{platform::NativeSurfaceKind::None};
@@ -201,6 +211,10 @@ public:
   virtual void draw(const DrawArguments& arguments) = 0;
   virtual void draw_indexed(const DrawIndexedArguments& arguments) = 0;
   virtual void dispatch(const DispatchArguments& arguments) = 0;
+  virtual void draw_indexed_indirect(Buffer& arguments, std::uint64_t offset) = 0;
+  virtual void draw_indexed_indirect_count(Buffer& records, Buffer& counts,
+                                           const MultiDrawArguments& arguments) = 0;
+  virtual void dispatch_indirect(Buffer& arguments, std::uint64_t offset) = 0;
   virtual void copy_buffer(Buffer& source, Buffer& destination, const BufferCopy& copy) = 0;
   virtual void copy_texture(Texture& source, Texture& destination,
                             const TextureCopyRegion& region) = 0;

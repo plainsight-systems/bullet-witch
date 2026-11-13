@@ -50,14 +50,19 @@ namespace {
   return rhi::TextureUsage::None;
 }
 
-[[nodiscard]] rhi::BufferUsage buffer_usage_for(Access access) noexcept {
+// An Arguments use in a Raster pass also gives ShaderResource: its state
+// carries the two shader-read stages (access.hpp, contract 2), so the buffer
+// must allow them (declaration.hpp, contract 2).
+[[nodiscard]] rhi::BufferUsage buffer_usage_for(Access access, PassKind kind) noexcept {
   switch (access) {
   case Access::Sampled:
     return rhi::BufferUsage::ShaderResource;
   case Access::ComputeWrite:
     return rhi::BufferUsage::UnorderedAccess;
   case Access::Arguments:
-    return rhi::BufferUsage::IndirectArguments;
+    return kind == PassKind::Raster
+               ? rhi::BufferUsage::IndirectArguments | rhi::BufferUsage::ShaderResource
+               : rhi::BufferUsage::IndirectArguments;
   case Access::CopySource:
     return rhi::BufferUsage::CopySource;
   case Access::CopyDestination:
@@ -218,7 +223,7 @@ ExecuteFailure Executor::acquire_buffer(BufferHandle handle) {
       if (use.buffer != handle) {
         continue;
       }
-      usage = usage | buffer_usage_for(use.access);
+      usage = usage | buffer_usage_for(use.access, running.kind);
       if (!derived.found) {
         derived = Derived{rhi_access(use.access, running.kind), true};
       }

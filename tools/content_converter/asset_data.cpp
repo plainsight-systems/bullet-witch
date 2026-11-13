@@ -130,7 +130,7 @@ std::vector<std::byte> u16_bytes(const std::vector<std::uint16_t>& values) {
 
 // The bytes a mesh needs, checked against the u32 offsets before building.
 std::uint64_t mesh_bytes(const MeshAssetData& data) noexcept {
-  std::uint64_t total = sizeof(geometry::MeshPayloadHeader) + kAlignment * 8U;
+  std::uint64_t total = sizeof(geometry::MeshPayloadHeader) + kAlignment * 10U;
   total += data.groups.size() * sizeof(geometry::MeshGroupRecord);
   total += data.draws.size() * sizeof(geometry::MeshDrawRecord);
   total += data.bone_maps.size() * sizeof(geometry::MeshBoneMapRecord);
@@ -138,6 +138,8 @@ std::uint64_t mesh_bytes(const MeshAssetData& data) noexcept {
     total += map.size() * sizeof(std::uint32_t);
   }
   total += data.skeleton_id.size();
+  total += data.clusters.size() * sizeof(geometry::MeshClusterRecord);
+  total += data.levels.size() * sizeof(geometry::MeshLevelRecord);
   for (const MeshGroupData& g : data.groups) {
     total += g.stream0.size() + g.stream1.size() + (g.indices.size() * 2U) + (kAlignment * 3U);
   }
@@ -180,6 +182,8 @@ std::vector<std::byte> encode_mesh_asset(const MeshAssetData& data, EncodeFailur
   h.bounds_min = data.bounds_min;
   h.center = data.center;
   h.radius = data.radius;
+  h.cluster_count = u32(data.clusters.size());
+  h.level_count = u32(data.levels.size());
 
   Builder out;
   const std::size_t header_at = out.reserve(sizeof(geometry::MeshPayloadHeader));
@@ -188,6 +192,8 @@ std::vector<std::byte> encode_mesh_asset(const MeshAssetData& data, EncodeFailur
   h.bone_maps_offset = u32(out.append(std::as_bytes(std::span(maps))));
   h.bone_entries_offset = u32(out.append(std::as_bytes(std::span(entries))));
   h.strings_offset = u32(out.append(strings.bytes()));
+  h.clusters_offset = u32(out.append(std::as_bytes(std::span(data.clusters))));
+  h.levels_offset = u32(out.append(std::as_bytes(std::span(data.levels))));
   for (std::size_t g = 0; g < data.groups.size(); ++g) {
     const MeshGroupData& group = data.groups[g];
     const geometry::VertexStreamLayout& layout = group.layout;

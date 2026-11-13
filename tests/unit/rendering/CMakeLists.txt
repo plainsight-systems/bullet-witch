@@ -44,3 +44,23 @@ foreach(scenario IN LISTS scene_orbit_scenarios)
   add_test(NAME unit.scene.orbit.${scenario} COMMAND scene_orbit_tests ${scenario})
   set_tests_properties(unit.scene.orbit.${scenario} PROPERTIES TIMEOUT 10)
 endforeach()
+
+# Unit tests of the scene's pure parts, one executable per public header
+# (instance_set.hpp, frame_views.hpp, detail_level.hpp, cpu_order.hpp,
+# scene_geometry.hpp, draw_records.hpp), one CTest entry per scenario. No
+# device; each links the scene module.
+set(scene_instance_set_scenarios ids_and_previous_transform)
+set(scene_frame_views_scenarios planes_and_previous)
+set(scene_detail_level_scenarios choice_and_dither)
+set(scene_cpu_order_scenarios key_and_frustum)
+set(scene_scene_geometry_scenarios rebases_tables)
+set(scene_draw_records_scenarios layout_and_table)
+foreach(header IN ITEMS instance_set frame_views detail_level cpu_order scene_geometry
+    draw_records)
+  add_executable(scene_${header}_tests scene/${header}_tests.cpp)
+  target_link_libraries(scene_${header}_tests PRIVATE bw_test_harness bw_scene)
+  foreach(scenario IN LISTS scene_${header}_scenarios)
+    add_test(NAME unit.scene.${header}.${scenario} COMMAND scene_${header}_tests ${scenario})
+    set_tests_properties(unit.scene.${header}.${scenario} PROPERTIES TIMEOUT 10)
+  endforeach()
+endforeach()

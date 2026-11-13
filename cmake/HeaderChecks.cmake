@@ -98,6 +98,20 @@ set(BW_PUBLIC_HEADERS
   bw/capture/png.hpp
   bw/character_viewer/viewer_options.hpp
   bw/character_viewer/script.hpp
+  bw/rendering/scene/instance.hpp
+  bw/rendering/scene/instance_set.hpp
+  bw/rendering/scene/frame_views.hpp
+  bw/rendering/scene/detail_level.hpp
+  bw/rendering/scene/cluster_records.hpp
+  bw/rendering/scene/scene_geometry.hpp
+  bw/rendering/scene/cpu_order.hpp
+  bw/rendering/scene/draw_records.hpp
+  bw/rendering/scene/depth_shaders.hpp
+  bw/rendering/scene/compute_shaders.hpp
+  bw/rendering/scene/depth_hierarchy.hpp
+  bw/rendering/scene/culling.hpp
+  bw/rendering/scene/depth_pass.hpp
+  bw/content_converter/clusters.hpp
 )
 # The shader_compiler tool's headers exist as a target only with the shader
 # toolchain configured (tools/shader_compiler is added under it).

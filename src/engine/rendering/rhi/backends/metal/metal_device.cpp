@@ -155,6 +155,7 @@ MetalBackend::MetalBackend(const BackendOptions& options, MTL::Device* device,
 MetalBackend::~MetalBackend() {
   const AutoreleaseScope pool;
   context_.reset();
+  multi_draw_.reset();
   descriptors_.reset();
   writable_.reset();
   memory_.reset();
@@ -234,6 +235,7 @@ BackendResult MetalBackend::create(const BackendOptions& options) {
   // targets are always available.
   capabilities.texture_limits.memoryless = true;
   capabilities.uniform_buffer_alignment = kBufferOffsetAlignment;
+  capabilities.max_multi_draw_count = kMaxMultiDrawCount;
   capabilities.surface_kind = platform::NativeSurfaceKind::MetalLayer;
   capabilities.frames_in_flight = options.frames_in_flight;
   capabilities.descriptors = options.descriptors;
@@ -281,6 +283,11 @@ std::string_view MetalBackend::initialize(MTL::Buffer* resource_heap, MTL::Buffe
       DescriptorHeapBuffers{resource_heap, sampler_heap}, options_.descriptors);
   memory_ = std::make_unique<ResourceMemory>(*device_, recording_frame_);
   writable_ = std::make_unique<WritableResources>();
+  std::string multi_draw_error;
+  multi_draw_ = MultiDrawPool::create(*device_, options_.frames_in_flight, multi_draw_error);
+  if (multi_draw_ == nullptr) {
+    return fail_with(std::move(multi_draw_error));
+  }
 
   // One untracked ring per frame in flight, of the device's transient budget,
   // that never grows (invariant 7).
@@ -734,7 +741,8 @@ MetalBackend::LoadedFunction MetalBackend::load_function(const shaders::Artifact
 
 // Builds a RenderPipelineDescriptor with the vertex and fragment functions,
 // the color attachments' formats and blend states, the depth and stencil
-// formats and the sample count, and no vertex descriptor (bindless), and
+// formats and the sample count, indirect command buffer support, and no
+// vertex descriptor (bindless), and
 // calls newRenderPipelineState(descriptor, &error). A non-empty vertex layout
 // is VertexLayoutUnsupported in this slice (pipeline_states.hpp): a stage-in
 // function would have to be synthesized with the converter, which is not
@@ -792,6 +800,10 @@ MetalBackend::create_graphics_pipeline(const GraphicsPipelineDescription& descri
   }
   descriptor->setRasterSampleCount(description.targets.sample_count);
   descriptor->setAlphaToCoverageEnabled(blend.alpha_to_coverage);
+  // Any pipeline may draw a counted multi-draw, whose indirect commands
+  // inherit it (metal_multi_draw.hpp), and the description does not say
+  // which will.
+  descriptor->setSupportIndirectCommandBuffers(true);
   set_label(*descriptor.get(), description.debug_name);
   NS::Error* pipeline_error = nullptr;
   MTL::RenderPipelineState* state =
@@ -1026,28 +1038,29 @@ void MetalBackend::track_viewport(MetalViewport& viewport) {
   }
 }
 
-// Commits the frame's work command buffer, then a separate command buffer
-// that encodes encodeSignalEvent(frame event, frame) and is committed, with
-// the frame number as the value and one queue. The signal rides its own
-// command buffer, so a failed work buffer cannot keep the frame from
-// completing. Commit happens on the submission thread that calls end_frame.
-// Fault: a completed handler on both buffers reads status() and error() and
-// sets the flag take_gpu_fault returns (backend.hpp). The handler holds the
-// flag by shared ownership, because Metal may run it after the frame event
-// has been signaled and the backend destroyed. The error text has no channel
-// in the RHI and is not kept. The frame event is an MTL::SharedEvent whose
-// value the CPU reads and waits on (completed_frame, wait_for_frame).
+// Commits the frame's segments in recording order (metal_context.hpp), then a
+// separate command buffer that encodes encodeSignalEvent(frame event, frame)
+// and is committed, with the frame number as the value and one queue. The
+// signal rides its own command buffer, so a failed segment cannot keep the
+// frame from completing. Commit happens on the submission thread that calls
+// end_frame. Fault: a completed handler on every buffer reads status() and
+// error() and sets the flag take_gpu_fault returns (backend.hpp). The handler
+// holds the flag by shared ownership, because Metal may run it after the
+// frame event has been signaled and the backend destroyed. The error text
+// has no channel in the RHI and is not kept. The frame event is an
+// MTL::SharedEvent whose value the CPU reads and waits on (completed_frame,
+// wait_for_frame).
 // Present (viewport.hpp, invariant 3): every drawable the frame acquired is
-// presented on the frame's work command buffer, after its work: a scheduled
-// handler calls present() and a completed handler releases the drawable,
-// which each handler holds by the +1 take_drawable returned (the work
-// buffer does not retain what it references).
+// presented on the frame's last segment, after all of the frame's work: a
+// scheduled handler calls present() and a completed handler releases the
+// drawable, which each handler holds by the +1 take_drawable returned (the
+// segment does not retain what it references).
 // Invariant (metal_context.hpp, Back buffers): a viewport is tracked only
-// after the pass that acquired it created the frame's work buffer, so
-// `work` is not null whenever a drawable is taken here. A drawable taken
-// with no work buffer is a programming error of this backend, not a GPU
-// fault: one line naming the invariant goes to stderr and the process
-// aborts rather than dereferencing a null buffer.
+// after the pass that acquired it created its segment, so the frame has a
+// segment whenever a drawable is taken here. A drawable taken with no
+// segment is a programming error of this backend, not a GPU fault: one line
+// naming the invariant goes to stderr and the process aborts rather than
+// dereferencing a null buffer.
 // No semaphore is waited here: the device bounds frames in flight with the
 // frame event (lifetime.hpp, required_completion). Presenting does not show
 // the window; the window shows itself (platform/window/window.hpp).
@@ -1059,13 +1072,14 @@ void MetalBackend::submit_frame(std::uint64_t frame) {
       fault->store(true, std::memory_order_release);
     }
   };
-  MTL::CommandBuffer* work = context_->finish_frame();
+  context_->finish_frame(frame_segments_);
+  MTL::CommandBuffer* last = frame_segments_.empty() ? nullptr : frame_segments_.back();
   for (MetalViewport* viewport : viewports_acquired_) {
     CA::MetalDrawable* drawable = viewport->take_drawable(frame);
     if (drawable == nullptr) {
       continue;
     }
-    if (work == nullptr) {
+    if (last == nullptr) {
       std::fputs("bw::rhi::metal: a viewport was tracked for present in a frame with no "
                  "command buffer (metal_context.hpp, Back buffers)\n",
                  stderr);
@@ -1073,15 +1087,16 @@ void MetalBackend::submit_frame(std::uint64_t frame) {
     }
     const MTL::HandlerFunction present = [drawable](MTL::CommandBuffer*) { drawable->present(); };
     const MTL::HandlerFunction release = [drawable](MTL::CommandBuffer*) { drawable->release(); };
-    work->addScheduledHandler(present);
-    work->addCompletedHandler(release);
+    last->addScheduledHandler(present);
+    last->addCompletedHandler(release);
   }
   viewports_acquired_.clear();
-  if (work != nullptr) {
-    work->addCompletedHandler(record_fault);
-    work->commit();
-    work->release();
+  for (MTL::CommandBuffer* segment : frame_segments_) {
+    segment->addCompletedHandler(record_fault);
+    segment->commit();
+    segment->release();
   }
+  frame_segments_.clear();
   MTL::CommandBuffer* signal = queue_->commandBufferWithUnretainedReferences();
   set_label(*signal, "bw.rhi.metal.frame_signal");
   signal->addCompletedHandler(record_fault);
@@ -1111,10 +1126,11 @@ void MetalBackend::wait_idle() {
   wait_for_event(*frame_event_, submitted_frame_.load(std::memory_order_acquire));
 }
 
-// The rings of completed frames rewind and the heaps retired by then are
-// released.
+// The rings and multi-draw pools of completed frames rewind and the heaps
+// retired by then are released.
 void MetalBackend::reset_frame_resources(std::uint64_t completed_frame) {
   context_->reset_rings(completed_frame);
+  multi_draw_->reset(completed_frame);
   memory_->release_retired(completed_frame);
 }
 

@@ -1150,9 +1150,10 @@ void every_call_forwarded_once_with_same_arguments() {
                 .str(),
             1, [&](C& c) { c.set_static_block(bw::shaders::kMaxStaticBlocks, *vertices_g, 0); });
   forwarded(g, "set_root_constants",
-            (Args{} << std::uint64_t{bw::shaders::kRootConstantWords - 1U}).str() +
+            (Args{} << std::uint64_t{bw::shaders::kCallerRootConstantWords - 1U}).str() +
                 describe(std::span<const std::uint32_t>(words)),
-            1, [&](C& c) { c.set_root_constants(bw::shaders::kRootConstantWords - 1U, words); });
+            1,
+            [&](C& c) { c.set_root_constants(bw::shaders::kCallerRootConstantWords - 1U, words); });
   forwarded(g, "draw", describe(draw), 1, [&](C& c) { c.draw(draw); });
   forwarded(g, "draw_indexed", describe(draw_indexed), 1,
             [&](C& c) { c.draw_indexed(draw_indexed); });
@@ -1217,16 +1218,16 @@ void static_slot_out_of_range_is_named() {
 }
 
 // (command_list.hpp, CommandList::set_root_constants: first + n <=
-// kRootConstantWords, else RootConstantsOutOfRange);
+// kCallerRootConstantWords, else RootConstantsOutOfRange);
 // (backend.hpp, ValidationCode::RootConstantsOutOfRange).
 void root_constants_out_of_range_is_named() {
   Fixture f;
   const std::array<std::uint32_t, 3> words{1, 2, 3};
-  f.context().set_root_constants(bw::shaders::kRootConstantWords - 2U, words);
+  f.context().set_root_constants(bw::shaders::kCallerRootConstantWords - 2U, words);
   require_reported(f, 0, ValidationCode::RootConstantsOutOfRange, TransitionError::None, "",
                    "set_root_constants");
-  f.context().set_root_constants(bw::shaders::kRootConstantWords - 3U, words);
-  require_quiet(f, 1, "root constants ending at the last word");
+  f.context().set_root_constants(bw::shaders::kCallerRootConstantWords - 3U, words);
+  require_quiet(f, 1, "root constants ending at the last caller word");
 }
 
 // (command_list.hpp, CommandList::set_draw_block: the draw block is bound

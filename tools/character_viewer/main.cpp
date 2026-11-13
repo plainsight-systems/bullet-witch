@@ -287,6 +287,9 @@ private:
   // The scene declared each frame and the camera it is seen through.
   std::size_t current_{};
   scene::OrbitCamera camera_{};
+  // reset_camera replaced the camera and no frame has been declared since:
+  // the next frame is a camera cut (model_scene.hpp, contract 2).
+  bool camera_cut_{};
   // The left drag's and the right drag's origins: the pointer's last
   // position in each.
   platform::PixelPoint last_{};
@@ -383,8 +386,10 @@ bool Host::build_scenes() {
       return false;
     }
     rendering::ModelScene& built = *scenes_.emplace_back(std::make_unique<rendering::ModelScene>());
+    // The option's ceiling is the scene's.
+    static_assert(bw::character_viewer::kMaxViewerGrid == rendering::kMaxModelGrid);
     const rendering::ModelSceneFailure failure = rendering::build_model_scene(
-        *device_, loader, id.id, viewport_->format(), options_.shaders, built);
+        *device_, loader, id.id, viewport_->format(), options_.shaders, options_.grid, built);
     if (!failure.ok()) {
       std::cerr << "character_viewer: " << rendering::model_scene_failure_text(failure, asset)
                 << '\n';
@@ -408,6 +413,7 @@ bool Host::reset_camera() {
     return false;
   }
   camera_ = *camera;
+  camera_cut_ = true;
   dragging_ = false;
   panning_ = false;
   return true;
@@ -641,6 +647,9 @@ Host::FrameOutcome Host::draw_frame() {
       // The replay stopped before the pass, so the readback was not
       // recorded; the request stays for the next frame drawn.
       dump_in_frame_ = false;
+      // The frame's graph did not run to its end (model_scene.hpp,
+      // contract 2).
+      scenes_[current_]->hierarchy.invalidate();
       return resize_after_mismatch();
     }
     fail("frame execute", executed.error(), executed.detail());
@@ -682,8 +691,16 @@ bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size) {
   }
   const bw::math::Matrix4f identity =
       bw::math::Matrix4f::translation(bw::math::Vector3f{0.0F, 0.0F, 0.0F});
-  const rendering::ModelSceneFailure declared = rendering::declare_model_scene(
-      *scenes_[current_], *device_, graph_, target, size, scene::view_of(camera_), identity);
+  // The scene's clock: under --script the frame index times the script's
+  // fixed frame time, so a scripted run is the same every time; otherwise
+  // the viewer's clock.
+  const double seconds = options_.script.empty() ? time_.seconds()
+                                                 : static_cast<double>(frames_) *
+                                                       bw::character_viewer::kScriptFrameSeconds;
+  const rendering::ModelSceneFailure declared =
+      rendering::declare_model_scene(*scenes_[current_], *device_, graph_, target, size,
+                                     scene::view_of(camera_), identity, camera_cut_, seconds);
+  camera_cut_ = false;
   if (!declared.ok()) {
     std::cerr << "character_viewer: "
               << rendering::model_scene_failure_text(declared, options_.assets[current_]) << '\n';

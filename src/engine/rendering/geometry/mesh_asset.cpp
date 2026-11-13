@@ -22,9 +22,9 @@
 // to be within the payload. Index values are not read (contract 6).
 //
 // Readings of the header that the checks encode:
-//   SectionMisaligned and SectionOutOfBounds cover the five sections the
-//   payload header names (groups, draws, bone maps, bone entries, strings),
-//   reported with index 0. A group's stream or index range that is not
+//   SectionMisaligned and SectionOutOfBounds cover the seven sections the
+//   payload header names (groups, draws, bone maps, bone entries, strings,
+//   clusters, levels), reported with index 0. A group's stream or index range that is not
 //   16-aligned or runs past the payload is StreamOutOfBounds or
 //   IndexOutOfBounds for that group, as contracts 3 and 4 place alignment.
 //   AttributeUnknown scans the first min(attribute_count,
@@ -39,6 +39,14 @@
 //   or the last group when the sequence ends short of or past draw_count.
 //   An empty skeleton id is "no skeleton" whatever its offset; a present
 //   one whose slice leaves the string table is SkeletonIdInvalid.
+//   Rules 10 and 11 run after every earlier rule, so a cluster's draw
+//   record is known valid when its range is compared with the draw's. A
+//   level count of 0 or above kMaxMeshLevels is LevelRangeInvalid with
+//   index 0; a level whose range does not start where the one before ends,
+//   is empty, or leaves the table, and a last level that ends short of the
+//   cluster count, is LevelRangeInvalid for that level. ClusterOrderInvalid
+//   names the cluster whose draw is below the draw of the cluster before
+//   it in the same level.
 namespace bw::geometry {
 
 namespace {
@@ -79,6 +87,16 @@ MeshBoneMapRecord read_bone_map(std::span<const std::byte> payload, const MeshPa
   return read_record<MeshBoneMapRecord>(
       payload, element_offset(header.bone_maps_offset, index, sizeof(MeshBoneMapRecord)));
 }
+MeshClusterRecord read_cluster(std::span<const std::byte> payload, const MeshPayloadHeader& header,
+                               std::uint32_t index) noexcept {
+  return read_record<MeshClusterRecord>(
+      payload, element_offset(header.clusters_offset, index, sizeof(MeshClusterRecord)));
+}
+MeshLevelRecord read_level(std::span<const std::byte> payload, const MeshPayloadHeader& header,
+                           std::uint32_t index) noexcept {
+  return read_record<MeshLevelRecord>(
+      payload, element_offset(header.levels_offset, index, sizeof(MeshLevelRecord)));
+}
 
 std::uint32_t scanned_attributes(const MeshGroupRecord& group) noexcept {
   return group.attribute_count < kVertexAttributeCount ? group.attribute_count
@@ -109,7 +127,7 @@ struct Section {
 };
 
 MeshAssetFailure check_sections(const MeshPayloadHeader& h, std::uint64_t size) noexcept {
-  const std::array<Section, 5> sections{
+  const std::array<Section, 7> sections{
       Section{h.groups_offset, static_cast<std::uint64_t>(h.group_count) * sizeof(MeshGroupRecord)},
       Section{h.draws_offset, static_cast<std::uint64_t>(h.draw_count) * sizeof(MeshDrawRecord)},
       Section{h.bone_maps_offset,
@@ -117,6 +135,9 @@ MeshAssetFailure check_sections(const MeshPayloadHeader& h, std::uint64_t size) 
       Section{h.bone_entries_offset,
               static_cast<std::uint64_t>(h.bone_entry_count) * sizeof(std::uint32_t)},
       Section{h.strings_offset, h.string_bytes},
+      Section{h.clusters_offset,
+              static_cast<std::uint64_t>(h.cluster_count) * sizeof(MeshClusterRecord)},
+      Section{h.levels_offset, static_cast<std::uint64_t>(h.level_count) * sizeof(MeshLevelRecord)},
   };
   for (const Section& s : sections) {
     if (!aligned(s.offset)) {
@@ -247,7 +268,78 @@ MeshAssetFailure check_draws(std::span<const std::byte> payload,
   return {};
 }
 
+// Rule 10, one pass per error over every cluster. Runs after the draw
+// checks, so every draw record a cluster names is valid.
+MeshAssetFailure check_clusters(std::span<const std::byte> payload,
+                                const MeshPayloadHeader& h) noexcept {
+  using E = MeshAssetError;
+  for (std::uint32_t c = 0; c < h.cluster_count; ++c) {
+    if (read_cluster(payload, h, c).draw >= h.draw_count) {
+      return {E::ClusterDrawOutOfRange, c, VertexStreamError::None};
+    }
+  }
+  for (std::uint32_t c = 0; c < h.cluster_count; ++c) {
+    const MeshClusterRecord cluster = read_cluster(payload, h, c);
+    const MeshDrawRecord draw = read_draw(payload, h, cluster.draw);
+    const bool counted = cluster.index_count >= 3U && cluster.index_count % 3U == 0U &&
+                         cluster.index_count <= kMaxClusterIndices;
+    const bool inside = cluster.first_index >= draw.first_index &&
+                        static_cast<std::uint64_t>(cluster.first_index) + cluster.index_count <=
+                            static_cast<std::uint64_t>(draw.first_index) + draw.index_count;
+    if (!counted || !inside) {
+      return {E::ClusterIndexRangeInvalid, c, VertexStreamError::None};
+    }
+  }
+  for (std::uint32_t c = 0; c < h.cluster_count; ++c) {
+    const MeshClusterRecord cluster = read_cluster(payload, h, c);
+    if (cluster.bone != kNoClusterBone &&
+        read_draw(payload, h, cluster.draw).bone_map == kNoBoneMap) {
+      return {E::ClusterBoneWithoutMap, c, VertexStreamError::None};
+    }
+  }
+  return {};
+}
+
+// Rule 11: the level ranges, then the draw order of the clusters within
+// each level.
+MeshAssetFailure check_levels(std::span<const std::byte> payload,
+                              const MeshPayloadHeader& h) noexcept {
+  using E = MeshAssetError;
+  if (h.level_count == 0U || h.level_count > kMaxMeshLevels) {
+    return {E::LevelRangeInvalid, 0, VertexStreamError::None};
+  }
+  std::uint64_t next = 0;
+  for (std::uint32_t l = 0; l < h.level_count; ++l) {
+    const MeshLevelRecord level = read_level(payload, h, l);
+    if (level.first_cluster != next || level.cluster_count == 0U ||
+        !within(level.first_cluster, level.cluster_count, h.cluster_count)) {
+      return {E::LevelRangeInvalid, l, VertexStreamError::None};
+    }
+    next += level.cluster_count;
+  }
+  if (next != h.cluster_count) {
+    return {E::LevelRangeInvalid, h.level_count - 1U, VertexStreamError::None};
+  }
+  for (std::uint32_t l = 0; l < h.level_count; ++l) {
+    const MeshLevelRecord level = read_level(payload, h, l);
+    for (std::uint32_t c = level.first_cluster + 1U; c < level.first_cluster + level.cluster_count;
+         ++c) {
+      if (read_cluster(payload, h, c).draw < read_cluster(payload, h, c - 1U).draw) {
+        return {E::ClusterOrderInvalid, c, VertexStreamError::None};
+      }
+    }
+  }
+  return {};
+}
+
 } // namespace
+
+MeshClusterRecord MeshAssetView::cluster(std::uint32_t index) const noexcept {
+  return read_cluster(payload_, header_, index);
+}
+MeshLevelRecord MeshAssetView::level(std::uint32_t index) const noexcept {
+  return read_level(payload_, header_, index);
+}
 
 MeshGroupRecord MeshAssetView::group(std::uint32_t index) const noexcept {
   return read_group(payload_, header_, index);
@@ -322,6 +414,12 @@ MeshAssetFailure decode_mesh_asset(std::span<const std::byte> payload,
                             h.skeleton_id_length)) != content::AssetIdError::None) {
       return {E::SkeletonIdInvalid, 0, VertexStreamError::None};
     }
+  }
+  if (const MeshAssetFailure f = check_clusters(payload, h); f.error != E::None) {
+    return f;
+  }
+  if (const MeshAssetFailure f = check_levels(payload, h); f.error != E::None) {
+    return f;
   }
   view.payload_ = payload;
   view.header_ = h;

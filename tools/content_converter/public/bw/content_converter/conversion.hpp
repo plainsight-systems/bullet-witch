@@ -74,6 +74,11 @@
 //   its mesh's header.bin and buffer records (a split vertex of the mesh
 //   repeats its delta). Every input that changes the output
 //   bytes is in the hash, so a skip never keeps stale bytes.
+//   Meshes, clusters (build_clusters, clusters.hpp): after the tangent
+//   handedness below is written, every mesh's draws are split into
+//   clusters and one detail level by that header's contract, and the two
+//   tables are encoded with the mesh (mesh_asset.hpp, rules 10 and 11). A
+//   failure fails the mesh by name, with the ClusterError and its draw.
 //   Meshes, tangent handedness (write_tangent_handedness, a pure function
 //   of the mesh and its morph sets, run before either is encoded): every
 //   tangent the content stores has w = +1, mirrored texture coordinates or
@@ -215,7 +220,7 @@ inline constexpr std::string_view kConvertUsage =
 // Numbers the mesh rules above: any change to them changes the number,
 // and the number is in every mesh's and morph set's input hash, so a rule
 // change reconverts meshes and nothing else.
-inline constexpr std::uint32_t kMeshConversionRevision = 2;
+inline constexpr std::uint32_t kMeshConversionRevision = 3;
 
 enum class TangentHandednessError : std::uint8_t {
   None,

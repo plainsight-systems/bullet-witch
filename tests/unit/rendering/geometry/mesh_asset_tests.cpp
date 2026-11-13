@@ -73,12 +73,15 @@ g::MeshAttributeRecord attribute(g::VertexAttribute a, g::VertexElementType t, s
 // vertices, 3 indices, and two draws: material 1 with bone map 1, and no
 // material and no bone map at base vertex 1 ending exactly at the group's
 // last vertex. Two bone maps over three entries; skeleton
-// "model.pw0.mesh.skeleton".
+// "model.pw0.mesh.skeleton". Four clusters: draw 0's two triangles, draw 1
+// rigid to bone 7, draw 2; level 0 holds the first three, level 1 the last.
 struct Mesh {
   std::vector<g::MeshGroupRecord> groups;
   std::vector<g::MeshDrawRecord> draws;
   std::vector<g::MeshBoneMapRecord> maps;
   std::vector<std::uint32_t> entries;
+  std::vector<g::MeshClusterRecord> clusters;
+  std::vector<g::MeshLevelRecord> levels;
   std::array<Bytes, 3> streams;
   std::array<Bytes, 2> indices;
   std::string skeleton;
@@ -124,6 +127,13 @@ Mesh make_mesh() {
   };
   m.maps = {g::MeshBoneMapRecord{0, 2}, g::MeshBoneMapRecord{2, 1}};
   m.entries = {5, 7, 9};
+  m.clusters = {
+      g::MeshClusterRecord{0, 3, 0, g::kNoClusterBone, {0.0F, 1.0F, 2.0F}, {3.0F, 4.0F, 5.0F}},
+      g::MeshClusterRecord{3, 3, 0, g::kNoClusterBone, {6.0F, 7.0F, 8.0F}, {9.0F, 10.0F, 11.0F}},
+      g::MeshClusterRecord{0, 3, 1, 7, {-1.0F, -2.0F, -3.0F}, {1.0F, 2.0F, 3.0F}},
+      g::MeshClusterRecord{0, 3, 2, g::kNoClusterBone, {-4.0F, -5.0F, -6.0F}, {4.0F, 5.0F, 6.0F}},
+  };
+  m.levels = {g::MeshLevelRecord{0, 3, 1.0F, 0}, g::MeshLevelRecord{3, 1, 0.25F, 0}};
   m.streams = {filled(48, 1), filled(48, 64), filled(60, 128)};
   m.indices = {filled(12, 200), filled(6, 220)};
   m.skeleton = std::string(kSkeleton);
@@ -131,7 +141,7 @@ Mesh make_mesh() {
 }
 
 // Header at 0, then groups, draws, bone maps, bone entries, the string
-// table, and each group's stream and index bytes, each at the next 16-byte
+// table, clusters, levels, and each group's stream and index bytes, each at the next 16-byte
 // boundary; the records' offsets and the header's counts are filled here.
 void lay_out(Mesh& m) {
   g::MeshPayloadHeader h{};
@@ -147,6 +157,8 @@ void lay_out(Mesh& m) {
   h.bounds_min = {-1.0F, -2.0F, -3.0F};
   h.center = {0.0F, 0.5F, 0.0F};
   h.radius = 4.0F;
+  h.cluster_count = static_cast<std::uint32_t>(m.clusters.size());
+  h.level_count = static_cast<std::uint32_t>(m.levels.size());
   Bytes& b = m.bytes;
   b.assign(sizeof(g::MeshPayloadHeader), std::byte{});
   h.groups_offset = append_records(b, m.groups);
@@ -154,6 +166,8 @@ void lay_out(Mesh& m) {
   h.bone_maps_offset = append_records(b, m.maps);
   h.bone_entries_offset = append_records(b, m.entries);
   h.strings_offset = append(b, std::as_bytes(std::span(m.skeleton)));
+  h.clusters_offset = append_records(b, m.clusters);
+  h.levels_offset = append_records(b, m.levels);
   m.groups[0].stream0_offset = append(b, m.streams[0]);
   m.groups[0].stream0_size = static_cast<std::uint32_t>(m.streams[0].size());
   m.groups[0].stream1_offset = append(b, m.streams[1]);
@@ -347,6 +361,73 @@ void rejections_named() {
   }
 }
 
+// (mesh_asset.hpp, rules 10 and 11, MeshAssetView::cluster, level,
+// cluster_count, level_count): the minimal mesh's cluster and level records
+// read back as stored; each row breaks one rule of the two and names its
+// error with the cluster or level index.
+void cluster_tables() {
+  Mesh mesh = make_mesh();
+  lay_out(mesh);
+  g::MeshAssetView view;
+  require(g::decode_mesh_asset(mesh.bytes, view).error == g::MeshAssetError::None &&
+              view.cluster_count() == 4U && view.level_count() == 2U,
+          "the minimal mesh decodes with its table counts");
+  for (std::uint32_t c = 0; c < 4U; ++c) {
+    const g::MeshClusterRecord cluster = view.cluster(c);
+    const g::MeshClusterRecord& stored = mesh.clusters[c];
+    require(cluster.first_index == stored.first_index &&
+                cluster.index_count == stored.index_count && cluster.draw == stored.draw &&
+                cluster.bone == stored.bone && cluster.box_min == stored.box_min &&
+                cluster.box_max == stored.box_max,
+            c, "cluster record reads back");
+  }
+  for (std::uint32_t l = 0; l < 2U; ++l) {
+    const g::MeshLevelRecord level = view.level(l);
+    require(level.first_cluster == mesh.levels[l].first_cluster &&
+                level.cluster_count == mesh.levels[l].cluster_count &&
+                level.screen_size == mesh.levels[l].screen_size,
+            l, "level record reads back");
+  }
+  using E = g::MeshAssetError;
+  using H = g::MeshPayloadHeader;
+  using C = g::MeshClusterRecord;
+  const auto patch_cluster = [](Bytes& b, std::uint32_t i, const std::function<void(C&)>& c) {
+    patch<C>(b, &H::clusters_offset, i, c);
+  };
+  struct Row {
+    std::string_view note;
+    std::function<void(Bytes&)> change;
+    E expected;
+    std::uint32_t index;
+  };
+  const std::array rows{
+      Row{"cluster 3 names draw 3 of 3",
+          [&](Bytes& b) { patch_cluster(b, 3, [](C& r) { r.draw = 3; }); },
+          E::ClusterDrawOutOfRange, 3},
+      Row{"cluster 1 runs past draw 0's indices",
+          [&](Bytes& b) { patch_cluster(b, 1, [](C& r) { r.first_index = 4; }); },
+          E::ClusterIndexRangeInvalid, 1},
+      Row{"cluster 3 names a bone, its draw has no bone map",
+          [&](Bytes& b) { patch_cluster(b, 3, [](C& r) { r.bone = 1; }); },
+          E::ClusterBoneWithoutMap, 3},
+      Row{"level 1 starts inside level 0",
+          [](Bytes& b) {
+            patch<g::MeshLevelRecord>(b, &H::levels_offset, 1,
+                                      [](g::MeshLevelRecord& r) { r.first_cluster = 2; });
+          },
+          E::LevelRangeInvalid, 1},
+      Row{"level 0's draws decrease at cluster 1",
+          [&](Bytes& b) { patch_cluster(b, 0, [](C& r) { r.draw = 1; }); }, E::ClusterOrderInvalid,
+          1},
+  };
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    Bytes bytes = mesh.bytes;
+    rows[i].change(bytes);
+    const g::MeshAssetFailure failure = g::decode_mesh_asset(bytes, view);
+    require(failure.error == rows[i].expected && failure.index == rows[i].index, i, rows[i].note);
+  }
+}
+
 // Morph targets: group 3, 2 vertices, targets "blink" and "smile", each 16
 // delta bytes; header, records, deltas, strings at 16-byte boundaries.
 struct Morphs {
@@ -452,6 +533,7 @@ void morph_targets_rejections_named() {
 using Scenario = bw::testing::Scenario<void>;
 constexpr std::array kScenarios{
     Scenario{"rejections_named", &rejections_named},
+    Scenario{"cluster_tables", &cluster_tables},
     Scenario{"morph_targets_rejections_named", &morph_targets_rejections_named},
 };
 
