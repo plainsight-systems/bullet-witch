@@ -100,6 +100,18 @@ them as rules. Add an entry when the same mistake comes back.
   rule the new one relies on and the earlier one does not provide, and for a
   statement the new research contradicts. One pass over eleven documents
   found sixty such places that six forward-only reviews had missed.
+- **Making a mechanism wait on what the original does.** The scope rule in
+  Purpose already says a cut is argued by "the game never reaches this".
+  Three times a design item was sized or held back by the original instead:
+  a double-precision path dropped because the 2006 game used floats, a
+  limit argued from the size of the largest original stage, and blending
+  between direction clips made to wait on whether the original moves
+  diagonally while shooting. What the original does or holds is a fact
+  written beside the design and used to convert its data. It is never a
+  condition on adopting what the sources run and never the reason a
+  mechanism is left out, and "does the original do this" is not an open
+  design question to bring to the user. A design that ships less than the
+  sources run, for that reason, is incomplete.
 
 ## Sources and citations
 
