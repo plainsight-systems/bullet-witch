@@ -119,7 +119,7 @@ flowchart TD
 | Kind | Cooked form | Consumer |
 |---|---|---|
 | Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bone maps per draw; bounds; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
-| Morph set | the shapes of one mesh group: for each target a name and a position delta per vertex of the group | rendering |
+| Morph set | the shapes of one mesh group: for each target a name and, per vertex of the group, a position delta and a normal delta. The normal delta is the normal computed from the shaped positions less the normal computed from the rest positions, by one function over the same faces | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
 | Material | template name, blend mode, static switch values, parameter values, texture ids, profile ids; a screen effect is a material of a screen-effect template | materials, post-processing |
 | Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |

@@ -10,7 +10,7 @@ vectors, and the geometry a traced target's acceleration structures are
 built from.
 
 A pose is one skinning transform per bone of a skeleton. A shape is a set of
-position deltas over one group of a mesh with a weight. Three kinds of
+position and normal deltas over one group of a mesh with a weight. Three kinds of
 instance pass through the feed, and one instance can be all three:
 
 | Term | Means | Gets |
@@ -76,9 +76,12 @@ flowchart LR
    settings' maximum shape weight, which is 5 unless set.
    Shapes are applied before bones. For a group with active shapes, a
    per-vertex dispatch sums weight times delta over every active target in
-   target order into a delta buffer, with no atomics; the skinning dispatch
-   adds the delta to the bind-pose position and then applies the bones.
-   Shapes move positions and nothing else. When a group's last active
+   target order into a delta buffer, with no atomics, for the position and
+   for the normal alike. The skinning dispatch adds the position delta to
+   the bind-pose position and the normal delta to the bind-pose normal,
+   normalizes that normal, makes the tangent orthogonal to it again, and
+   then applies the bones. Shapes move positions and normals and nothing
+   else. When a group's last active
    target stops being active the dispatch runs once more and rewrites the
    delta buffer to zero.
 7. A vertex's skinning transform is the weighted sum of its influences'
@@ -162,7 +165,7 @@ flowchart TD
 |---|---|---|---|
 | Pose upload | the poses animation marked changed | the bone buffer's current slot, the instance's range | every skinned instance with a changed pose |
 | Weight binding | animation's weight tracks, the group's target names, the active targets and weights of the group's last dispatch | the group's active targets and their clamped weights, and whether they differ | every group with shapes of every instance, on the CPU |
-| Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta per vertex, zero when no target is active | every group whose active targets or weights differ from its last dispatch |
+| Shape dispatch | the group's shape deltas, the active weights | the group's delta buffer, one position delta and one normal delta per vertex, zero when no target is active | every group whose active targets or weights differ from its last dispatch |
 | Skinning dispatch | stream 0 of the mesh, the delta buffer if any, the draw's bone map, the bone buffer's current slot | the instance's current copy: position, normal, tangent | every dispatched instance whose pose changed or whose shape dispatch ran |
 | Bounds dispatch | the current copy, the mesh's cluster index ranges, the bone buffer for rigid-to-bone clusters, the instance's maximum displacement | the instance's cluster boxes and instance box for this frame, the previous frame's kept beside them for phase one | the same instances |
 | Write-out | the template's vertex function with current frame values, over the current copy or the mesh's stream 0, with a rigid-to-bone draw's bone | the instance's write-out buffer of positions | every offset instance on a traced target |
@@ -176,7 +179,7 @@ records, so culling and the passes see the frame's indices.
 
 ```mermaid
 flowchart LR
-    V["Vertex of a group: bind position, normal, tangent, four slots, four weights"] --> D["Delta added, when the group has active shapes"]
+    V["Vertex of a group: bind position, normal, tangent, four slots, four weights"] --> D["Position and normal deltas added, when the group has active shapes"]
     D --> M["Bone map of the vertex's draw: slot to skeleton bone"]
     M --> B["Bone buffer, current slot, the instance's range"]
     B --> T["Blended transform: weighted sum of up to four"]
@@ -189,7 +192,7 @@ flowchart LR
 | Bone map | per draw, up to thirty-two skeleton bone indices, cooked with the mesh |
 | Skinning transform | three rows of four floats per bone, model space times inverse bind, in skeleton bone order |
 | Bone buffer | one buffer, a range per skinned instance, two slots per range |
-| Delta buffer | one position delta of three floats per vertex of the group, rewritten when the shape dispatch runs |
+| Delta buffer | one position delta and one normal delta, six floats per vertex of the group, rewritten when the shape dispatch runs |
 | Copy of stream 0 | the mesh's own stream 0 layout, so the vertex fetch reads it with the mesh's attribute table |
 
 A mesh with more influences per vertex than the format's slots fails to
@@ -213,7 +216,7 @@ same for the same pose whatever the dispatch order.
 |---|---|---|
 | Deformable stream | stream 0 of a skinned or shaped mesh: position, normal, tangent | the converter |
 | Bone maps | per draw, with the rigid-to-bone mark and bone index where every weight is one | the converter |
-| Shapes | per group, position deltas for every vertex per target, named, as the morph set asset | the converter |
+| Shapes | per group, a position delta and a normal delta for every vertex per target, named, as the morph set asset | the converter |
 | Rest box per bone | per skinned mesh, one box per bone | the converter |
 | Pose | skinning transforms per bone | animation, each frame it changes |
 | Weight tracks | one float per named track | animation, every frame |
