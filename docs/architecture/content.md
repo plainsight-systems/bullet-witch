@@ -118,15 +118,14 @@ flowchart TD
 
 | Kind | Cooked form | Consumer |
 |---|---|---|
-| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; bone maps per draw; bounds; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
+| Mesh | vertex streams in the vertex-pulling layout, with position, normal and tangent alone in stream 0 when the mesh is skinned or shaped; 16-bit index buffer; clusters as index ranges each with a box and, for a draw bound whole to one bone, that bone's index; detail levels as cluster ranges each with a screen size; material ids per range; track bindings, each a track name, a range and a scalar parameter of that range's material template; bone maps per draw; bounds; a rest box per bone when skinned; a frontal-projection UV set when it is an eye; the skeleton id it binds to | rendering, animation |
 | Morph set | the shapes of one mesh group: for each target a name and, per vertex of the group, a position delta and a normal delta. The normal delta is the normal computed from the shaped positions less the normal computed from the rest positions, by one function over the same faces | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
 | Material | template name, blend mode, static switch values, parameter values, texture ids, profile ids; a screen effect is a material of a screen-effect template | materials, post-processing |
 | Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton | bones in parent-first order with names; per bone a local rest transform and a bind transform | animation |
-| Animation clip | for one skeleton, per bone track and channel a constant or keys with times and values as stored; rate, interpolation, key encoding; event tables; a flag per bone as stored | animation |
-| Weight-track clip | named float tracks with keys and a rate: shape weights, texture transforms | animation |
+| Animation clip | for one skeleton, per bone track and channel a constant or keys with times and values as stored; named weight tracks, each a constant or keys of one float; rate, interpolation, key encoding; event tables; a flag per bone as stored | animation |
 | Clip set | samples of clip id, coordinate and rate scale on one or two axes, smoothing parameters, and the segments or triangles computed from them | animation |
 | Rig configuration | per skeleton: chains with their parameters, bone masks, aim bindings | animation |
 | Grade | per stage: exposure compensation, white balance, colour correction, the curve's slope, toe, shoulder, black clip and white clip, bloom intensity, vignette, grain; beside it the original stage's tone, luminance and correction values recorded by name | post-processing |
@@ -178,6 +177,8 @@ mapping is ours, and the material system knows none of it.
 | Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
 | Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
 | Effect elements and screen filters | materials of the blended templates and of the screen-effect templates, with the filter textures as their texture ids |
+| Texture motion at one rate over its whole length, on a mesh with no skeleton | the material's rate for that texture-coordinate set, and no clip |
+| Texture motion on a character's mesh | weight tracks in a clip of the character's skeleton, and the mesh's bindings of those tracks to the offset parameters of the ranges they move |
 
 The 14 feature axes of the original collapse onto a handful of switches
 because several axes only add lighting inputs. The converter records every

@@ -13,7 +13,8 @@ owns their permutation domains and parameter blocks; beside the scene
 renderer and the lighting system, which own the lighting function, the
 passes, shadows and fog and consume material attributes, and
 post-processing, which runs the screen-effect templates; fed by the content converter, which writes material
-assets in these terms. The RHI sees only
+assets in these terms, and by [animation](animation.md), whose published
+weight tracks it binds to parameters. The RHI sees only
 buffers, descriptor indices and pipeline descriptions.
 
 ```mermaid
@@ -23,6 +24,7 @@ flowchart LR
     SS --> CH["Check: the material's switch tuple is in the template's built domain"]
     MA --> CH
     MA --> MI["Material instances at runtime"]
+    AN["Animation: weight tracks by name"] --> MI
     SS --> PL["Pipelines per template, permutation, pass and blend mode"]
     MI --> UB["Material buffer: one parameter block per instance, descriptor indices inside"]
     PL --> R["Scene renderer"]
@@ -62,6 +64,21 @@ flowchart LR
    fields. The content converter writes material assets in the terms of
    this document; what it maps from is its own
    ([content](content.md), "Material mapping").
+9. A template may declare a texture-coordinate set it reads as moving.
+   For each such set its block holds an offset and a rate, two scalars
+   each, and the template samples at the coordinate plus the offset plus
+   the rate times the world's time, which the pass gives among its frame
+   values. A rate moves a texture with no write per frame.
+10. A mesh may list track bindings, each a track name, a range of
+    the mesh and a scalar parameter of that range's template. A placed
+    instance of such a mesh has a material instance of its own for each
+    bound range, made when the instance enters. Once per frame, before
+    any pass draws, the material system writes the value animation
+    published for each bound track into its parameter, as published and
+    with nothing added; a bound track that is not published leaves the
+    parameter at its parent's value. A binding that names a parameter
+    the range's template does not declare fails by name when the mesh is
+    converted and when it is loaded.
 
 ## Attributes
 
@@ -175,7 +192,9 @@ record, which holds the block's byte offset per range of the instance's
 mesh, as [scene](scene.md) states; the shader reads the block from there at
 the offsets the C++ declaration gives. A block is filled only when
 an instance's values change, and the range it fills is shared by every draw
-of that instance in the frame. Blocks differ per template, so a material
+of that instance in the frame. A bound weight track changes an
+instance's values in the frames its published value differs from the one
+last written, and in the frame it stops being published. Blocks differ per template, so a material
 block is never one of the root layout's static slots.
 
 ## Components and ownership
@@ -186,6 +205,7 @@ block is never one of the root layout's static slots.
 | Material and instance types, parameter block fill | `src/engine/rendering/materials/public/bw/rendering/materials` | scene renderer, content loading |
 | Attribute activation table, shading and blend enumerations | `src/engine/rendering/materials/public/bw/rendering/materials` | templates at compile time, renderer at pass selection |
 | Material buffer | `src/engine/rendering/materials/public/bw/rendering/materials` | scene renderer |
+| Binding of weight tracks to parameters, per placed instance | `src/engine/rendering/materials/public/bw/rendering/materials` | the parameter block fill |
 | Permutation enumeration of each template | the shader build | RHI precompilation |
 | Switch tuple check against the template's domain | `tools/content_converter`, material loading | content loader |
 | Material asset writer | `tools/content_converter` | content loader |
@@ -195,7 +215,9 @@ block is never one of the root layout's static slots.
 Above: the scene renderer, which owns the lighting model, pass selection,
 post-processing and every lighting input. Below: the shader system, which
 compiles templates and lays out parameter blocks, and the RHI, which binds
-them. Beside: the content converter, which writes material assets.
+them. Beside: the content converter, which writes material assets, and
+animation, which publishes weight tracks by name and knows nothing of
+materials.
 User-made materials are new material assets over the same templates, which
 the self-describing artifacts and the fully built switch domain already
 allow; a user-made template is a shader source and follows the shader
