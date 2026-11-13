@@ -130,7 +130,7 @@ flowchart TD
 | Forward | the main view's blended instances and emitters in CPU order, emitter particle data, depth, light grid, shadow maps, probe grids, environment map, fog volume | scene color, reactive coverage, distortion target and stencil bit | input |
 | Distortion apply | scene color, distortion target, stencil | a frame-only distorted color merged back into scene color; then scene color is exported as history for the next frame | input |
 | Temporal stage | scene color, depth, motion vectors, reactive coverage, jitter, this frame's and the previous frame's exposure factor, the camera cut flag | scene color at output, depth and motion vectors resampled to output for the passes after it, sharpened above ratio one | input to output |
-| Post-processing | scene color, the resampled depth and motion vectors, the camera's focus, f-stop, sensor width and shutter, the active screen effects, the camera cut flag | scene color, the bloom levels, the next frame's exposure | output, reducing internally for bloom and the depth of field gather |
+| Post-processing | scene color, the resampled depth and motion vectors, the camera's focus, f-stop, sensor width and shutter, the active screen effects, the camera cut flag | scene color, the bloom levels, the exposure tone mapping applies this frame and the next frame is pre-multiplied by | output, reducing internally for bloom and the depth of field gather |
 | Tone mapping | scene color, bloom, exposure, the grade's lookup table, vignette and grain | display color | output |
 | Screen effects after tone mapping, fade | display color, the active effects | display color | output |
 | User interface composite | display color, the interface's offscreen image | display color | output |

@@ -46,11 +46,13 @@ flowchart LR
    passes read, and every temporal implementation takes it as that texture,
    so no reader ever holds a CPU copy. Exposure changes the image once, at
    tone mapping; no light is scaled for the display.
-2. Exposure is EV100 metered by a histogram of log luminance over the frame
+2. Exposure is EV100 metered by a histogram of the log of scene colour's
+   channel mean over the frame
    after the temporal stage at reduced resolution, between the 10th and 90th
    percentiles, driven toward middle grey, adapting faster up than down,
-   offset by the grade's exposure compensation. The value measured this
-   frame is the factor of the next.
+   offset by the grade's exposure compensation. The value adapted this
+   frame is the exposure tone mapping applies this frame and the factor
+   that pre-multiplies the next.
 3. Depth of field is a physical camera: circle of confusion from the focus
    distance, the f-stop and the sensor width, with the focal length from the
    field of view. It runs after the temporal stage at output resolution,
@@ -75,7 +77,10 @@ flowchart LR
    no threshold, no dirt mask and no lens flare.
 7. The grade is content: per stage, exposure compensation, white balance,
    colour correction, the curve's slope, toe, shoulder, black clip and white
-   clip, bloom intensity, vignette and grain. It is baked into one 3D lookup
+   clip, bloom intensity, vignette and grain. Colour correction is
+   saturation, contrast, gamma, gain and offset, once over the whole
+   range and once each for shadows, midtones and highlights, with the
+   bounds that divide the three. It is baked into one 3D lookup
    table in a wide working space, shaped by a log curve for an SDR display
    and by PQ for an HDR one. A grade that changes in a frame is rebaked that
    frame.
@@ -114,9 +119,10 @@ flowchart TD
     TS["Temporal stage output: scene colour, depth, motion vectors at output"] --> DF["Depth of field: gather at half, recombine at output"]
     DF --> MB["Motion blur: tiles, variable-width blur"]
     MB --> E1["Screen effects, before bloom"]
-    E1 --> HG["Histogram and exposure for the next frame, from a reduced copy"]
+    E1 --> HG["Histogram and exposure: this frame's adapted value, from a reduced copy"]
     E1 --> BL["Bloom chain: six levels down, tent up"]
     E1 --> TM["Tone mapping: exposure, bloom add, vignette, grain, the lookup table, dither"]
+    HG --> TM
     BL --> TM
     GR["Grade bake: one 3D lookup table, rebaked when the grade changes"] --> TM
     TM --> E2["Screen effects after tone mapping, and the fade"]
@@ -133,10 +139,10 @@ pass that reads and writes the same image.
 | Depth of field | scene colour, the resampled depth, the camera's focus, f-stop, sensor width | scene colour | output, gathering at half of it |
 | Motion blur | scene colour, the resampled depth and motion vectors, the shutter fraction, the camera cut flag | scene colour | output |
 | Screen effects, before bloom | scene colour, the effect's parameters | scene colour | output |
-| Histogram and exposure | a reduced copy of scene colour, last frame's exposure, the grade's compensation | the exposure for the next frame | reduced |
+| Histogram and exposure | a reduced copy of scene colour, last frame's exposure, the grade's compensation | the exposure, which tone mapping applies this frame and which pre-multiplies the next | reduced |
 | Bloom chain | scene colour | six levels, summed on the way up | half to a sixty-fourth |
 | Grade bake | the grade, the swapchain's encoding, the display's peak luminance | the lookup table | 32 cubed |
-| Tone mapping | scene colour, bloom, exposure, the lookup table, vignette and grain parameters | display colour | output |
+| Tone mapping | scene colour, bloom, this frame's exposure and the factor the frame was written with, the lookup table, vignette and grain parameters | display colour | output |
 | Screen effects after tone mapping, fade | display colour, the effect's parameters | display colour | output |
 | User interface composite | display colour, the interface's offscreen image | display colour | output |
 
@@ -145,18 +151,18 @@ pass that reads and writes the same image.
 | Part | Rule |
 |---|---|
 | Unit | EV100: aperture, shutter and sensitivity folded into one value, since lights are photometric |
-| Meter | a 64-bucket histogram of log luminance of a reduced copy of scene colour after the temporal stage |
+| Meter | a 64-bucket histogram of the log of the channel mean of a reduced copy of scene colour after the temporal stage |
 | Window | the 10th to 90th percentiles, the rest discarded |
 | Target | the windowed average brought to middle grey, then the grade's compensation |
 | Adaptation | exponential toward the target, faster brightening than darkening, with a switch to linear for large steps |
-| Lag | the value computed this frame pre-multiplies the next frame's light |
-| Readers | tone mapping, the histogram, the temporal stage, the reflections trace of the previous frame's scene colour, the fog history, each by the ratio of its frame's factor to the writer's |
+| Lag | the value adapted this frame pre-multiplies the next frame's light, a frame behind; tone mapping applies it in the same frame, as its ratio to the factor the frame was written with, and is not behind |
+| Readers | the histogram, which divides the frame's factor out; tone mapping, by the ratio of this frame's exposure to the frame's factor; the temporal stage, the reflections trace of the previous frame's scene colour and the fog history, each by the ratio of its frame's factor to the writer's |
 
 ## The grade and the lookup table
 
 ```mermaid
 flowchart LR
-    G["Grade: compensation, white balance, correction, curve, bloom intensity, vignette, grain"] --> B["Bake: decode the shaper, white balance, correction in the working space, the filmic curve, display mapping, encoding"]
+    G["Grade: compensation, white balance, correction, curve, bloom intensity, vignette, grain"] --> B["Bake: decode the shaper, white balance, correction in the working space, the filmic curve inside its fixed steps, display mapping, encoding"]
     D["Display: peak luminance, colour space, format from the RHI"] --> B
     B --> L["One 3D lookup table, 32 cubed"]
     L --> TM["Tone mapping pass"]
@@ -166,7 +172,7 @@ flowchart LR
 |---|---|
 | Shaper | log for an SDR display, PQ for an HDR one, so the table's samples sit where the eye needs them |
 | Working space | a wide space that holds every colour the curve can produce without clipping hue |
-| Curve | the filmic: slope, toe, shoulder, black clip, white clip, from the grade |
+| Curve | the filmic: slope, toe, shoulder, black clip, white clip, from the grade. It runs inside fixed steps no grade changes: gamut expansion, a blue correction, a glow, a red modifier, and a slight desaturation before and after |
 | Display mapping | the curve's output scaled to the display's peak luminance, the last step |
 | Encoding | sRGB, PQ with Rec.2020 primaries, or scRGB linear, as the swapchain reports |
 | Rebake | when any grade parameter or the display changes, one compute dispatch |
