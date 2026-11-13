@@ -122,7 +122,7 @@ flowchart TD
 | Morph set | the shapes of one mesh group: for each target a name and, per vertex of the group, a position delta and a normal delta. The normal delta is the normal computed from the shaped positions less the normal computed from the rest positions, by one function over the same faces | rendering |
 | Texture | block-compressed or raw texel data with mip chain, format, color space | rendering |
 | Material | template name, blend mode, static switch values, parameter values, texture ids, profile ids; a screen effect is a material of a screen-effect template | materials, post-processing |
-| Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |
+| Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life, of which one may write a particle value, and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton | bones in parent-first order with names; per bone a local rest transform and a bind transform | animation |
 | Animation clip | for one skeleton, per bone track and channel a constant or keys with times and values as stored; named weight tracks, each a constant or keys of one float; rate, interpolation, key encoding; event tables; a flag per bone as stored | animation |
@@ -177,7 +177,9 @@ mapping is ours, and the material system knows none of it.
 | Blend marker and the base texture's alpha | blend mode: a marked material is translucent or additive by the marker's tag; an unmarked one whose base alpha is binary is masked; every other is opaque |
 | Light list, spherical harmonics, lightmaps, shadow and fog constants | nothing in the material; lighting data for the scene renderer |
 | Effect elements and screen filters | materials of the blended templates and of the screen-effect templates, with the filter textures as their texture ids |
-| Texture motion at one rate over its whole length, on a mesh with no skeleton | the material's rate for that texture-coordinate set, and no clip |
+| Texture motion on a model an effect's emitter draws | a curve over life of that emitter, for the offset as a particle value |
+| Texture motion at one rate over its whole length, on any other mesh with no skeleton | the material's rate for that texture-coordinate set, and no clip |
+| Any other texture motion on such a mesh | a row of a curve table, which is a raw float texture the converter writes, and the material's table, row and period for that texture-coordinate set |
 | Texture motion on a character's mesh | weight tracks in a clip of the character's skeleton, and the mesh's bindings of those tracks to the offset parameters of the ranges they move |
 
 The 14 feature axes of the original collapse onto a handful of switches

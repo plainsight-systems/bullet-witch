@@ -68,9 +68,12 @@ flowchart LR
    writes carries the frame's exposure factor, applied by renderer code.
 6. Particle data is a structure-of-arrays buffer per emitter in a layout the
    emitter declares: position, velocity, size, rotation, colour, age,
-   sub-image index, ribbon id, link order, each at a declared offset, and a
-   count. The forward pass reads that buffer and nothing of how it was
-   written.
+   sub-image index, ribbon id, link order and the particle values its
+   template declares, each at a declared offset, and a count. The layout
+   states which of the template's particle values it carries, and a draw
+   reads the material's value for one it does not carry, as
+   [materials](materials.md) states. The forward pass reads that buffer
+   and nothing of how it was written.
 7. A sprite is an instanced quad: one corner stream, one index buffer, the
    instance id is the particle. A sub-image has a cutout of four or eight
    vertices the converter fits to the texture's alpha, and the quad is that

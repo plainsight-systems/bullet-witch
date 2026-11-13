@@ -66,9 +66,24 @@ flowchart LR
    ([content](content.md), "Material mapping").
 9. A template may declare a texture-coordinate set it reads as moving.
    For each such set its block holds an offset and a rate, two scalars
-   each, and the template samples at the coordinate plus the offset plus
-   the rate times the world's time, which the pass gives among its frame
-   values. A rate moves a texture with no write per frame.
+   each. Whether the set also has a curve is a static switch of the
+   template; a set with one names a curve table, a row of it and a
+   period. A curve table is a texture of two floats a texel, one row
+   per curve.
+   The template samples at the coordinate plus the offset, plus the rate
+   times the world's time, which the pass gives among its frame values,
+   plus the curve's value at that time. A curve's row is evenly spaced
+   samples of two floats over one period, the first at its start and the
+   last at its end. Its value is the row read at the world's time
+   divided by the period, wrapped to one, filtered linearly along the
+   row and taken at the row's centre, so that no other row enters. A
+   set without a curve has none added. The table is a texture
+   parameter, and the row and the period are scalars; a material whose
+   period is not above zero, or whose row the table does not have,
+   fails by name when it is converted and when it is loaded. A rate and
+   a curve
+   move a texture with no write per frame, alike on every placed
+   instance of the material.
 10. A mesh may list track bindings, each a track name, a range of
     the mesh and a scalar parameter of that range's template. A placed
     instance of such a mesh has a material instance of its own for each
@@ -79,6 +94,12 @@ flowchart LR
     parameter at its parent's value. A binding that names a parameter
     the range's template does not declare fails by name when the mesh is
     converted and when it is loaded.
+11. A blended template of a particle vertex source, which is a sprite,
+    a ribbon or a mesh particle, may declare scalar parameters of its
+    block as particle values. Where an emitter's particle data carries
+    such a value the template reads it per particle in place of the
+    block's; where it does not, the template reads the block's. The
+    offset of a moving texture-coordinate set may be declared so.
 
 ## Attributes
 
@@ -184,6 +205,7 @@ sequenceDiagram
 | Scalar, vector | the template's parameter block | yes | no |
 | Texture | a 32-bit descriptor index in the same block | yes | no |
 | Profile | an 8-bit id into the profile set, in the same block | yes | no |
+| Particle value | the emitter's particle data, one per particle, for a scalar the template declares so | yes, by whoever writes the particle data | no |
 | Static switch | the template's permutation domain | no | yes |
 
 Every material block lives in one buffer reached through the descriptor
