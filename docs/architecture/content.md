@@ -125,9 +125,9 @@ flowchart TD
 | Effect | emitters, each with a material id, an element kind (sprite, ribbon, mesh), curves over life, of which one may write a particle value, and a sub-image sheet with its cutouts; the effect's authored bounds, or a flag that a CPU simulation computes them | effects, rendering |
 | Shader artifact | the shader system's artifact, built by `shader_compiler` | shader system |
 | Skeleton | bones in parent-first order with names; per bone a local rest transform and a bind transform | animation |
-| Animation clip | for one skeleton, per bone track and channel a constant or keys with times and values as stored; named weight tracks, each a constant or keys of one float; rate, interpolation, key encoding; event tables; a flag per bone as stored | animation |
+| Animation clip | for one skeleton, per bone track and channel a constant or keys with times and values as stored; named weight tracks, each a constant or keys of one float; rate, interpolation, key encoding; event tables; whether it loops as stored; a blend-in and a blend-out time where stored | animation |
 | Clip set | samples of clip id, coordinate and rate scale on one or two axes, smoothing parameters, and the segments or triangles computed from them | animation |
-| Rig configuration | per skeleton: chains with their parameters, bone masks, aim bindings | animation |
+| Rig configuration | per skeleton: the layer stack and its masks; chains with their nodes, roots, links, colliders and parameters; aim bindings | animation |
 | Grade | per stage: exposure compensation, the exposure range, white balance, colour correction, the curve's slope, toe, shoulder, black clip and white clip, bloom intensity, vignette, grain; beside it the original stage's tone, luminance and correction values recorded by name | post-processing |
 | Profile set | the skin profiles of the game: per profile a near and a far radius per channel with a weight, a transmission tint and extinction, and the second specular lobe's roughness ratio and mix | rendering |
 | Probe set | the probe grids of one stage: for each grid an oriented box, its lattice size, and nine spherical harmonic coefficients per color channel for each probe | lighting |
@@ -148,7 +148,7 @@ consuming system's loader.
 | an effect, numbered inside a pack with no name | `effect.<pack>.<number>`, its emitters' materials `effect.<pack>.<number>.material.<n>`, a sub-image sheet merged from the pack's numbered textures `effect.<pack>.sheet.<first number>` |
 | a stage's grade, which carries the original stage's recorded values | `stage.<name>.grade` |
 | a clip of `graphics/chara/PW0/motion/compress/bundler.cpr` | `model.pw0.motion.compress.<clip>`, the name its list file gives it; a clip of a `nocompress` set takes the name its own list file gives, and one clip name in both sets is two assets |
-| a character's clip sets and rig configuration, which have no original | `remaster.chara.pw0.set.<name>`, `remaster.chara.pw0.rig` |
+| a character's clip sets and rig configuration, which we write from the values the original holds | `remaster.chara.pw0.set.<name>`, `remaster.chara.pw0.rig` |
 | an asset we author with no original | `remaster.<path>` |
 
 Ids are the names the original content already carries for its records,

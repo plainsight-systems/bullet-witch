@@ -9,14 +9,16 @@ controller beside it names nothing in animation terms.
 
 | Term | Means |
 |---|---|
-| Clip | per bone of one skeleton and per channel, a constant or keys; weight tracks; a rate, an interpolation and timed events |
+| Clip | per bone of one skeleton and per channel, a constant or keys; weight tracks; a rate, an interpolation and timed events; whether it loops as stored, and a blend-in and a blend-out time where it has them |
 | Weight track | a named track of one float over time in a clip, a constant or keys |
 | Pose | one local transform per bone, in skeleton order |
 | Layer | one slot of a character's fixed stack: the base, an additive layer or an override layer; a layer above the base has a weight |
 | Source | what a layer plays: one clip, or a weighted set of clips |
 | Weighted set | clips placed on one or two axes and blended by where a coordinate falls among them |
 | Control | a step after the layers that moves bones in model space: a chain or an aim |
-| Request | play this source on this layer, looping or not, over this blend time on this curve, at this rate, and above the base with a blend-out time and whether it holds at its end; or stop this layer over this blend time on this curve |
+| Request | play this source on this layer from this start, looping or not, over this blend time on this curve, at this rate, and above the base with a blend-out time and whether it holds at its end; or set the rate of this layer's source; or stop this layer over this blend time on this curve |
+| Start | where a requested source begins: a time, a phase of its length, or the phase the layer's current source is at |
+| Mask | a weight per bone of one skeleton |
 | Fact | what a character controller states about its character: velocity, facing, grounded, an aim point, an action begun |
 | Pose option | per character, whether its pose is built always or only when it was drawn recently |
 | Drawn recently | the [scene](scene.md) reported the character's instance as drawn into a view within the last second of the world's time |
@@ -26,7 +28,7 @@ controller beside it names nothing in animation terms.
 Between the character code of the game, which decides what a character
 does, and the [geometry feed](geometry.md), which turns a published pose
 into vertices. Fed by [content](content.md), which holds skeletons, clips
-and the authored rig configuration. Beside the world, which owns each
+and the rig configuration. Beside the world, which owns each
 character's transform and passes on the [scene](scene.md)'s report of which
 characters were drawn.
 
@@ -64,7 +66,10 @@ flowchart LR
    and scale, a constant or keys. A key is a time in frames at the clip's
    rate and a value. The clip states its rate, its interpolation, one of
    step, linear and cubic, and its key encoding. Conversion keeps stored
-   key times and values exactly and resamples nothing.
+   key times and values exactly and resamples nothing. A clip also states
+   whether it loops as stored and, where it has them, a blend-in and a
+   blend-out time. These are data an animation controller reads when it
+   makes a request; animation applies none of them by itself.
 5. Sampling is a pure function of a clip and a time. No state is kept
    between samples. A rotation is interpolated on the shorter arc and
    normalized.
@@ -74,7 +79,11 @@ flowchart LR
    base it is stopped when its time left reaches its request's blend-out
    time, and the stop takes that time; under a request that says to hold
    it stays on its last key and is not stopped. A layer reports the time
-   its current source has left.
+   its current source has left. A request names its source's start: a
+   time, a phase of the source's length, or the phase of the layer's
+   current source, which keeps two sources of different lengths in step
+   across a fade. A request may set the rate of a layer's current source,
+   and the source plays on from where it is.
 7. A pose is local transforms in skeleton order, parents before children.
    A bone a clip has no track for takes the skeleton's local rest
    transform. Poses blend as a weighted sum with every rotation taken in
@@ -106,7 +115,7 @@ flowchart LR
     delta.
 12. An override layer replaces the pose beneath it on the bones of its
     mask, at the layer's weight times each bone's mask weight, blended in
-    local space. A bone at full weight takes the layer's transform; a bone
+    local space. A mask is a weight per bone. A bone at full weight takes the layer's transform; a bone
     at or under the threshold keeps the pose beneath.
 13. Root motion leaves the pose. The root bone's track is read at the
     previous and the current time, split at a loop, and the difference is
@@ -134,13 +143,27 @@ flowchart LR
     bind.
 16. Controls run after the layers, in model space, before anything is
     published. Each has a weight, and its result is blended with the pose
-    it was given, in local space, by that weight.
-17. A chain keeps its bones' positions and velocities and its accumulated
-    time per character. It restarts from the animated target with no
-    velocity on its first evaluation, when whoever teleports the character
-    requests it, and when a bone is farther from its target than the
-    chain's threshold. The time a chain takes in one evaluation is clamped
-    and the excess is dropped.
+    it was given, in local space, by that weight. An aim's weight moves
+    toward one while it is given a point and toward zero while it is
+    not, linearly over its binding's blend time. An aim finds one
+    rotation, the shortest that carries its end bone's aim axis onto the
+    direction to the point, and turns each bone its binding lists by that
+    bone's share of it.
+17. A chain is a set of nodes, each under a parent node. A root node
+    follows the pose. Every other node keeps a current and a previous
+    position per character. In one step a node carries its motion less
+    its damping, takes the wind and gravity, follows its root's movement
+    less the chain's world damping, and is pulled toward its rest
+    direction as its parent carries it; then the links to nodes of
+    neighbouring chains are solved, the node is pushed out of the
+    colliders of its group, the links are solved again, the node is held
+    inside its cone about the rest direction, and last it is put at its
+    rest length from its parent. A node that names a bone gives that bone
+    its transform. A chain steps at its fixed interval over accumulated
+    time, at most four steps in one evaluation with the excess dropped,
+    and its result is taken between its last two steps. It restarts from
+    the posed positions with no motion on its first evaluation and when
+    whoever teleports the character requests it.
 18. Advance runs for every character every tick. Each character carries a
     pose option its animation controller sets: always, which it has unless
     set otherwise, or when drawn. An always character is evaluated every
@@ -164,7 +187,10 @@ flowchart LR
     transforms, root motion, and then the events.
 21. A request that names a source of another skeleton, a layer the
     character does not have, a set with no samples, a clip with no bone
-    track on a layer that is not additive, a stop of the base layer, or
+    track on a layer that is not additive, a stop of the base layer, a
+    rate set on a layer that holds no source, a start past its source's
+    end, an aim binding whose shares do not sum to one, a chain whose
+    parent, link or collider group names a node or group it lacks, or
     a mask or binding naming a bone the skeleton lacks fails by name. Nothing plays the rest
     pose in its place.
 22. Animation depends on content, core and the platform's tasks, and on
@@ -192,7 +218,7 @@ flowchart TD
 | Phase | Reads | Writes | Runs for |
 |---|---|---|---|
 | Advance | requests, the step, each source's clip lengths and rates, the root track, the event tables | each layer's sources, times and fade weights; each layer's weight; the collected events; the root difference; finished and time-left notes | every character |
-| Evaluate | the advanced state, clip tracks, the skeleton's local rest transforms, masks, control bindings, the character's world transform | the pose in local and in model space; the blended weight tracks; chain positions, velocities and accumulated time; an aim's interpolated point | always characters every tick; when-drawn characters on their first tick and when drawn recently; as tasks |
+| Evaluate | the advanced state, clip tracks, the skeleton's local rest transforms, masks, control bindings, the character's world transform | the pose in local and in model space; the blended weight tracks; each chain node's current and previous position and the chain's accumulated time; an aim's interpolated point | always characters every tick; when-drawn characters on their first tick and when drawn recently; as tasks |
 | Publish | the model-space pose, the skeleton's inverse bind, the blended weight tracks | skinning transforms as model space times inverse bind, three rows of four floats per bone in skeleton order; weight tracks by name; model-space bone transforms; root motion; events | every character, at one fence; a character not evaluated publishes its root motion and events, its weight tracks as last evaluated, and no pose as changed |
 
 ## Layers, sources and fades
@@ -217,9 +243,9 @@ flowchart LR
 | Override | a clip or a weighted set | a local-space blend toward the layer's pose on the masked bones, by layer weight times mask weight; its weight tracks blended with those beneath by the layer's weight |
 
 A layer holds as many sources as it has unfinished fades, and a layer
-above the base holds none at weight zero. A mask is a
-branch root and a depth: weight rises along the chain from the root and is
-full past the depth.
+above the base holds none at weight zero. A mask is a weight per bone. A
+description may give it as branches, each a root bone and a depth along
+which the weight rises to full, or as the bones themselves.
 
 ## Weighted sets
 
@@ -242,8 +268,8 @@ in the same update.
 
 | Control | Request | What it does | State |
 |---|---|---|---|
-| Chain | none; it runs whenever its character is evaluated | moves bones no clip drives by a simulation stepped at the chain's fixed interval over accumulated time, toward the animated target | positions, velocities, accumulated time |
-| Aim | a point, in world or model space | turns one bone by the single rotation that carries its aim axis onto the direction to the point, held within a clamp angle; the point may be interpolated over a time | the interpolated point |
+| Chain | a gust of wind, with a direction, a strength and a duration; otherwise none, and it runs whenever its character is evaluated | simulates the nodes of the bones no clip drives, as invariant 17 states, at the chain's fixed interval over accumulated time | per node a current and a previous position; accumulated time; the wind's clock and its gust |
+| Aim | a point, in world or model space, or none | finds the single rotation that carries its end bone's aim axis onto the direction to the point, held within a clamp angle, and turns each bone of its binding by that bone's share of it; the point may be interpolated over a time | the interpolated point and the weight |
 
 A point given in world space is brought into model space by the
 character's world transform, which is an input of every update.
@@ -254,7 +280,7 @@ character's world transform, which is an input of every update.
 flowchart LR
     IN["Input, AI or a cutscene timeline: intent"] --> CC["Character controller"]
     CC -- "facts: velocity, facing, grounded, aim point, action begun" --> AC["Animation controller"]
-    AC -- "requests: source, layer, looping, blend time, curve, rate, blend-out time, hold, stop, coordinates, aim point" --> AN["Animation"]
+    AC -- "requests: source, layer, start, looping, blend time, curve, rate, blend-out time, hold, stop, coordinates, aim point, gust" --> AN["Animation"]
     AN -- "finished, time left" --> AC
     AC -- "fact: action ended" --> CC
     AN -- "root motion" --> CC
@@ -278,9 +304,9 @@ from which an action may be cancelled, is a typed event on the clip.
 | Data | Form | Written by |
 |---|---|---|
 | Skeleton | bones in parent-first order with names; per bone a local rest transform and a bind transform, from which the inverse bind is composed once at load | the converter |
-| Clip | per bone track and channel a constant or keys; named weight tracks, each a constant or keys of one float in the clip's frames; rate, interpolation, key encoding; event tables of kind, frame and payload; a flag per bone as stored | the converter |
-| Clip set | samples of clip id, coordinate and rate scale; axes; smoothing parameters; the computed segments or triangles | authored by the project, converted for the published layer |
-| Rig configuration | per skeleton: chains with their bones, step, clamp, threshold and spring parameters; masks; aim bindings with bone, axes and clamp | authored by the project, converted for the published layer |
+| Clip | per bone track and channel a constant or keys; named weight tracks, each a constant or keys of one float in the clip's frames; rate, interpolation, key encoding; event tables of kind, frame and payload; whether it loops as stored; a blend-in and a blend-out time where stored | the converter |
+| Clip set | samples of clip id, coordinate and rate scale; axes; smoothing parameters; the computed segments or triangles | the converter, from a description we write from the values the original holds |
+| Rig configuration | per skeleton: the layer stack, with a mask for each override layer; chains, each with its step, gravity, wind and world damping, its nodes with parent, rest offset, damping, stiffness, cone and collider group, its roots with the bones and weights that carry them, its links with rest length and compliance, and its colliders, capsules and planes on bones; aim bindings with end bone, aim axis, bones and shares, blend time and clamp | the converter, from a description we write from the values the original holds |
 
 ## What is published
 
