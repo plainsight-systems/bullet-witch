@@ -112,6 +112,23 @@ them as rules. Add an entry when the same mistake comes back.
   mechanism is left out, and "does the original do this" is not an open
   design question to bring to the user. A design that ships less than the
   sources run, for that reason, is incomplete.
+- **Planning to choose a value the shipped game holds.** The game shipped
+  complete: every number it runs on is in its data files or its executable.
+  Twice a value was called unreadable, or left for us to pick, because no
+  data file held it: light colours set in code, and the chain, blend and aim
+  parameters of the player character, described as authored by us. A value,
+  a constant or a table in the executable is content, and a static read of
+  the unpacked executable that extracts it, with the expression it sits in,
+  is research we do; the first entry bars taking the engine's structure as
+  ours and does not bar this. A plan names, for each parameter our format
+  needs, the game source that fills it and its translation into our terms.
+  A parameter with no source found is a stop reported to the user with the
+  address where the read ended. It is never filled with a value of ours and
+  never left for a worker to tune. A value read this way is written as a
+  named constant or in a description we author. The project's copyright
+  line is one check that the game is installed: nothing is built to dig a
+  value out of a player's executable, and "it is in code" or "the
+  install's code is encrypted" is not a reason to skip a read.
 
 ## Sources and citations
 
