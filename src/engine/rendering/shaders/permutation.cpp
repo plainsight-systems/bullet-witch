@@ -3,6 +3,7 @@
 #include "bw/rendering/geometry/pulled_mesh_fixture.hpp"
 #include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/materials/lit_template.hpp"
+#include "bw/rendering/postprocess/post_shaders.hpp"
 #include "bw/rendering/scene/cluster_records.hpp"
 #include "bw/rendering/scene/compute_shaders.hpp"
 #include "bw/rendering/scene/depth_shaders.hpp"
@@ -186,12 +187,17 @@ struct IndirectStore {
 // The forward pass's lit shaders (bw/rendering/scene/forward_pass.hpp,
 // contract 1): the lit template's domain and predicate, the View and
 // FixtureLight static blocks and the RecordDraw per-draw block in both
-// stages; the vertex stage declares DrawRecord and InstanceRecord as buffer
-// blocks, and the pixel stage, which has no draw index, InstanceRecord and
-// LitMaterial. Each artifact's reflection holds the bound blocks it
-// reads and every buffer block it declares.
+// stages, and the PreExposure static block in the pixel stage, which writes
+// the pre-exposed light (bw/rendering/postprocess/post_shaders.hpp,
+// contract 1); the vertex stage declares DrawRecord and InstanceRecord as
+// buffer blocks, and the pixel stage, which has no draw index,
+// InstanceRecord and LitMaterial. Each artifact's reflection holds the
+// bound blocks it reads and every buffer block it declares.
 constexpr std::array<const BlockLayout*, 2> kForwardStaticBlocks{
     &BlockLayoutOf<View>::value, &BlockLayoutOf<FixtureLight>::value};
+constexpr std::array<const BlockLayout*, 3> kForwardPixelStaticBlocks{
+    &BlockLayoutOf<View>::value, &BlockLayoutOf<FixtureLight>::value,
+    &BlockLayoutOf<PreExposure>::value};
 // A vertex stage that draws records (draw_records.hpp, contract 2).
 constexpr std::array<const BlockLayout*, 2> kRecordVertexBufferBlocks{
     &BlockLayoutOf<DrawRecord>::value, &BlockLayoutOf<InstanceRecord>::value};
@@ -221,7 +227,7 @@ struct ForwardLit {
   static constexpr std::string_view source_path = "forward_lit.hlsl";
   static constexpr std::string_view entry_point = "main";
   static constexpr ShaderStage stage = ShaderStage::Pixel;
-  static constexpr std::span<const BlockLayout* const> static_blocks{kForwardStaticBlocks};
+  static constexpr std::span<const BlockLayout* const> static_blocks{kForwardPixelStaticBlocks};
   static constexpr std::span<const BlockLayout* const> buffer_blocks{kRecordLitPixelBufferBlocks};
   static constexpr const BlockLayout* draw_block = &BlockLayoutOf<RecordDraw>::value;
   [[nodiscard]] static constexpr bool should_compile(const Domain& domain) noexcept {
@@ -331,18 +337,79 @@ using DepthHierarchyReduceShader =
     SceneCompute<scene::kDepthHierarchyReduceShader, kReduceSource, kNoBlocks,
                  &BlockLayoutOf<DepthHierarchyReduce>::value>;
 
+// The post-processing module's shaders (bw/rendering/postprocess/
+// post_shaders.hpp, contracts 2 and 3): no permutation, no static block, no
+// buffer block, and the per-draw block each names; the vertex shader has
+// none.
+template <const std::string_view& Name, const std::string_view& Source, ShaderStage Stage,
+          const BlockLayout* Draw>
+struct PostShader {
+  using Domain = PermutationDomain<>;
+  static constexpr std::string_view name = Name;
+  static constexpr std::string_view source_path = Source;
+  static constexpr std::string_view entry_point = "main";
+  static constexpr ShaderStage stage = Stage;
+  static constexpr std::span<const BlockLayout* const> static_blocks{};
+  static constexpr const BlockLayout* draw_block = Draw;
+  [[nodiscard]] static constexpr bool should_compile(const Domain& /*domain*/) noexcept {
+    return true;
+  }
+};
+
+constexpr std::string_view kPostFullscreenSource = "post_fullscreen.hlsl";
+constexpr std::string_view kPostHistogramSource = "post_histogram.hlsl";
+constexpr std::string_view kPostAdaptationSource = "post_adaptation.hlsl";
+constexpr std::string_view kPostBloomDownsampleSource = "post_bloom_downsample.hlsl";
+constexpr std::string_view kPostBloomUpsampleSource = "post_bloom_upsample.hlsl";
+constexpr std::string_view kPostGradeBakeSource = "post_grade_bake.hlsl";
+constexpr std::string_view kPostToneMapSource = "post_tone_map.hlsl";
+
+using PostFullscreenShader = PostShader<postprocess::kFullscreenVertexShader, kPostFullscreenSource,
+                                        ShaderStage::Vertex, nullptr>;
+using PostHistogramShader = PostShader<postprocess::kHistogramShader, kPostHistogramSource,
+                                       ShaderStage::Compute, &BlockLayoutOf<PostHistogram>::value>;
+using PostAdaptationShader =
+    PostShader<postprocess::kAdaptationShader, kPostAdaptationSource, ShaderStage::Compute,
+               &BlockLayoutOf<PostAdaptation>::value>;
+using PostBloomDownsampleShader =
+    PostShader<postprocess::kBloomDownsampleShader, kPostBloomDownsampleSource, ShaderStage::Pixel,
+               &BlockLayoutOf<PostBloomDownsample>::value>;
+using PostBloomUpsampleShader =
+    PostShader<postprocess::kBloomUpsampleShader, kPostBloomUpsampleSource, ShaderStage::Pixel,
+               &BlockLayoutOf<PostBloomUpsample>::value>;
+using PostGradeBakeShader = PostShader<postprocess::kGradeBakeShader, kPostGradeBakeSource,
+                                       ShaderStage::Compute, &BlockLayoutOf<PostGradeBake>::value>;
+using PostToneMapShader = PostShader<postprocess::kToneMapShader, kPostToneMapSource,
+                                     ShaderStage::Pixel, &BlockLayoutOf<PostToneMap>::value>;
+
 // Every shader the engine builds. A renderer slice adds an entry here and its
 // main source under the first shader source root.
 constexpr std::array kRegistry{
-    describe_shader<FullscreenTriangle>(), describe_shader<FullscreenTriangleColor>(),
-    describe_shader<PulledMesh>(),         describe_shader<VertexDecodeProbe>(),
-    describe_shader<VertexColor>(),        describe_shader<ForwardLitMesh>(),
-    describe_shader<ForwardLit>(),         describe_shader<IndirectQuads>(),
-    describe_shader<IndirectStore>(),      describe_shader<DepthLitMesh>(),
-    describe_shader<DepthLit>(),           describe_shader<SceneCullInstances>(),
-    describe_shader<SceneScanInstances>(), describe_shader<SceneWriteSurvivors>(),
-    describe_shader<SceneCullClusters>(),  describe_shader<SceneCountRecords>(),
-    describe_shader<SceneWriteRecords>(),  describe_shader<DepthHierarchyReduceShader>(),
+    describe_shader<FullscreenTriangle>(),
+    describe_shader<FullscreenTriangleColor>(),
+    describe_shader<PulledMesh>(),
+    describe_shader<VertexDecodeProbe>(),
+    describe_shader<VertexColor>(),
+    describe_shader<ForwardLitMesh>(),
+    describe_shader<ForwardLit>(),
+    describe_shader<IndirectQuads>(),
+    describe_shader<IndirectStore>(),
+    describe_shader<DepthLitMesh>(),
+    describe_shader<DepthLit>(),
+    describe_shader<SceneCullInstances>(),
+    describe_shader<SceneScanInstances>(),
+    describe_shader<SceneWriteSurvivors>(),
+    describe_shader<SceneCullClusters>(),
+    describe_shader<SceneCountRecords>(),
+    describe_shader<SceneWriteRecords>(),
+    describe_shader<DepthHierarchyReduceShader>(),
+    describe_shader<PostFullscreenShader>(),
+    describe_shader<PostHistogramShader>(),
+    describe_shader<PostAdaptationShader>(),
+    describe_shader<PostBloomDownsampleShader>(),
+    describe_shader<PostBloomUpsampleShader>(),
+    describe_shader<PostGradeBakeShader>(),
+    describe_shader<PostToneMapShader>(),
 };
 
 [[nodiscard]] consteval bool registry_names_unique() {

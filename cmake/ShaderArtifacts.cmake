@@ -20,11 +20,13 @@
 # Apple platforms, the only hosts with the converter (cmake/ThirdParty.cmake).
 # The source roots (compiler_options.hpp, --shader-root): the shader
 # module's HLSL first, which holds every main source, then the material
-# templates and the scene's shading includes, each module keeping its own.
+# templates, the scene's shading includes and the post-processing module's
+# includes, each module keeping its own.
 set(bw_shader_roots
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/hlsl"
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/materials/templates"
-  "${PROJECT_SOURCE_DIR}/src/engine/rendering/scene/hlsl")
+  "${PROJECT_SOURCE_DIR}/src/engine/rendering/scene/hlsl"
+  "${PROJECT_SOURCE_DIR}/src/engine/rendering/postprocess/hlsl")
 list(JOIN bw_shader_roots "," bw_shader_roots_csv)
 set(bw_shader_output_root "${CMAKE_BINARY_DIR}/shaders")
 set(bw_enumerate_dir "${CMAKE_BINARY_DIR}/shader_enumerate")
@@ -40,7 +42,8 @@ file(GLOB bw_shader_module_sources CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/public/bw/rendering/shaders/*.hpp"
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/geometry/public/bw/rendering/geometry/*.hpp"
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/materials/public/bw/rendering/materials/*.hpp"
-  "${PROJECT_SOURCE_DIR}/src/engine/rendering/scene/public/bw/rendering/scene/*.hpp")
+  "${PROJECT_SOURCE_DIR}/src/engine/rendering/scene/public/bw/rendering/scene/*.hpp"
+  "${PROJECT_SOURCE_DIR}/src/engine/rendering/postprocess/public/bw/rendering/postprocess/*.hpp")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/engine/rendering/shaders/permutation.cpp"
   ${bw_shader_module_sources}

@@ -15,9 +15,10 @@ target_link_libraries(bw_shaders PUBLIC bw_shaders_headers)
 # The registry names the fixture draw blocks (bw/rendering/geometry/
 # pulled_mesh_fixture.hpp) and the forward pass's lit shaders with the lit
 # template's domain (bw/rendering/scene/forward_pass.hpp,
-# bw/rendering/materials/lit_template.hpp); the engine root layout places the
-# scene's static blocks (view.hpp, fixture_light.hpp). Header interfaces
-# only and private: each links bw_shaders_headers, not bw_shaders, so there
-# is no library cycle.
+# bw/rendering/materials/lit_template.hpp) and the post-processing module's
+# shaders and blocks (bw/rendering/postprocess/post_shaders.hpp); the engine
+# root layout places the scene's static blocks (view.hpp, fixture_light.hpp).
+# Header interfaces only and private: each links bw_shaders_headers, not
+# bw_shaders, so there is no library cycle.
 target_link_libraries(bw_shaders PRIVATE bw_geometry_headers bw_materials_headers
-  bw_scene_headers)
+  bw_scene_headers bw_postprocess_headers)

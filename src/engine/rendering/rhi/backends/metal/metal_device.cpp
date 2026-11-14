@@ -1011,9 +1011,22 @@ QueryResult MetalBackend::query_result(QueryPool& pool, std::uint32_t index, Wai
 // Preconditions (backend.hpp, Viewports): the description passed
 // validate_viewport and its kind is MetalLayer. Configuring a CAMetalLayer
 // reports no failure, so BackendRejected is not returned.
+// The sRGB colour space the layer is tagged with (viewport.hpp, invariant
+// 8) is made here, where a refusal can be returned: CoreGraphics may return
+// no colour space for a name, and a layer left untagged would not be the
+// surface the report states. The viewport's layer retains it, so this
+// reference is released once the viewport has it.
 ViewportResult MetalBackend::create_viewport(const ViewportDescription& description) {
-  return ViewportResult::success(
-      Ref<Viewport>(new MetalViewport(*options_.delete_queue, description, *device_)));
+  CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  if (srgb == nullptr) {
+    return ViewportResult::failure(ViewportError::BackendRejected,
+                                   "CGColorSpaceCreateWithName(kCGColorSpaceSRGB) returned no "
+                                   "colour space for the layer's sRGB tag");
+  }
+  ViewportResult created = ViewportResult::success(
+      Ref<Viewport>(new MetalViewport(*options_.delete_queue, description, *device_, srgb)));
+  CGColorSpaceRelease(srgb);
+  return created;
 }
 
 // Preconditions (backend.hpp, Viewports): the device waited idle and the

@@ -26,7 +26,8 @@ target_link_libraries(bw_viewer_script PUBLIC bw_character_viewer_headers)
 
 # The viewer: game_host's window, device, viewport and frame loop around the
 # engine's model scene (bw/rendering/model_scene.hpp), one scene per --asset,
-# seen through the orbit camera (bw/rendering/scene/orbit.hpp), with the
+# seen through the orbit camera (bw/rendering/scene/orbit.hpp) and taken to
+# the back buffer by the post chain (bw/rendering/postprocess), with the
 # frame read back through the render graph and written by the capture
 # library, and the commands of --script applied one per frame. Apple hosts
 # only, because the window adapter and the Metal backend exist only there.
@@ -38,7 +39,8 @@ if(APPLE)
   target_sources(character_viewer PRIVATE
     ${PROJECT_SOURCE_DIR}/src/engine/core/memory/global_allocation.cpp)
   target_link_libraries(character_viewer PRIVATE bw_viewer_options bw_viewer_script bw_window
-    bw_allocator bw_platform_time bw_platform_process bw_model bw_graph bw_scene bw_capture)
+    bw_allocator bw_platform_time bw_platform_process bw_model bw_postprocess bw_scene bw_capture
+    bw_graph)
   if(BW_SHADER_TOOLCHAIN)
     add_dependencies(character_viewer shader_artifacts)
   endif()

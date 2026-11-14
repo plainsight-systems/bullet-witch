@@ -62,8 +62,11 @@
 //         permutation are read from `shader_directory` (ArtifactFailed,
 //         detail artifact_file_failure_text) and one pipeline is made and
 //         precompiled before it is created: no cull; one color target of
-//         `color_format`, depth kModelDepthFormat, one sample, triangle
-//         lists; and by blend mode
+//         `color_format`, which is the format of the texture the forward
+//         pass draws into, scene colour's for a model on the post chain
+//         (bw/rendering/postprocess/exposure.hpp, kSceneColorFormat);
+//         depth kModelDepthFormat, one sample, triangle lists; and by
+//         blend mode
 //           Opaque, Masked  depth tested Equal and not written, since
 //                           the depth pass drew the same records first
 //                           (scene/depth_pass.hpp); no blending;
@@ -99,7 +102,10 @@
 //      Preconditions: `list` is inside a render pass whose targets have
 //      the formats in 2d with the viewport and scissor set
 //      (the render graph's executor sets both for a pass, graph/executor.hpp
-//      contract 1c); bind_scene_blocks was recorded in this frame; `draw` was
+//      contract 1c); bind_scene_blocks and the frame's pre-exposure block
+//      (bw/rendering/postprocess/exposure.hpp, bind_pre_exposure) were
+//      recorded in this frame, and the pass declared that block's texel
+//      Sampled; `draw` was
 //      created from `model`; `material_buffer` outlives the draw; every
 //      blended entry's instance carries the material of one of `draw`'s
 //      slots, and a broken one stops the process with a line on stderr:

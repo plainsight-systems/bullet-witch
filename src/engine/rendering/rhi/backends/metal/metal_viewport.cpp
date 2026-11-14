@@ -24,15 +24,22 @@ namespace {
 
 // The layer is configured for this device and the description, then the
 // first back buffer is made. The layer's drawable size is in pixels, which
-// is what the description's size is (platform::Window::pixel_size).
+// is what the description's size is (platform::Window::pixel_size). Either
+// format of viewport.hpp invariant 7 maps through pixel_format.
+// The layer is tagged with `srgb`, the colour space named sRGB
+// (viewport.hpp, invariant 8), so the compositor reads the back buffer's
+// values as sRGB encoded, which is what the grade's table writes; a layer
+// with no colour space is not colour matched. The layer retains the colour
+// space it is given; the caller keeps its own reference.
 MetalViewport::MetalViewport(DeferredDeleteQueue& queue, const ViewportDescription& description,
-                             MTL::Device& device)
+                             MTL::Device& device, CGColorSpaceRef srgb)
     : Viewport(queue, description),
       layer_(static_cast<CA::MetalLayer*>(description.window.surface)) {
   const AutoreleaseScope pool;
   layer_->retain();
   layer_->setDevice(&device);
   layer_->setPixelFormat(pixel_format(description.format));
+  layer_->setColorspace(srgb);
   layer_->setFramebufferOnly(false);
   layer_->setDrawableSize(drawable_size(description.pixel_size));
   layer_->setDisplaySyncEnabled(description.vsync);

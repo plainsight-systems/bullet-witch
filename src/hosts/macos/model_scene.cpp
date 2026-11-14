@@ -13,6 +13,8 @@
 #include "bw/rendering/graph/builder.hpp"
 #include "bw/rendering/graph/declaration.hpp"
 #include "bw/rendering/model_scene.hpp"
+#include "bw/rendering/postprocess/exposure.hpp"
+#include "bw/rendering/postprocess/post_chain.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
 #include "bw/rendering/scene/view.hpp"
@@ -93,18 +95,25 @@ bool build_asset_scene(rhi::Device& device, const GameHostOptions& options,
     return false;
   }
   const rendering::ModelSceneFailure built = rendering::build_model_scene(
-      device, loader, id.id, target_format, options.shaders, 1, scene.scene);
+      device, loader, id.id, postprocess::kSceneColorFormat, options.shaders, 1, scene.scene);
   if (!built.ok()) {
     std::cerr << "game_host: " << rendering::model_scene_failure_text(built, options.asset) << '\n';
+    return false;
+  }
+  const postprocess::PostChainFailure chain =
+      postprocess::build_post_chain(device, options.shaders, target_format, scene.chain);
+  if (!chain.ok()) {
+    std::cerr << "game_host: " << postprocess::post_chain_failure_text(chain) << '\n';
     return false;
   }
   return true;
 }
 
-// The framing view at the target's aspect and the turn at `elapsed`, handed
-// to the model scene. False after a failure line.
+// The framing view at the target's aspect and the turn at the frame's
+// elapsed seconds, handed to the model scene, whose light the chain takes
+// to `target`. False after a failure line.
 bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::TextureHandle target,
-                         rhi::Extent2 size, double elapsed) {
+                         rhi::Extent2 size, const HostFrame& frame) {
   const geometry::MeshResources& mesh = scene.model.mesh;
   const math::Vector3f center{mesh.center[0], mesh.center[1], mesh.center[2]};
   const std::optional<bw::scene::PerspectiveView> view =
@@ -114,16 +123,54 @@ bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::T
   if (!view.has_value()) {
     return fail_unframeable(asset, mesh);
   }
-  const rendering::ModelSceneFailure declared =
-      rendering::declare_model_scene(scene, device, graph, target, size, *view,
-                                     asset_object_to_world(elapsed, mesh), false, elapsed);
+  postprocess::PostFrame post{};
+  const postprocess::PostChainFailure begun =
+      postprocess::begin_post_frame(chain, device, graph, post);
+  if (!begun.ok()) {
+    std::cerr << "game_host: " << postprocess::post_chain_failure_text(begun) << '\n';
+    return false;
+  }
+  const graph::TextureHandle scene_color =
+      graph.create_texture(postprocess::scene_color_description(size));
+  const rendering::ModelSceneFailure declared = rendering::declare_model_scene(
+      scene, device, graph, scene_color, size, *view, asset_object_to_world(frame.elapsed, mesh),
+      false, frame.elapsed, post.exposure.pre_exposure);
   if (!declared.ok()) {
     std::cerr << "game_host: " << rendering::model_scene_failure_text(declared, asset) << '\n';
+    return false;
+  }
+  postprocess::PostFrameInputs inputs{};
+  inputs.grade = rendering::model_scene_grade();
+  inputs.display = frame.display;
+  inputs.delta_seconds = frame.delta_seconds;
+  // The exposure resets on the first frame only, not on a large camera turn
+  // or move or a time reset: the model scene's exposure is pinned
+  // (model_scene_grade), so a reset changes nothing it shows, and this
+  // camera turns the model, not itself.
+  inputs.reset = frame.first;
+  inputs.frame_index = frame.frame_index;
+  const postprocess::PostChainFailure chained = postprocess::declare_post_chain(
+      chain, device, graph, post, scene_color, target, size, inputs);
+  if (!chained.ok()) {
+    std::cerr << "game_host: " << postprocess::post_chain_failure_text(chained) << '\n';
     return false;
   }
   return true;
 }
 
-void AssetScene::frame_dropped() { scene.hierarchy.invalidate(); }
+bool AssetScene::frame_recorded() {
+  const postprocess::PostChainFailure recorded = postprocess::end_post_frame(chain);
+  if (recorded.ok()) {
+    return true;
+  }
+  std::cerr << "game_host: " << postprocess::post_chain_failure_text(recorded) << '\n';
+  frame_dropped();
+  return false;
+}
+
+void AssetScene::frame_dropped() {
+  scene.hierarchy.invalidate();
+  postprocess::post_frame_dropped(chain);
+}
 
 } // namespace bw::hosts

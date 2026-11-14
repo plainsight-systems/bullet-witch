@@ -73,9 +73,9 @@
 //     model's own curve): every surface reflects a little.
 //     REFP w and ENVP shape the environment reflection (how far the side
 //     the key light misses still shows it; its tint). No lit parameter
-//     reads them: the lit model has no environment term yet, and when it
-//     has one a surface's reflection of it follows from its reflectance
-//     and occlusion, not from a control of its own.
+//     reads them: a surface's reflection of its surroundings follows from
+//     its reflectance and occlusion (bw/rendering/scene/forward_pass.hpp,
+//     contract 3), not from a control of its own.
 //     FRSR, FRSA, REFP, ENVP and SPCC are also each recorded whole as an
 //     unmapped field by tag, the components mapped above included, so
 //     every authored value is kept by name beside the cooked material.

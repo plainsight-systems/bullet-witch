@@ -5,8 +5,8 @@
 //
 // Registry entry (src/engine/rendering/shaders/permutation.cpp, ForwardLit):
 // name forward_lit, entry point main, pixel stage, the lit template's domain
-// and predicate, static blocks View and FixtureLight, per-draw block
-// RecordDraw, buffer blocks InstanceRecord and LitMaterial.
+// and predicate, static blocks View, FixtureLight and PreExposure, per-draw
+// block RecordDraw, buffer blocks InstanceRecord and LitMaterial.
 //
 // The instance is the InstanceRecord at the index the vertex stage passed
 // (forward_pass.hpp, contract 4), loaded from RecordDraw.instances; the
@@ -15,14 +15,21 @@
 // instance at the index the vertex stage passes. V, the unit vector from the
 // world position to View.eye_position, is computed once and given to both
 // the template and the shading model. With BW_MASKED the pixel is
-// discarded when the opacity mask is below 0. The target receives
-// float4(color, opacity), linear; nothing is tone mapped.
+// discarded when the opacity mask is below 0. color is light in cd/m2
+// (forward_pass.hpp, contract 3); the target, scene colour, receives
+// float4(bw_pre_expose(color), opacity): the light times the frame's
+// pre-exposure factor, bounded by the largest 16-bit float
+// (bw/postprocess/pre_exposure.hlsli). The multiply is here, in the
+// renderer's shader, and never in a material template; nothing is tone
+// mapped or encoded. Alpha is not pre-exposed: it is the opacity the blend
+// reads.
 // The level transition keep rule is not applied: every converted mesh has one level.
 #include "bw/bindless.hlsli"
 #include "bw/generated/forward_lit.hlsli"
 #include "bw/forward_lit.hlsli"
 #include "bw/materials/attributes.hlsli"
 #include "bw/materials/lit.hlsli"
+#include "bw/postprocess/pre_exposure.hlsli"
 #include "bw/scene/lit_shading.hlsli"
 #include "bw/scene/records.hlsli"
 
@@ -49,5 +56,5 @@ float4 main(BwForwardLitVaryings input) : SV_Target0 {
 #endif
   const float3 color = bw_lit_shade(attributes, view, FixtureLight.direction, FixtureLight.color,
                                     FixtureLight.ambient);
-  return float4(color, attributes.opacity);
+  return float4(bw_pre_expose(color), attributes.opacity);
 }

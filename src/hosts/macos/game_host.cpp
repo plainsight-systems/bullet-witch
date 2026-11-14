@@ -5,14 +5,24 @@
 // window is asked to close or the seconds limit passes. What it draws is
 // chosen by its options: without --asset the cube scene (cube_scene.hpp);
 // with --cache and --asset the engine's model scene through its adapter
-// (model_scene.hpp, bw/rendering/model_scene.hpp). The shell
+// (model_scene.hpp, bw/rendering/model_scene.hpp), whose light the post
+// chain takes to the back buffer. The viewport's format follows: the cube
+// draws linear colour into B8G8R8A8UnormSrgb, which the surface encodes;
+// the asset's chain writes values its table has already encoded into
+// B8G8R8A8Unorm (bw/rendering/rhi/viewport.hpp, invariant 7). The shell
 // holds the one scene through host_scene.hpp and one frame graph
 // (bw/rendering/graph/builder.hpp) with the schedule policy of the device's
 // backend; each frame it imports the back buffer in the state the viewport
 // hands it in, marks it presented, lets the scene declare its passes, then
-// compiles the graph and executes it into the frame's command list. A
-// backend without a schedule policy in this build is a named failure at
-// startup.
+// compiles the graph and records it into the frame's command list, and asks
+// the scene whether every pass recorded what it declared before the device
+// executes the list (host_scene.hpp, frame_recorded). The
+// scene is given the frame's elapsed seconds, the seconds since the last
+// frame drawn, whether no frame has been drawn yet, the count of frames
+// drawn and the viewport's display report (host_scene.hpp, HostFrame); the
+// clock is read where it was before, once before each frame, and nothing
+// else reads it. A backend without a schedule policy in this build is a
+// named failure at startup.
 //
 // Command line: bw/hosts/game_host_options.hpp states the rows and parses
 // them. Without --shaders the directory is
@@ -30,8 +40,9 @@
 // executable path the OS cannot give or resolve when --shaders is absent,
 // the OS refusing the borderless fullscreen --fullscreen asked for, a frame
 // graph that does not compile or whose execute fails, and for
-// --asset: layers that do not open (with a second line naming the
-// content_converter command for every failure of the converted layer), a
+// --asset: a post chain pass that recorded less than it declared (the
+// chain's failure line, the frame neither executed nor presented), layers that do not open (with a
+// second line naming the content_converter command for every failure of the converted layer), a
 // model that does not load (the id concerned and the failing layer's own
 // error) and a resource the RHI refuses. No failure falls back: every
 // failure ends the run.
@@ -139,6 +150,9 @@ private:
   graph::CompiledFrame compiled_{};
   std::uint64_t frames_{};
   std::uint64_t waited_frames_{};
+  // The elapsed seconds of the last frame drawn; the next frame's time step
+  // is measured from it.
+  double drawn_elapsed_{};
   // A mismatch resized the viewport and no frame has been drawn since. Only
   // a drawn frame clears it: a resize from a Resized event in between is
   // another explicit resize, and a mismatch after it still means the
@@ -177,7 +191,8 @@ int Host::run() {
   rhi::ViewportDescription viewport_description{};
   viewport_description.window = window_->native_handle();
   viewport_description.pixel_size = rhi::Extent2{pixels.width, pixels.height};
-  viewport_description.format = rhi::Format::B8G8R8A8UnormSrgb;
+  viewport_description.format =
+      options_.asset.empty() ? rhi::Format::B8G8R8A8UnormSrgb : rhi::Format::B8G8R8A8Unorm;
   viewport_description.vsync = true;
   viewport_description.debug_name = "game_host viewport";
   rhi::ViewportResult viewport = device_->create_viewport(viewport_description);
@@ -292,6 +307,7 @@ Host::FrameOutcome Host::draw_frame(double elapsed) {
   }
   const rhi::EndFrameResult ended = device_->end_frame();
   ++frames_;
+  drawn_elapsed_ = elapsed;
   resized_after_mismatch_ = false;
   if (ended.waited) {
     ++waited_frames_;
@@ -315,7 +331,15 @@ bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size, double ela
   const graph::TextureHandle target = graph_.import_texture(
       graph::ImportedTexture{&back_buffer, rhi::Access::Present, rhi::Access::Present});
   graph_.mark_presented(target);
-  if (!scene_->declare(*device_, graph_, target, size, elapsed)) {
+  bw::hosts::HostFrame frame{};
+  frame.elapsed = elapsed;
+  frame.first = frames_ == 0U;
+  frame.delta_seconds = frame.first ? 0.0F : static_cast<float>(elapsed - drawn_elapsed_);
+  // The chain reads the index modulo 8 (tone_mapping.hpp, contract 4), which
+  // the narrowing keeps.
+  frame.frame_index = static_cast<std::uint32_t>(frames_);
+  frame.display = viewport_->display_report();
+  if (!scene_->declare(*device_, graph_, target, size, frame)) {
     return false;
   }
   const graph::CompileResult compiled =
@@ -333,7 +357,9 @@ bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size, double ela
               << static_cast<unsigned>(executed.resource_error) << ": " << executed.detail << '\n';
     return false;
   }
-  return true;
+  // A pass that recorded less than it declared ends the run here: the list
+  // is never executed, so the frame is neither presented nor counted.
+  return scene_->frame_recorded();
 }
 
 // The replay stopped at the pass that would have acquired the back buffer,

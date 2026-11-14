@@ -112,6 +112,13 @@ set(BW_PUBLIC_HEADERS
   bw/rendering/scene/culling.hpp
   bw/rendering/scene/depth_pass.hpp
   bw/content_converter/clusters.hpp
+  bw/rendering/postprocess/post_shaders.hpp
+  bw/rendering/postprocess/exposure.hpp
+  bw/rendering/postprocess/bloom.hpp
+  bw/rendering/postprocess/grade.hpp
+  bw/rendering/postprocess/grade_bake.hpp
+  bw/rendering/postprocess/tone_mapping.hpp
+  bw/rendering/postprocess/post_chain.hpp
 )
 # The shader_compiler tool's headers exist as a target only with the shader
 # toolchain configured (tools/shader_compiler is added under it).
@@ -161,6 +168,7 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
     bw_game_host_options_headers bw_content_headers bw_animation_headers
     bw_texture_asset_headers bw_materials_headers bw_content_converter_headers
     bw_scene_headers bw_graph_headers bw_capture_headers bw_character_viewer_headers
+    bw_postprocess_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE

@@ -14,6 +14,7 @@
 #include "bw/rendering/materials/material_buffer.hpp"
 #include "bw/rendering/model_draw.hpp"
 #include "bw/rendering/model_resources.hpp"
+#include "bw/rendering/postprocess/exposure.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
 #include "bw/rendering/rhi/resources.hpp"
@@ -209,8 +210,12 @@ ModelSceneFailure build_model_scene(rhi::Device& device, const content::Loader& 
   return failure;
 }
 
+// The forward pass writes pre-exposed light (scene/forward_pass.hpp,
+// contract 3), so the frame's pre-exposure block is bound beside the scene
+// blocks before the draws.
 void ModelScene::Record::operator()(graph::RecordContext& context) const {
   bind_scene_blocks(context.list(), scene->blocks);
+  postprocess::bind_pre_exposure(context.list(), scene->pre_exposure);
   ModelDrawFrame frame{};
   frame.culling = &scene->culling_frame;
   frame.records = context.buffer(scene->culling_frame.records);
@@ -233,14 +238,18 @@ void ModelScene::Record::operator()(graph::RecordContext& context) const {
 // for the frame and gives it back after the pass, so a resized target needs
 // no step here. The CPU records buffer is made only in a frame whose order
 // has a blended entry; a frame with none drops the scene's Ref, and a frame
-// in flight keeps its buffer through the device's deferred release.
+// in flight keeps its buffer through the device's deferred release. The
+// frame's pre-exposure is kept for the record function, which binds its
+// block; its texel is declared Sampled by the forward pass.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 ModelSceneFailure declare_model_scene(ModelScene& scene, rhi::Device& device,
                                       graph::FrameGraph& graph, graph::TextureHandle target,
                                       rhi::Extent2 size, const scene::PerspectiveView& view,
                                       const math::Matrix4f& object_to_world, bool camera_cut,
-                                      double seconds) {
+                                      double seconds,
+                                      const postprocess::FramePreExposure& pre_exposure) {
   ModelSceneFailure failure{};
+  scene.pre_exposure = pre_exposure;
   const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
   const math::Matrix4f world_to_clip = scene::world_to_clip(view, aspect);
   const scene::View view_block = scene::make_view(
@@ -351,9 +360,10 @@ ModelSceneFailure declare_model_scene(ModelScene& scene, rhi::Device& device,
   scene::declare_depth_draw(scene.depth_pass, graph, draw);
   scene::declare_depth_hierarchy_build(scene.hierarchy, graph, hierarchy, depth,
                                        scene::DepthHierarchyBuild::Second);
-  const std::array<graph::TextureUse, 2> uses{
+  const std::array<graph::TextureUse, 3> uses{
       graph::TextureUse{target, graph::Access::Attachment, graph::Contents::Clear, 0},
-      graph::TextureUse{depth, graph::Access::DepthTest, graph::Contents::Keep, 0}};
+      graph::TextureUse{depth, graph::Access::DepthTest, graph::Contents::Keep, 0},
+      graph::TextureUse{pre_exposure.factor, graph::Access::Sampled, graph::Contents::Keep, 0}};
   // Both forward stages read the instance records.
   const std::array<graph::BufferUse, 3> lists{
       graph::BufferUse{scene.culling_frame.records, graph::Access::Arguments},

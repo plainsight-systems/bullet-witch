@@ -9,6 +9,7 @@
 #include "bw/rendering/rhi/result.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -59,8 +60,22 @@
 //      back by vsync(); set_vsync changes it between frames and reports the
 //      new value. Frames in flight stay at the device's bound; the surface's
 //      own drawable count is not a second bound this header states.
-//   7. Format is B8G8R8A8UnormSrgb this slice; any other is
-//      FormatUnsupported. No HDR, no color space selection.
+//   7. Format is B8G8R8A8UnormSrgb or B8G8R8A8Unorm; any other is
+//      FormatUnsupported. With the first the surface encodes the linear
+//      values a pass writes; with the second a pass writes values it has
+//      already encoded, which is what a renderer whose last pass looks its
+//      output up in a table of encoded values asks for
+//      (bw/rendering/postprocess/tone_mapping.hpp).
+//   8. The display report. display_report() says what the display takes
+//      from this surface: the encoding, the back buffer's format, and the
+//      display's peak luminance in nits when the encoding is an HDR one.
+//      For both formats of invariant 7 it is display_report_for(format):
+//      encoding Srgb and no peak. The backend tags the surface as sRGB, so
+//      the system shows the encoded values as sRGB on whatever display the
+//      window is on; the RHI reports and presents and converts nothing. A
+//      renderer reads the report to choose its output transform; nothing
+//      here chooses one for it. The report is fixed at creation and a
+//      resize keeps it.
 //
 // The pure bookkeeping below (ViewportFrameState and its functions) is
 // what a backend's viewport drives, with no API; it is unit tested, and
@@ -74,6 +89,14 @@
 // no intermediate back buffer. vsync on the surface paces the game and the
 // device bounds frames in flight; there is no separate frame pacer. vsync is
 // the description's value in every window mode.
+//
+// A CAMetalLayer with no colour space shows its content unmatched; with
+// one set, the system transforms the content when compositing, which is
+// why the backend tags the surface as sRGB. One SDR surface is created:
+// the platform states a display's range only as a multiple of its SDR
+// white (NSScreen, maximumPotentialExtendedDynamicRangeColorComponentValue),
+// never in nits. Pq2020 and ScRgbLinear are named so a reader of the
+// report fails by name on them; no viewport reports either.
 //
 // Core guidelines read: C.35 and C.67 (through Resource), I.1 and E.27
 // (the description is complete; failure is a named code), C.32 (the native
@@ -93,6 +116,31 @@ struct ViewportDescription {
   std::string_view debug_name{};
 };
 
+// The formats of invariant 7.
+[[nodiscard]] constexpr bool is_viewport_format(Format format) noexcept {
+  return format == Format::B8G8R8A8UnormSrgb || format == Format::B8G8R8A8Unorm;
+}
+
+// What the display takes from a surface (invariant 8). Srgb: values in the
+// sRGB encoding, Rec. 709 primaries. Pq2020: PQ with Rec. 2020 primaries.
+// ScRgbLinear: linear scRGB.
+enum class DisplayEncoding : std::uint8_t { Srgb, Pq2020, ScRgbLinear };
+
+struct DisplayReport {
+  DisplayEncoding encoding{DisplayEncoding::Srgb};
+  Format format{Format::Unknown};
+  // Absent for an SDR encoding.
+  std::optional<float> peak_luminance_nits{};
+  [[nodiscard]] friend constexpr bool operator==(const DisplayReport&,
+                                                 const DisplayReport&) noexcept = default;
+};
+
+// The report of a viewport of `format` (invariant 8). Precondition:
+// is_viewport_format(format).
+[[nodiscard]] constexpr DisplayReport display_report_for(Format format) noexcept {
+  return DisplayReport{DisplayEncoding::Srgb, format, std::nullopt};
+}
+
 // Named failures, the first in this order that applies.
 enum class ViewportError : std::uint8_t {
   None,
@@ -101,7 +149,7 @@ enum class ViewportError : std::uint8_t {
   // The backend takes another surface kind (Capabilities::surface_kind).
   SurfaceKindUnsupported,
   ZeroSize,
-  // Not B8G8R8A8UnormSrgb (invariant 7).
+  // Neither format of invariant 7.
   FormatUnsupported,
   MissingDebugName,
   // Resize while the back buffer is acquired in the frame being recorded.
@@ -122,7 +170,7 @@ enum class ViewportError : std::uint8_t {
   if (d.pixel_size.width == 0U || d.pixel_size.height == 0U) {
     return ViewportError::ZeroSize;
   }
-  if (d.format != Format::B8G8R8A8UnormSrgb) {
+  if (!is_viewport_format(d.format)) {
     return ViewportError::FormatUnsupported;
   }
   if (d.debug_name.empty()) {
@@ -238,6 +286,9 @@ public:
   [[nodiscard]] Texture& back_buffer() const noexcept { return *back_buffer_; }
   [[nodiscard]] Extent2 size() const noexcept { return description_.pixel_size; }
   [[nodiscard]] Format format() const noexcept { return description_.format; }
+  [[nodiscard]] DisplayReport display_report() const noexcept {
+    return display_report_for(description_.format);
+  }
   [[nodiscard]] bool vsync() const noexcept { return description_.vsync; }
   // The pure bookkeeping above as the backend last left it; frame_state().size
   // equals size(). The device reads it for validate_resize (invariant 5).

@@ -3,7 +3,9 @@
 // failures_named draw a synthetic model written to a temporary converted
 // layer with the converter's encoders (asset_data.hpp) and loaded by
 // load_model (model_resources.hpp); pw0_draws_with_materials draws PW0 from
-// the cache the CTest fixture pw0_cache converted.
+// the cache the CTest fixture pw0_cache converted. Each frame is drawn into
+// a target of scene colour's format under a pre-exposure factor the test
+// states, as the forward pass draws on the post chain.
 //
 // Arguments after the scenario name: the Metal artifact directory and a
 // scratch directory; pw0_draws_with_materials takes the PW0 cache third.
@@ -28,6 +30,8 @@
 #include "bw/rendering/materials/material_buffer.hpp"
 #include "bw/rendering/model_draw.hpp"
 #include "bw/rendering/model_resources.hpp"
+#include "bw/rendering/postprocess/exposure.hpp"
+#include "bw/rendering/postprocess/post_shaders.hpp"
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
@@ -73,6 +77,7 @@ namespace cc = bw::content_converter;
 namespace content = bw::content;
 namespace geometry = bw::geometry;
 namespace m = bw::materials;
+namespace postprocess = bw::postprocess;
 namespace rendering = bw::rendering;
 namespace rhi = bw::rhi;
 using bw::testing::require;
@@ -365,8 +370,9 @@ std::vector<float> to_floats(std::span<const std::byte> halves) {
 // entered as instances at `object_to_world`, the culling dispatch, the
 // depth pass with the hierarchy built after each of its draws, and the
 // forward pass drawing the main view's records and then the CPU order's
-// blended draws (model_draw.hpp, contract 3); the target read back through
-// the graph's readback mark.
+// blended draws (model_draw.hpp, contract 3) under the pre-exposure block
+// of a 1 by 1 texel holding `factor` (post_shaders.hpp, contract 1); the
+// target read back through the graph's readback mark.
 struct Frame {
   rhi::StagingLayout layout{};
   std::vector<std::byte> bytes{};
@@ -375,7 +381,8 @@ Frame draw_frame(rhi::Device& device, const fs::path& shaders,
                  const rendering::ModelResources& model, const rendering::ModelDraw& draw,
                  const bw::scene::PipelineTable& table, rhi::Format format, rhi::Extent2 extent,
                  const bw::scene::View& view, const bw::math::Matrix4f& view_to_clip,
-                 const bw::scene::FixtureLight& light, const bw::math::Matrix4f& object_to_world) {
+                 const bw::scene::FixtureLight& light, const bw::math::Matrix4f& object_to_world,
+                 float factor) {
   namespace graph = bw::graph;
   namespace scene = bw::scene;
   rhi::TextureDescription target_description{};
@@ -389,6 +396,33 @@ Frame draw_frame(rhi::Device& device, const fs::path& shaders,
       take(device.create_texture(target_description), "create the target");
   rendering::SceneBlocks blocks;
   require(rendering::update_scene_blocks(device, view, light, blocks).ok(), "the scene blocks");
+  // The factor's texel and the PreExposure block naming it.
+  rhi::TextureDescription texel_description{};
+  texel_description.extent = rhi::Extent3{1, 1, 1};
+  texel_description.format = postprocess::kExposureFormat;
+  texel_description.usage = rhi::TextureUsage::ShaderResource;
+  texel_description.initial_access = rhi::kShaderResourceMask;
+  texel_description.debug_name = "model draw factor";
+  const std::array<rhi::SubresourceData, 1> texel_data{
+      rhi::SubresourceData{std::as_bytes(std::span<const float, 1>{&factor, 1}), 4U, 0U}};
+  const rhi::Ref<rhi::Texture> texel =
+      take(device.create_texture(texel_description, texel_data), "create the factor texel");
+  const rhi::Ref<rhi::ShaderResourceView> texel_view =
+      take(device.create_shader_resource_view(texel, rhi::TextureViewDescription{}),
+           "the factor texel's view");
+  postprocess::PreExposure pre_exposure{};
+  pre_exposure.factor = texel_view->texture_index();
+  rhi::BufferDescription block_description{};
+  block_description.size = sizeof(postprocess::PreExposure);
+  block_description.usage = rhi::BufferUsage::Uniform;
+  block_description.initial_access =
+      rhi::Access::ShaderResourceNonPixel | rhi::Access::ShaderResourcePixel;
+  block_description.debug_name = "model draw pre-exposure";
+  const rhi::Ref<rhi::Buffer> block =
+      take(device.create_buffer(
+               block_description,
+               std::as_bytes(std::span<const postprocess::PreExposure, 1>{&pre_exposure, 1})),
+           "the pre-exposure block");
 
   // The scene: the mesh's tables and one instance per draw.
   const geometry::MeshAssetView& mesh = model.mesh_view;
@@ -470,6 +504,10 @@ Frame draw_frame(rhi::Device& device, const fs::path& shaders,
           "declare_instance_upload");
   const graph::TextureHandle color = frame_graph.import_texture(
       graph::ImportedTexture{target.get(), rhi::Access::RenderTarget, rhi::Access::CopySource});
+  const postprocess::FramePreExposure frame_pre_exposure{
+      frame_graph.import_texture(
+          graph::ImportedTexture{texel.get(), rhi::kShaderResourceMask, rhi::kShaderResourceMask}),
+      block.get()};
   const scene::DepthHierarchyFrame built = scene::declare_depth_hierarchy(hierarchy, frame_graph);
   scene::CullingFrame lists;
   require(scene::declare_culling_phase_one(
@@ -497,15 +535,18 @@ Frame draw_frame(rhi::Device& device, const fs::path& shaders,
   scene::declare_depth_draw(depth_pass, frame_graph, depth_draw);
   scene::declare_depth_hierarchy_build(hierarchy, frame_graph, built, depth,
                                        scene::DepthHierarchyBuild::Second);
-  const std::array<graph::TextureUse, 2> uses{
+  const std::array<graph::TextureUse, 3> uses{
       graph::TextureUse{color, graph::Access::Attachment, graph::Contents::Clear, 0},
-      graph::TextureUse{depth, graph::Access::DepthTest, graph::Contents::Keep, 0}};
+      graph::TextureUse{depth, graph::Access::DepthTest, graph::Contents::Keep, 0},
+      graph::TextureUse{frame_pre_exposure.factor, graph::Access::Sampled, graph::Contents::Keep,
+                        0}};
   const std::array<graph::BufferUse, 3> list_uses{
       graph::BufferUse{lists.records, graph::Access::Arguments},
       graph::BufferUse{lists.counts, graph::Access::Arguments},
       graph::BufferUse{instance_buffer.handle, graph::Access::Sampled}};
   auto record = [&](graph::RecordContext& context) {
     rendering::bind_scene_blocks(context.list(), blocks);
+    postprocess::bind_pre_exposure(context.list(), frame_pre_exposure);
     rendering::ModelDrawFrame drawn{};
     drawn.culling = &lists;
     drawn.records = context.buffer(lists.records);
@@ -652,8 +693,17 @@ V3 shade(const Attributes& a, const V3& v, const bw::scene::FixtureLight& light)
   for (std::size_t c = 0; c < 3; ++c) {
     const float f = a.f0[c] + ((f90[c] - a.f0[c]) * std::pow(1.0F - v_h, 5.0F));
     const float diffuse = a.diffuse_albedo[c] * kept;
-    out[c] = ((diffuse / pi) + (d * vis * f)) * color[c] * n_l +
-             (ambient[c] * a.diffuse_albedo[c] * a.ambient_occlusion) + a.emissive[c];
+    const float o = a.ambient_occlusion;
+    const auto bounced = [o](float tint) {
+      return std::max(o, ((((o * ((2.0404F * tint) - 0.3324F)) + 0.6417F - (4.7951F * tint)) * o) +
+                          (2.7552F * tint) + 0.6903F) *
+                             o);
+    };
+    const float sky =
+        (a.diffuse_albedo[c] * bounced(a.diffuse_albedo[c])) + (e[c] * bounced(a.f0[c]));
+    const float white = (color[c] / pi) + ambient[c];
+    out[c] = ((diffuse / pi) + (d * vis * f)) * color[c] * n_l + (ambient[c] * sky) +
+             (a.emissive[c] * white);
   }
   return out;
 }
@@ -678,10 +728,12 @@ Texel texel_at(const Frame& frame, std::uint32_t cell, std::uint32_t column) {
 }
 
 // (forward_pass.hpp, contracts 2 and 3; lit_template.hpp, contract 5;
-// model_draw.hpp, contracts 2 and 3): one quad per row in a 5 by 5 grid,
-// drawn through an identity world_to_clip into a half-float target, texels
-// of each cell against the stated attributes of its material and the stated
-// shading of them: a metal in reflectance terms under the light (every term
+// model_draw.hpp, contracts 2 and 3; post_shaders.hpp, contract 1): one
+// quad per row in a 5 by 5 grid, drawn through an identity world_to_clip
+// into a target of scene colour's format under a pre-exposure factor of
+// kFactor, texels of each cell against the stated attributes of its
+// material and the stated shading of them times the factor, blended over a
+// clear colour the factor does not touch: a metal in reflectance terms under the light (every term
 // of D, Vis and F), a quad whose normal faces away
 // (ambient and emissive alone), the base color texture times the tint, the
 // masked quad (its pixel below the threshold stays the clear color, its
@@ -788,8 +840,11 @@ void forward_lit_pixels(const Arguments& args) {
   rendering::ModelDraw draw;
   bw::scene::PipelineTable table;
   const rendering::ModelDrawFailure made = rendering::create_model_draw(
-      *device, resources, args.shaders, buffer, table, rhi::Format::R16G16B16A16Float, draw);
+      *device, resources, args.shaders, buffer, table, postprocess::kSceneColorFormat, draw);
   require(made.ok(), "the draw is made: " + made.detail);
+  // A factor of order one and not one, exact in binary, so the tolerance
+  // below still separates a missing or doubled multiply.
+  constexpr float kFactor = 0.5F;
 
   const V3 eye{0.0F, 0.0F, 10.0F};
   const bw::scene::View view =
@@ -801,8 +856,8 @@ void forward_lit_pixels(const Arguments& args) {
   light.color = {2.0F, 2.0F, 2.0F};
   light.ambient = {0.1F, 0.2F, 0.3F};
   const Frame frame =
-      draw_frame(*device, args.shaders, resources, draw, table, rhi::Format::R16G16B16A16Float,
-                 kTarget, view, kIdentity, light, kIdentity);
+      draw_frame(*device, args.shaders, resources, draw, table, postprocess::kSceneColorFormat,
+                 kTarget, view, kIdentity, light, kIdentity, kFactor);
   // The second frame's light: the view at the grazing cell's centre
   // mirrored about its normal.
   bw::scene::FixtureLight grazing_light = light;
@@ -818,8 +873,8 @@ void forward_lit_pixels(const Arguments& args) {
     grazing_light.color = {4.0F, 4.0F, 4.0F};
   }
   const Frame grazing_frame =
-      draw_frame(*device, args.shaders, resources, draw, table, rhi::Format::R16G16B16A16Float,
-                 kTarget, view, kIdentity, grazing_light, kIdentity);
+      draw_frame(*device, args.shaders, resources, draw, table, postprocess::kSceneColorFormat,
+                 kTarget, view, kIdentity, grazing_light, kIdentity, kFactor);
   // The third frame's object_to_world: (x, y) to (-y, x), then the
   // translation that takes the moved quad's authored centre to its cell's.
   bw::math::Matrix4f moved = kIdentity;
@@ -836,8 +891,8 @@ void forward_lit_pixels(const Arguments& args) {
         turn * bw::math::Matrix4f::translation(bw::math::Vector3f{cx + cy, cy - authored_x, 0.0F});
   }
   const Frame moved_frame =
-      draw_frame(*device, args.shaders, resources, draw, table, rhi::Format::R16G16B16A16Float,
-                 kTarget, view, kIdentity, light, moved);
+      draw_frame(*device, args.shaders, resources, draw, table, postprocess::kSceneColorFormat,
+                 kTarget, view, kIdentity, light, moved, kFactor);
 
   // Per cell, one or two texels: the column in the cell, drawn or left the
   // clear color; the quad whose shading is expected (the cell's own unless
@@ -891,7 +946,10 @@ void forward_lit_pixels(const Arguments& args) {
         // The opaque quad behind, drawn before every blended draw
         // (model_draw.hpp, contract 3).
         const Quad& behind = model.quads[*rows[cell].under];
-        expected = shade(template_attributes(specs[behind.material], behind, v), v, light);
+        const V3 lit = shade(template_attributes(specs[behind.material], behind, v), v, light);
+        for (std::size_t c = 0; c < 3; ++c) {
+          expected[c] = lit[c] * kFactor;
+        }
       }
       if (probe.drawn) {
         const Attributes a = template_attributes(spec, quad, v);
@@ -900,7 +958,7 @@ void forward_lit_pixels(const Arguments& args) {
         const float opacity = blended ? a.opacity : 1.0F;
         const float under = spec.blend == B::Additive ? 1.0F : 1.0F - opacity;
         for (std::size_t c = 0; c < 3; ++c) {
-          expected[c] = (lit[c] * opacity) + (expected[c] * under);
+          expected[c] = (lit[c] * kFactor * opacity) + (expected[c] * under);
         }
       }
       for (std::size_t c = 0; c < 3; ++c) {
@@ -982,8 +1040,10 @@ void failures_named(const Arguments& args) {
 }
 
 // (model_draw.hpp, contracts 1 to 4) over PW0 from the pw0_cache fixture:
-// its materials create, its draws each have a pipeline, and the frame
-// executes with no GPU fault and covers the target; update_scene_blocks
+// its materials create, its draws each have a pipeline, and the frame,
+// drawn into scene colour's format under the fixture light and the initial
+// pre-exposure factor (exposure.hpp, kInitialExposure), executes with no
+// GPU fault and covers the target; update_scene_blocks
 // keeps a buffer whose bytes are unchanged and remakes one whose bytes
 // changed.
 void pw0_draws_with_materials(const Arguments& args) {
@@ -1000,7 +1060,7 @@ void pw0_draws_with_materials(const Arguments& args) {
   m::MaterialBuffer buffer;
   require(m::create_material_buffer(*device, 16 * m::kMaxMaterialBlockBytes, "pw0", buffer).ok(),
           "the material buffer");
-  constexpr rhi::Format kColor = rhi::Format::R8G8B8A8Unorm;
+  constexpr rhi::Format kColor = postprocess::kSceneColorFormat;
   rendering::ModelDraw draw;
   bw::scene::PipelineTable table;
   const rendering::ModelDrawFailure made =
@@ -1023,7 +1083,7 @@ void pw0_draws_with_materials(const Arguments& args) {
   const Frame frame = draw_frame(
       *device, args.shaders, model, draw, table, kColor, kExtent, scene_view,
       bw::math::Matrix4f::perspective(view->vertical_fov, 1.0F, view->near_plane, view->far_plane),
-      bw::scene::fixture_light(), kIdentity);
+      bw::scene::fixture_light(), kIdentity, postprocess::kInitialExposure);
 
   rendering::SceneBlocks blocks;
   require(
@@ -1044,12 +1104,14 @@ void pw0_draws_with_materials(const Arguments& args) {
   std::size_t covered = 0;
   for (std::uint32_t y = 0; y < kExtent.height; ++y) {
     for (std::uint32_t x = 0; x < kExtent.width; ++x) {
-      const std::size_t at =
-          (static_cast<std::size_t>(y) * frame.layout.row_pitch) + (std::size_t{x} * 4U);
+      const std::vector<float> texel =
+          to_floats(std::span(frame.bytes)
+                        .subspan((static_cast<std::size_t>(y) * frame.layout.row_pitch) +
+                                     (std::size_t{x} * 8U),
+                                 8));
       bool differs = false;
       for (std::size_t ch = 0; ch < 3; ++ch) {
-        const int expected = static_cast<int>(std::lround(kClear[ch] * 255.0F));
-        differs = differs || std::abs(std::to_integer<int>(frame.bytes[at + ch]) - expected) > 1;
+        differs = differs || std::abs(texel[ch] - kClear[ch]) > 1.0F / 255.0F;
       }
       covered += differs ? 1U : 0U;
     }

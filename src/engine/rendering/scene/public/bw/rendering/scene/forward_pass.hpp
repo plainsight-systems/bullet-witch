@@ -4,6 +4,7 @@
 #include "bw/rendering/geometry/vertex_streams.hpp"
 #include "bw/rendering/materials/lit_template.hpp"
 #include "bw/rendering/materials/material.hpp"
+#include "bw/rendering/postprocess/post_shaders.hpp"
 #include "bw/rendering/scene/draw_records.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/instance.hpp"
@@ -35,7 +36,9 @@
 //   1. Shaders. kForwardLitVertexShader (vertex, entry main) and
 //      kForwardLitPixelShader (pixel, entry main) both have the lit
 //      template's domain and predicate (lit_template.hpp), the per-draw
-//      block RecordDraw and the static blocks View and FixtureLight. The
+//      block RecordDraw and the static blocks View and FixtureLight; the
+//      pixel shader also has the static block PreExposure
+//      (bw/rendering/postprocess/post_shaders.hpp). The
 //      vertex shader reads the DrawRecord at the draw's index in the list
 //      RecordDraw names and the InstanceRecord it names (draw_records.hpp,
 //      contract 2), and declares both as buffer blocks; it reads no
@@ -75,11 +78,36 @@
 //          q.y: ab = (-1.04, 1.04) * t + q.zw;
 //        diffuse = A.diffuse_albedo * (1 - dot(E, (0.2126, 0.7152,
 //          0.0722))), the Rec. 709 luminance the lit template also uses;
+//        M(c, o) = max(o, ((o * (2.0404 * c - 0.3324) + 0.6417 - 4.7951 *
+//          c) * o + 2.7552 * c + 0.6903) * o), per channel: the occlusion
+//          o as light sees it that bounces between surfaces of colour c;
+//        white = FixtureLight.color / pi + FixtureLight.ambient, the
+//          luminance of a surface of albedo 1 that faces the light;
 //        color = (diffuse / pi + D * Vis * F) * FixtureLight.color * n_l
-//          + FixtureLight.ambient * A.diffuse_albedo * A.ambient_occlusion
-//          + A.emissive;
-//        the target receives float4(color, A.opacity), linear; nothing is
-//        tone mapped, so a value above 1 clips at the target.
+//          + FixtureLight.ambient * (A.diffuse_albedo *
+//            M(A.diffuse_albedo, A.ambient_occlusion)
+//            + E * M(A.f0, A.ambient_occlusion))
+//          + A.emissive * white;
+//        color is light: luminance in cd/m2, linear Rec. 709, since the
+//        fixture's color is an illuminance and its ambient a luminance
+//        (fixture_light.hpp). The ambient is a sky of one luminance in
+//        every direction: a surface sends it back by its albedo and
+//        reflects it by E, so a surface whose albedo is near black still
+//        shows the sky by its reflectance. A.emissive is a multiple of
+//        white: a converted material comes from content whose lights
+//        carry no unit, and the fixture is what says how bright one unit
+//        of it is. That rule leaves with the fixture light.
+//        The target receives float4(bw_pre_expose(color), A.opacity):
+//        color times the frame's pre-exposure factor, the shader's
+//        output no larger than postprocess::kSceneColorMax on any channel
+//        (post_shaders.hpp, contract 1; an Additive draw's sum with the
+//        texel under it can be larger, and the chain's readers bound it).
+//        The
+//        include bw/postprocess/pre_exposure.hlsli is the only thing of
+//        the post-processing module the shader includes. The target is
+//        scene colour (bw/rendering/postprocess/exposure.hpp, contract 1);
+//        nothing here is tone mapped or encoded, and exposure reaches the
+//        image at tone mapping alone.
 //      The lit attributes the pass has no input for are world position
 //      offset and pixel depth offset: the attribute struct has no member
 //      for either, so a template that writes one does not compile.
@@ -96,9 +124,16 @@
 // reflectance under 2 percent is treated as shadowing. E is the fraction
 // the specular term reflects over all directions, f0 * ab.x + f90 * ab.y,
 // with ab from the analytic approximation; the diffuse is scaled by
-// 1 - luminance(E). Occlusion applies to indirect light only.
-// There are no image-based or area lights and no specular occlusion of
-// indirect light. The height-correlated term is used as it stands, with no
+// 1 - luminance(E). Occlusion applies to indirect light only: to the
+// sky's light sent back by the albedo and to its reflection, each by the
+// multi-bounce form M.
+//
+// The sky is one luminance in every direction, so its reflection is that
+// luminance with no lookup by the reflected direction; the scene has no
+// reflection captures and no screen trace.
+//
+// There are no image-based or area lights. The height-correlated term is
+// used as it stands, with no
 // roughness remap for analytic lights. The diffuse is Lambert, not
 // retro-reflective. E is the analytic approximation, not a table, and the
 // specular term is not raised for multiple scattering; the energy term is

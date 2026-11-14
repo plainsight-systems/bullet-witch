@@ -1,5 +1,6 @@
 #include "bw/rendering/shaders/root_layout.hpp"
 
+#include "bw/rendering/postprocess/post_shaders.hpp"
 #include "bw/rendering/scene/fixture_light.hpp"
 #include "bw/rendering/scene/view.hpp"
 #include "bw/rendering/shaders/parameter_block.hpp"
@@ -18,8 +19,9 @@
 // Contract:
 //   - engine_root_layout() returns one immutable RootLayout with static
 //     storage duration: the View block in slot scene::kViewSlot, the
-//     FixtureLight block in slot scene::kFixtureLightSlot, each with its
-//     block's layout hash, every other slot empty, and root_constant_words
+//     FixtureLight block in slot scene::kFixtureLightSlot, the PreExposure
+//     block in slot postprocess::kPreExposureSlot, each with its block's
+//     layout hash, every other slot empty, and root_constant_words
 //     kRootConstantWords. A renderer slice
 //     that adds a static block edits this definition and nothing else; the
 //     root layout hash in every artifact then changes, so artifacts built
@@ -137,6 +139,7 @@ constexpr RootLayout make_engine_root_layout() noexcept {
   RootLayout layout{};
   layout.static_slots[scene::kViewSlot] = slot_of<View>();
   layout.static_slots[scene::kFixtureLightSlot] = slot_of<FixtureLight>();
+  layout.static_slots[postprocess::kPreExposureSlot] = slot_of<PreExposure>();
   return layout;
 }
 

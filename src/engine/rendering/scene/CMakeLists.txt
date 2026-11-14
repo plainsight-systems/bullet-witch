@@ -7,7 +7,7 @@
 # whose blocks the forward pass reads.
 bw_header_interface(bw_scene_headers "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bw_scene_headers INTERFACE bw_math bw_shaders_headers bw_materials_headers
-  bw_geometry_headers bw_rhi_headers bw_graph_headers)
+  bw_geometry_headers bw_rhi_headers bw_graph_headers bw_postprocess_headers)
 # The instance set, the views of a frame, detail level choice, the CPU order
 # and the mesh tables (instance_set.hpp, frame_views.hpp, detail_level.hpp,
 # cpu_order.hpp, scene_geometry.hpp, draw_records.hpp), and the work the

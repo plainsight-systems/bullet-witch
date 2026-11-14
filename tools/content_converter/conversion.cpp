@@ -91,7 +91,8 @@
 //   s-th of that list), header.bin and the buffer records in the order
 //   above. The handedness rule runs once per model job, before the mesh and
 //   its morph sets are encoded; when it fails, the mesh and every morph set
-//   fail with "tangent handedness: <enumerator> group <n>". A texture's inputs are the green
+//   fail with "tangent handedness: <enumerator> group <n>". A texture's inputs are the
+//   revision text "texture-conversion <kTextureConversionRevision>", the green
 //   convention as its command-line spelling ("as-stored" or "flip") and the
 //   BC7 uber level in decimal, for every texture whatever its format, then
 //   the descriptor (the record's slot bytes), then its PNG (DDS) or its six
@@ -797,6 +798,7 @@ void run_textures_job(const JobContext& context, const IndexedContainer& index,
       pngs.push_back(record.payload);
     }
     InputHasher hasher(content::AssetKind::Texture, entry.id);
+    hasher.add_text("texture-conversion " + decimal(kTextureConversionRevision));
     hasher.add_text(normal_green_text(context.options->texture.normal_green));
     hasher.add_text(decimal(context.options->texture.bc7_uber_level));
     hasher.add(record.slot);

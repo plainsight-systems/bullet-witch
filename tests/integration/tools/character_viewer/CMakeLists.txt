@@ -3,8 +3,9 @@
 # environment. The child's stdout and stderr go to files in this directory's
 # binary directory, one pair per scenario, beside the dumped file.
 #
-# dumps_first_frame and scripted_input_dumps open a real window and draw on
-# this Mac's Metal device from the PW0 cache of the fixture pw0_cache
+# dumps_first_frame, scripted_input_dumps and dump_through_chain open a real
+# window and draw on this Mac's Metal device from the PW0 cache of the
+# fixture pw0_cache
 # (integration/tools/content_converter), converted from the player's
 # install at BW_GAME_DATA; they need a logged-in GUI session, Apple hosts and
 # the build's shader artifacts (tests/CMakeLists.txt adds this directory
@@ -32,6 +33,18 @@ set_tests_properties(integration.tools.character_viewer.scripted_input_dumps
   PROPERTIES TIMEOUT 60 FIXTURES_REQUIRED pw0_cache)
 if(BW_GAME_DATA STREQUAL "")
   set_tests_properties(integration.tools.character_viewer.scripted_input_dumps
+    PROPERTIES DISABLED TRUE)
+endif()
+# dump_through_chain runs the viewer twice on one script and compares the
+# two dumps (bw/rendering/postprocess/post_chain.hpp, contract 4); it needs
+# what dumps_first_frame needs.
+add_test(NAME integration.tools.character_viewer.dump_through_chain
+  COMMAND character_viewer_tests dump_through_chain "$<TARGET_FILE:character_viewer>"
+    "${CMAKE_BINARY_DIR}/shaders/metal" "${CMAKE_CURRENT_BINARY_DIR}" "${BW_PW0_TEST_CACHE}")
+set_tests_properties(integration.tools.character_viewer.dump_through_chain
+  PROPERTIES TIMEOUT 60 FIXTURES_REQUIRED pw0_cache)
+if(BW_GAME_DATA STREQUAL "")
+  set_tests_properties(integration.tools.character_viewer.dump_through_chain
     PROPERTIES DISABLED TRUE)
 endif()
 add_test(NAME integration.tools.character_viewer.dump_without_asset_exits_2

@@ -67,9 +67,8 @@
 //   SignUnsupported, as stated: an 8-bit image cannot hold HDR values), then
 //   the half width, then the extent (zero, over kMaxTextureExtent, or a cube
 //   face that is not square).
-//   A two-channel map flagged gamma keeps the sRGB colour space for its mip
-//   chain (its samples are gamma-encoded as stored) and is written BC5Unorm,
-//   which has no sRGB form; 114 normal-map slots are so flagged.
+//   The gamma flag plans nothing: a texture flagged gamma is planned as one
+//   flagged unsigned is (the header, plan_texture).
 //   Nothing the content holds plans to BC4 (no single-channel format code);
 //   encode_blocks implements it for the pipeline's future sources.
 //   The uber level is checked for BC7 only; BC4 and BC5 have no such knob.
@@ -309,8 +308,6 @@ PlanError plan_texture(const TextureDescriptor& descriptor, std::uint32_t png_wi
   }
   switch (descriptor.sign_bits()) {
   case kSignGammaBits:
-    plan.color_space = ColorSpace::Srgb;
-    break;
   case kSignUnsignedBits:
     plan.color_space = ColorSpace::Linear;
     break;
@@ -324,9 +321,6 @@ PlanError plan_texture(const TextureDescriptor& descriptor, std::uint32_t png_wi
   // has it on another format).
   if (plan.color_space == ColorSpace::Hdr && block_compressed) {
     return PlanError::SignUnsupported;
-  }
-  if (plan.format == TextureFormat::BC7Unorm && plan.color_space == ColorSpace::Srgb) {
-    plan.format = TextureFormat::BC7UnormSrgb;
   }
   if (plan.half_texels &&
       static_cast<std::uint64_t>(png_width) != 2U * static_cast<std::uint64_t>(descriptor.width)) {

@@ -2,9 +2,13 @@
 // converted model through the engine's model scene
 // (bw/rendering/model_scene.hpp), the draw game_host makes with --asset,
 // under an orbit camera the user moves (bw/rendering/scene/orbit.hpp), and
-// writes the frame to a PNG file on request (bw/capture/png.hpp). It
-// composes the window (bw/platform/os/macos/window.hpp), the Metal device
-// and the viewport on the window's surface (bw/rendering/rhi/device.hpp,
+// writes the frame to a PNG file on request (bw/capture/png.hpp). The model
+// scene writes light into scene colour and the post chain
+// (bw/rendering/postprocess/post_chain.hpp) takes it to the back buffer,
+// B8G8R8A8Unorm, which receives values the chain has already encoded
+// (bw/rendering/rhi/viewport.hpp, invariant 7). It composes the window
+// (bw/platform/os/macos/window.hpp), the Metal device and the viewport on
+// the window's surface (bw/rendering/rhi/device.hpp,
 // viewport.hpp), one frame graph (bw/rendering/graph/builder.hpp) with the
 // schedule policy of the device's backend, and a frame loop on the main
 // thread, as game_host does.
@@ -19,8 +23,10 @@
 // over --cache and --overrides opened once with one loader; then one model
 // scene per --asset, in argument order, each behind a unique_ptr because
 // its record function points at it (model_scene.hpp, contract 3), all
-// built before the first frame. The camera is the first scene's sphere
-// framed at the viewport's aspect (orbit_from_sphere).
+// built before the first frame, each for scene colour's format, and one
+// post chain for the viewport's format, which every scene's frame goes
+// through. The camera is the first scene's sphere framed at the viewport's
+// aspect (orbit_from_sphere).
 //
 // Input (bw/platform/window/window.hpp, Input): the mapping of events and
 // held keys to the camera is script.hpp's contract 5. Each mouse button
@@ -39,7 +45,20 @@
 // key acts as a drag or scroll in its direction, so D slides the model
 // right on screen, S down, = moves in and - moves out. Each frame declares
 // the current scene under view_of(camera) with the identity model
-// transform.
+// transform into scene colour, then the chain from scene colour into the
+// back buffer (post_chain.hpp, contract 2) under the model scene's grade
+// (model_scene.hpp, model_scene_grade: a model has no stage, and its
+// exposure is pinned at the fixture light's camera) and the viewport's
+// display report, with the frame's dt summed since the last frame drawn as
+// its time step (kScriptFrameSeconds for every drawn frame under --script,
+// however many frames the surface dropped before it), a reset on the
+// first frame drawn and on every camera reset (R, [ and ], which also raise
+// the camera cut) until a frame is drawn with it, and the count of frames
+// drawn as its frame index; so under --script the chain's inputs, like the
+// camera's, are a pure function of the script. After the frame's graph is
+// recorded the chain is asked whether a pass recorded less than it declared
+// (end_post_frame); such a frame is one failure line and exit 1, and is
+// neither executed, presented, counted nor dumped.
 //
 // Dump: with --dump FILE, the first drawn frame and the frame after each P
 // are written to FILE; without it, P prints one stdout line saying no file
@@ -50,8 +69,8 @@
 // executor.hpp, contract 1); frames not dumped carry no mark. After that
 // frame's end_frame the staging buffer is locked on the fence, its rows (at
 // the pitch staging_layout gives, B, G, R, A as the swapchain holds them,
-// sRGB) are packed to R, G, B, 255 and encoded as PNG, and the file is
-// written; one stdout line
+// the chain's encoded display values) are packed to R, G, B, 255 and
+// encoded as PNG, and the file is written; one stdout line
 // `dump=<file> size=<w>x<h> yaw=<y> pitch=<p> distance=<d> offset=<x>,<y>,<z>`
 // gives the pixel size and the camera the frame was drawn from (after its
 // commands and held keys): its angles, its distance and the pan's offset
@@ -85,7 +104,8 @@
 // failure, one line on stderr; 2 on a usage error, with a line naming the
 // error and the argument, then the usage line, on stderr. Every failure line
 // starts "character_viewer: ". Named failures include, beyond game_host's,
-// a dump whose staging lock fails, whose rows or PNG cannot be made, or
+// a post chain pass that recorded less than it declared, a dump whose
+// staging lock fails, whose rows or PNG cannot be made, or
 // whose file cannot be opened or written (with the OS's error text). No
 // failure falls back: every failure ends the run.
 //
@@ -112,6 +132,9 @@
 #include "bw/rendering/graph/executor.hpp"
 #include "bw/rendering/graph/schedule_policy.hpp"
 #include "bw/rendering/model_scene.hpp"
+#include "bw/rendering/postprocess/exposure.hpp"
+#include "bw/rendering/postprocess/grade.hpp"
+#include "bw/rendering/postprocess/post_chain.hpp"
 #include "bw/rendering/rhi/access.hpp"
 #include "bw/rendering/rhi/command_list.hpp"
 #include "bw/rendering/rhi/device.hpp"
@@ -147,6 +170,7 @@ namespace {
 namespace graph = bw::graph;
 namespace platform = bw::platform;
 namespace rhi = bw::rhi;
+namespace postprocess = bw::postprocess;
 namespace rendering = bw::rendering;
 namespace scene = bw::scene;
 
@@ -227,8 +251,8 @@ public:
   int run();
 
   // Waits for the GPU, then destroys in order: command list, the frame
-  // graph's frame, the scenes, the staging buffer and fence, viewport,
-  // device, window.
+  // graph's frame, the scenes, the post chain, the staging buffer and
+  // fence, viewport, device, window.
   void shut_down();
 
 private:
@@ -237,8 +261,8 @@ private:
   // What one event asks of the loop.
   enum class EventOutcome : std::uint8_t { Continue, Close, Failed };
 
-  // The layers, the loader and one scene per --asset; false after a
-  // failure line.
+  // The layers, the loader and one scene per --asset, then the post chain;
+  // false after a failure line.
   bool build_scenes();
   // The camera at rest on the current scene's sphere at the viewport's
   // aspect; false after a failure line.
@@ -278,8 +302,10 @@ private:
   rhi::Ref<rhi::GpuFence> fence_{};
   rhi::Ref<rhi::StagingBuffer> staging_{};
   rhi::StagingLayout staging_layout_{};
-  // One scene per --asset, in argument order.
+  // One scene per --asset, in argument order, and the chain every scene's
+  // frame goes through.
   std::vector<std::unique_ptr<rendering::ModelScene>> scenes_{};
+  std::unique_ptr<postprocess::PostChain> chain_{};
   std::unique_ptr<rhi::CommandList> list_{};
   const graph::SchedulePolicy* policy_{};
   graph::FrameGraph graph_{};
@@ -290,6 +316,12 @@ private:
   // reset_camera replaced the camera and no frame has been declared since:
   // the next frame is a camera cut (model_scene.hpp, contract 2).
   bool camera_cut_{};
+  // reset_camera replaced the camera and no frame has been drawn since: the
+  // next frame drawn resets the exposure (post_chain.hpp, PostFrameInputs).
+  bool exposure_reset_{};
+  // The held keys' dt summed since the last frame drawn: the chain's time
+  // step without --script.
+  double post_seconds_{};
   // The left drag's and the right drag's origins: the pointer's last
   // position in each.
   platform::PixelPoint last_{};
@@ -346,7 +378,7 @@ int Host::run() {
   rhi::ViewportDescription viewport_description{};
   viewport_description.window = window_->native_handle();
   viewport_description.pixel_size = rhi::Extent2{pixels.width, pixels.height};
-  viewport_description.format = rhi::Format::B8G8R8A8UnormSrgb;
+  viewport_description.format = rhi::Format::B8G8R8A8Unorm;
   viewport_description.vsync = true;
   viewport_description.debug_name = "character_viewer viewport";
   rhi::ViewportResult viewport = device_->create_viewport(viewport_description);
@@ -388,13 +420,21 @@ bool Host::build_scenes() {
     rendering::ModelScene& built = *scenes_.emplace_back(std::make_unique<rendering::ModelScene>());
     // The option's ceiling is the scene's.
     static_assert(bw::character_viewer::kMaxViewerGrid == rendering::kMaxModelGrid);
-    const rendering::ModelSceneFailure failure = rendering::build_model_scene(
-        *device_, loader, id.id, viewport_->format(), options_.shaders, options_.grid, built);
+    const rendering::ModelSceneFailure failure =
+        rendering::build_model_scene(*device_, loader, id.id, postprocess::kSceneColorFormat,
+                                     options_.shaders, options_.grid, built);
     if (!failure.ok()) {
       std::cerr << "character_viewer: " << rendering::model_scene_failure_text(failure, asset)
                 << '\n';
       return false;
     }
+  }
+  chain_ = std::make_unique<postprocess::PostChain>();
+  const postprocess::PostChainFailure chain =
+      postprocess::build_post_chain(*device_, options_.shaders, viewport_->format(), *chain_);
+  if (!chain.ok()) {
+    std::cerr << "character_viewer: " << postprocess::post_chain_failure_text(chain) << '\n';
+    return false;
   }
   return true;
 }
@@ -414,6 +454,7 @@ bool Host::reset_camera() {
   }
   camera_ = *camera;
   camera_cut_ = true;
+  exposure_reset_ = true;
   dragging_ = false;
   panning_ = false;
   return true;
@@ -543,6 +584,7 @@ void Host::apply_held_keys() {
     dt = held_time_.has_value() ? now - *held_time_ : 0.0;
     held_time_ = now;
   }
+  post_seconds_ += dt;
   const auto axis = [this](platform::Key positive, platform::Key negative) {
     return static_cast<double>(static_cast<int>(held(positive)) - static_cast<int>(held(negative)));
   };
@@ -648,8 +690,9 @@ Host::FrameOutcome Host::draw_frame() {
       // recorded; the request stays for the next frame drawn.
       dump_in_frame_ = false;
       // The frame's graph did not run to its end (model_scene.hpp,
-      // contract 2).
+      // contract 2; post_chain.hpp, contract 3).
       scenes_[current_]->hierarchy.invalidate();
+      postprocess::post_frame_dropped(*chain_);
       return resize_after_mismatch();
     }
     fail("frame execute", executed.error(), executed.detail());
@@ -657,6 +700,8 @@ Host::FrameOutcome Host::draw_frame() {
   }
   const rhi::EndFrameResult ended = device_->end_frame();
   ++frames_;
+  exposure_reset_ = false;
+  post_seconds_ = 0.0;
   resized_after_mismatch_ = false;
   if (ended.waited) {
     ++waited_frames_;
@@ -675,8 +720,8 @@ Host::FrameOutcome Host::draw_frame() {
   return FrameOutcome::Drawn;
 }
 
-// game_host's frame with the orbit camera's view and, on a dump frame, the
-// readback mark on the back buffer beside the presented mark.
+// game_host's asset frame with the orbit camera's view and, on a dump frame,
+// the readback mark on the back buffer beside the presented mark.
 bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size) {
   graph_.reset();
   const graph::TextureHandle target = graph_.import_texture(
@@ -697,13 +742,44 @@ bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size) {
   const double seconds = options_.script.empty() ? time_.seconds()
                                                  : static_cast<double>(frames_) *
                                                        bw::character_viewer::kScriptFrameSeconds;
-  const rendering::ModelSceneFailure declared =
-      rendering::declare_model_scene(*scenes_[current_], *device_, graph_, target, size,
-                                     scene::view_of(camera_), identity, camera_cut_, seconds);
+  postprocess::PostFrame post{};
+  const postprocess::PostChainFailure begun =
+      postprocess::begin_post_frame(*chain_, *device_, graph_, post);
+  if (!begun.ok()) {
+    std::cerr << "character_viewer: " << postprocess::post_chain_failure_text(begun) << '\n';
+    return false;
+  }
+  const graph::TextureHandle scene_color =
+      graph_.create_texture(postprocess::scene_color_description(size));
+  const rendering::ModelSceneFailure declared = rendering::declare_model_scene(
+      *scenes_[current_], *device_, graph_, scene_color, size, scene::view_of(camera_), identity,
+      camera_cut_, seconds, post.exposure.pre_exposure);
   camera_cut_ = false;
   if (!declared.ok()) {
     std::cerr << "character_viewer: "
               << rendering::model_scene_failure_text(declared, options_.assets[current_]) << '\n';
+    return false;
+  }
+  postprocess::PostFrameInputs inputs{};
+  inputs.grade = rendering::model_scene_grade();
+  inputs.display = viewport_->display_report();
+  // Under --script a drawn frame is one script step after the drawn frame
+  // before it, as the scene's clock above is, whatever frames the surface
+  // dropped between them.
+  inputs.delta_seconds = options_.script.empty()
+                             ? static_cast<float>(post_seconds_)
+                             : static_cast<float>(bw::character_viewer::kScriptFrameSeconds);
+  // The exposure does not reset on a large camera turn or move or a time
+  // reset: the model scene's exposure is pinned (model_scene_grade), so a
+  // reset changes nothing it shows.
+  inputs.reset = exposure_reset_;
+  // The chain reads the index modulo 8 (tone_mapping.hpp, contract 4), which
+  // the narrowing keeps.
+  inputs.frame_index = static_cast<std::uint32_t>(frames_);
+  const postprocess::PostChainFailure chained = postprocess::declare_post_chain(
+      *chain_, *device_, graph_, post, scene_color, target, size, inputs);
+  if (!chained.ok()) {
+    std::cerr << "character_viewer: " << postprocess::post_chain_failure_text(chained) << '\n';
     return false;
   }
   const graph::CompileResult compiled =
@@ -719,6 +795,16 @@ bool Host::record_frame(rhi::Texture& back_buffer, rhi::Extent2 size) {
     std::cerr << "character_viewer: the frame graph's execute failed: error "
               << static_cast<unsigned>(executed.error) << " resource error "
               << static_cast<unsigned>(executed.resource_error) << ": " << executed.detail << '\n';
+    return false;
+  }
+  // A pass that recorded less than it declared: the list is never executed,
+  // so the frame is neither presented, counted nor dumped, and the run ends.
+  const postprocess::PostChainFailure recorded = postprocess::end_post_frame(*chain_);
+  if (!recorded.ok()) {
+    std::cerr << "character_viewer: " << postprocess::post_chain_failure_text(recorded) << '\n';
+    dump_in_frame_ = false;
+    scenes_[current_]->hierarchy.invalidate();
+    postprocess::post_frame_dropped(*chain_);
     return false;
   }
   return true;
@@ -850,6 +936,7 @@ void Host::shut_down() {
   list_.reset();
   graph_.reset();
   scenes_.clear();
+  chain_.reset();
   staging_.reset();
   fence_.reset();
   viewport_.reset();

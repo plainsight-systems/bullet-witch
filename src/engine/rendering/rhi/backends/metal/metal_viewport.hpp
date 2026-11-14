@@ -7,12 +7,11 @@
 // Contract (viewport.hpp's, with what Metal adds).
 //   Layer: the window's CAMetalLayer (platform/window/window.hpp,
 //   NativeSurfaceKind::MetalLayer), retained for the viewport's life. At
-//   creation the viewport sets its device, pixel format BGRA8Unorm_sRGB,
-//   framebufferOnly NO (the back buffer is a copy source), drawable size
-//   (pixels) and displaySyncEnabled from vsync; resize sets the drawable
-//   size, set_vsync displaySyncEnabled.
-//   Acquire: the context calls acquire(frame) at a render pass that binds
-//   the back buffer; the first call of a frame takes nextDrawable, a later
+//   creation the viewport sets its device, its pixel format (either format
+//   of viewport.hpp invariant 7), the sRGB colour space, framebufferOnly NO (the back buffer is a
+//   copy source), drawable size (pixels) and displaySyncEnabled from vsync; resize sets the
+//   drawable size, set_vsync displaySyncEnabled. Acquire: the context calls acquire(frame) at a
+//   render pass that binds the back buffer; the first call of a frame takes nextDrawable, a later
 //   one reuses it (decide_acquire). No drawable, or a drawable with no
 //   texture, is BackBufferUnavailable; a drawable whose texture size is not
 //   size() is BackBufferSizeMismatch, and the drawable is dropped
@@ -55,10 +54,12 @@ class MetalTexture;
 class MetalViewport final : public Viewport {
 public:
   // Preconditions: the device validated the description (viewport.hpp,
-  // validate_viewport) and its surface is a CAMetalLayer. The layer is
-  // retained here and released by the destructor.
+  // validate_viewport), its surface is a CAMetalLayer, and `srgb` is the
+  // colour space named sRGB, not null (the backend made it and refuses the
+  // viewport when it cannot: MetalBackend::create_viewport). The layer is
+  // retained here and released by the destructor; the layer retains `srgb`.
   MetalViewport(DeferredDeleteQueue& queue, const ViewportDescription& description,
-                MTL::Device& device);
+                MTL::Device& device, CGColorSpaceRef srgb);
 
   // At a render pass of `frame` that binds the back buffer; the contract.
   [[nodiscard]] ExecuteError acquire(std::uint64_t frame);

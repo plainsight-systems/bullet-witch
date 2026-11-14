@@ -16,18 +16,27 @@
 //   E = f0 * ab.x + f90 * ab.y, with q = r * c0 + c1, t = min(q.x^2,
 //     2^(-9.28 * n_v)) * q.x + q.y, ab = (-1.04, 1.04) * t + q.zw;
 //   diffuse = diffuse albedo * (1 - dot(E, (0.2126, 0.7152, 0.0722)));
+//   M(c, o) = max(o, ((o * (2.0404 * c - 0.3324) + 0.6417 - 4.7951 * c)
+//     * o + 2.7552 * c + 0.6903) * o), per channel;
+//   white = light color / pi + ambient;
 //   color = (diffuse / pi + D * Vis * F) * light color * n_l
-//           + ambient * diffuse albedo * ambient occlusion + emissive.
+//           + ambient * (diffuse albedo * M(diffuse albedo, ambient
+//             occlusion) + E * M(f0, ambient occlusion))
+//           + emissive * white.
 // The two constants repeat forward_pass.hpp's kMinimumRoughness and
 // kGrazingFadeScale.
 //
 // The diffuse is Lambert; the specular is D F G / (4 n.l n.v) with a GGX D,
 // a = roughness^2, a Schlick F and the height-correlated masking-shadowing
-// term written as the visibility Vis above. Occlusion applies to indirect
-// light only. The F90 fade, the energy term and the minimum roughness are
-// stated in forward_pass.hpp.
-// There are no image-based or area lights, so no roughness remap for them,
-// and no specular occlusion of indirect light. The diffuse is not
+// term written as the visibility Vis above. The ambient is a sky of one
+// luminance in every direction: the surface sends it back by its albedo
+// and reflects it by E, and each is occluded by M, the occlusion as light
+// that bounces between surfaces of that colour sees it. Occlusion applies
+// to that indirect light only. Emissive is a multiple of white, the
+// luminance of a surface of albedo 1 facing the light. The F90 fade, the
+// energy term and the minimum roughness are stated in forward_pass.hpp.
+// There are no image-based or area lights, so no roughness remap for them
+// and no fetch by reflected direction. The diffuse is not
 // retro-reflective. E is the analytic approximation, not a table, and the
 // specular term is not raised for multiple scattering; E only reduces the
 // diffuse.
@@ -37,6 +46,15 @@
 static const float bw_lit_pi = 3.14159265358979;
 static const float bw_minimum_roughness = 0.04;
 static const float bw_grazing_fade_scale = 50.0;
+
+// The occlusion `occlusion` for light that bounces between surfaces of
+// colour `color`.
+float3 bw_lit_multi_bounce(float3 color, float occlusion) {
+  const float3 a = 2.0404 * color - 0.3324;
+  const float3 b = -4.7951 * color + 0.6417;
+  const float3 c = 2.7552 * color + 0.6903;
+  return max(occlusion, ((occlusion * a + b) * occlusion + c) * occlusion);
+}
 
 float3 bw_lit_shade(BwMaterialAttributes attributes, float3 view, float3 light_direction,
                     float3 light_color, float3 ambient) {
@@ -69,8 +87,13 @@ float3 bw_lit_shade(BwMaterialAttributes attributes, float3 view, float3 light_d
   const float3 diffuse =
       attributes.diffuse_albedo * (1.0 - dot(e, float3(0.2126, 0.7152, 0.0722)));
 
-  return (diffuse / bw_lit_pi + d * vis * f) * light_color * n_l +
-         ambient * attributes.diffuse_albedo * attributes.ambient_occlusion + attributes.emissive;
+  const float occlusion = attributes.ambient_occlusion;
+  const float3 sky = attributes.diffuse_albedo *
+                         bw_lit_multi_bounce(attributes.diffuse_albedo, occlusion) +
+                     e * bw_lit_multi_bounce(f0, occlusion);
+  const float3 white = light_color / bw_lit_pi + ambient;
+  return (diffuse / bw_lit_pi + d * vis * f) * light_color * n_l + ambient * sky +
+         attributes.emissive * white;
 }
 
 #endif

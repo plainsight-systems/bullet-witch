@@ -13,8 +13,10 @@ add_test(NAME integration.rendering.materials.material_buffer_ranges
 set_tests_properties(integration.rendering.materials.material_buffer_ranges PROPERTIES TIMEOUT 10)
 
 add_executable(rendering_model_draw_tests model_draw_tests.cpp)
+# The render graph comes through bw_model, which links it publicly after the
+# scene module that uses it; naming it here first would emit it twice.
 target_link_libraries(rendering_model_draw_tests PRIVATE bw_test_harness bw_model
-  bw_content_converter bw_graph)
+  bw_content_converter bw_postprocess)
 add_dependencies(rendering_model_draw_tests shader_artifacts)
 set(model_draw_shaders "${CMAKE_BINARY_DIR}/shaders/metal")
 foreach(scenario IN ITEMS forward_lit_pixels failures_named)
@@ -51,3 +53,16 @@ add_dependencies(rendering_scene_depth_hierarchy_tests shader_artifacts)
 add_test(NAME integration.scene.depth_hierarchy.furthest_depth
   COMMAND rendering_scene_depth_hierarchy_tests furthest_depth "${CMAKE_BINARY_DIR}/shaders/metal")
 set_tests_properties(integration.scene.depth_hierarchy.furthest_depth PROPERTIES TIMEOUT 10)
+
+# The post chain on the Metal device with the build's post-processing
+# artifacts (bw/rendering/postprocess/post_chain.hpp, exposure.hpp,
+# tone_mapping.hpp, bloom.hpp, grade_bake.hpp): synthetic scene colour,
+# nothing read from game data.
+add_executable(rendering_postprocess_tests postprocess/post_chain_tests.cpp)
+target_link_libraries(rendering_postprocess_tests PRIVATE bw_test_harness bw_postprocess)
+add_dependencies(rendering_postprocess_tests shader_artifacts)
+foreach(scenario IN ITEMS uniform_field bloom table)
+  add_test(NAME integration.rendering.postprocess.${scenario}
+    COMMAND rendering_postprocess_tests ${scenario} "${CMAKE_BINARY_DIR}/shaders/metal")
+  set_tests_properties(integration.rendering.postprocess.${scenario} PROPERTIES TIMEOUT 10)
+endforeach()

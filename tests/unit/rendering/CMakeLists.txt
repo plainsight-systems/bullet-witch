@@ -64,3 +64,25 @@ foreach(header IN ITEMS instance_set frame_views detail_level cpu_order scene_ge
     set_tests_properties(unit.scene.${header}.${scenario} PROPERTIES TIMEOUT 10)
   endforeach()
 endforeach()
+
+# Unit tests of post-processing's pure parts, one executable per public
+# header with pure functions (postprocess/exposure.hpp; postprocess/
+# grade_bake.hpp, whose executable also holds the grade's validation and the
+# vignette of tone_mapping.hpp), one CTest entry per scenario. No device;
+# each links the postprocess module.
+set(postprocess_exposure_scenarios camera_relation meter_buckets windowed_average adaptation)
+set(postprocess_grade_bake_scenarios shaper white_balance fixed_steps correction curve
+  encode_and_whole grade_rules)
+add_executable(postprocess_exposure_tests postprocess/exposure_tests.cpp)
+add_executable(postprocess_grade_bake_tests postprocess/grade_bake_tests.cpp)
+foreach(header IN ITEMS exposure grade_bake)
+  target_link_libraries(postprocess_${header}_tests PRIVATE bw_test_harness bw_postprocess)
+  foreach(scenario IN LISTS postprocess_${header}_scenarios)
+    add_test(NAME unit.rendering.postprocess.${header}.${scenario}
+      COMMAND postprocess_${header}_tests ${scenario})
+    set_tests_properties(unit.rendering.postprocess.${header}.${scenario} PROPERTIES TIMEOUT 10)
+  endforeach()
+endforeach()
+add_test(NAME unit.rendering.postprocess.tone_mapping.vignette
+  COMMAND postprocess_grade_bake_tests vignette)
+set_tests_properties(unit.rendering.postprocess.tone_mapping.vignette PROPERTIES TIMEOUT 10)
