@@ -223,21 +223,28 @@ void dumps_first_frame(const Arguments& args) {
 }
 
 // (script.hpp, contracts 3, 4 and 5; orbit.hpp, turn, dolly and pan
-// through the viewer): a script that drags, dumps, switches scene with ],
-// dumps, scrolls, dumps, holds Up across a dump, holds = across a dump,
-// drags with the right button and dumps, then presses W, presses D,
-// releases W, releases D and dumps, run with no --seconds and no Escape,
-// exits 0 when its last command's frame is drawn, with the first frame's
-// dump and the script's seven, in order and of one size. From the bytes:
-// the drag changes the frame from the first; the switch resets the camera
-// to the second scene's framing, the same model's, so its dump is the
-// first frame's bytes; the scroll changes the frame again. From the dump
-// lines' cameras: the 60 pixel drag right lowers yaw by 60 drag pixels'
-// radians; the switch gives the first camera and a zero offset; the scroll
-// of -3 lines scales distance by kOrbitDollyPerLine^-3; Up, held in two
-// frames of kScriptFrameSeconds, lowers pitch by two frames of
-// kOrbitKeyPixelsPerSecond (Up is a drag upward), and = held in two frames
-// scales distance by kOrbitDollyPerLine to minus two frames of
+// through the viewer; model_scene.hpp, contract 2b): a script that dumps
+// the rest camera, drags, dumps, switches scene with ], dumps, scrolls,
+// dumps, holds Up across a dump, holds = across a dump, drags with the
+// right button and dumps, then presses W, presses D, releases W, releases D
+// and dumps, run with no --seconds and no Escape, exits 0 when its last
+// command's frame is drawn, with the first frame's dump and the script's
+// eight, in order and of one size. From the bytes: the model scene's
+// exposure is pinned, so past the first frame a frame's bytes depend on its
+// camera and on its frame index modulo 8, the dither's (tone_mapping.hpp,
+// contract 4). The first frame's light is pre-multiplied by the initial
+// factor, not the pinned one, and its bytes are not compared: measured at
+// 320 by 180, it differed from frame 8 of the same camera by one code value
+// in 56 of 57 600 pixels. The rest, the
+// drag, the switch and the scroll dumps are at frames 8, 16, 24 and 32,
+// padded by moves with no button held, which change nothing. The drag
+// changes the frame from the rest's; the switch resets the camera to the
+// second scene's framing, the same model's, so its dump is the rest's
+// bytes; the scroll changes the frame again. From the dump lines' cameras: the 60 pixel drag right
+// lowers yaw by 60 drag pixels' radians; the switch gives the first camera and a zero offset; the
+// scroll of -3 lines scales distance by kOrbitDollyPerLine^-3; Up, held in two frames of
+// kScriptFrameSeconds, lowers pitch by two frames of kOrbitKeyPixelsPerSecond (Up is a drag
+// upward), and = held in two frames scales distance by kOrbitDollyPerLine to minus two frames of
 // kOrbitKeyLinesPerSecond, each leaving the other two fields. The pans come
 // last so the turn, the switch and the dollies are read with no offset;
 // the camera then has the pitch Up left, so each expected offset is
@@ -258,10 +265,10 @@ void dumps_first_frame(const Arguments& args) {
 // The scene index itself is not observable: both scenes are the one mesh
 // the fixture converts.
 void scripted_input_dumps(const Arguments& args) {
-  const std::array<std::string, 8> files{args.output + "/first.png", args.output + "/a.png",
-                                         args.output + "/b.png",     args.output + "/c.png",
-                                         args.output + "/d.png",     args.output + "/e.png",
-                                         args.output + "/f.png",     args.output + "/g.png"};
+  const std::array<std::string, 9> files{
+      args.output + "/first.png", args.output + "/rest.png", args.output + "/a.png",
+      args.output + "/b.png",     args.output + "/c.png",    args.output + "/d.png",
+      args.output + "/e.png",     args.output + "/f.png",    args.output + "/g.png"};
   for (const std::string& file : files) {
     std::error_code removed;
     std::filesystem::remove(file, removed);
@@ -270,29 +277,45 @@ void scripted_input_dumps(const Arguments& args) {
   const std::string script = args.output + "/scripted_input.txt";
   {
     std::ofstream stream(script, std::ios::binary | std::ios::trunc);
-    stream << "button left down 200 100\n"
-           << "move 260 100 left\n"
-           << "button left up 260 100\n"
-           << "dump " << files[1] << "\n"
-           << "key RightBracket\n"
-           << "dump " << files[2] << "\n"
-           << "scroll -3\n"
-           << "dump " << files[3] << "\n"
-           << "key Up down\n"
-           << "dump " << files[4] << "\n"
+    // Line k is applied in frame k; moves with no button held up to `frame`.
+    std::uint32_t line = 0;
+    const auto pad_to = [&stream, &line](std::uint32_t frame) {
+      for (; line < frame; ++line) {
+        stream << "move 0 0\n";
+      }
+    };
+    const auto put = [&stream, &line](const std::string& command) {
+      stream << command << "\n";
+      ++line;
+    };
+    pad_to(8);
+    put("dump " + files[1]);
+    put("button left down 200 100");
+    put("move 260 100 left");
+    put("button left up 260 100");
+    pad_to(16);
+    put("dump " + files[2]);
+    put("key RightBracket");
+    pad_to(24);
+    put("dump " + files[3]);
+    put("scroll -3");
+    pad_to(32);
+    put("dump " + files[4]);
+    stream << "key Up down\n"
+           << "dump " << files[5] << "\n"
            << "key Up up\n"
            << "key Equal down\n"
-           << "dump " << files[5] << "\n"
+           << "dump " << files[6] << "\n"
            << "key Equal up\n"
            << "button right down 300 200\n"
            << "move 330 220 right\n"
            << "button right up 330 220\n"
-           << "dump " << files[6] << "\n"
+           << "dump " << files[7] << "\n"
            << "key W down\n"
            << "key D down\n"
            << "key W up\n"
            << "key D up\n"
-           << "dump " << files[7] << "\n";
+           << "dump " << files[8] << "\n";
     stream.close();
     require(static_cast<bool>(stream), "the script is written: " + script);
   }
@@ -304,7 +327,7 @@ void scripted_input_dumps(const Arguments& args) {
                 "scripted_input_dumps", 0);
   const std::vector<std::string_view> dumps = lines_starting_with(result.out, "dump=");
   require(dumps.size() == files.size(), "stdout has " + std::to_string(dumps.size()) +
-                                            " dump lines, not eight: " + result.transcript);
+                                            " dump lines, not nine: " + result.transcript);
   std::vector<DumpLine> camera;
   for (std::size_t i = 0; i < files.size(); ++i) {
     DumpLine line = read_dump_line(dumps[i]);
@@ -314,56 +337,56 @@ void scripted_input_dumps(const Arguments& args) {
             "dump line " + std::to_string(i) + " is at the first's size: " + std::string(dumps[i]));
     camera.push_back(std::move(line));
   }
-  const std::string first = read_file(files[0]);
-  const std::string a = read_file(files[1]);
-  const std::string b = read_file(files[2]);
-  const std::string c = read_file(files[3]);
-  require(!first.empty() && a != first, "the drag changed the frame");
-  require(b == first, "the switch reset the camera: b.png is the first frame's bytes");
+  const std::string rest = read_file(files[1]);
+  const std::string a = read_file(files[2]);
+  const std::string b = read_file(files[3]);
+  const std::string c = read_file(files[4]);
+  require(!rest.empty() && a != rest, "the drag changed the frame");
+  require(b == rest, "the switch reset the camera: b.png is the rest frame's bytes");
   require(c != b, "the scroll changed the frame");
 
   namespace scene = bw::scene;
   const DumpLine& first_camera = camera[0];
-  const DumpLine& a_camera = camera[1];
-  const DumpLine& b_camera = camera[2];
-  const DumpLine& c_camera = camera[3];
-  const DumpLine& d_camera = camera[4];
-  const DumpLine& e_camera = camera[5];
-  const DumpLine& f_camera = camera[6];
-  const DumpLine& g_camera = camera[7];
+  const DumpLine& a_camera = camera[2];
+  const DumpLine& b_camera = camera[3];
+  const DumpLine& c_camera = camera[4];
+  const DumpLine& d_camera = camera[5];
+  const DumpLine& e_camera = camera[6];
+  const DumpLine& f_camera = camera[7];
+  const DumpLine& g_camera = camera[8];
   const double radians_per_pixel = scene::kOrbitRadiansPerPixel;
   const double frame = bw::character_viewer::kScriptFrameSeconds;
   require(near(a_camera.yaw - first_camera.yaw, -60.0 * radians_per_pixel, 1e-5),
-          "the 60 pixel drag right lowered yaw: " + std::string(dumps[1]));
+          "the 60 pixel drag right lowered yaw: " + std::string(dumps[2]));
   require(b_camera.yaw == first_camera.yaw && b_camera.pitch == first_camera.pitch &&
               b_camera.distance == first_camera.distance,
-          "the switch gave the first camera: " + std::string(dumps[2]));
+          "the switch gave the first camera: " + std::string(dumps[3]));
   require(b_camera.offset == std::array<double, 3>{},
-          "the switch zeroed the offset: " + std::string(dumps[2]));
+          "the switch zeroed the offset: " + std::string(dumps[3]));
   require(
       near(c_camera.distance / b_camera.distance, std::pow(scene::kOrbitDollyPerLine, -3.0), 1e-4),
-      "the scroll of -3 lines scaled distance: " + std::string(dumps[3]));
+      "the scroll of -3 lines scaled distance: " + std::string(dumps[4]));
   const double up_turn = 2.0 * scene::kOrbitKeyPixelsPerSecond * frame * radians_per_pixel;
   require(near(d_camera.pitch, c_camera.pitch - up_turn, 1e-5),
-          "Up held for two frames lowered pitch: " + std::string(dumps[4]));
+          "Up held for two frames lowered pitch: " + std::string(dumps[5]));
   require(near(d_camera.yaw, c_camera.yaw, 1e-6) &&
               near(d_camera.distance, c_camera.distance, 1e-6),
-          "Up held left yaw and distance: " + std::string(dumps[4]));
+          "Up held left yaw and distance: " + std::string(dumps[5]));
   const double equal_scale =
       std::pow(scene::kOrbitDollyPerLine, -2.0 * scene::kOrbitKeyLinesPerSecond * frame);
   require(near(e_camera.distance / d_camera.distance, equal_scale, 1e-4),
-          "= held for two frames moved in: " + std::string(dumps[5]));
+          "= held for two frames moved in: " + std::string(dumps[6]));
   require(e_camera.yaw == d_camera.yaw && e_camera.pitch == d_camera.pitch,
-          "= held left yaw and pitch: " + std::string(dumps[5]));
+          "= held left yaw and pitch: " + std::string(dumps[6]));
   require(near_offset(f_camera.offset, panned_offset(e_camera, 30.0, 20.0)),
-          "the 30 by 20 pixel right drag panned by its pixel widths: " + std::string(dumps[6]));
+          "the 30 by 20 pixel right drag panned by its pixel widths: " + std::string(dumps[7]));
   require(f_camera.yaw == e_camera.yaw && f_camera.pitch == e_camera.pitch &&
               f_camera.distance == e_camera.distance,
-          "the right drag left yaw, pitch and distance: " + std::string(dumps[6]));
+          "the right drag left yaw, pitch and distance: " + std::string(dumps[7]));
   const double key_pixels = 2.0 * scene::kOrbitKeyPixelsPerSecond * frame;
   require(near_offset(g_camera.offset, panned_offset(f_camera, key_pixels, -key_pixels)),
           "W and D, each held for two frames, panned up and right by their pixel widths: " +
-              std::string(dumps[7]));
+              std::string(dumps[8]));
 }
 
 // The parse's wiring (viewer_options.hpp, --dump needs --asset): `--dump`
@@ -373,6 +396,35 @@ void dump_without_asset_exits_2(const Arguments& args) {
       run_child(args.viewer, args.output, {"--dump", "x.png"}, "dump_without_asset", 2);
   require(!lines_starting_with(result.err, "Usage: character_viewer").empty(),
           "stderr has no usage line: " + result.transcript);
+}
+
+// (post_chain.hpp, contract 4; model_scene.hpp, contract 2a): a scripted
+// left drag of 200 pixels turns the PW0 asset, the frame three frames after
+// the drag is dumped, and two runs of the script dump the same bytes. Alone
+// catches a time step or a frame index the viewer reads from a clock
+// instead of the script's fixed frame time and its frame count.
+void dump_through_chain(const Arguments& args) {
+  const std::string script = args.output + "/dump_through_chain.script";
+  std::array<std::string, 2> bytes{};
+  for (std::size_t run = 0; run < bytes.size(); ++run) {
+    const std::string file = args.output + "/dump_through_chain_" + std::to_string(run) + ".png";
+    std::error_code removed;
+    std::filesystem::remove(file, removed);
+    {
+      std::ofstream stream(script, std::ios::binary | std::ios::trunc);
+      stream << "button left down 100 90\nmove 300 90 left\nbutton left up 300 90\n"
+             << "key Other\ndump " << file << "\n";
+      stream.close();
+      require(static_cast<bool>(stream), "the script is written: " + script);
+    }
+    run_child(args.viewer, args.output,
+              {"--cache", args.cache.c_str(), "--shaders", args.shaders.c_str(), "--asset",
+               "model.pw0.mesh", "--size", "320x180", "--script", script.c_str()},
+              "dump_through_chain", 0);
+    bytes[run] = read_file(file);
+    require(!bytes[run].empty(), "run " + std::to_string(run) + " dumped " + file);
+  }
+  require(bytes[0] == bytes[1], "two runs of the script dump the same bytes");
 }
 
 // (model_scene.hpp, contract 2a, its last sentence): the PW0 asset drawn
@@ -399,11 +451,12 @@ constexpr std::array kScenarios{
     Scenario{"dumps_first_frame", &dumps_first_frame},
     Scenario{"dump_without_asset_exits_2", &dump_without_asset_exits_2},
     Scenario{"scripted_input_dumps", &scripted_input_dumps},
+    Scenario{"dump_through_chain", &dump_through_chain},
 };
 
 // The scenarios that take the PW0 cache.
-constexpr std::array<std::string_view, 2> kCacheScenarios{"dumps_first_frame",
-                                                          "scripted_input_dumps"};
+constexpr std::array<std::string_view, 3> kCacheScenarios{
+    "dumps_first_frame", "scripted_input_dumps", "dump_through_chain"};
 
 } // namespace
 
@@ -418,8 +471,8 @@ int main(int argc, char** argv) {
   return bw::testing::run_scenario(
       argc, argv, kScenarios,
       "<character_viewer> <metal artifact directory> <output directory>, then for "
-      "dumps_first_frame and scripted_input_dumps only <PW0 cache>, and for image_unchanged "
-      "<PW0 cache> <reference frame>",
+      "dumps_first_frame, scripted_input_dumps and dump_through_chain only <PW0 cache>, and for "
+      "image_unchanged <PW0 cache> <reference frame>",
       [scenario](std::span<char* const> rest, Arguments& out) {
         if (scenario == "image_unchanged") {
           if (rest.size() != 5U || std::string_view(rest[3]).empty() ||

@@ -43,7 +43,7 @@ struct Scene : HostScene {
   // One raster pass that clears `target` and draws the cube; always true.
   [[nodiscard]] bool declare(rhi::Device& device, graph::FrameGraph& graph,
                              graph::TextureHandle target, rhi::Extent2 size,
-                             double elapsed) override;
+                             const HostFrame& frame) override;
 };
 
 // Loads the artifacts and makes the cube fixture for the viewport's format.

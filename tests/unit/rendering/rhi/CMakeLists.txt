@@ -68,7 +68,8 @@ set(rhi_viewport_scenarios
   acquire_once_per_frame_release_at_boundary
   size_mismatch_holds_nothing
   resize_refused_while_acquired_then_applies
-  construction_state_and_name)
+  construction_state_and_name
+  format_and_report)
 set(rhi_command_list_scenarios
   replay_in_order_with_copied_arguments
   reset_empties_and_pass_tracking

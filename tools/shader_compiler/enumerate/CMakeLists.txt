@@ -39,8 +39,13 @@ target_compile_definitions(bw_math_headers INTERFACE BW_ENABLE_MATH_DIAGNOSTICS=
 bw_header_interface(bw_content_headers "${BW_SOURCE_ROOT}/src/engine/content")
 bw_header_interface(bw_materials_headers "${BW_SOURCE_ROOT}/src/engine/rendering/materials")
 target_link_libraries(bw_materials_headers INTERFACE bw_content_headers bw_geometry_headers)
+# The forward pass's header names the post-processing module's pre-exposure
+# block (bw/rendering/postprocess/post_shaders.hpp), which includes the
+# shader headers and nothing else.
+bw_header_interface(bw_postprocess_headers "${BW_SOURCE_ROOT}/src/engine/rendering/postprocess")
 bw_header_interface(bw_scene_headers "${BW_SOURCE_ROOT}/src/engine/rendering/scene")
-target_link_libraries(bw_scene_headers INTERFACE bw_math_headers bw_materials_headers)
+target_link_libraries(bw_scene_headers INTERFACE bw_math_headers bw_materials_headers
+  bw_postprocess_headers)
 add_subdirectory("${BW_SOURCE_ROOT}/src/engine/rendering/shaders" engine_shaders)
 
 add_executable(shader_enumerate main.cpp "${BW_SOURCE_ROOT}/tools/shader_compiler/enumeration.cpp")

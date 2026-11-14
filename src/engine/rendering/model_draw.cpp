@@ -409,7 +409,9 @@ ModelDrawFailure create_model_draw(rhi::Device& device, const ModelResources& mo
 }
 
 // Issues one multi-draw per pipeline over the compacted records; the opaque
-// pass draws the records the depth pass drew.
+// pass draws the records the depth pass drew. The static blocks are the
+// caller's to bind (contract 3): the scene's and the frame's pre-exposure,
+// which the forward pixel shader reads.
 void record_model_draw(rhi::CommandList& list, const ModelDraw& draw, const ModelDrawFrame& frame) {
   const scene::DrawListLayout& layout = frame.culling->layout;
   const shaders::BufferIndex instances = frame.instance_buffer->view->buffer_index();

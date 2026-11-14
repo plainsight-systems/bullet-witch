@@ -67,7 +67,9 @@
 //   has a BTX0 slot (the base alpha class the blend mode is mapped from is
 //   a function of both); for a skeleton, its two records (the skeleton
 //   asset's bind field is written as BindBlock::B, the measured fact the
-//   plan records; read_skeleton leaves it Unknown); for a texture,
+//   plan records; read_skeleton leaves it Unknown); for a texture, the
+//   texture conversion revision as the text "texture-conversion
+//   <kTextureConversionRevision>", then
 //   the pipeline options that shape its bytes (the green convention and
 //   the BC7 uber level, as text), then the descriptor and the PNG(s); for
 //   morph targets, the mesh conversion revision text, the TS2V record and
@@ -221,6 +223,9 @@ inline constexpr std::string_view kConvertUsage =
 // and the number is in every mesh's and morph set's input hash, so a rule
 // change reconverts meshes and nothing else.
 inline constexpr std::uint32_t kMeshConversionRevision = 3;
+// Numbers the texture rules of texture_reader.hpp the same way: it is in
+// every texture's input hash, so a rule change reconverts textures.
+inline constexpr std::uint32_t kTextureConversionRevision = 1;
 
 enum class TangentHandednessError : std::uint8_t {
   None,

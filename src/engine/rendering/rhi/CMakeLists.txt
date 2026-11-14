@@ -60,6 +60,9 @@ if(APPLE)
     backends/metal/metal_objects.cpp
     backends/metal/metal_viewport.cpp)
   target_link_libraries(bw_rhi PRIVATE bw_metal_cpp bw_metal_irconverter_runtime)
+  # The viewport tags its layer with the sRGB colour space, which CoreGraphics
+  # makes (viewport.hpp, invariant 8).
+  target_link_libraries(bw_rhi PRIVATE "-framework CoreGraphics")
   target_compile_definitions(bw_rhi PRIVATE BW_RHI_METAL=1)
   target_include_directories(bw_rhi PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 

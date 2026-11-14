@@ -43,13 +43,21 @@
 //   plan_texture decides, from the descriptor and the PNG's size, the
 //   color space, the output format and the flags, naming a failure
 //   as a PlanError:
-//     sign 63 (gamma) -> sRGB, 0 (unsigned) -> linear, 85 (signed) -> HDR,
+//     sign 63 (gamma) and 0 (unsigned) -> linear, 85 (signed) -> HDR,
 //       which only 16_16_16_16_EXPAND carries; 85 on any other format is
 //       SignUnsupported (no shipped descriptor has it), as is any other
 //       sign value. A descriptor dimension other than 2D or cube is
 //       FormatUnsupported (none is shipped).
-//     DXT1, DXT2_3, DXT4_5, 8_8_8_8, 4_4_4_4 -> BC7 (sRGB or Unorm by the
-//       color space).
+//       The stored samples of an 8-bit texture are linear values whatever
+//       the gamma flag says: the flag describes the console texture the
+//       record came from and is also set on 114 normal-map slots and 402
+//       occlusion slots, which hold no colour. Read as linear, a
+//       colour texture's values are reflectances a surface can have (skin
+//       about 0.4, dark cloth about 0.03) and a lit frame shows the
+//       original's own colours; read as sRGB they are a display curve
+//       darker, the cloth a hundred times under the skin. So no plan has
+//       the sRGB colour space or an sRGB format.
+//     DXT1, DXT2_3, DXT4_5, 8_8_8_8, 4_4_4_4 -> BC7Unorm.
 //     DXN, CTX1 -> BC5 with kTwoChannelNormal; the green convention is the
 //       pipeline option (as stored, or flipped), recorded in the plan.
 //     16_16_16_16_EXPAND -> R16G16B16A16Float, no block compression: no

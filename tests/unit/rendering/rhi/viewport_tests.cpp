@@ -41,8 +41,8 @@ ViewportDescription valid_description(void* surface) {
 
 // (viewport.hpp, validate_viewport) and (viewport.hpp, ViewportError): a
 // kind of None or a null surface is NoSurface, a zero dimension ZeroSize, a
-// format other than B8G8R8A8UnormSrgb FormatUnsupported (invariant 7), an
-// empty name MissingDebugName; the first in that order is returned.
+// format outside invariant 7 FormatUnsupported, an empty name
+// MissingDebugName; the first in that order is returned.
 void validate_viewport_named_in_order() {
   int surface = 0;
   require(bw::rhi::validate_viewport(valid_description(&surface)) == ViewportError::None,
@@ -60,7 +60,7 @@ void validate_viewport_named_in_order() {
   require(bw::rhi::validate_viewport(d) == ViewportError::ZeroSize,
           "ZeroSize before FormatUnsupported");
   d = valid_description(&surface);
-  d.format = Format::B8G8R8A8Unorm;
+  d.format = Format::R8G8B8A8Unorm;
   d.debug_name = {};
   require(bw::rhi::validate_viewport(d) == ViewportError::FormatUnsupported,
           "FormatUnsupported before MissingDebugName");
@@ -110,7 +110,7 @@ void validate_with_backend_kind() {
   require(bw::rhi::validate_viewport(d, NativeSurfaceKind::MetalLayer) == ViewportError::ZeroSize,
           "then ZeroSize before FormatUnsupported");
   d = valid_description(&surface);
-  d.format = Format::B8G8R8A8Unorm;
+  d.format = Format::R8G8B8A8Unorm;
   d.debug_name = {};
   require(bw::rhi::validate_viewport(d, NativeSurfaceKind::MetalLayer) ==
               ViewportError::FormatUnsupported,
@@ -238,6 +238,20 @@ void construction_state_and_name() {
 #endif
 }
 
+// (viewport.hpp, invariant 7; is_viewport_format): the two formats are
+// admitted; a format outside them is FormatUnsupported in the validation
+// table above.
+void format_and_report() {
+  int surface = 0;
+  for (const Format format : {Format::B8G8R8A8UnormSrgb, Format::B8G8R8A8Unorm}) {
+    ViewportDescription d = valid_description(&surface);
+    d.format = format;
+    require(bw::rhi::is_viewport_format(format) &&
+                bw::rhi::validate_viewport(d) == ViewportError::None,
+            "an admitted format");
+  }
+}
+
 constexpr std::array scenarios{
     Scenario{"validate_viewport_named_in_order", validate_viewport_named_in_order},
     Scenario{"validate_with_backend_kind", validate_with_backend_kind},
@@ -248,6 +262,7 @@ constexpr std::array scenarios{
     Scenario{"resize_refused_while_acquired_then_applies",
              resize_refused_while_acquired_then_applies},
     Scenario{"construction_state_and_name", construction_state_and_name},
+    Scenario{"format_and_report", format_and_report},
 };
 } // namespace
 

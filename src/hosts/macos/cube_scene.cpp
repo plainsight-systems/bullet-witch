@@ -65,8 +65,8 @@ void Scene::Record::operator()(graph::RecordContext& context) const {
 }
 
 bool Scene::declare(rhi::Device& /*device*/, graph::FrameGraph& graph, graph::TextureHandle target,
-                    rhi::Extent2 size, double elapsed) {
-  world_to_clip = cube_world_to_clip(elapsed, size);
+                    rhi::Extent2 size, const HostFrame& frame) {
+  world_to_clip = cube_world_to_clip(frame.elapsed, size);
   const std::array<graph::TextureUse, 1> uses{
       graph::TextureUse{target, graph::Access::Attachment, graph::Contents::Clear, 0}};
   graph.add_pass(

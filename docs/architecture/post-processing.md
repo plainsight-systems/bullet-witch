@@ -37,8 +37,9 @@ flowchart LR
 ## Invariants
 
 1. Scene colour is linear light in photometric units, stored pre-multiplied
-   by the previous frame's exposure so a 16-bit float holds its range. The
-   factor is applied by renderer code in every pass that writes light into
+   by the previous frame's exposure so a 16-bit float holds its range. A
+   writer bounds what it writes to the largest value that format holds,
+   and a reader bounds what it reads the same way. The factor is applied by renderer code in every pass that writes light into
    scene colour or any light target of the frame, never by a template.
    Every reader divides it out, and every buffer that holds light across
    frames is stored with the factor of the frame that wrote it and reused
@@ -49,8 +50,12 @@ flowchart LR
 2. Exposure is EV100 metered by a histogram of the log of scene colour's
    channel mean over the frame
    after the temporal stage at reduced resolution, between the 10th and 90th
-   percentiles, driven toward middle grey, adapting faster up than down,
-   offset by the grade's exposure compensation. The value adapted this
+   percentiles, driven toward middle grey, adapting faster to a scene that
+   brightens than to one that darkens,
+   offset by the grade's exposure compensation and held inside the grade's
+   exposure range; a range whose ends are equal pins the exposure, which
+   is how a scene with one subject on an empty background is exposed. The
+   value adapted this
    frame is the exposure tone mapping applies this frame and the factor
    that pre-multiplies the next.
 3. Depth of field is a physical camera: circle of confusion from the focus
@@ -75,7 +80,8 @@ flowchart LR
    first level, and upsamples progressively with a tent filter. It is added
    at tone mapping, scaled by exposure and the grade's intensity. There is
    no threshold, no dirt mask and no lens flare.
-7. The grade is content: per stage, exposure compensation, white balance,
+7. The grade is content: per stage, exposure compensation, the exposure
+   range in EV100, white balance,
    colour correction, the curve's slope, toe, shoulder, black clip and white
    clip, bloom intensity, vignette and grain. Colour correction is
    saturation, contrast, gamma, gain and offset, once over the whole
@@ -153,8 +159,8 @@ pass that reads and writes the same image.
 | Unit | EV100: aperture, shutter and sensitivity folded into one value, since lights are photometric |
 | Meter | a 64-bucket histogram of the log of the channel mean of a reduced copy of scene colour after the temporal stage |
 | Window | the 10th to 90th percentiles, the rest discarded |
-| Target | the windowed average brought to middle grey, then the grade's compensation |
-| Adaptation | exponential toward the target, faster brightening than darkening, with a switch to linear for large steps |
+| Target | the windowed average, held inside the grade's exposure range, brought to middle grey, then the grade's compensation |
+| Adaptation | exponential toward the target, faster when the scene brightens than when it darkens, with a switch to linear for large steps |
 | Lag | the value adapted this frame pre-multiplies the next frame's light, a frame behind; tone mapping applies it in the same frame, as its ratio to the factor the frame was written with, and is not behind |
 | Readers | the histogram, which divides the frame's factor out; tone mapping, by the ratio of this frame's exposure to the frame's factor; the temporal stage, the reflections trace of the previous frame's scene colour and the fog history, each by the ratio of its frame's factor to the writer's |
 
