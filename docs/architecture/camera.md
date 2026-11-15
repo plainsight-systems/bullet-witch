@@ -22,9 +22,10 @@ that is the director's, and the director's rule is the game's.
 ## Position
 
 Below the game's code, which writes directors and rigs. Inside the
-[world](world.md)'s tick, after everything has moved. Above the collision
-queries its nodes make. Beside [input](input.md), whose actions feed look
-input, and the [scene renderer](scene-renderer.md) and
+[world](world.md)'s tick, after everything has moved. Above
+[physics](physics.md), which answers the sweeps its nodes make. Beside
+[input](input.md), whose actions feed look input, and the
+[scene renderer](scene-renderer.md) and
 [post-processing](post-processing.md), which take the view.
 
 ```mermaid
@@ -145,7 +146,8 @@ flowchart TD
 ## Boundaries
 
 Above: the game's code, which writes each rig, its transitions and the
-director that picks among them. Below: collision, which answers sweeps.
+director that picks among them. Below: [physics](physics.md), which
+answers sweeps.
 Beside: the [world](world.md), which evaluates cameras after everything
 has moved and publishes the view and the cut; [input](input.md), whose
 look actions feed input slots; the controller, whose control rotation a

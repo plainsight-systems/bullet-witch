@@ -44,8 +44,9 @@ implementations per target,
 [world](world.md) for what exists and the order of a tick,
 [input](input.md) for how devices become actions,
 [characters](characters.md) for who controls a character and how it moves,
-[camera](camera.md) for how the view is made, and
-[content](content.md) for how assets reach the game. In one line:
+[camera](camera.md) for how the view is made,
+[physics](physics.md) for what things collide with and how bodies move,
+and [content](content.md) for how assets reach the game. In one line:
 platform adapters under `src/platform`, engine systems under `src/engine`,
 Bullet Witch's own rules under `src/game`, and development tools apart from
 all three.

@@ -22,8 +22,9 @@ to the game's code.
 ## Position
 
 Below the game's code, which decides what exists and what it does. Above
-[animation](animation.md), [input](input.md), the characters' movement and
-the camera, whose work it orders. Beside the [scene](scene.md) and the
+[animation](animation.md), [input](input.md), the characters' movement,
+[physics](physics.md) and the camera, whose work it orders. Beside the
+[scene](scene.md) and the
 [scene renderer](scene-renderer.md), which read what it publishes and
 report what was drawn.
 
@@ -34,6 +35,8 @@ flowchart LR
     IN["Input: action states"] --> W
     W --> AN["Animation: transforms, the step, drawn notes"]
     AN --> W
+    W --> PH["Physics: the step, bodies, targets"]
+    PH --> W
     W --> SC["Scene: instances, transforms, flags"]
     SC --> W
     W --> SR["Scene renderer: camera, camera cut, lights, fog values"]
@@ -44,7 +47,8 @@ flowchart LR
 
 1. The world owns the transform and the lifetime of every object. Nothing
    else writes a transform, and a consumer reads transforms only from the
-   world's publication.
+   world's publication. When simulation ends, [physics](physics.md) hands
+   the world the bodies it moved, and the world writes their transforms.
 2. The step comes from outside. The runtime loop makes it, measured from
    its clock or fixed when a fixed step is set, and hands it to the tick.
    The world reads no clock. The same steps with the same inputs in the
@@ -125,7 +129,7 @@ flowchart TD
 | Clocks | the step, the dilation, the frame-time bounds | the four clocks, the dilated step | real and unpaused time only |
 | Queue | registered tick functions, prerequisites, intervals | the order of this tick | no |
 | Before simulation | action states, last tick's world | intent, root difference, transforms, poses | only functions that ask |
-| Simulation | transforms and bodies | simulated state | no |
+| Simulation | transforms and bodies, changes pushed at its start | the change list at its end: transforms of bodies that moved, wake and sleep, broken constraints, contacts | no |
 | After simulation | simulated state | parts that follow it | no |
 | Timers and waiting actions | the dilated step | their callbacks | no |
 | Cameras | each camera's target, the controller's rotation | each camera's view and cut flag | only a camera that asks |
@@ -138,6 +142,7 @@ flowchart TD
 |---|---|
 | The tick's step and the world's time | [animation](animation.md), [materials](materials.md) |
 | Each character's transform, and the drawn note | [animation](animation.md) |
+| The dilated step, the simulation stages, and the writing of transforms simulation hands back | [physics](physics.md) |
 | Instances, their transforms, flags and sort priority | the [scene](scene.md), [transparency](transparency.md), [decals](decals.md) |
 | Things placed on bones | [animation](animation.md), the [geometry feed](geometry.md) |
 | Lights, the sun and the fog values | [lighting](lighting.md) |
@@ -150,7 +155,7 @@ flowchart TD
 |---|---|---|
 | Objects, parts, attachment, lifetime | `src/engine/world` | game code, every system with a part |
 | Clocks, dilation, pause | `src/engine/world` | every tick function |
-| Tick functions, stages, prerequisites, intervals | `src/engine/world` | movement, animation, cameras, game code |
+| Tick functions, stages, prerequisites, intervals | `src/engine/world` | movement, animation, physics, cameras, game code |
 | Publication to the scene and the renderer | `src/engine/world` | the scene, the scene renderer, post-processing |
 | The step | `src/engine/runtime` | the world |
 
@@ -162,5 +167,6 @@ systems whose parts tick here. Beside: [input](input.md), which turns
 device state into action states before controllers read them; the
 [scene](scene.md), which takes the publication and reports what was drawn;
 the [scene renderer](scene-renderer.md), which takes the camera and the
-lights. What an object is for, which objects a stage holds, and what a
-controller decides are outside this document.
+lights; [physics](physics.md), which fills the simulation stages and
+hands back what moved. What an object is for, which objects a stage
+holds, and what a controller decides are outside this document.

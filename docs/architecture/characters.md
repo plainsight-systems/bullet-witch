@@ -24,7 +24,8 @@ other one: only the controller differs.
 Below the game's code, which says what its controller decides. Beside
 [abilities](abilities.md), which act on a character through the same
 doors a controller does, and the animation logic of its kind, which
-reads its state. Above the collision queries movement makes. Inside the
+reads its state. Above [physics](physics.md), which answers the
+collision queries movement makes. Inside the
 [world](world.md)'s tick, which orders the controller, movement and the
 skeleton.
 
@@ -134,7 +135,8 @@ flowchart TD
 ## Boundaries
 
 Above: the game's code, which sets a kind of character's values and
-writes its controllers. Below: collision, which answers queries. Beside:
+writes its controllers. Below: [physics](physics.md), which answers
+queries. Beside:
 [abilities](abilities.md), which are granted to an owner and act through
 a character. The animation logic of its kind, which reads its state.
 [Animation](animation.md), from which movement takes root motion.
