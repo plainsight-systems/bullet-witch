@@ -29,6 +29,7 @@ src/
     content/                # cooked format, asset ids, layers, loader, install search, download client
     input/                  # device-independent binding/context/action routing
     characters/             # possession, movement and reusable action mechanisms
+    camera/                 # pose, rigs of nodes, directors, blend stacks, shakes
     animation/              # skeleton/pose, blends, root motion, skeletal controls
     ai/                     # perception, agent memory, decisions and retained tasks
     navigation/             # navigation data, queries, routes and path following
