@@ -129,6 +129,22 @@ them as rules. Add an entry when the same mistake comes back.
   line is one check that the game is installed: nothing is built to dig a
   value out of a player's executable, and "it is in code" or "the
   install's code is encrypted" is not a reason to skip a read.
+- **Three errors that recur together.** Caught again across the project
+  session and a worker on one day:
+  - Saying the game does not have something it ships with. Every control,
+    state and rule is in its data, its text or its executable. A cell for
+    what the game does is never "none" or "not found": the read goes on by
+    another route (the help and tutorial text, key configuration, type
+    names in the executable, direct call sites).
+  - Holding a position of our own on how a mechanism works. A design row
+    has one basis, what the references do, cited. If a reference was not
+    read for a row, it is read; the row is not filled with a rule of ours.
+  - Reproducing the shipped implementation instead of the intent. The
+    Purpose section says shipped behavior is evidence of intent. State the
+    intent, realize it with the references' mechanism, and take from the
+    game the values that express intent: distances, speeds, timings,
+    bindings. The original's own arithmetic is not kept, not measured
+    against, and not listed as a loss.
 
 ## Sources and citations
 
