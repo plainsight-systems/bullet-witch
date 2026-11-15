@@ -40,7 +40,9 @@ shading](character-shading.md) for skin, hair and eyes,
 display, [anti-aliasing](anti-aliasing.md) for the temporal stage's
 implementations per target,
 [lighting](lighting.md) for lights, shadows, indirect light and fog,
-[render graph](render-graph.md) for how its passes become GPU work, and
+[render graph](render-graph.md) for how its passes become GPU work,
+[world](world.md) for what exists and the order of a tick,
+[input](input.md) for how devices become actions, and
 [content](content.md) for how assets reach the game. In one line:
 platform adapters under `src/platform`, engine systems under `src/engine`,
 Bullet Witch's own rules under `src/game`, and development tools apart from
