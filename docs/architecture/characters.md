@@ -1,12 +1,12 @@
 # Characters
 
-Who controls a character, how it moves, and what it can do. A controller
-possesses a character and gives it intent. The character's movement turns
-that intent, its clips' root motion and gravity into a transform each
-tick. What it can do is a set of abilities, each with the conditions it
-needs, what it costs, and what it blocks. A character knows nothing of
-animation: it states facts, and its animation controller turns them into
-what plays. The same mechanisms serve the player's character and every
+Who controls a character and how it moves. A controller possesses a
+character and gives it intent. The character's movement turns that
+intent, its clips' root motion and gravity into a transform each tick. A
+character knows nothing of animation: the animation logic of its kind
+reads the character's state. What a character can do is not here: an
+[ability](abilities.md) is a thing of its own that acts through a
+character. The same mechanisms serve the player's character and every
 other one: only the controller differs.
 
 | Term | Means |
@@ -17,33 +17,27 @@ other one: only the controller differs.
 | Movement input | a direction and a strength a controller gives its character for this tick |
 | Movement mode | walking, falling, a custom mode, or none |
 | Launch | a velocity given to a character once, which puts it in the air |
-| Velocity source | a velocity an action sets for a time, over or on top of the character's own |
-| Ability | something a character can do, granted to it, with its conditions and cost |
-| Tag | a name a character carries while something is true of it |
-| Attribute | a number a character has, with a base and a current value |
-| Effect | a change to attributes, at once or for a time, which may grant tags |
+| Velocity source | a velocity set for a time, over or on top of the character's own |
 
 ## Position
 
-Below the game's code, which says which abilities a kind of character has
-and what its controller decides. Beside the character's animation
-controller, which reads the character's facts and alone speaks to
-[animation](animation.md). Above the collision queries movement makes.
-Inside the [world](world.md)'s tick, which orders the controller,
-movement and the skeleton.
+Below the game's code, which says what its controller decides. Beside
+[abilities](abilities.md), which act on a character through the same
+doors a controller does, and the animation logic of its kind, which
+reads its state. Above the collision queries movement makes. Inside the
+[world](world.md)'s tick, which orders the controller, movement and the
+skeleton.
 
 ```mermaid
 flowchart LR
     IN["Input: action states"] --> PC["Player's controller"]
     AI["AI decisions"] --> AC["AI controller"]
-    PC --> CH["Character: movement input, control rotation, ability activations"]
+    PC --> CH["Character: movement input, control rotation"]
     AC --> CH
+    AB["Abilities: a launch, a velocity source, a crouch"] --> CH
     CH --> MV["Movement: mode, velocity, shape, queries"]
-    CH --> AB["Abilities: checks, cost, tags, tasks"]
-    CH -- "facts" --> AC2["Animation controller: facts in, requests to animation"]
-    AC2 -- "action ended, typed events" --> AB
     AN["Animation: root motion"] --> MV
-    AB --> MV
+    CH -. "its state, read" .-> AL["Animation logic of its kind"]
     MV --> W["World: the character's transform"]
 ```
 
@@ -56,9 +50,10 @@ flowchart LR
    is dropped. Unpossessing drops its pending input.
 2. A controller holds the control rotation. A character holds what it
    was told to do this tick. A player's controller turns action states
-   into control rotation, movement input and ability activations. An AI
-   controller gives the same three from its own decisions, and nothing in
-   the character can tell which it has.
+   into control rotation and movement input, and passes the actions
+   bound to abilities on to them. An AI controller gives the same from
+   its own decisions, and nothing in the character can tell which it
+   has.
 3. Movement input accumulates on the character within a tick and is
    consumed once, by movement.
 4. A character is in one movement mode. Walking keeps it on a floor it
@@ -102,48 +97,22 @@ flowchart LR
     stopped. A downward sweep and a line trace for the floor. An overlap
     with a shape. A push out of what it penetrates. Two characters that
     overlap are pushed apart.
-14. An ability is granted to a character, with a level and the input
-    that activates it. It is activated by that input, by a call, or by an
-    event or a tag it waits for. A character has one instance of an
-    ability, or one per activation.
-15. An ability activates only if, in this order: its cooldown is not
-    running, its cost can be paid, the character has every tag it
-    requires and none it is blocked by, no active ability blocks its
-    tags, and its input is not blocked.
-16. While an ability is active the character carries the ability's own
-    tags, abilities carrying the tags it blocks cannot activate, and on
-    activation the abilities carrying the tags it cancels are cancelled.
-17. Committing an ability applies its cooldown and then its cost. A cost
-    is an effect that changes an attribute at once. A cooldown is an
-    effect with a duration that grants a tag.
-18. An ability ends itself, or is cancelled if it can be. Ending it ends
-    its tasks.
-19. An ability works through tasks. One states that an action has begun,
-    with its parameters, and waits for the report that it ended and
-    whether it was interrupted. One waits for an event by tag. One
-    applies a constant velocity source for a duration.
-20. A character and its abilities name no clip, layer or blend time.
-    They state facts: velocity, facing, grounded, crouched, the tags
-    carried, an action begun. The character's animation controller reads
-    the facts and owns everything said in animation terms, as
-    [animation](animation.md) states. It reports an action's end, and
-    animation's typed events reach abilities as events by tag. A tick's
-    events are delivered before the tick's action-ended reports.
-21. An attribute has a base value and a current value. Effects change
-    them: by adding, multiplying or overriding, at once, for a duration
-    or without end.
+14. A character names no clip, layer or blend time and calls nothing in
+    animation. Its state is there to be read: velocity, facing, movement
+    mode, crouched. The animation logic of its kind reads it each update.
+15. An ability is not part of a character. It reaches one only through
+    what this document states: a launch, a velocity source, a crouch,
+    movement input.
 
 ## A character's tick
 
 ```mermaid
 flowchart TD
-    A["Controller: control rotation, movement input, ability activations"] --> B["Abilities: checks, commit, tasks started"]
-    B --> C["Animation advance: the clip's root difference"]
+    A["Controller: control rotation, movement input"] --> C["Animation advance: the clip's root difference"]
     C --> D["Movement: pending launch, root motion, velocity sources, or input"]
     D --> E["Sub-steps: move by the mode, sweep, floor or landing"]
     E --> F["Yaw: from the controller, toward movement, or the clip's root rotation"]
     F --> G["The character's transform, to the world"]
-    G --> H["Animation controller: typed events and action-ended reports back to abilities"]
 ```
 
 | Mode | Velocity | Ends when |
@@ -159,18 +128,17 @@ flowchart TD
 |---|---|---|
 | Controllers and possession | `src/engine/characters` | game code |
 | Movement: modes, velocity sources, launch, crouch, yaw | `src/engine/characters` | the world, abilities |
-| Abilities, tags, attributes, effects, tasks | `src/engine/characters` | game code |
 | Collision queries | `src/engine/physics` | movement, the camera |
-| A kind of character's abilities, values and controller | `src/game/characters` | the engine's mechanisms |
+| A kind of character's values and controller | `src/game/characters` | the engine's mechanisms |
 
 ## Boundaries
 
-Above: the game's code, which grants abilities, sets a kind of character's
-values and writes its controllers. Below: collision, which answers
-queries. Beside: the animation controller of its kind, which reads its
-facts and reports an action's end. [Animation](animation.md), from which
-movement takes root motion. [Input](input.md), whose action states a
-player's controller reads. The [world](world.md), which orders the tick
-and owns the transform movement produces. What an ability is for and what
-an AI decides are outside this document. Which clip an action plays is
-its animation controller's.
+Above: the game's code, which sets a kind of character's values and
+writes its controllers. Below: collision, which answers queries. Beside:
+[abilities](abilities.md), which are granted to an owner and act through
+a character. The animation logic of its kind, which reads its state.
+[Animation](animation.md), from which movement takes root motion.
+[Input](input.md), whose action states a player's controller reads. The
+[world](world.md), which orders the tick and owns the transform movement
+produces. What an AI decides and what a character can do are outside
+this document.

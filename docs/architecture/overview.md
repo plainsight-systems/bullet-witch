@@ -43,7 +43,7 @@ implementations per target,
 [render graph](render-graph.md) for how its passes become GPU work,
 [world](world.md) for what exists and the order of a tick,
 [input](input.md) for how devices become actions,
-[characters](characters.md) for who controls a character, how it moves and what it can do,
+[characters](characters.md) for who controls a character and how it moves,
 [camera](camera.md) for how the view is made, and
 [content](content.md) for how assets reach the game. In one line:
 platform adapters under `src/platform`, engine systems under `src/engine`,
