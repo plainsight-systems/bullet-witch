@@ -131,9 +131,10 @@ flowchart TD
 | Grade | per stage: exposure compensation, the exposure range, white balance, colour correction, the curve's slope, toe, shoulder, black clip and white clip, bloom intensity, vignette, grain; beside it the original stage's tone, luminance and correction values recorded by name | post-processing |
 | Profile set | the skin profiles of the game: per profile a near and a far radius per channel with a weight, a transmission tint and extinction, and the second specular lobe's roughness ratio and mix | rendering |
 | Probe set | the probe grids of one stage: for each grid an oriented box, its lattice size, and nine spherical harmonic coefficients per color channel for each probe | lighting |
-| Collision | one object's or stage piece's description: simple collision, which is simple shapes (spheres, boxes, capsules, convex hulls) grouped by part with a mass per part, or for a stage piece a coarser triangle mesh; a complex triangle mesh with a physical material index per face; the flag saying which answers simple and complex queries; and the constraints between parts | physics |
+| Collision | one object's or stage piece's description: simple collision, which is simple shapes (spheres, boxes, capsules, convex hulls, the hulls of a mesh that is not convex made by the converter), each with its switches for queries and simulation, grouped by part with a mass, damping, a start state and a physical material per part, or for a stage piece a coarser triangle mesh; a complex triangle mesh with a physical material index per face; the flag saying which answers simple and complex queries; and the constraints between parts | physics |
 | Physical materials | the game's table: per material friction, restitution, density, the combine modes and a surface type | physics |
-| Ragdoll | per skeleton: bodies by bone name, each with shapes and a mass, and the constraints between them with their axes and limits | physics |
+| Skeleton bodies | per skeleton: a body by bone name, each with shapes, a mass, a physical material and whether it follows its owner, stays kinematic or simulates, and the constraints between them with their axes and limits | physics |
+| Breaking object | one object's tree of clusters and pieces: per piece its shapes, mass, physical material and threshold; the connections between siblings; anchored pieces; what is removed on breaking; the mesh drawn while whole and the mesh of the pieces | physics |
 | Script, audio, text, level data | defined by their slices in the same cooked-asset frame | their systems |
 
 Every kind shares the asset header: id, kind, format version, input hash,
@@ -151,7 +152,8 @@ consuming system's loader.
 | an effect, numbered inside a pack with no name | `effect.<pack>.<number>`, its emitters' materials `effect.<pack>.<number>.material.<n>`, a sub-image sheet merged from the pack's numbered textures `effect.<pack>.sheet.<first number>` |
 | a stage's grade, which carries the original stage's recorded values | `stage.<name>.grade` |
 | the collision records of one `hit/cpe_hit.cpr`, read together | the container path's id with `collision` as its record name |
-| the physical materials and a character kind's ragdoll, which we write from the values the original holds | `remaster.physics.materials`, `remaster.chara.<kind>.ragdoll` |
+| the physical materials and a character kind's bodies, which we write from the values the original holds | `remaster.physics.materials`, `remaster.chara.<kind>.bodies` |
+| an object and its twin, read together as one breaking object | the object's container id with `breaking` as its record name |
 | a clip of `graphics/chara/PW0/motion/compress/bundler.cpr` | `model.pw0.motion.compress.<clip>`, the name its list file gives it; a clip of a `nocompress` set takes the name its own list file gives, and one clip name in both sets is two assets |
 | a character's clip sets and rig configuration, which we write from the values the original holds | `remaster.chara.pw0.set.<name>`, `remaster.chara.pw0.rig` |
 | an asset we author with no original | `remaster.<path>` |

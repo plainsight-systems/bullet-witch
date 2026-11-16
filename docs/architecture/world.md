@@ -48,7 +48,8 @@ flowchart LR
 1. The world owns the transform and the lifetime of every object. Nothing
    else writes a transform, and a consumer reads transforms only from the
    world's publication. When simulation ends, [physics](physics.md) hands
-   the world the bodies it moved, and the world writes their transforms.
+   the world the bodies and pieces it moved, and the world writes their
+   transforms. An object in pieces has a transform for each piece.
 2. The step comes from outside. The runtime loop makes it, measured from
    its clock or fixed when a fixed step is set, and hands it to the tick.
    The world reads no clock. The same steps with the same inputs in the
@@ -95,7 +96,8 @@ flowchart LR
     paused do, in no promised order, and a player's controller is one of
     them. Timers, effects and audio time do not advance.
 14. At the end of the tick the world publishes: to the scene, instances
-    entered, moved and removed, with their flags and sort priority; to
+    entered, moved and removed, with their flags and sort priority, and
+    for an object in pieces the transform of each piece; to
     the renderer, the camera, its cut flag and the lights, sun and fog
     values; to post-processing, the camera's focus, f-stop, sensor width
     and shutter and the screen effects it enables. The cut flag is set by
@@ -129,7 +131,7 @@ flowchart TD
 | Clocks | the step, the dilation, the frame-time bounds | the four clocks, the dilated step | real and unpaused time only |
 | Queue | registered tick functions, prerequisites, intervals | the order of this tick | no |
 | Before simulation | action states, last tick's world | intent, root difference, transforms, poses | only functions that ask |
-| Simulation | transforms and bodies, changes pushed at its start | the change list at its end: transforms of bodies that moved, wake and sleep, broken constraints, contacts | no |
+| Simulation | transforms and bodies, changes pushed at its start | the change list at its end: transforms of bodies and pieces that moved, wake and sleep, broken constraints, breaks, removals, contacts | no |
 | After simulation | simulated state | parts that follow it | no |
 | Timers and waiting actions | the dilated step | their callbacks | no |
 | Cameras | each camera's target, the controller's rotation | each camera's view and cut flag | only a camera that asks |
