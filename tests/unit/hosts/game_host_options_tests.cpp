@@ -31,17 +31,26 @@ struct Row {
   std::string_view cache{};
   std::string_view overrides{};
   std::string_view asset{};
+  double fixed_step{};
+  std::string_view script{};
+  std::string_view dump{};
+  bool action_log{};
 };
 
 // (game_host_options.hpp, the rows; option_table.hpp, Contract 1, 2 and 4;
 // seconds_limit_reached): the defaults; all six options, in an order other
 // than the table's, each stored in its own member; one row per error name,
 // each breaking one rule and naming its argument; the usage line names
-// every option; 0 means until close.
+// every option; 0 means until close. The four rows of the scripted run:
+// all four given with --cache and --asset, each stored in its own member; a
+// fixed step of 0, an empty script and an empty dump refused; --fixed-step
+// needing --asset, --script needing --fixed-step, --dump needing --script
+// and --action-log needing --asset.
 void parse_table() {
   const std::string usage = bw::hosts::game_host_usage();
-  for (const std::string_view option : {"--seconds N", "--fullscreen]", "--shaders DIR",
-                                        "--cache DIR", "--overrides DIR", "--asset ID"}) {
+  for (const std::string_view option :
+       {"--seconds N", "--fullscreen]", "--shaders DIR", "--cache DIR", "--overrides DIR",
+        "--asset ID", "--fixed-step S", "--script FILE", "--dump DIR", "--action-log]"}) {
     require(usage.find(option) != std::string::npos, "the usage line names " + std::string(option));
   }
   static_assert(!bw::hosts::seconds_limit_reached(0.0, 1.0e9));
@@ -65,6 +74,31 @@ void parse_table() {
       Row{{"--shaders", "--fullscreen"}, 2, OptionError::MissingValue, "--shaders"},
       Row{{"--seconds", "-1"}, 2, OptionError::InvalidValue, "-1"},
       Row{{"--asset", "model.pw0.mesh"}, 2, OptionError::RequiredOptionMissing, "--asset"},
+      Row{{"--fixed-step", "0.5", "--script", "s", "--dump", "d"},
+          6,
+          OptionError::RequiredOptionMissing,
+          "--fixed-step"},
+      Row{{"--fixed-step", "0"}, 2, OptionError::InvalidValue, "0"},
+      Row{{"--script", ""}, 2, OptionError::InvalidValue, ""},
+      Row{{"--dump", ""}, 2, OptionError::InvalidValue, ""},
+      Row{{"--script", "s"}, 2, OptionError::RequiredOptionMissing, "--script"},
+      Row{{"--dump", "d"}, 2, OptionError::RequiredOptionMissing, "--dump"},
+      Row{{"--action-log"}, 1, OptionError::RequiredOptionMissing, "--action-log"},
+      Row{{"--cache", "c", "--asset", "model.pw0.mesh", "--fixed-step", "0.5", "--script", "s",
+           "--dump", "d", "--action-log"},
+          11,
+          OptionError::None,
+          "",
+          0.0,
+          false,
+          "",
+          "c",
+          "",
+          "model.pw0.mesh",
+          0.5,
+          "s",
+          "d",
+          true},
   };
   for (std::size_t i = 0; i < rows.size(); ++i) {
     const Row& row = rows[i];
@@ -76,7 +110,10 @@ void parse_table() {
          result.options.shaders == std::filesystem::path(row.shaders) &&
          result.options.cache == std::filesystem::path(row.cache) &&
          result.options.overrides == std::filesystem::path(row.overrides) &&
-         result.options.asset == row.asset);
+         result.options.asset == row.asset && result.options.fixed_step == row.fixed_step &&
+         result.options.script == std::filesystem::path(row.script) &&
+         result.options.dump == std::filesystem::path(row.dump) &&
+         result.options.action_log == row.action_log);
     const bool reason_matches = (row.error == OptionError::InvalidValue) != result.reason.empty();
     if (result.error != row.error || result.argument != row.argument || !options_match ||
         !reason_matches) {

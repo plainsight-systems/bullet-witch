@@ -195,6 +195,8 @@ add_subdirectory(unit/rendering/materials)
 add_subdirectory(unit/animation)
 add_subdirectory(unit/rendering/rhi)
 add_subdirectory(unit/platform/window)
+add_subdirectory(unit/platform/input)
+add_subdirectory(unit/platform/os/macos)
 # Content: the module's pure contracts (unit) and its file system paths over
 # temporary trees and the player's install (integration). BW_GAME_DATA is the
 # install root, given on the configure command line and never written into a
@@ -268,3 +270,12 @@ add_executable(named_thread_dispatch_tests integration/tasks/named_thread_dispat
 target_link_libraries(named_thread_dispatch_tests PRIVATE bw_test_harness bw_allocator bw_tasks_headers Threads::Threads)
 add_test(NAME integration.named_thread_dispatch COMMAND named_thread_dispatch_tests named_thread_dispatch)
 set_tests_properties(integration.named_thread_dispatch PROPERTIES TIMEOUT 60)
+
+# The world, input, camera, characters and game modules: their pure
+# contracts (unit) and their composition with no window (integration).
+add_subdirectory(unit/world)
+add_subdirectory(unit/input)
+add_subdirectory(unit/camera)
+add_subdirectory(unit/characters)
+add_subdirectory(unit/game)
+add_subdirectory(integration/game)

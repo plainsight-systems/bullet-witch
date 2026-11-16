@@ -1,6 +1,8 @@
 #ifndef BW_PLATFORM_WINDOW_WINDOW_HPP
 #define BW_PLATFORM_WINDOW_WINDOW_HPP
 
+#include "bw/platform/input/device_input.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -73,6 +75,42 @@
 //   OS auto-repeats produces one pressed event per physical press, not one
 //   per repeat. Modifier keys, text input and horizontal scroll are not
 //   reported (the plan's Scope: the input slice).
+//   Device input: beside the events above, the adapter produces device
+//   samples (bw/platform/input/device_input.hpp) for a game's input, read
+//   with poll_input after pump() in the order WindowInputBuffer gives
+//   (below). A key of the keyboard elements pressed or released while the
+//   window is key is one sample, 1 or 0, by position, the OS's
+//   auto-repeats dropped; KeyLeftShift is reported from the modifier's own
+//   change. A mouse button pressed or released is one sample. The wheel is
+//   one MouseWheel sample for each wheel event, its lines as Scrolled
+//   reports them, in order with the key and button samples.
+//   Relative motion is reported only while the cursor is captured: one
+//   MouseMotionX and one MouseMotionY sample a pump, each the sum of the
+//   device's raw counts over the pump, which the OS's pointer speed
+//   setting does not change, x to the right and y down. When the window
+//   stops being key, the samples of that pump not yet read are discarded
+//   and every key and button that was down is reported up.
+//   The input events above are produced as before, whether or not the
+//   samples are read. Samples a host has not read when the next pump()
+//   begins are discarded, so a host that never reads them keeps nothing.
+//   Capture: set_cursor_captured(true) hides the cursor and disconnects it
+//   from the mouse, so the pointer stays where it is and no screen edge
+//   stops the motion; set_cursor_captured(false) reconnects and shows it.
+//   A pointer outside the content area when capture begins is first moved
+//   to the nearest point inside it.
+//   set_cursor_captured returns whether the window is now in the state
+//   asked for. A step the OS refuses is one stderr line and stays owed:
+//   the next capture or release, and the window's destruction, issue only
+//   the steps still owed, so the cursor is never hidden or disconnected
+//   twice for one capture. A window that is not key cannot capture and
+//   returns false. A window that stops
+//   being key, or whose application is about to stop being active,
+//   releases the capture itself, cursor_captured() then reads false, and
+//   the host captures again when FocusChanged reports the window key.
+//   When the screen or the system wakes, the mouse is reconnected and the
+//   motion samples stop; the cursor stays hidden; cursor_captured() reads
+//   false until the host captures again.
+//   Destroying a window releases its capture.
 //   Activation: create_window shows the window and asks the OS to activate
 //   the application and make the window key; the OS grants that at its
 //   discretion (a process launched without an application bundle may not be
@@ -97,7 +135,7 @@
 // size of its own (viewport.hpp). A backing scale change produces a Resized
 // event because the viewport's drawable size is set from the window's pixel
 // size and a cached scale would leave it stale.
-// Menus, cursor capture, text input, accessibility, multiple windows,
+// Menus, text input, accessibility, multiple windows,
 // remembering size and position between runs: not this slice (the plan's
 // Scope); remembering is the settings slice. Keys are reported by position:
 // the letter and punctuation codes name the keys at those positions on a
@@ -107,6 +145,9 @@
 // lines, and gives no line height; the points per line below are this
 // contract's. Letter and punctuation key codes name key positions on a US
 // keyboard; Escape and the arrows have layout-independent codes.
+//
+// A capture always disconnects the mouse, the first after a wake
+// included, so the pointer stays where it is.
 //
 // Core guidelines read: C.122 (an abstract class at the platform boundary),
 // R.1 and I.11 (the window is created into a unique_ptr and released by its
@@ -370,6 +411,35 @@ private:
   bool close_queued_{};
 };
 
+// The pure buffer every adapter fills with device samples during pump() and
+// the host drains with poll_input. Invariants, 1 to 4 each a unit test:
+//   1. Key and button samples pop in push order.
+//   2. Motion is a sum: add_motion adds to it, and after the last queued
+//      sample pop gives one MouseMotionX and one MouseMotionY sample, in
+//      that order, each only when its sum is not zero.
+//   3. A full buffer drops the pushed sample and push returns false; the
+//      sums are never dropped.
+//   4. When pop returns false the buffer is empty and the sums are zero.
+//   5. clear() empties the queue and zeroes the sums.
+// The capacity holds the keys and buttons of one frame.
+inline constexpr std::size_t kWindowInputCapacity = 64;
+
+class WindowInputBuffer {
+public:
+  // Precondition: sample.element is not MouseMotionX or MouseMotionY.
+  [[nodiscard]] bool push(const InputSample& sample) noexcept;
+  void add_motion(float counts_x, float counts_y) noexcept;
+  [[nodiscard]] bool pop(InputSample& sample) noexcept;
+  void clear() noexcept;
+
+private:
+  std::array<InputSample, kWindowInputCapacity> samples_{};
+  std::size_t head_{};
+  std::size_t count_{};
+  float motion_x_{};
+  float motion_y_{};
+};
+
 class Window {
 public:
   Window(const Window&) = delete;
@@ -389,6 +459,13 @@ public:
   // Requests the mode; see Mode in the contract.
   [[nodiscard]] virtual WindowError set_mode(WindowMode mode) = 0;
   [[nodiscard]] virtual NativeWindowHandle native_handle() const noexcept = 0;
+  // The next device sample the pumps produced, in WindowInputBuffer's
+  // order; false when none is left (the contract's Device input).
+  [[nodiscard]] virtual bool poll_input(InputSample& sample) noexcept = 0;
+  // Captures or releases the cursor; whether the window is now in the
+  // state asked for (the contract's Capture).
+  [[nodiscard]] virtual bool set_cursor_captured(bool captured) = 0;
+  [[nodiscard]] virtual bool cursor_captured() const noexcept = 0;
 
 protected:
   Window() = default;

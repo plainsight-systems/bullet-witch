@@ -1,6 +1,8 @@
 // Unit test: public contract of bw::engine::requested_frame_wait in
-// bw/runtime/engine.hpp. Pure arithmetic; no clock, loop or engine instance.
+// bw/runtime/engine.hpp, and of bw::engine::make_step in bw/runtime/step.hpp.
+// Pure arithmetic; no clock, loop or engine instance.
 #include "bw/runtime/engine.hpp"
+#include "bw/runtime/step.hpp"
 
 #include "bw/testing/harness.hpp"
 
@@ -29,6 +31,17 @@ void run() {
   near(requested_frame_wait(30.0F, 0.0F), 1.0F / 30.0F, 1e-6F,
        "no work waits the whole cap interval");
 }
+
+// (step.hpp, contract 1): a fixed step whatever the clock reads, not held;
+// a measured step otherwise, held to the longest step when one is set.
+// Static rows: the executable does not compile when one breaks.
+using bw::engine::make_step;
+using bw::engine::StepSettings;
+static_assert(make_step(StepSettings{0.25, 0.0}, 1.0, 9.0) == 0.25);
+static_assert(make_step(StepSettings{0.0, 0.0}, 1.0, 1.5) == 0.5);
+static_assert(make_step(StepSettings{0.0, 0.1}, 1.0, 1.5) == 0.1);
+static_assert(make_step(StepSettings{0.0, 0.1}, 1.0, 1.0625) == 0.0625);
+static_assert(make_step(StepSettings{0.5, 0.1}, 1.0, 1.0) == 0.5);
 
 using Scenario = bw::testing::Scenario<void>;
 constexpr std::array scenarios{Scenario{"frame_wait", run}};

@@ -1,4 +1,4 @@
-// game_host's command line (bw/hosts/game_host_options.hpp): the six rows
+// game_host's command line (bw/hosts/game_host_options.hpp): the ten rows
 // and the functions that take their values, with no environment, file system
 // or global read.
 #include "bw/hosts/game_host_options.hpp"
@@ -56,6 +56,34 @@ std::string_view take_asset(GameHostOptions& options, std::string_view value) {
   return {};
 }
 
+std::string_view take_fixed_step(GameHostOptions& options, std::string_view text) {
+  double value = 0.0;
+  const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+    return "is not a number";
+  }
+  if (!std::isfinite(value) || value <= 0.0) {
+    return "is not finite and above 0";
+  }
+  options.fixed_step = value;
+  return {};
+}
+
+template <std::filesystem::path GameHostOptions::* Member>
+std::string_view take_file(GameHostOptions& options, std::string_view value) {
+  if (value.empty()) {
+    return "is an empty path";
+  }
+  options.*Member = std::filesystem::path(value);
+  return {};
+}
+
+std::string_view take_action_log(GameHostOptions& options, std::string_view /*value*/) {
+  options.action_log = true;
+  return {};
+}
+
+// --script needs --fixed-step, which needs --asset, so a script has both.
 constexpr std::array kRows{
     Row{"--seconds", "N", &take_seconds, {}},
     Row{"--fullscreen", {}, &take_fullscreen, {}},
@@ -63,6 +91,10 @@ constexpr std::array kRows{
     Row{"--cache", "DIR", &take_directory<&GameHostOptions::cache>, {}},
     Row{"--overrides", "DIR", &take_directory<&GameHostOptions::overrides>, {}},
     Row{"--asset", "ID", &take_asset, "--cache"},
+    Row{"--fixed-step", "S", &take_fixed_step, "--asset"},
+    Row{"--script", "FILE", &take_file<&GameHostOptions::script>, "--fixed-step"},
+    Row{"--dump", "DIR", &take_directory<&GameHostOptions::dump>, "--script"},
+    Row{"--action-log", {}, &take_action_log, "--asset"},
 };
 
 } // namespace

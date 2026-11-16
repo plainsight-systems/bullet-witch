@@ -2,7 +2,8 @@
 // running it as a child process (the grammar is game_host_options.hpp's unit
 // test). The artifact directory is the build's for the run, a missing one for
 // the missing-artifact probe; both open a window and need a GUI session. The
-// asset run reads the PW0 cache the CTest fixture pw0_cache converted.
+// asset run and the scripted turn read the PW0 cache the CTest fixture
+// pw0_cache converted.
 #include "bw/testing/harness.hpp"
 
 #include <fcntl.h>
@@ -14,8 +15,10 @@
 #include <array>
 #include <cerrno>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <span>
@@ -154,6 +157,83 @@ void draws_asset_one_second(const Arguments& args) {
   require_one_second_exit_line(result);
 }
 
+// The value of `key` in a mark line (`key=value`, up to the next space).
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+std::string_view field(std::string_view line, std::string_view key) {
+  const std::string needle = " " + std::string(key) + "=";
+  const std::size_t at = (" " + std::string(line)).find(needle);
+  if (at == std::string::npos) {
+    return {};
+  }
+  const std::size_t first = at + needle.size() - 1;
+  const std::size_t end = std::min(line.find(' ', first), line.size());
+  return line.substr(first, end - first);
+}
+
+// (game_host_options.hpp, the scripted run and the mark line): a script
+// turning the right stick full right from tick 1 marks tick 0 and tick 30;
+// the first stdout line names the script; at 1/60 the first mark is the
+// standard view behind her place with the cut, one rig at weight 1, and the
+// second is 85 degrees to the right, no cut, both at a vertical field of 44;
+// each mark's frame is dumped as a PNG, kept for the architect to look at,
+// and its line ends with the file. Alone
+// catches the host's wiring from script to key state, tick, publication,
+// mark line and dump.
+void scripted_turn(const Arguments& args) {
+  const std::filesystem::path script = std::filesystem::path(args.output) / "scripted_turn.script";
+  const std::filesystem::path dump = std::filesystem::path(args.output) / "scripted_turn_dump";
+  std::filesystem::create_directories(dump);
+  {
+    std::ofstream file(script, std::ios::binary | std::ios::trunc);
+    file << "0 mark standard\n1 set PadRightX 1\n30 mark turn\n30 end\n";
+    require(static_cast<bool>(file), "the script is written");
+  }
+  for (const std::string_view name : {"standard.png", "turn.png"}) {
+    std::filesystem::remove(dump / name);
+  }
+  const std::string script_text = script.string();
+  const std::string dump_text = dump.string();
+  const ChildResult result =
+      run_expecting(args,
+                    {"--cache", args.cache.c_str(), "--asset", "model.pw0.mesh", "--fixed-step",
+                     "0.016666666666666666", "--script", script_text.c_str(), "--dump",
+                     dump_text.c_str(), "--shaders", args.shaders.c_str()},
+                    "scripted_turn", 0);
+  require(result.out.starts_with("scripted_device script=" + script_text + "\n"),
+          "the first stdout line names the script: " + result.transcript);
+  const std::vector<std::string_view> marks = lines_starting_with(result.out, "mark=");
+  require(marks.size() == 2U, "two mark lines: " + result.transcript);
+  const std::array<std::string_view, 2> names{"standard", "turn"};
+  for (std::size_t index = 0; index < marks.size(); ++index) {
+    double fov = 0.0;
+    const std::string_view fov_text = field(marks[index], "fov");
+    const auto fov_parsed =
+        std::from_chars(fov_text.data(), fov_text.data() + fov_text.size(), fov);
+    const std::string dump_field =
+        " dump=" + (dump / (std::string(names[index]) + ".png")).string();
+    require(fov_parsed.ec == std::errc{} && std::abs(fov - 44.0) <= 0.001 &&
+                marks[index].ends_with(dump_field),
+            "the vertical field and the dump: " + std::string(marks[index]));
+  }
+  const std::string_view standard = marks[0];
+  require(field(standard, "mark") == "standard" && field(standard, "pose") == "0.5,1.1,3" &&
+              field(standard, "yaw") == "0" && field(standard, "cut") == "1" &&
+              field(standard, "rigs") == "alicia.standard:1",
+          "the standard mark: " + std::string(standard));
+  const std::string_view turn = marks[1];
+  double yaw = 0.0;
+  const std::string_view yaw_text = field(turn, "yaw");
+  const auto parsed = std::from_chars(yaw_text.data(), yaw_text.data() + yaw_text.size(), yaw);
+  require(field(turn, "mark") == "turn" && parsed.ec == std::errc{} &&
+              std::abs(yaw - 85.0) <= 0.01 && field(turn, "cut") == "0",
+          "the turn mark: " + std::string(turn));
+  for (const std::string_view name : {"standard.png", "turn.png"}) {
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(dump / name, error);
+    require(!error && size > 0U, "the dump " + (dump / name).string() + " exists and is not empty");
+  }
+}
+
 // The parse's wiring (game_host_options.hpp, game_host_usage): an unknown
 // option exits 2 with the usage line on stderr.
 void game_host_unknown_option_exits_2(const Arguments& args) {
@@ -178,16 +258,18 @@ constexpr std::array kScenarios{
     Scenario{"game_host_unknown_option_exits_2", &game_host_unknown_option_exits_2},
     Scenario{"game_host_missing_shaders_exits_1", &game_host_missing_shaders_exits_1},
     Scenario{"draws_asset_one_second", &draws_asset_one_second},
+    Scenario{"scripted_turn", &scripted_turn},
 };
 
-// The one scenario that takes the PW0 cache.
-constexpr std::string_view kAssetScenario = "draws_asset_one_second";
+// The scenarios that take the PW0 cache.
+constexpr std::array<std::string_view, 2> kAssetScenarios{"draws_asset_one_second",
+                                                          "scripted_turn"};
 
 } // namespace
 
 // The harness has matched argv[1] to a scenario before it calls the parse,
-// so the parse reads the scenario's name from it: the asset run takes
-// exactly four arguments with a non-empty cache, every
+// so the parse reads the scenario's name from it: the asset run and the
+// scripted turn take exactly four arguments with a non-empty cache, every
 // other scenario exactly three. Anything else is a usage error (exit 2 and
 // the usage line, harness.hpp).
 int main(int argc, char** argv) {
@@ -197,9 +279,9 @@ int main(int argc, char** argv) {
   return bw::testing::run_scenario(
       argc, argv, kScenarios,
       "<game_host> <metal artifact directory> <output directory>, then for "
-      "draws_asset_one_second only <PW0 cache>",
+      "draws_asset_one_second and scripted_turn only <PW0 cache>",
       [scenario](std::span<char* const> rest, Arguments& out) {
-        if (scenario == kAssetScenario) {
+        if (std::ranges::find(kAssetScenarios, scenario) != kAssetScenarios.end()) {
           if (rest.size() != 4U || std::string_view(rest[3]).empty()) {
             return false;
           }

@@ -128,6 +128,27 @@ if(BW_SHADER_TOOLCHAIN)
     bw/shader_compiler/enumeration.hpp
     bw/shader_compiler/toolchain.hpp)
 endif()
+list(APPEND BW_PUBLIC_HEADERS
+  bw/platform/input/device_input.hpp
+  bw/platform/input/pad.hpp
+  bw/platform/input/scripted_device.hpp
+  bw/platform/os/macos/pad.hpp
+  bw/runtime/step.hpp
+  bw/camera/pose.hpp
+  bw/camera/rig.hpp
+  bw/camera/evaluator.hpp
+  bw/world/object.hpp
+  bw/world/clocks.hpp
+  bw/world/tick_function.hpp
+  bw/world/world.hpp
+  bw/input/keys.hpp
+  bw/input/key_state.hpp
+  bw/input/modifiers.hpp
+  bw/input/triggers.hpp
+  bw/input/player_input.hpp
+  bw/characters/player_controller.hpp
+  bw/game/input/actions.hpp
+  bw/game/characters/alicia/view.hpp)
 set(BW_INTERNAL_HEADERS
   src/platform/cpu/arm64/math/simd/register_types.hpp
   src/engine/core/memory/allocator_checks.hpp
@@ -170,6 +191,11 @@ foreach(check IN ITEMS public_header_contracts internal_header_contracts)
     bw_scene_headers bw_graph_headers bw_capture_headers bw_character_viewer_headers
     bw_postprocess_headers
     $<$<BOOL:${BW_SHADER_TOOLCHAIN}>:bw_shader_compiler_headers>)
+endforeach()
+foreach(check IN ITEMS public_header_contracts internal_header_contracts)
+  target_link_libraries(${check} PRIVATE bw_platform_input_headers bw_macos_input_headers
+    bw_camera_headers bw_world_headers bw_input_headers bw_characters_headers
+    bw_game_input_headers bw_game_alicia_headers)
 endforeach()
 target_include_directories(internal_header_contracts PRIVATE
   "${PROJECT_SOURCE_DIR}/src/engine/core/memory"

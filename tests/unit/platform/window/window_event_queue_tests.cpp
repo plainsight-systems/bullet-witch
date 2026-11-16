@@ -1,5 +1,6 @@
 // Unit test: the invariants of WindowEventQueue (bw/platform/window/window.hpp),
-// one scenario per CTest entry. Each scenario names the invariant it asserts.
+// one scenario per CTest entry, and the four of WindowInputBuffer in one
+// scenario. Each scenario names the invariant it asserts.
 #include "bw/platform/window/window.hpp"
 
 #include "bw/testing/harness.hpp"
@@ -151,6 +152,62 @@ void mouse_moves_coalesce() {
   }
 }
 
+// (window.hpp, WindowInputBuffer invariants 1-4): key, button and wheel
+// samples pop in push order; motion is summed and follows the last of them
+// as MouseMotionX, MouseMotionY, each only when not zero; a full buffer
+// drops a pushed sample but never the sums; a pop that returns false leaves
+// the buffer empty with zero sums.
+void input_buffer() {
+  using bw::platform::InputElement;
+  using bw::platform::InputSample;
+  using bw::platform::kWindowInputCapacity;
+  bw::platform::WindowInputBuffer buffer;
+  InputSample popped{};
+
+  // Invariants 1 and 2: each wheel event is queued in order with the keys,
+  // never summed; the motion sums arrive after them, in their order.
+  require(buffer.push(InputSample{InputElement::MouseWheel, 1.0F}), "a wheel sample is accepted");
+  buffer.add_motion(3.0F, -2.0F);
+  require(buffer.push(InputSample{InputElement::KeyW, 1.0F}), "a key sample is accepted");
+  require(buffer.push(InputSample{InputElement::MouseWheel, -3.0F}), "a wheel sample is accepted");
+  buffer.add_motion(4.5F, 1.0F);
+  require(buffer.push(InputSample{InputElement::MouseLeft, 1.0F}), "a button sample is accepted");
+  require(buffer.push(InputSample{InputElement::KeyW, 0.0F}), "a release sample is accepted");
+  const std::array expected{
+      InputSample{InputElement::MouseWheel, 1.0F},   InputSample{InputElement::KeyW, 1.0F},
+      InputSample{InputElement::MouseWheel, -3.0F},  InputSample{InputElement::MouseLeft, 1.0F},
+      InputSample{InputElement::KeyW, 0.0F},         InputSample{InputElement::MouseMotionX, 7.5F},
+      InputSample{InputElement::MouseMotionY, -1.0F}};
+  for (const InputSample& sample : expected) {
+    require(buffer.pop(popped) && popped == sample,
+            "keys and wheel events in push order, then the motion sums in that order");
+  }
+  // Invariant 4: drained means empty with zero sums, so what is added next
+  // starts from zero. Invariant 2: a sum that cancels gives no sample.
+  require(!buffer.pop(popped), "a drained buffer pops nothing");
+  buffer.add_motion(2.0F, 0.0F);
+  buffer.add_motion(-2.0F, 5.0F);
+  require(buffer.pop(popped) && popped == InputSample{InputElement::MouseMotionY, 5.0F},
+          "after a false pop the sums start from zero; a cancelled sum is not popped");
+  require(!buffer.pop(popped), "a cancelled sum gives no sample");
+
+  // Invariant 3: a full buffer drops the pushed sample but keeps the sums.
+  for (std::size_t i = 0; i < kWindowInputCapacity; ++i) {
+    require(buffer.push(InputSample{InputElement::KeyA, static_cast<float>(i % 2U)}),
+            "a buffer with room accepts the sample");
+  }
+  require(!buffer.push(InputSample{InputElement::KeyD, 1.0F}), "a full buffer refuses a sample");
+  buffer.add_motion(2.0F, 0.0F);
+  for (std::size_t i = 0; i < kWindowInputCapacity; ++i) {
+    require(buffer.pop(popped) &&
+                popped == InputSample{InputElement::KeyA, static_cast<float>(i % 2U)},
+            "the accepted samples pop in order and the refused one is gone");
+  }
+  require(buffer.pop(popped) && popped == InputSample{InputElement::MouseMotionX, 2.0F},
+          "the motion added to a full buffer is kept");
+  require(!buffer.pop(popped), "nothing else was kept");
+}
+
 using Scenario = bw::testing::Scenario<void>;
 
 constexpr std::array kScenarios{
@@ -159,6 +216,7 @@ constexpr std::array kScenarios{
     Scenario{"close_is_sticky", &close_is_sticky},
     Scenario{"full_queue_drops_and_reports", &full_queue_drops_and_reports},
     Scenario{"mouse_moves_coalesce", &mouse_moves_coalesce},
+    Scenario{"input_buffer", &input_buffer},
 };
 
 } // namespace

@@ -14,6 +14,11 @@ foreach(scenario IN LISTS window_event_queue_scenarios)
     COMMAND window_event_queue_tests ${scenario})
   set_tests_properties(unit.window.event_queue.${scenario} PROPERTIES TIMEOUT 10)
 endforeach()
+# The window's device-sample buffer (window.hpp, WindowInputBuffer), one
+# scenario in the same executable: the buffer is in the same platform-neutral
+# library.
+add_test(NAME unit.window.input_buffer COMMAND window_event_queue_tests input_buffer)
+set_tests_properties(unit.window.input_buffer PROPERTIES TIMEOUT 10)
 
 # Unit: the pure window decisions (window.hpp, validate_window_description,
 # decide_mode_request, mode_request_error) and the macOS adapter's pure input
