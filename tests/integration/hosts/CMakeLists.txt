@@ -38,3 +38,15 @@ set_tests_properties(integration.hosts.draws_asset_one_second
 if(BW_GAME_DATA STREQUAL "")
   set_tests_properties(integration.hosts.draws_asset_one_second PROPERTIES DISABLED TRUE)
 endif()
+# scripted_turn runs game_host on the same PW0 cache under a script it
+# writes into this binary directory, with --fixed-step and --dump; the two
+# PNGs stay under scripted_turn_dump/ after the run. Without BW_GAME_DATA it
+# is registered DISABLED.
+add_test(NAME integration.hosts.scripted_turn
+  COMMAND game_host_tests scripted_turn "$<TARGET_FILE:game_host>"
+    "${CMAKE_BINARY_DIR}/shaders/metal" "${CMAKE_CURRENT_BINARY_DIR}" "${BW_PW0_TEST_CACHE}")
+set_tests_properties(integration.hosts.scripted_turn
+  PROPERTIES TIMEOUT 60 FIXTURES_REQUIRED pw0_cache)
+if(BW_GAME_DATA STREQUAL "")
+  set_tests_properties(integration.hosts.scripted_turn PROPERTIES DISABLED TRUE)
+endif()

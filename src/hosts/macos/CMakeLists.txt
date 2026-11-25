@@ -18,8 +18,9 @@ target_link_libraries(bw_game_host_options PUBLIC bw_game_host_options_headers
 # The game executable's first stage: the AppKit window (macos/window.hpp), the
 # Metal device and viewport, and the fixture cube drawn with pulled vertices,
 # or with --cache and --asset a model drawn by the model module's scene
-# (bw/rendering/model_scene.hpp), seen through a view of the scene module and
-# taken to the back buffer by the post chain (bw/rendering/postprocess).
+# (bw/rendering/model_scene.hpp), seen through the player's camera of the
+# world's tick and taken to the back buffer by the post chain
+# (bw/rendering/postprocess).
 # Apple hosts only, because the window adapter and the Metal backend exist
 # only there. Its default shader directory is <executable directory>/shaders/metal,
 # where the build writes the artifacts when the shader toolchain is configured.
@@ -33,6 +34,14 @@ if(APPLE)
   target_sources(game_host PRIVATE ../../engine/core/memory/global_allocation.cpp)
   target_link_libraries(game_host PRIVATE bw_game_host_options bw_window bw_allocator
     bw_platform_time bw_platform_process bw_model bw_postprocess bw_scene bw_graph)
+  # With --asset the host runs the world's tick: the world, the player's
+  # input and controller, the camera, the game's tables and Alicia's view,
+  # the scripted device and the step; --dump encodes the back buffer with
+  # the capture tool's PNG writer.
+  target_link_libraries(game_host PRIVATE bw_game_alicia bw_scripted_device bw_runtime_headers
+    bw_capture)
+  # Without --script the host also polls the pad (macos/pad.hpp).
+  target_link_libraries(game_host PRIVATE bw_pad)
   if(BW_SHADER_TOOLCHAIN)
     add_dependencies(game_host shader_artifacts)
   endif()

@@ -2,7 +2,9 @@
 // whose content view hosts a CAMetalLayer, the AppKit event pump, the
 // delegates that turn AppKit notifications into WindowEvents, and the
 // content view's overrides that turn mouse, scroll and key events into the
-// input kinds (window.hpp, Input).
+// input kinds (window.hpp, Input) and into device samples (window.hpp,
+// Device input), and the cursor capture with the game controller
+// framework's raw mouse motion (window.hpp, Capture).
 //
 // Memory: compiled with ARC (-fobjc-arc, src/platform/CMakeLists.txt). The
 // C++ window holds the NSWindow, its content view, the layer and the window
@@ -33,17 +35,32 @@
 // opaque, so an undrawn window shows the layer's empty contents for at most
 // one frame. The host's loop runs on the main thread and pump() dequeues and
 // sends the events itself.
+//
+// Device samples (window.hpp, Device input) go into a WindowInputBuffer the
+// host drains with poll_input. The adapter keeps its own held set for the
+// samples, separate from the buttons the MouseMoved events carry, and pushes
+// a key or button sample only when that set changes: a repeat changes
+// nothing, and a release that arrives after the window stopped being key
+// (when every held element was already reported up) changes nothing either.
+// Raw mouse motion arrives on the main queue, the game controller
+// framework's default handler queue, so it is added on the main thread like
+// every other sample.
 #import <AppKit/AppKit.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <GameController/GameController.h>
 #import <QuartzCore/CAMetalLayer.h>
 
+#include "bw/platform/input/device_input.hpp"
 #include "bw/platform/os/macos/window.hpp"
 #include "bw/platform/window/window.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 namespace bw::platform::macos {
@@ -79,6 +96,71 @@ namespace bw::platform::macos {
 namespace {
 
 [[nodiscard]] bool on_main_thread() noexcept { return [NSThread isMainThread] == YES; }
+
+// The virtual key codes of the keyboard elements (device_input.hpp) that
+// macos/window.hpp does not already name: positions on a US layout, as the
+// OS reports them in a key event's code. Left shift is a modifier: it sends
+// no key down or up, only a modifier change carrying its code.
+constexpr std::uint16_t kVirtualKeyE = 0x0E;
+constexpr std::uint16_t kVirtualKeyZ = 0x06;
+constexpr std::uint16_t kVirtualKeyX = 0x07;
+constexpr std::uint16_t kVirtualKeyC = 0x08;
+constexpr std::uint16_t kVirtualKeySpace = 0x31;
+constexpr std::uint16_t kVirtualKeyLeftShift = 0x38;
+
+// The device-dependent bit of an event's modifier flags that is set while
+// the left shift key, and not the right, is down. The low sixteen bits of
+// the flags are the device-dependent ones.
+constexpr NSEventModifierFlags kDeviceLeftShiftFlag = 0x00000002;
+
+// A key event's code to the keyboard element at that position; the codes
+// that are no element give none. Left shift is reported from its modifier
+// change instead (MacWindow::notice_flags).
+[[nodiscard]] constexpr std::optional<InputElement>
+keyboard_element_from_virtual_code(std::uint16_t code) noexcept {
+  switch (code) {
+  case kVirtualKeyW:
+    return InputElement::KeyW;
+  case kVirtualKeyA:
+    return InputElement::KeyA;
+  case kVirtualKeyS:
+    return InputElement::KeyS;
+  case kVirtualKeyD:
+    return InputElement::KeyD;
+  case kVirtualKeyE:
+    return InputElement::KeyE;
+  case kVirtualKeyR:
+    return InputElement::KeyR;
+  case kVirtualKeyZ:
+    return InputElement::KeyZ;
+  case kVirtualKeyX:
+    return InputElement::KeyX;
+  case kVirtualKeyC:
+    return InputElement::KeyC;
+  case kVirtualKeySpace:
+    return InputElement::KeySpace;
+  default:
+    return std::nullopt;
+  }
+}
+
+[[nodiscard]] constexpr InputElement mouse_element(MouseButton button) noexcept {
+  switch (button) {
+  case MouseButton::Left:
+    return InputElement::MouseLeft;
+  case MouseButton::Right:
+    return InputElement::MouseRight;
+  case MouseButton::Middle:
+    return InputElement::MouseMiddle;
+  }
+  return InputElement::MouseLeft;
+}
+
+// The bit of an element in the adapter's held set.
+[[nodiscard]] constexpr std::uint32_t held_bit(InputElement element) noexcept {
+  return std::uint32_t{1} << static_cast<unsigned>(element);
+}
+static_assert(kInputElementCount <= 32U, "the held set has one bit per element");
 
 // window.hpp, Threads: every window call is on the main thread. Calls whose
 // signature has no error channel stop the process by name instead of
@@ -141,6 +223,9 @@ public:
   [[nodiscard]] WindowMode mode() const noexcept override;
   [[nodiscard]] WindowError set_mode(WindowMode mode) override;
   [[nodiscard]] NativeWindowHandle native_handle() const noexcept override;
+  [[nodiscard]] bool poll_input(InputSample& sample) noexcept override;
+  [[nodiscard]] bool set_cursor_captured(bool captured) override;
+  [[nodiscard]] bool cursor_captured() const noexcept override;
 
   // From the delegates.
   void notice_resized();
@@ -155,6 +240,11 @@ public:
   void notice_mouse_moved(NSEvent* event);
   void notice_scroll(NSEvent* event);
   void notice_key(NSEvent* event, bool pressed);
+  // A modifier change (window.hpp, Device input: KeyLeftShift).
+  void notice_flags(NSEvent* event);
+  // From a mouse's raw motion handler while captured: the device's deltas,
+  // y up.
+  void notice_raw_motion(float delta_x, float delta_y);
 
 private:
   // Into the queue while pump() runs, into the pending queue otherwise.
@@ -164,6 +254,31 @@ private:
   void push_pending();
   // Sends the full-screen toggle and records the transition as in flight.
   void request_toggle();
+  // Records an element of the held set down or up and pushes its sample
+  // when that changes the set; a sample the full buffer drops leaves the
+  // set as it was.
+  void set_held(InputElement element, bool down);
+  // A sample into the buffer; a full buffer drops it, reported once a pump.
+  bool push_input(const InputSample& sample);
+  // The application's resign and the wake observers, added at creation and
+  // removed by the destructor.
+  void observe_application();
+  // The pump's unread samples discarded, then every held element reported
+  // up and the held set emptied.
+  void release_held();
+  // The capture ended (see the capture state below): the handlers unbound,
+  // then the reconnect and the show still owed issued; true when the mouse
+  // is connected and the cursor shown.
+  bool release_capture();
+  // On wake: the handlers unbound and the mouse reconnected; the cursor
+  // left as it is.
+  void wake_release();
+  // One OS step; a refusal is one stderr line naming it. True when taken.
+  static bool os_step(CGError result, const char* step);
+  // The raw motion handler on every connected mouse, and on each that
+  // connects while captured; or every handler and the observer removed.
+  void bind_mice();
+  void unbind_mice();
 
   NSWindow* window_{nil};
   BWContentView* view_{nil};
@@ -180,6 +295,52 @@ private:
   // The buttons held, as mouse_button_bit bits, from the down and up events
   // this view received.
   std::uint8_t buttons_{};
+  // Device samples for poll_input (window.hpp, Device input).
+  WindowInputBuffer input_{};
+  // The keyboard and mouse elements down, as held_bit bits, as the samples
+  // reported them.
+  std::uint32_t held_{};
+  // The capture state (window.hpp, Capture): three flags that record what
+  // is true, so each call issues only the OS steps still owed and none
+  // twice. A refused step is one stderr line and leaves its flag as it
+  // was; nothing is retried on its own.
+  //   capturing_     the raw-motion handlers are bound and
+  //                  cursor_captured() reads true. Set by
+  //                  set_cursor_captured(true) once disconnected_ and
+  //                  hidden_ both hold; cleared, with the handlers unbound,
+  //                  by every release and by a wake.
+  //   disconnected_  the mouse is disconnected from the cursor: set when
+  //                  the OS takes a capture's disconnect, cleared when it
+  //                  takes a reconnect (a release or a wake).
+  //   hidden_        this window hid the cursor: set when the OS takes a
+  //                  capture's hide, cleared when it takes a release's
+  //                  show. A wake leaves it.
+  // The paths, against window.hpp, Capture:
+  //   host capture   set_cursor_captured(true) on a key window: disconnect
+  //                  unless disconnected_; warp a pointer outside the
+  //                  content area inside (a refusal is not fatal); hide
+  //                  unless hidden_; bind and set capturing_ when both hold.
+  //                  Returns capturing_. Not key: false, nothing done.
+  //   release        set_cursor_captured(false), key loss (notice_focus),
+  //                  the application about to resign (observer), the
+  //                  destructor: release_capture: unbind, clear
+  //                  capturing_; reconnect if disconnected_; show if
+  //                  hidden_. Returns whether both flags are clear.
+  //   wake           screens or system did wake: wake_release: unbind,
+  //                  clear capturing_; reconnect if disconnected_; hidden_
+  //                  left.
+  bool capturing_{};
+  bool disconnected_{};
+  bool hidden_{};
+  // The observer of mouse connections while captured; nil otherwise.
+  id mouse_connected_observer_{nil};
+  // The observers of the application about to resign active and of the
+  // screen's and the system's wake (window.hpp, Capture).
+  id resign_active_observer_{nil};
+  id screens_wake_observer_{nil};
+  id system_wake_observer_{nil};
+  // A full input buffer has been reported in this pump.
+  bool input_full_reported_{};
 
   // An event's position in pixels of the content area, top-left origin.
   [[nodiscard]] PixelPoint pixel_point(NSEvent* event) const;
@@ -245,6 +406,8 @@ WindowError MacWindow::create(const WindowDescription& description) {
     delegate_.owner = this;
     window_.delegate = delegate_;
 
+    observe_application();
+
     [window_ center];
     [window_ makeKeyAndOrderFront:nil];
     [window_ makeFirstResponder:view_];
@@ -264,8 +427,19 @@ WindowError MacWindow::create(const WindowDescription& description) {
 // (releasedWhenClosed is NO), so the reference dropped here is the last.
 // The window is closed at once and no frame is presented into it
 // afterwards, so there is no interval in which it could show anything.
+// window.hpp, Capture: destroying the window releases its capture, first,
+// while the view still reaches this object.
 MacWindow::~MacWindow() {
   @autoreleasepool {
+    static_cast<void>(release_capture());
+    if (resign_active_observer_ != nil) {
+      [NSNotificationCenter.defaultCenter removeObserver:resign_active_observer_];
+    }
+    for (id observer : {screens_wake_observer_, system_wake_observer_}) {
+      if (observer != nil) {
+        [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:observer];
+      }
+    }
     delegate_.owner = nullptr;
     view_.owner = nullptr;
     window_.delegate = nil;
@@ -279,8 +453,12 @@ MacWindow::~MacWindow() {
 
 // window.hpp, Pump: pending notifications first, then every event pending at
 // the call, dequeued without waiting and sent to the application.
+// window.hpp, Device input: samples the host has not read are discarded
+// when the pump begins.
 void MacWindow::pump() {
   require_main_thread("pump");
+  input_.clear();
+  input_full_reported_ = false;
   push_pending();
   pumping_ = true;
   @autoreleasepool {
@@ -407,7 +585,19 @@ void MacWindow::notice_backing_changed() {
 
 // The key window is the one that receives keyboard input, which is what
 // focus means to the game; for a single window it is also the main window.
-void MacWindow::notice_focus(bool focused) { push(focus_event(focused)); }
+// window.hpp, Device input and Capture: a window that stops being key
+// reports every held key and button up and releases its capture; the host
+// captures again when it reads the window key. The application's
+// resignation releases it before that (observe_application); this release
+// covers a window that loses key status while the application stays
+// active.
+void MacWindow::notice_focus(bool focused) {
+  push(focus_event(focused));
+  if (!focused) {
+    static_cast<void>(release_capture());
+    release_held();
+  }
+}
 
 // The mode is recorded when the transition completes, and the completion
 // reaches the renderer as a resize. The transition in flight ends here,
@@ -466,6 +656,7 @@ void MacWindow::notice_mouse_button(NSEvent* event, bool pressed) {
   buttons_ = pressed ? static_cast<std::uint8_t>(buttons_ | bit)
                      : static_cast<std::uint8_t>(buttons_ & static_cast<std::uint8_t>(~bit));
   push(mouse_button_event(button, pressed, pixel_point(event)));
+  set_held(mouse_element(button), pressed);
 }
 
 // A move and a drag are both MouseMoved, with the buttons held.
@@ -483,6 +674,9 @@ void MacWindow::notice_scroll(NSEvent* event) {
     return;
   }
   push(scrolled_event(lines));
+  // window.hpp, Device input: one wheel sample per wheel event, its lines,
+  // in order with the key and button samples.
+  static_cast<void>(push_input(InputSample{InputElement::MouseWheel, lines}));
 }
 
 // window.hpp, Input: one pressed event per physical press; the OS's
@@ -494,6 +688,263 @@ void MacWindow::notice_key(NSEvent* event, bool pressed) {
     return;
   }
   push(key_event(key_from_virtual_code(event.keyCode), pressed));
+  // window.hpp, Device input: the same press, as a keyboard element's
+  // sample.
+  if (const std::optional<InputElement> element =
+          keyboard_element_from_virtual_code(event.keyCode)) {
+    set_held(*element, pressed);
+  }
+}
+
+// window.hpp, Device input: KeyLeftShift from the modifier's own change. A
+// modifier change carries the code of the key that changed; the left
+// shift's device-dependent flag says whether it is now down, so a right
+// shift held at the same time does not confuse the two. No WindowEvent:
+// modifiers are not among the input events (window.hpp, Input).
+void MacWindow::notice_flags(NSEvent* event) {
+  if (event.keyCode != kVirtualKeyLeftShift) {
+    return;
+  }
+  set_held(InputElement::KeyLeftShift, (event.modifierFlags & kDeviceLeftShiftFlag) != 0);
+}
+
+// window.hpp, Device input: motion is reported only while captured, x to
+// the right and y down; the framework's y points up and is negated. The
+// framework's deltas are raw, not affected by the mouse sensitivity
+// settings.
+void MacWindow::notice_raw_motion(float delta_x, float delta_y) {
+  if (!capturing_) {
+    return;
+  }
+  input_.add_motion(delta_x, -delta_y);
+}
+
+void MacWindow::set_held(InputElement element, bool down) {
+  const std::uint32_t bit = held_bit(element);
+  if (((held_ & bit) != 0U) == down) {
+    return;
+  }
+  if (push_input(InputSample{element, down ? 1.0F : 0.0F})) {
+    held_ = down ? (held_ | bit) : (held_ & ~bit);
+  }
+}
+
+bool MacWindow::push_input(const InputSample& sample) {
+  if (input_.push(sample)) {
+    return true;
+  }
+  if (!input_full_reported_) {
+    input_full_reported_ = true;
+    std::fprintf(stderr, "bw window: input buffer full, sample of element %u dropped\n",
+                 static_cast<unsigned>(sample.element));
+  }
+  return false;
+}
+
+// window.hpp, Device input: the pump's samples not yet read are discarded,
+// so the releases of the held elements (at most the keyboard's and the
+// mouse's buttons, fewer than the buffer holds) always fit.
+void MacWindow::release_held() {
+  input_.clear();
+  for (std::size_t index = 0; index < kInputElementCount; ++index) {
+    const auto element = static_cast<InputElement>(index);
+    if ((held_ & held_bit(element)) != 0U) {
+      static_cast<void>(push_input(InputSample{element, 0.0F}));
+    }
+  }
+  held_ = 0U;
+}
+
+bool MacWindow::poll_input(InputSample& sample) noexcept {
+  require_main_thread("poll_input");
+  return input_.pop(sample);
+}
+
+bool MacWindow::cursor_captured() const noexcept {
+  require_main_thread("cursor_captured");
+  return capturing_;
+}
+
+// window.hpp, Capture: the mouse is disconnected from the cursor, a pointer
+// outside the content area moved inside, then the cursor hidden; release
+// reverses both, reconnecting first. A window that is not key cannot
+// capture. Each step is issued only while owed (the capture state above).
+// While the mouse is disconnected, events keep a constant location and
+// carry deltas. The OS counts hides, so hidden_ pairs each hide with one
+// show.
+bool MacWindow::set_cursor_captured(bool captured) {
+  require_main_thread("set_cursor_captured");
+  if (!captured) {
+    return release_capture();
+  }
+  if (capturing_) {
+    return true;
+  }
+  if (window_.isKeyWindow == NO) {
+    return false;
+  }
+  // Disconnected first, then the warp, so the warp does not suppress the
+  // events that follow; the reconnect comes with the release. A capture
+  // after a wake disconnects the mouse again, so the hidden cursor does not
+  // move under the raw motion and the pointer stays where it is, as
+  // window.hpp's Capture says.
+  if (!disconnected_) {
+    disconnected_ = os_step(CGAssociateMouseAndMouseCursorPosition(false), "disconnect");
+  }
+  // window.hpp, Capture: a pointer outside the content area is first moved
+  // to the nearest point inside it. Everything is in the display's global
+  // points, origin at the top-left of the first screen, where the content
+  // area's last row and column are its top-left plus its size minus 1. A
+  // refused warp is reported and the capture goes on.
+  if (NSScreen.screens.count > 0) {
+    const CGFloat screen_height = NSMaxY(NSScreen.screens[0].frame);
+    const NSRect content = [window_ contentRectForFrameRect:window_.frame];
+    const CGFloat left = NSMinX(content);
+    const CGFloat top = screen_height - NSMaxY(content);
+    const CGFloat right = left + NSWidth(content) - 1.0;
+    const CGFloat bottom = top + NSHeight(content) - 1.0;
+    const NSPoint mouse = NSEvent.mouseLocation;
+    const CGFloat x = mouse.x;
+    const CGFloat y = screen_height - mouse.y;
+    const CGFloat inside_x = std::fmin(std::fmax(x, left), right);
+    const CGFloat inside_y = std::fmin(std::fmax(y, top), bottom);
+    if (inside_x != x || inside_y != y) {
+      static_cast<void>(
+          os_step(CGWarpMouseCursorPosition(CGPointMake(inside_x, inside_y)), "move"));
+    }
+  }
+  if (!hidden_) {
+    hidden_ = os_step(CGDisplayHideCursor(kCGNullDirectDisplay), "hide");
+  }
+  if (disconnected_ && hidden_) {
+    capturing_ = true;
+    bind_mice();
+  }
+  return capturing_;
+}
+
+// window.hpp, Capture: whoever asks (the host, the window's loss of key
+// status, the application about to resign active, the destructor), the
+// motion stops and cursor_captured() reads false; then the reconnect and
+// the show still owed are issued. True when both are done.
+bool MacWindow::release_capture() {
+  if (capturing_) {
+    capturing_ = false;
+    unbind_mice();
+  }
+  if (disconnected_) {
+    disconnected_ = !os_step(CGAssociateMouseAndMouseCursorPosition(true), "reconnect");
+  }
+  if (hidden_) {
+    hidden_ = !os_step(CGDisplayShowCursor(kCGNullDirectDisplay), "show");
+  }
+  return !disconnected_ && !hidden_;
+}
+
+// window.hpp, Capture: on wake the mouse is reconnected and the motion
+// stops; the cursor stays hidden, so the next capture hides nothing and the
+// next release shows it once.
+void MacWindow::wake_release() {
+  if (capturing_) {
+    capturing_ = false;
+    unbind_mice();
+  }
+  if (disconnected_) {
+    disconnected_ = !os_step(CGAssociateMouseAndMouseCursorPosition(true), "reconnect");
+  }
+}
+
+bool MacWindow::os_step(CGError result, const char* step) {
+  if (result == kCGErrorSuccess) {
+    return true;
+  }
+  std::fprintf(stderr, "bw window: the OS refused to %s the cursor (error %d)\n", step,
+               static_cast<int>(result));
+  return false;
+}
+
+// window.hpp, Capture: the capture is released when the application is
+// about to resign active; on the screen's and the system's wake the mouse
+// is reconnected and its handlers unbound (wake_release); the host
+// captures again on its next loop while the window is key.
+void MacWindow::observe_application() {
+  __weak BWContentView* weak_view = view_;
+  resign_active_observer_ = [NSNotificationCenter.defaultCenter
+      addObserverForName:NSApplicationWillResignActiveNotification
+                  object:nil
+                   queue:NSOperationQueue.mainQueue
+              usingBlock:^(NSNotification* notification) {
+                static_cast<void>(notification);
+                BWContentView* view = weak_view;
+                if (view != nil && view.owner != nullptr) {
+                  static_cast<void>(view.owner->release_capture());
+                }
+              }];
+  const auto wake = ^(NSNotification* notification) {
+    static_cast<void>(notification);
+    BWContentView* view = weak_view;
+    if (view != nil && view.owner != nullptr) {
+      view.owner->wake_release();
+    }
+  };
+  NSNotificationCenter* workspace = NSWorkspace.sharedWorkspace.notificationCenter;
+  screens_wake_observer_ = [workspace addObserverForName:NSWorkspaceScreensDidWakeNotification
+                                                  object:nil
+                                                   queue:NSOperationQueue.mainQueue
+                                              usingBlock:wake];
+  system_wake_observer_ = [workspace addObserverForName:NSWorkspaceDidWakeNotification
+                                                 object:nil
+                                                  queue:NSOperationQueue.mainQueue
+                                             usingBlock:wake];
+}
+
+// Every connected mouse gets the raw motion handler, and a mouse that
+// connects while captured gets it on connection. The handler reaches this
+// window through the view's owner, which the destructor clears, never
+// through `this`: a block already queued on the main queue can run after
+// the window is gone. Handlers run on the device's handler queue, main by
+// default, set here so the one-thread contract does not rest on a default.
+void MacWindow::bind_mice() {
+  __weak BWContentView* weak_view = view_;
+  GCMouseMoved handler = ^(GCMouseInput* input, float delta_x, float delta_y) {
+    static_cast<void>(input);
+    BWContentView* view = weak_view;
+    if (view != nil && view.owner != nullptr) {
+      view.owner->notice_raw_motion(delta_x, delta_y);
+    }
+  };
+  const auto bind = [handler](GCMouse* mouse) {
+    GCMouseInput* input = mouse.mouseInput;
+    if (input == nil) {
+      return;
+    }
+    mouse.handlerQueue = dispatch_get_main_queue();
+    input.mouseMovedHandler = handler;
+  };
+  for (GCMouse* mouse in GCMouse.mice) {
+    bind(mouse);
+  }
+  mouse_connected_observer_ =
+      [NSNotificationCenter.defaultCenter addObserverForName:GCMouseDidConnectNotification
+                                                      object:nil
+                                                       queue:NSOperationQueue.mainQueue
+                                                  usingBlock:^(NSNotification* notification) {
+                                                    id object = notification.object;
+                                                    if ([object isKindOfClass:[GCMouse class]]) {
+                                                      GCMouse* mouse = object;
+                                                      bind(mouse);
+                                                    }
+                                                  }];
+}
+
+void MacWindow::unbind_mice() {
+  if (mouse_connected_observer_ != nil) {
+    [NSNotificationCenter.defaultCenter removeObserver:mouse_connected_observer_];
+    mouse_connected_observer_ = nil;
+  }
+  for (GCMouse* mouse in GCMouse.mice) {
+    mouse.mouseInput.mouseMovedHandler = nil;
+  }
 }
 
 } // namespace
@@ -692,6 +1143,13 @@ std::unique_ptr<platform::Window> create_window(const WindowDescription& descrip
 - (void)keyUp:(NSEvent*)event {
   if (self.owner != nullptr) {
     self.owner->notice_key(event, false);
+  }
+}
+// A modifier key's change (window.hpp, Device input: KeyLeftShift). Not
+// passed up the responder chain, as the key methods are not.
+- (void)flagsChanged:(NSEvent*)event {
+  if (self.owner != nullptr) {
+    self.owner->notice_flags(event);
   }
 }
 

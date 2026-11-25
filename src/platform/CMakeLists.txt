@@ -45,3 +45,36 @@ target_link_libraries(bw_platform_time PUBLIC bw_platform_time_headers bw_macos_
 # executable_directory.hpp), the macOS implementation.
 add_library(bw_platform_process os/macos/process/executable_directory.cpp)
 target_link_libraries(bw_platform_process PUBLIC bw_platform_process_headers)
+# Device input: what an adapter hands upward, the pad contract and the
+# scripted device (input/public/bw/platform/input), and the macOS pad
+# selector. The window's contract names the device sample type.
+bw_header_interface(bw_platform_input_headers "${CMAKE_CURRENT_SOURCE_DIR}/input")
+bw_header_interface(bw_macos_input_headers "${CMAKE_CURRENT_SOURCE_DIR}/os/macos/input")
+target_link_libraries(bw_macos_input_headers INTERFACE bw_platform_input_headers)
+target_link_libraries(bw_platform_window_headers INTERFACE bw_platform_input_headers)
+# The window's device-sample buffer (WindowInputBuffer) beside the event
+# queue, platform-neutral, so its unit test links no OS framework either.
+target_sources(bw_window_events PRIVATE window/window_input_buffer.cpp)
+# The scripted device's parse (scripted_device.hpp): the standard library
+# only, no OS.
+add_library(bw_scripted_device input/scripted_device.cpp)
+target_link_libraries(bw_scripted_device PUBLIC bw_platform_input_headers)
+# The adapter's capture and raw mouse motion: the cursor association and
+# visibility calls (CoreGraphics) and the game controller framework's mouse.
+if(APPLE)
+  target_link_libraries(bw_window PRIVATE "-framework GameController" "-framework CoreGraphics")
+endif()
+# The macOS pad (os/macos/input/public/bw/platform/os/macos/pad.hpp): the
+# difference of two profile readings as samples (pad_samples), pure C++ in a
+# library of its own so its unit test links no framework, and on Apple hosts
+# the adapter over the game controller framework in Objective-C++ with ARC,
+# under the same clang-tidy command as C++.
+add_library(bw_pad_samples os/macos/input/pad_samples.cpp)
+target_link_libraries(bw_pad_samples PUBLIC bw_macos_input_headers)
+if(APPLE)
+  add_library(bw_pad os/macos/input/pad.mm)
+  target_compile_options(bw_pad PRIVATE -fobjc-arc)
+  set_target_properties(bw_pad PROPERTIES OBJCXX_CLANG_TIDY "${CMAKE_CXX_CLANG_TIDY}")
+  target_link_libraries(bw_pad PUBLIC bw_macos_input_headers
+    PRIVATE bw_pad_samples "-framework Foundation" "-framework GameController")
+endif()

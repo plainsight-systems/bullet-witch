@@ -1,15 +1,9 @@
 #include "model_scene.hpp"
 
-#include "scene_support.hpp"
-
 #include "bw/content/asset_id.hpp"
 #include "bw/content/layers.hpp"
 #include "bw/content/loader.hpp"
 #include "bw/hosts/game_host_options.hpp"
-#include "bw/math/matrix/matrix4.hpp"
-#include "bw/math/rotation/quaternion.hpp"
-#include "bw/math/vector/vector3.hpp"
-#include "bw/rendering/geometry/mesh_resources.hpp"
 #include "bw/rendering/graph/builder.hpp"
 #include "bw/rendering/graph/declaration.hpp"
 #include "bw/rendering/model_scene.hpp"
@@ -17,7 +11,6 @@
 #include "bw/rendering/postprocess/post_chain.hpp"
 #include "bw/rendering/rhi/device.hpp"
 #include "bw/rendering/rhi/format.hpp"
-#include "bw/rendering/scene/view.hpp"
 
 #include <filesystem>
 #include <iostream>
@@ -28,23 +21,6 @@
 namespace bw::hosts {
 
 namespace {
-
-// The model's turn about the vertical axis through its bounding sphere's
-// center.
-math::Matrix4f asset_object_to_world(double elapsed_seconds, const geometry::MeshResources& mesh) {
-  const math::Vector3f center{mesh.center[0], mesh.center[1], mesh.center[2]};
-  const math::Quaternion4f turn = math::Quaternion4f::from_axis_angle(
-      math::Vector3f{0.0F, 1.0F, 0.0F}, turn_angle(elapsed_seconds, 0.5));
-  return math::Matrix4f::translation(-center) * math::Matrix4f::rotation_translation(turn, center);
-}
-
-// The failure line of a mesh whose bounding sphere cannot be framed; false.
-bool fail_unframeable(std::string_view asset, const geometry::MeshResources& mesh) {
-  std::cerr << "game_host: the mesh " << asset << " has the bounding sphere center ("
-            << mesh.center[0] << ", " << mesh.center[1] << ", " << mesh.center[2] << ") radius "
-            << mesh.radius << " and cannot be framed\n";
-  return false;
-}
 
 // The layers over --cache and --overrides, with no published cache; prints
 // the failure and, for every failure of the converted layer (the directory
@@ -94,8 +70,9 @@ bool build_asset_scene(rhi::Device& device, const GameHostOptions& options,
               << static_cast<unsigned>(id.error) << '\n';
     return false;
   }
-  const rendering::ModelSceneFailure built = rendering::build_model_scene(
-      device, loader, id.id, postprocess::kSceneColorFormat, options.shaders, 1, scene.scene);
+  const rendering::ModelSceneFailure built =
+      rendering::build_model_scene(device, loader, id.id, postprocess::kSceneColorFormat,
+                                   options.shaders, kModelGrid, scene.scene);
   if (!built.ok()) {
     std::cerr << "game_host: " << rendering::model_scene_failure_text(built, options.asset) << '\n';
     return false;
@@ -109,20 +86,10 @@ bool build_asset_scene(rhi::Device& device, const GameHostOptions& options,
   return true;
 }
 
-// The framing view at the target's aspect and the turn at the frame's
-// elapsed seconds, handed to the model scene, whose light the chain takes
-// to `target`. False after a failure line.
+// The shell's view and model place, handed to the model scene, whose light
+// the chain takes to `target`. False after a failure line.
 bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::TextureHandle target,
                          rhi::Extent2 size, const HostFrame& frame) {
-  const geometry::MeshResources& mesh = scene.model.mesh;
-  const math::Vector3f center{mesh.center[0], mesh.center[1], mesh.center[2]};
-  const std::optional<bw::scene::PerspectiveView> view =
-      bw::scene::frame_sphere(center, mesh.radius, aspect_of(size));
-  // The build framed this sphere at the aspect that gives the nearest eye,
-  // so this is not reached; the empty result is still handled.
-  if (!view.has_value()) {
-    return fail_unframeable(asset, mesh);
-  }
   postprocess::PostFrame post{};
   const postprocess::PostChainFailure begun =
       postprocess::begin_post_frame(chain, device, graph, post);
@@ -132,9 +99,9 @@ bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::T
   }
   const graph::TextureHandle scene_color =
       graph.create_texture(postprocess::scene_color_description(size));
-  const rendering::ModelSceneFailure declared = rendering::declare_model_scene(
-      scene, device, graph, scene_color, size, *view, asset_object_to_world(frame.elapsed, mesh),
-      false, frame.elapsed, post.exposure.pre_exposure);
+  const rendering::ModelSceneFailure declared =
+      rendering::declare_model_scene(scene, device, graph, scene_color, size, view, object_to_world,
+                                     camera_cut, world_seconds, post.exposure.pre_exposure);
   if (!declared.ok()) {
     std::cerr << "game_host: " << rendering::model_scene_failure_text(declared, asset) << '\n';
     return false;
@@ -142,11 +109,10 @@ bool AssetScene::declare(rhi::Device& device, graph::FrameGraph& graph, graph::T
   postprocess::PostFrameInputs inputs{};
   inputs.grade = rendering::model_scene_grade();
   inputs.display = frame.display;
-  inputs.delta_seconds = frame.delta_seconds;
-  // The exposure resets on the first frame only, not on a large camera turn
-  // or move or a time reset: the model scene's exposure is pinned
-  // (model_scene_grade), so a reset changes nothing it shows, and this
-  // camera turns the model, not itself.
+  inputs.delta_seconds = step_seconds;
+  // The exposure resets on the first frame only, not on a camera cut or a
+  // large turn: the model scene's exposure is pinned (model_scene_grade),
+  // so a reset changes nothing it shows.
   inputs.reset = frame.first;
   inputs.frame_index = frame.frame_index;
   const postprocess::PostChainFailure chained = postprocess::declare_post_chain(
